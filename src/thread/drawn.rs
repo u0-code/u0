@@ -74,8 +74,8 @@ pub fn diff(faces: &Faces, lines: &[Line], start: Option<usize>, fit: Fit) -> Di
                 (
                     "−",
                     w.clone(),
-                    Some(theme::coral().opacity(0.09)),
-                    theme::coral(),
+                    Some(theme::gone().opacity(0.09)),
+                    theme::gone(),
                     n,
                 )
             }
@@ -85,8 +85,8 @@ pub fn diff(faces: &Faces, lines: &[Line], start: Option<usize>, fit: Fit) -> Di
                 (
                     "+",
                     w.clone(),
-                    Some(theme::ok().opacity(0.09)),
-                    theme::ok(),
+                    Some(theme::added().opacity(0.09)),
+                    theme::added(),
                     n,
                 )
             }
@@ -218,15 +218,15 @@ pub fn hunks(
                     *old,
                     "−",
                     text,
-                    Some(theme::coral().opacity(0.09)),
-                    theme::coral(),
+                    Some(theme::gone().opacity(0.09)),
+                    theme::gone(),
                 ),
                 G::Added { new, text } => (
                     *new,
                     "+",
                     text,
-                    Some(theme::ok().opacity(0.09)),
-                    theme::ok(),
+                    Some(theme::added().opacity(0.09)),
+                    theme::added(),
                 ),
             };
             let row = div()
@@ -297,8 +297,8 @@ pub fn hunks_split(faces: &Faces, file: &crate::git::FileDiff) -> Div {
             )
             .child(code(div().flex_1().min_w(px(0.))).child(text.cloned().unwrap_or_default()))
     };
-    let gone_bg = theme::coral().opacity(0.09);
-    let added_bg = theme::ok().opacity(0.09);
+    let gone_bg = theme::gone().opacity(0.09);
+    let added_bg = theme::added().opacity(0.09);
     for hunk in &file.hunks {
         well = well.child(
             div()

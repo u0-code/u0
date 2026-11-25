@@ -70,6 +70,12 @@ pub struct Settings {
     /// The days a session is left before it is done; none, never.
     #[serde(default = "week")]
     pub settle_days: Option<u32>,
+    /// Times on a twelve-hour clock.
+    #[serde(default)]
+    pub twelve: bool,
+    /// Lines added and taken away in blue and orange, not green and red.
+    #[serde(default)]
+    pub blue_orange: bool,
     /// Dark, light, or as the system is.
     #[serde(default)]
     pub look: Look,
@@ -216,6 +222,8 @@ impl Default for Settings {
             settle_days: week(),
             width: Width::default(),
             look: Look::default(),
+            twelve: false,
+            blue_orange: false,
             side_by_side: false,
             steer: false,
             branch_prefix: prefix(),

@@ -350,6 +350,8 @@ impl Desk {
         crate::thread::drawn::set_wrap(settings.diff_wrap);
         crate::git::leave_out_spacing(settings.no_spacing);
         choose_editor(settings.editor.clone());
+        crate::when::set_twelve(settings.twelve);
+        theme::set_blue_orange(settings.blue_orange);
         let input = cx.new(|cx| {
             let mut i = TextInput::new(cx, "Ask for anything, or give a task")
                 .wrapping(8)
@@ -1851,6 +1853,8 @@ impl Desk {
         crate::thread::drawn::set_wrap(self.settings.diff_wrap);
         crate::git::leave_out_spacing(self.settings.no_spacing);
         choose_editor(self.settings.editor.clone());
+        crate::when::set_twelve(self.settings.twelve);
+        theme::set_blue_orange(self.settings.blue_orange);
         // Diffs read again, spacing in or out.
         if let Some(key) = self.current {
             self.refresh_diffs(key);

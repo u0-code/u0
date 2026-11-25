@@ -242,14 +242,14 @@ fn counts(faces: &Faces, added: usize, gone: usize) -> Div {
             d.child(
                 ui::mono(faces, format!("+{added}"))
                     .text_size(px(12.5))
-                    .text_color(theme::ok()),
+                    .text_color(theme::added()),
             )
         })
         .when(gone > 0, |d| {
             d.child(
                 ui::mono(faces, format!("−{gone}"))
                     .text_size(px(12.5))
-                    .text_color(theme::coral()),
+                    .text_color(theme::gone()),
             )
         })
 }

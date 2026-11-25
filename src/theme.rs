@@ -21,6 +21,32 @@ pub fn set_light(on: bool) {
     LIGHT.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Whether lines added and taken away are blue and orange (told apart
+/// without red and green), as the settings say.
+static BLUE_ORANGE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_blue_orange(on: bool) {
+    BLUE_ORANGE.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The colour of what a change added: green, or blue.
+pub fn added() -> Hsla {
+    if BLUE_ORANGE.load(std::sync::atomic::Ordering::Relaxed) {
+        pick(0x6FA8_F0, 0x1F6F_C8)
+    } else {
+        ok()
+    }
+}
+
+/// The colour of what a change took away: coral, or orange.
+pub fn gone() -> Hsla {
+    if BLUE_ORANGE.load(std::sync::atomic::Ordering::Relaxed) {
+        pick(0xE8A0_4C, 0xB363_0F)
+    } else {
+        coral()
+    }
+}
+
 /// The colour for the dark look, or its like for the light one.
 fn pick(dark: u32, light: u32) -> Hsla {
     c(if LIGHT.load(std::sync::atomic::Ordering::Relaxed) {

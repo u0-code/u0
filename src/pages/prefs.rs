@@ -59,6 +59,12 @@ impl Desk {
                         Self::pick(faces, "width", [
                             ("Comfortable", Width::Comfortable), ("Wide", Width::Wide), ("Full", Width::Full),
                         ], self.settings.width, |s, v| s.width = v, cx)),
+                    row(faces, "What a change added and took away", "Blue and orange tell them apart without green and red.",
+                        Self::pick(faces, "diff-colours", [("Green and red", false), ("Blue and orange", true)],
+                            self.settings.blue_orange, |s, v| s.blue_orange = v, cx)),
+                    row(faces, "Times", "When a message was said, and what Ghost says of times.",
+                        Self::pick(faces, "clock", [("24-hour", false), ("12-hour", true)],
+                            self.settings.twelve, |s, v| s.twelve = v, cx)),
                     row(faces, "A diff's long lines", "Wrapped, they show whole; kept to a line, they are cut at the edge.",
                         Self::pick(faces, "diff-wrap", [("Wrap", true), ("Cut", false)],
                             self.settings.diff_wrap, |s, v| s.diff_wrap = v, cx)),

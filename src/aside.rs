@@ -128,10 +128,10 @@ fn added_gone(faces: &Faces, added: usize, gone: usize) -> Div {
         .flex_none()
         .gap(px(4.))
         .when(added > 0 || gone == 0, |d| {
-            d.child(fine_mono(faces, format!("+{added}")).text_color(theme::ok()))
+            d.child(fine_mono(faces, format!("+{added}")).text_color(theme::added()))
         })
         .when(gone > 0, |d| {
-            d.child(fine_mono(faces, format!("−{gone}")).text_color(theme::coral()))
+            d.child(fine_mono(faces, format!("−{gone}")).text_color(theme::gone()))
         })
 }
 

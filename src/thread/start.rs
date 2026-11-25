@@ -240,12 +240,12 @@ impl Desk {
                         d.child(
                             ui::mono(faces, format!("+{added}"))
                                 .text_size(px(12.))
-                                .text_color(theme::ok()),
+                                .text_color(theme::added()),
                         )
                         .child(
                             ui::mono(faces, format!("−{gone}"))
                                 .text_size(px(12.))
-                                .text_color(theme::coral()),
+                                .text_color(theme::gone()),
                         )
                     })
                     .child(tail)

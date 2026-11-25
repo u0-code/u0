@@ -70,7 +70,26 @@ pub fn to_monday(t: SystemTime) -> i32 {
 /// The time of day of `t`: "10:42".
 pub fn clock(t: SystemTime) -> String {
     let tm = local(t);
-    format!("{:02}:{:02}", tm.tm_hour, tm.tm_min)
+    if TWELVE.load(std::sync::atomic::Ordering::Relaxed) {
+        let h = match tm.tm_hour % 12 {
+            0 => 12,
+            h => h,
+        };
+        format!(
+            "{h}:{:02} {}",
+            tm.tm_min,
+            if tm.tm_hour < 12 { "am" } else { "pm" }
+        )
+    } else {
+        format!("{:02}:{:02}", tm.tm_hour, tm.tm_min)
+    }
+}
+
+/// Whether times are told on a twelve-hour clock, as the settings say.
+static TWELVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_twelve(on: bool) {
+    TWELVE.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// When a message was said: its time of day if today ("10:42"), else its
@@ -172,6 +191,15 @@ pub fn parse(text: &str) -> Option<SystemTime> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_time_is_told_on_the_clock_chosen() {
+        let t = at_hour(SystemTime::now(), 0, 15);
+        assert_eq!(clock(t), "15:00");
+        set_twelve(true);
+        assert_eq!(clock(t), "3:00 pm");
+        set_twelve(false);
+    }
 
     #[test]
     fn a_while_said_shortly_is_read() {
