@@ -26,9 +26,9 @@ impl Desk {
         let Some(s) = self.session() else {
             return div();
         };
-        let name = self.name_of(&s.agent);
+        let name = self.name_of(&s.meta.agent);
         // Archived: read only until it is restored.
-        if s.flags.archived {
+        if s.meta.flags.archived {
             let key = s.key;
             return div().flex().flex_none().justify_center().pb(px(18.)).child(
                 div()
@@ -58,7 +58,7 @@ impl Desk {
         if let Some(up) = s.parent {
             let parent = self
                 .session_at(up)
-                .map(|p| ui::fit(&p.title, 40))
+                .map(|p| ui::fit(&p.meta.title, 40))
                 .unwrap_or_default();
             return div().flex().flex_none().justify_center().pb(px(18.)).child(
                 div()
@@ -114,7 +114,7 @@ impl Desk {
                     (
                         x.entry.id.clone(),
                         self.name_of(&x.entry.id),
-                        x.entry.id == s.agent,
+                        x.entry.id == s.meta.agent,
                     )
                 })
                 .collect()
@@ -136,7 +136,7 @@ impl Desk {
             .child(self.chip(
                 faces,
                 &Popup::Agent,
-                Some(&self.mark_of(&s.agent)),
+                Some(&self.mark_of(&s.meta.agent)),
                 &agent_label,
                 "Start this session with",
                 agent_choices,
@@ -191,7 +191,7 @@ impl Desk {
         if !self.stashed.is_empty() {
             words = words.child(self.stash_menu(faces, cx));
         }
-        if s.id.is_some() && s.parent.is_none() {
+        if s.meta.id.is_some() && s.parent.is_none() {
             words = words.child(self.later_menu(faces, s, cx));
         }
         let mut bar = div()
@@ -320,9 +320,9 @@ impl Desk {
 
         // An agent that wants a sign-in says so above the line, with its
         // way to sign in, before anything said to it is refused.
-        let sign_in = match self.slot(&s.agent).map(|x| &x.auth) {
+        let sign_in = match self.slot(&s.meta.agent).map(|x| &x.auth) {
             Some(crate::hub::Auth::Needed(why)) => {
-                let (a, b) = (s.agent.clone(), s.agent.clone());
+                let (a, b) = (s.meta.agent.clone(), s.meta.agent.clone());
                 Some(
                     div()
                         .flex()
@@ -468,9 +468,9 @@ impl Desk {
 
         // What was said while the turn goes on, waiting its turn: each can
         // be said now (the turn is stopped first) or taken back to edit.
-        let queued = (!s.queued.is_empty()).then(|| {
+        let queued = (!s.meta.queued.is_empty()).then(|| {
             let mut list = div().flex().flex_col().gap(px(4.));
-            for (n, text) in s.queued.iter().enumerate() {
+            for (n, text) in s.meta.queued.iter().enumerate() {
                 list = list.child(
                     div()
                         .flex()
@@ -585,7 +585,7 @@ impl Desk {
         let beside = s.beside.map(|up| {
             let title = self
                 .session_at(up)
-                .map(|p| ui::fit(&p.title, 40))
+                .map(|p| ui::fit(&p.meta.title, 40))
                 .unwrap_or_default();
             let key = s.key;
             let answered = s
@@ -1058,7 +1058,7 @@ impl Desk {
     ) -> Div {
         use crate::desk::Later;
         let open = self.popup == Popup::Later;
-        let waiting = s.later.len();
+        let waiting = s.meta.later.len();
         let mut wrap = div().relative().flex().flex_none().child(self.popup_chip(
             faces,
             Popup::Later,
@@ -1109,7 +1109,7 @@ impl Desk {
                         .pb(px(4.)),
                 );
                 let key = s.key;
-                for (n, l) in s.later.iter().enumerate() {
+                for (n, l) in s.meta.later.iter().enumerate() {
                     let at = crate::store::time(l.at);
                     let when = if l.daily {
                         format!("each day {}", crate::when::clock(at))
@@ -1145,9 +1145,9 @@ impl Desk {
                                 .on_click(cx.listener(
                                     move |this, _, _, cx| {
                                         if let Some(s) = this.session_mut(key)
-                                            && n < s.later.len()
+                                            && n < s.meta.later.len()
                                         {
-                                            s.later.remove(n);
+                                            s.meta.later.remove(n);
                                         }
                                         this.save_index();
                                         cx.notify();
@@ -1236,7 +1236,13 @@ impl Desk {
     ) -> Option<(String, Choices)> {
         let (current, mut choices) = select_choices(&option.kind)?;
         if option.category == Some(SessionConfigOptionCategory::Model) {
-            for m in self.settings.models.get(&s.agent).into_iter().flatten() {
+            for m in self
+                .settings
+                .models
+                .get(&s.meta.agent)
+                .into_iter()
+                .flatten()
+            {
                 if !choices.iter().any(|(v, _, _)| v == m) {
                     choices.push((m.clone(), m.clone(), false));
                 }

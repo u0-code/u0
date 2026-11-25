@@ -493,7 +493,7 @@ impl Desk {
         let archived: Vec<_> = self
             .sessions
             .iter()
-            .filter(|s| s.flags.archived && !self.deleting(s.key))
+            .filter(|s| s.meta.flags.archived && !self.deleting(s.key))
             .collect();
         for (n, s) in archived.iter().enumerate() {
             let key = s.key;
@@ -505,7 +505,7 @@ impl Desk {
                     .px(px(16.))
                     .py(px(10.))
                     .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
-                    .child(ui::mark(faces, &self.mark_of(&s.agent), 16.))
+                    .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.))
                     // Opened to read, it says it is archived, with Restore.
                     .child(
                         div()
@@ -519,14 +519,14 @@ impl Desk {
                                 this.show(key, window, cx);
                             }))
                             .child(ui::one_line(
-                                ui::text(faces, s.title.clone()).text_size(px(13.5)),
+                                ui::text(faces, s.meta.title.clone()).text_size(px(13.5)),
                             ))
                             .child(ui::fine(
                                 faces,
                                 format!(
                                     "{} · {}",
-                                    Desk::shown(&s.project),
-                                    when::ago(s.updated, SystemTime::now())
+                                    Desk::shown(&s.meta.project),
+                                    when::ago(s.meta.updated, SystemTime::now())
                                 ),
                             )),
                     )

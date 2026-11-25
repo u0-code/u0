@@ -55,10 +55,10 @@ impl Desk {
         match &self.page {
             Page::Thread => {
                 if let Some(s) = self.session() {
-                    let name = self.name_of(&s.agent);
+                    let name = self.name_of(&s.meta.agent);
                     // A worktree is named for its repository: its own folder
                     // is named for its branch, which follows.
-                    let dir = s.worktree.as_ref().map_or(&s.folder, |w| &w.repo);
+                    let dir = s.meta.worktree.as_ref().map_or(&s.meta.folder, |w| &w.repo);
                     let folder = dir.file_name().map_or_else(
                         || dir.display().to_string(),
                         |n| n.to_string_lossy().into_owned(),
@@ -71,7 +71,7 @@ impl Desk {
                     let shown = if s.items.is_empty() {
                         format!("New session with {name}")
                     } else {
-                        s.title.clone()
+                        s.meta.title.clone()
                     };
                     // The title first, then where it works in what room is
                     // left: beside them the mark, the state and the buttons.
@@ -119,7 +119,7 @@ impl Desk {
                             .into_any_element()
                     };
                     bar = bar
-                        .child(ui::mark(faces, &self.mark_of(&s.agent), 16.))
+                        .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.))
                         .child(named)
                         .child(
                             ui::one_line(meta(faces, place))

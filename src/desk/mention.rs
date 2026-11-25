@@ -85,7 +85,7 @@ impl Desk {
             && !name.contains(char::is_whitespace)
         {
             let commands = if s.commands.is_empty() {
-                self.slot(&s.agent)
+                self.slot(&s.meta.agent)
                     .map(|x| x.commands.clone())
                     .unwrap_or_default()
             } else {
@@ -113,7 +113,7 @@ impl Desk {
         let word = &text[start..];
         let query = word.strip_prefix('@')?.to_lowercase();
         let mut offers = Vec::new();
-        for (n, title) in self.prs.get(&s.project).into_iter().flatten() {
+        for (n, title) in self.prs.get(&s.meta.project).into_iter().flatten() {
             if query.is_empty()
                 || title.to_lowercase().contains(&query)
                 || n.to_string().starts_with(&query)
@@ -145,18 +145,20 @@ impl Desk {
             }
         }
         for other in self.sessions.iter().filter(|o| {
-            o.project == s.project && o.key != s.key && (o.recorded || !o.items.is_empty())
+            o.meta.project == s.meta.project
+                && o.key != s.key
+                && (o.recorded || !o.items.is_empty())
         }) {
-            if query.is_empty() || other.title.to_lowercase().contains(&query) {
+            if query.is_empty() || other.meta.title.to_lowercase().contains(&query) {
                 offers.push(Offer::Session {
                     key: other.key,
-                    title: other.title.clone(),
+                    title: other.meta.title.clone(),
                 });
             }
         }
         offers.truncate(3);
         offers.extend(
-            ranked(self.files.get(&s.folder), &query)
+            ranked(self.files.get(&s.meta.folder), &query)
                 .into_iter()
                 .take(OFFERS)
                 .map(|f| Offer::File(f.clone())),
@@ -168,7 +170,7 @@ impl Desk {
     /// Read what `@` can name in the session on screen, once.
     pub(crate) fn want_offers(&mut self) {
         let Some(s) = self.session() else { return };
-        let (folder, project) = (s.folder.clone(), s.project.clone());
+        let (folder, project) = (s.meta.folder.clone(), s.meta.project.clone());
         if !self.files.contains_key(&folder) {
             self.files.insert(folder.clone(), Vec::new());
             hub::list_files(folder, self.tx.clone());
@@ -231,7 +233,7 @@ impl Desk {
             if let Offer::Pr { number, .. } = &offer
                 && let Some(s) = self.session()
             {
-                hub::pr_text(s.project.clone(), *number, self.tx.clone());
+                hub::pr_text(s.meta.project.clone(), *number, self.tx.clone());
             }
             self.mentions.push(Mention {
                 token,
@@ -247,13 +249,13 @@ impl Desk {
     pub fn add_picture(&mut self, picture: Picture, cx: &mut Context<Self>) {
         let refused = self
             .session()
-            .and_then(|s| self.slot(&s.agent))
+            .and_then(|s| self.slot(&s.meta.agent))
             .and_then(crate::hub::Slot::caps)
             .is_some_and(|known| !known.prompt_capabilities.image);
         if refused {
             let name = self
                 .session()
-                .map(|s| self.name_of(&s.agent))
+                .map(|s| self.name_of(&s.meta.agent))
                 .unwrap_or_default();
             self.trouble(format!("{name} does not take images"), None, None);
         } else {
@@ -318,7 +320,7 @@ impl Desk {
     fn name_dropped(&mut self, p: &Path, cx: &mut Context<Self>) {
         let named = self
             .session()
-            .and_then(|s| p.strip_prefix(&s.folder).ok())
+            .and_then(|s| p.strip_prefix(&s.meta.folder).ok())
             .map_or_else(|| p.display().to_string(), |r| r.display().to_string());
         let token = format!("@{named}");
         let typed = self.input.read(cx).text();
@@ -352,7 +354,7 @@ impl Desk {
         let Some(s) = self.session_at(key) else {
             return blocks;
         };
-        let folder = s.folder.clone();
+        let folder = s.meta.folder.clone();
         let mentions = std::mem::take(&mut self.mentions);
         for m in mentions.iter().filter(|m| text.contains(&m.token)) {
             match &m.what {
@@ -441,7 +443,7 @@ impl Desk {
     pub fn copy_thread(&mut self, key: u64, cx: &mut Context<Self>) {
         self.popup = crate::desk::Popup::Closed;
         if let Some(s) = self.session_at(key) {
-            let text = said(s, &self.name_of(&s.agent)).join("\n\n");
+            let text = said(s, &self.name_of(&s.meta.agent)).join("\n\n");
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
             self.done("The conversation is copied", None);
         }

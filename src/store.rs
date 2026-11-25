@@ -19,7 +19,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use agent_client_protocol::v1::schema::{SessionUpdate, StopReason};
+use agent_client_protocol::v1::schema::{SessionId, SessionUpdate, StopReason};
 use serde::{Deserialize, Serialize};
 
 use crate::{git, whole};
@@ -38,23 +38,34 @@ pub struct Index {
     pub stashed: Vec<String>,
 }
 
-/// What the desk keeps of one session.
+/// What the desk keeps of one session: the part of a session that
+/// outlives the window, which the session holds as it goes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Meta {
+    /// The registry id of its agent.
     pub agent: String,
-    pub id: String,
+    /// The agent's id for it, once opened; a session is kept only then.
+    #[serde(deserialize_with = "present")]
+    pub id: Option<SessionId>,
+    /// The project it is listed under: the folder it was begun in, which
+    /// stays when it moves into a worktree.
     pub project: PathBuf,
+    /// The folder it works in: its project, or its worktree once it has one.
     pub folder: PathBuf,
+    /// The worktree it works in, when it has one.
     #[serde(default)]
     pub worktree: Option<git::Worktree>,
     pub title: String,
     /// The title is one you gave it: the agent's does not replace it.
     #[serde(default)]
     pub renamed: bool,
-    /// Seconds since the epoch.
-    pub begun: u64,
-    pub updated: u64,
+    /// When it began, and when anything last happened in it; kept as
+    /// seconds since the epoch.
+    #[serde(with = "epoch")]
+    pub begun: SystemTime,
+    #[serde(with = "epoch")]
+    pub updated: SystemTime,
     #[serde(default)]
     pub flags: Flags,
     /// What you said while a turn went on, not said yet.
@@ -76,6 +87,26 @@ pub struct Meta {
     /// kept with it, and they open from its thread after a restart.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub subagents: Vec<(String, String)>,
+}
+
+/// An id the index always has, though a session has none until opened.
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<SessionId>, D::Error> {
+    SessionId::deserialize(d).map(Some)
+}
+
+/// A time as the index keeps it: whole seconds since the epoch.
+mod epoch {
+    use std::time::SystemTime;
+
+    use serde::{Deserialize as _, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(t: &SystemTime, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_u64(super::secs(*t))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<SystemTime, D::Error> {
+        u64::deserialize(d).map(super::time)
+    }
 }
 
 /// A message to be said in a session at a time; each day at that time
@@ -381,6 +412,20 @@ mod tests {
         assert!(cut_short(&[you(), update()]));
         assert!(!cut_short(&[you(), update(), ended(), update()]));
         assert!(!cut_short(&[update()]));
+    }
+
+    #[test]
+    fn an_index_keeps_ids_as_strings_and_times_as_seconds_and_needs_an_id() {
+        let text = r#"{"sessions":[{"agent":"a","id":"s1","project":"/p","folder":"/p","title":"t","begun":5,"updated":7}]}"#;
+        let index: Index = serde_json::from_str(text).unwrap();
+        let meta = &index.sessions[0];
+        assert_eq!(meta.id, Some(SessionId::new("s1")));
+        assert_eq!(meta.updated, time(7));
+        let back: serde_json::Value = serde_json::from_slice(&bytes(&index)).unwrap();
+        assert_eq!(back["sessions"][0]["id"], "s1");
+        assert_eq!(back["sessions"][0]["begun"], 5);
+        let no_id = text.replace(r#""id":"s1","#, "");
+        assert!(serde_json::from_str::<Index>(&no_id).is_err());
     }
 
     #[test]

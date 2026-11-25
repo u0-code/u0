@@ -73,7 +73,7 @@ pub enum Undone {
 
 impl Desk {
     fn flags_mut(&mut self, key: u64) -> Option<&mut store::Flags> {
-        self.session_mut(key).map(|s| &mut s.flags)
+        self.session_mut(key).map(|s| &mut s.meta.flags)
     }
 
     /// Change where the session `key` stands, and keep it.
@@ -96,7 +96,7 @@ impl Desk {
         let last = self
             .sessions
             .iter()
-            .filter_map(|s| s.flags.pinned)
+            .filter_map(|s| s.meta.flags.pinned)
             .max()
             .unwrap_or(0);
         self.mark(key, cx, |f| {
@@ -116,24 +116,24 @@ impl Desk {
         let Some(target) = self.session_at(before) else {
             return;
         };
-        let pinned = target.flags.pinned.is_some();
-        let project = target.project.clone();
+        let pinned = target.meta.flags.pinned.is_some();
+        let project = target.meta.project.clone();
         let whole = pinned && self.settings.by_status;
         let mut group: Vec<&Session> = self
             .sessions
             .iter()
             .filter(|s| {
                 s.key != moved
-                    && s.flags.pinned.is_some() == pinned
-                    && (whole || s.project == project)
+                    && s.meta.flags.pinned.is_some() == pinned
+                    && (whole || s.meta.project == project)
                     && s.parent.is_none()
             })
             .collect();
-        group.sort_by_key(|s| (s.flags.pinned, s.flags.order, s.key));
+        group.sort_by_key(|s| (s.meta.flags.pinned, s.meta.flags.order, s.key));
         let mut keys: Vec<u64> = group.iter().map(|s| s.key).collect();
-        let mut orders: Vec<i64> = group.iter().map(|s| s.flags.order).collect();
+        let mut orders: Vec<i64> = group.iter().map(|s| s.meta.flags.order).collect();
         if let Some(m) = self.session_at(moved) {
-            orders.push(m.flags.order);
+            orders.push(m.meta.flags.order);
         }
         orders.sort_unstable();
         let at = keys.iter().position(|k| *k == before).unwrap_or(keys.len());
@@ -141,10 +141,10 @@ impl Desk {
         for (n, key) in keys.into_iter().enumerate() {
             if let Some(s) = self.session_mut(key) {
                 if pinned {
-                    s.flags.pinned = Some(i64::try_from(n).unwrap_or(0) + 1);
+                    s.meta.flags.pinned = Some(i64::try_from(n).unwrap_or(0) + 1);
                 } else {
-                    s.flags.pinned = None;
-                    s.flags.order = orders.get(n).copied().unwrap_or(s.flags.order);
+                    s.meta.flags.pinned = None;
+                    s.meta.flags.order = orders.get(n).copied().unwrap_or(s.meta.flags.order);
                 }
             }
         }
@@ -157,7 +157,7 @@ impl Desk {
     pub(crate) fn for_chosen(&mut self, cx: &mut Context<Self>, f: impl Fn(&mut store::Flags)) {
         for key in std::mem::take(&mut self.chosen) {
             if let Some(s) = self.session_mut(key) {
-                f(&mut s.flags);
+                f(&mut s.meta.flags);
             }
         }
         self.save_index();
@@ -293,7 +293,7 @@ impl Desk {
         let Some(s) = self.session_at(key) else {
             return;
         };
-        let (agent, id) = (s.agent.clone(), s.id.clone());
+        let (agent, id) = (s.meta.agent.clone(), s.meta.id.clone());
         let Some(id) = id else {
             self.forget_session(key, cx);
             return;
@@ -317,15 +317,15 @@ impl Desk {
             Waiting::Branch(key, upto) => {
                 if let Some(s) = self.session_at(key)
                     && let (Some(id), Some(running)) = (
-                        s.id.clone(),
-                        self.slot(&s.agent).and_then(hub::Slot::running),
+                        s.meta.id.clone(),
+                        self.slot(&s.meta.agent).and_then(hub::Slot::running),
                     )
                 {
                     hub::fork(
                         running.clone(),
                         key,
                         id,
-                        s.folder.clone(),
+                        s.meta.folder.clone(),
                         upto,
                         self.tx.clone(),
                     );
@@ -334,8 +334,8 @@ impl Desk {
             Waiting::Delete(key) => {
                 if let Some(s) = self.session_at(key)
                     && let (Some(id), Some(running)) = (
-                        s.id.clone(),
-                        self.slot(&s.agent).and_then(hub::Slot::running),
+                        s.meta.id.clone(),
+                        self.slot(&s.meta.agent).and_then(hub::Slot::running),
                     )
                 {
                     hub::delete(running.clone(), key, id, self.tx.clone());
@@ -348,7 +348,7 @@ impl Desk {
     pub fn begin_rename(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
         let title = self
             .session_at(key)
-            .map(|s| s.title.clone())
+            .map(|s| s.meta.title.clone())
             .unwrap_or_default();
         self.popup = super::Popup::Closed;
         self.renaming = Some(key);
@@ -373,8 +373,8 @@ impl Desk {
         if !text.is_empty()
             && let Some(s) = self.session_mut(key)
         {
-            text.clone_into(&mut s.title);
-            s.renamed = true;
+            text.clone_into(&mut s.meta.title);
+            s.meta.renamed = true;
         }
         self.save_index();
         cx.notify();
@@ -397,7 +397,7 @@ impl Desk {
         let u = self.undo.as_ref()?;
         let title = self
             .session_at(u.key)
-            .map(|s| crate::ui::fit(&s.title, 32))
+            .map(|s| crate::ui::fit(&s.meta.title, 32))
             .unwrap_or_default();
         let what = match u.what {
             Undone::Delete => "Deleted",
@@ -434,9 +434,9 @@ impl Desk {
     /// Whether the agent of `s` can branch a session off, as it said when
     /// it last started.
     pub fn can_fork(&self, s: &Session) -> bool {
-        s.id.is_some()
+        s.meta.id.is_some()
             && self
-                .slot(&s.agent)
+                .slot(&s.meta.agent)
                 .and_then(crate::hub::Slot::caps)
                 .is_some_and(|k| k.session_capabilities.fork.is_some())
     }
@@ -511,7 +511,7 @@ impl Desk {
             && let Some(before) = s.turns.get(turn).and_then(|t| t.before.clone())
         {
             hub::restore(
-                s.folder.clone(),
+                s.meta.folder.clone(),
                 before,
                 format!("{}/{turn}-rewind", s.uid()),
                 s.first().map(str::to_owned),
@@ -538,7 +538,7 @@ impl Desk {
             return;
         };
         if let Some(Item::You(text)) = self.session_at(key).and_then(|o| o.items.get(item)) {
-            s.unsent.clone_from(text);
+            s.meta.unsent.clone_from(text);
         }
         self.replace(key, &mut s);
         let new = s.key;
@@ -548,7 +548,7 @@ impl Desk {
     }
 
     fn branch(&mut self, key: u64, upto: Option<(usize, MessageId)>, cx: &mut Context<Self>) {
-        let Some(agent) = self.session_at(key).map(|s| s.agent.clone()) else {
+        let Some(agent) = self.session_at(key).map(|s| s.meta.agent.clone()) else {
             return;
         };
         if self.slot(&agent).and_then(hub::Slot::running).is_some() {
@@ -584,7 +584,7 @@ impl Desk {
                 self.trouble(
                     format!(
                         "Couldn't branch off “{}”",
-                        crate::ui::fit(&origin.title, 40)
+                        crate::ui::fit(&origin.meta.title, 40)
                     ),
                     Some(f.message),
                     None,
@@ -617,35 +617,36 @@ impl Desk {
             s.plan = origin.plan;
         }
         if let Some(Item::You(text)) = at.and_then(|i| origin.items.get(i)) {
-            s.unsent.clone_from(text);
+            s.meta.unsent.clone_from(text);
         }
         if rewound {
-            s.renamed = origin.renamed;
-            s.from.clone_from(&origin.from);
+            s.meta.renamed = origin.meta.renamed;
+            s.meta.from.clone_from(&origin.meta.from);
             self.replace(from, &mut s);
         } else {
-            s.title = if side {
-                format!("Beside “{}”", origin.title)
+            s.meta.title = if side {
+                format!("Beside “{}”", origin.meta.title)
             } else {
-                format!("{} (fork)", origin.title)
+                format!("{} (fork)", origin.meta.title)
             };
-            s.renamed = true;
-            s.from = origin.id.as_ref().map(|id| id.0.to_string());
+            s.meta.renamed = true;
+            s.meta.from = origin.meta.id.as_ref().map(|id| id.0.to_string());
             s.beside = side.then_some(from);
         }
-        s.id = Some(r.session_id.clone());
+        s.meta.id = Some(r.session_id.clone());
         s.modes = r.modes;
         s.options = r.config_options.unwrap_or_default();
         s.state = State::Idle;
         // Its record: the origin's, with what is not yet written, up to
         // where it was branched off.
-        if let Some(id) = &origin.id {
-            let mut events = store::read(&store::record_path(&self.home, &origin.agent, &id.0))
-                .unwrap_or_default();
+        if let Some(id) = &origin.meta.id {
+            let mut events =
+                store::read(&store::record_path(&self.home, &origin.meta.agent, &id.0))
+                    .unwrap_or_default();
             events.extend(origin.log);
             let events = Session::record_before(events, yours);
             if !events.is_empty() {
-                let to = store::record_path(&self.home, &origin.agent, &r.session_id.0);
+                let to = store::record_path(&self.home, &origin.meta.agent, &r.session_id.0);
                 store::queue(store::Job::Append(to, events));
                 s.recorded = true;
             }
@@ -741,8 +742,8 @@ impl Desk {
             .sessions
             .iter()
             .filter_map(|s| {
-                let id = s.id.as_ref()?;
-                Some((s.key, store::record_path(&self.home, &s.agent, &id.0)))
+                let id = s.meta.id.as_ref()?;
+                Some((s.key, store::record_path(&self.home, &s.meta.agent, &id.0)))
             })
             .collect();
         let tx = self.tx.clone();
@@ -772,14 +773,14 @@ impl Desk {
         let now = SystemTime::now();
         let mut changed = false;
         for s in &mut self.sessions {
-            let idle = now.duration_since(s.updated).unwrap_or_default() >= after;
+            let idle = now.duration_since(s.meta.updated).unwrap_or_default() >= after;
             if idle
-                && !s.flags.kept
-                && s.flags.pinned.is_none()
-                && s.flags.settled.is_none()
+                && !s.meta.flags.kept
+                && s.meta.flags.pinned.is_none()
+                && s.meta.flags.settled.is_none()
                 && matches!(s.state, State::Closed | State::Idle)
             {
-                s.flags.settled = Some(store::secs(s.updated + after));
+                s.meta.flags.settled = Some(store::secs(s.meta.updated + after));
                 changed = true;
             }
         }
@@ -794,10 +795,10 @@ impl Desk {
         let now = store::secs(SystemTime::now());
         s.parent.is_none()
             && s.beside.is_none()
-            && !s.flags.archived
+            && !s.meta.flags.archived
             && !self.deleting(s.key)
-            && s.flags.snoozed.is_none_or(|t| t <= now)
-            && !self.prefs(&s.project).archived
+            && s.meta.flags.snoozed.is_none_or(|t| t <= now)
+            && !self.prefs(&s.meta.project).archived
     }
 }
 

@@ -58,7 +58,7 @@ impl Desk {
         let keys: Vec<u64> = self
             .sessions
             .iter()
-            .filter(|s| s.agent == agent && s.state == State::SignIn)
+            .filter(|s| s.meta.agent == agent && s.state == State::SignIn)
             .map(|s| s.key)
             .collect();
         for key in keys {
@@ -77,7 +77,7 @@ impl Desk {
                 let keys: Vec<u64> = self
                     .sessions
                     .iter()
-                    .filter(|s| s.agent == agent && s.state == State::SignIn)
+                    .filter(|s| s.meta.agent == agent && s.state == State::SignIn)
                     .map(|s| s.key)
                     .collect();
                 for key in keys {
@@ -301,8 +301,9 @@ impl Desk {
                 if let Some(s) = self.session_mut(key) {
                     s.pr = pr;
                     // Its pull request merged: the session is done.
-                    if merged && s.flags.settled.is_none() {
-                        s.flags.settled = Some(crate::store::secs(std::time::SystemTime::now()));
+                    if merged && s.meta.flags.settled.is_none() {
+                        s.meta.flags.settled =
+                            Some(crate::store::secs(std::time::SystemTime::now()));
                         self.save_index();
                     }
                 }
@@ -370,7 +371,7 @@ impl Desk {
                 Err(why) => {
                     let title = self
                         .session_at(key)
-                        .map(|s| crate::ui::fit(&s.title, 40))
+                        .map(|s| crate::ui::fit(&s.meta.title, 40))
                         .unwrap_or_default();
                     self.trouble(format!("Couldn't delete “{title}”"), Some(why), None);
                 }
@@ -378,7 +379,7 @@ impl Desk {
             Msg::Ended { key, result } => {
                 // A turn refused for want of a sign-in marks the agent: the
                 // composer then offers its sign-in.
-                let agent = self.session_at(key).map(|s| s.agent.clone());
+                let agent = self.session_at(key).map(|s| s.meta.agent.clone());
                 if let Some(slot) = agent.and_then(|a| self.slot_mut(&a)) {
                     slot.auth = match &result {
                         Err(f) if f.code == crate::acp::ErrorCode::AUTH_REQUIRED => {
@@ -394,14 +395,14 @@ impl Desk {
                 if let Some(s) = self.session_mut(key) {
                     s.ended(result.map_err(|f| f.message));
                     // A turn that ended while you looked elsewhere is unread.
-                    s.flags.unread |= away || behind;
+                    s.meta.flags.unread |= away || behind;
                 }
 
                 // With Ghost behind other windows, macOS says so; in front,
                 // with another session on screen, a notice leads to it.
                 if let Some(s) = self.session_at(key) {
-                    let name = self.name_of(&s.agent);
-                    let title = crate::ui::fit(&s.title, 40);
+                    let name = self.name_of(&s.meta.agent);
+                    let title = crate::ui::fit(&s.meta.title, 40);
                     if behind {
                         self.tell(
                             &format!("{name} · {title}"),
@@ -462,7 +463,7 @@ impl Desk {
             Msg::Refused { key, why } => {
                 let name = self
                     .session_at(key)
-                    .map(|s| self.name_of(&s.agent))
+                    .map(|s| self.name_of(&s.meta.agent))
                     .unwrap_or_default();
                 self.trouble(format!("{name} kept it as it was"), Some(why), None);
             }
@@ -484,7 +485,7 @@ impl Desk {
         let waiting: Vec<u64> = self
             .sessions
             .iter()
-            .filter(|s| s.agent == agent && s.state == State::Opening && !s.needs_worktree())
+            .filter(|s| s.meta.agent == agent && s.state == State::Opening && !s.needs_worktree())
             .map(|s| s.key)
             .collect();
         match result {
@@ -535,7 +536,7 @@ impl Desk {
         };
         match result {
             Ok(r) => {
-                s.id = Some(r.session_id.clone());
+                s.meta.id = Some(r.session_id.clone());
                 s.modes = r.modes;
                 s.options = r.config_options.unwrap_or_default();
                 s.state = State::Idle;
@@ -551,7 +552,7 @@ impl Desk {
                     modes.current_mode_id =
                         agent_client_protocol::v1::schema::SessionModeId::new(m.clone());
                 }
-                let agent = s.agent.clone();
+                let agent = s.meta.agent.clone();
                 let id = r.session_id.clone();
                 if let Some(running) = self.slot(&agent).and_then(Slot::running).cloned() {
                     if let Some(m) = mode {
@@ -579,7 +580,7 @@ impl Desk {
             // The text waits: once signed in, the session opens and it goes.
             Err(f) if f.code == crate::acp::ErrorCode::AUTH_REQUIRED => {
                 s.state = State::SignIn;
-                let agent = s.agent.clone();
+                let agent = s.meta.agent.clone();
                 if let Some(slot) = self.slot_mut(&agent) {
                     slot.auth = hub::Auth::Needed(f.message);
                 }
@@ -622,11 +623,14 @@ impl Desk {
             }
             if let Some(s) = self.session_by_id(agent, &info.session_id) {
                 if s.state == State::Closed {
-                    if let Some(t) = info.title.filter(|t| !t.trim().is_empty() && !s.renamed) {
-                        s.title = t;
+                    if let Some(t) = info
+                        .title
+                        .filter(|t| !t.trim().is_empty() && !s.meta.renamed)
+                    {
+                        s.meta.title = t;
                     }
                     if let Some(t) = info.updated_at.as_deref().and_then(crate::when::parse) {
-                        s.updated = t;
+                        s.meta.updated = t;
                     }
                 }
                 continue;
@@ -659,11 +663,9 @@ impl Desk {
                 });
                 slot.auth = hub::Auth::Ready;
                 let slot = &self.slots[at];
-                for s in self
-                    .sessions
-                    .iter_mut()
-                    .filter(|s| s.agent == agent && s.id.is_none() && s.options.is_empty())
-                {
+                for s in self.sessions.iter_mut().filter(|s| {
+                    s.meta.agent == agent && s.meta.id.is_none() && s.options.is_empty()
+                }) {
                     slot.seed(s);
                 }
             }
@@ -699,7 +701,7 @@ impl Desk {
             Err(f) if f.code == crate::acp::ErrorCode::AUTH_REQUIRED => s.state = State::SignIn,
             // The agent would not resume it: it is loaded, said again.
             Err(_) if resumed => {
-                let agent = s.agent.clone();
+                let agent = s.meta.agent.clone();
                 self.drop_record(key);
                 self.open_when_running(&agent, key);
             }
@@ -713,11 +715,9 @@ impl Desk {
         }
         match event {
             Event::Task { session, task } => {
-                if let Some(s) = self
-                    .sessions
-                    .iter_mut()
-                    .find(|s| s.agent == agent && s.id.as_ref().is_some_and(|i| *i.0 == *session))
-                {
+                if let Some(s) = self.sessions.iter_mut().find(|s| {
+                    s.meta.agent == agent && s.meta.id.as_ref().is_some_and(|i| *i.0 == *session)
+                }) {
                     s.task(task);
                 }
             }
@@ -765,7 +765,7 @@ impl Desk {
             }
             Event::Permission { id, request } => {
                 if let Some(s) = self.session_by_id(agent, &request.session_id) {
-                    let (key, title) = (s.key, s.title.clone());
+                    let (key, title) = (s.key, s.meta.title.clone());
                     s.asked(id, request);
                     if self.behind {
                         let name = self.name_of(agent);
@@ -777,7 +777,7 @@ impl Desk {
                     if self.current != Some(key)
                         && let Some(s) = self.session_mut(key)
                     {
-                        s.flags.unread = true;
+                        s.meta.flags.unread = true;
                     }
                 } else if let Some(running) = self.slot(agent).and_then(Slot::running) {
                     hub::answer(running, id, None);
@@ -794,9 +794,9 @@ impl Desk {
                     return;
                 }
                 slot.stage = Stage::Failed(why.clone());
-                for s in self.sessions.iter_mut().filter(|s| s.agent == agent) {
+                for s in self.sessions.iter_mut().filter(|s| s.meta.agent == agent) {
                     let open = !matches!(s.state, State::Draft | State::Closed);
-                    if s.id.is_some() && open {
+                    if s.meta.id.is_some() && open {
                         // The agent keeps it: opened again, it is loaded.
                         s.items.push(Item::Note {
                             text: format!("The agent stopped: {why}"),

@@ -104,11 +104,11 @@ impl Desk {
         let opened = self
             .sessions
             .iter()
-            .any(|s| s.agent == id && s.id.is_some());
+            .any(|s| s.meta.agent == id && s.meta.id.is_some());
         let signing = self
             .sessions
             .iter()
-            .any(|s| s.agent == id && s.state == State::SignIn);
+            .any(|s| s.meta.agent == id && s.state == State::SignIn);
 
         let (headline, ready) = match &stage {
             Stage::Missing(_) => (format!("{name} isn't on this Mac yet"), false),
@@ -279,7 +279,7 @@ impl Desk {
         let busy = self
             .sessions
             .iter()
-            .any(|s| s.agent == id && matches!(s.state, State::Working | State::Opening));
+            .any(|s| s.meta.agent == id && matches!(s.state, State::Working | State::Opening));
         let mut actions = div().flex().items_center().gap(px(8.));
         match &stage {
             Stage::Installing(_) => {

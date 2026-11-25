@@ -60,7 +60,7 @@ impl Desk {
                 )
                 .when(!tail.is_empty(), |d| d.child(right(faces, tail)));
         }
-        let name = self.name_of(&s.agent);
+        let name = self.name_of(&s.meta.agent);
         let kind = s
             .tools()
             .filter(|t| bare(&t.call.title) == bare(&asked.title))
@@ -181,7 +181,7 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> Div {
         let took = when::took(std::time::Duration::from_secs(secs));
-        let name = self.name_of(&s.agent);
+        let name = self.name_of(&s.meta.agent);
         let body = match reason {
             StopReason::EndTurn => {
                 // The files changed since what you last said: the turn's
@@ -269,7 +269,7 @@ impl Desk {
         why: &str,
         cx: &mut Context<Self>,
     ) -> Div {
-        let name = self.name_of(&s.agent);
+        let name = self.name_of(&s.meta.agent);
         div()
             .flex()
             .flex_col()
@@ -304,16 +304,16 @@ impl Desk {
 
     /// The agent asks to be signed in before it opens the session.
     pub(super) fn sign_in_card(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
-        let name = self.name_of(&s.agent);
+        let name = self.name_of(&s.meta.agent);
         let methods: Vec<(String, String)> = self
-            .slot(&s.agent)
+            .slot(&s.meta.agent)
             .into_iter()
             .flat_map(Slot::sign_ins)
             .map(|m: &agent_client_protocol::v1::schema::AuthMethod| {
                 (m.id().0.to_string(), m.name().to_owned())
             })
             .collect();
-        let busy = self.signing.as_deref() == Some(s.agent.as_str());
+        let busy = self.signing.as_deref() == Some(s.meta.agent.as_str());
         let mut buttons = div().flex().flex_wrap().gap(px(6.));
         if busy {
             buttons = buttons.child(step().px(px(0.)).child(ui::live_dot()).child(
@@ -321,7 +321,7 @@ impl Desk {
             ));
         } else {
             for (n, (id, label)) in methods.into_iter().enumerate() {
-                let agent = s.agent.clone();
+                let agent = s.meta.agent.clone();
                 let weight = if n == 0 {
                     Weight::Primary
                 } else {
@@ -338,7 +338,7 @@ impl Desk {
                 );
             }
         }
-        let agent = s.agent.clone();
+        let agent = s.meta.agent.clone();
         div()
             .flex()
             .flex_col()
@@ -354,7 +354,7 @@ impl Desk {
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .child(ui::mark(faces, &self.mark_of(&s.agent), 16.))
+                    .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.))
                     .child(ui::text(faces, format!("Sign in to {name}")).text_size(px(14.))),
             )
             .child(

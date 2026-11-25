@@ -37,13 +37,13 @@ impl Desk {
             return;
         };
         let missing: Vec<(String, String)> = s
+            .meta
             .subagents
             .iter()
             .filter(|(id, _)| {
-                !self
-                    .sessions
-                    .iter()
-                    .any(|c| c.agent == s.agent && c.id.as_ref().is_some_and(|i| *i.0 == **id))
+                !self.sessions.iter().any(|c| {
+                    c.meta.agent == s.meta.agent && c.meta.id.as_ref().is_some_and(|i| *i.0 == **id)
+                })
             })
             .cloned()
             .collect();
@@ -66,14 +66,14 @@ impl Desk {
         let Some(p) = self.session_at(parent) else {
             return;
         };
-        let mut child = Session::new(key, &p.agent, p.folder.clone());
-        child.project.clone_from(&p.project);
+        let mut child = Session::new(key, &p.meta.agent, p.meta.folder.clone());
+        child.meta.project.clone_from(&p.meta.project);
         (child.branch, child.repo) = (p.branch.clone(), p.repo);
         child.scripts.clone_from(&p.scripts);
-        child.id = Some(id);
+        child.meta.id = Some(id);
         child.parent = Some(parent);
-        child.title = title;
-        child.renamed = true;
+        child.meta.title = title;
+        child.meta.renamed = true;
         child.state = state;
         self.sessions.push(child);
     }
@@ -83,12 +83,12 @@ impl Desk {
     pub(crate) fn beside(&mut self, of: u64) -> Option<Session> {
         let key = self.take_key();
         let o = self.session_at(of)?;
-        let mut s = Session::new(key, &o.agent, o.folder.clone());
-        s.project.clone_from(&o.project);
-        s.worktree.clone_from(&o.worktree);
+        let mut s = Session::new(key, &o.meta.agent, o.meta.folder.clone());
+        s.meta.project.clone_from(&o.meta.project);
+        s.meta.worktree.clone_from(&o.meta.worktree);
         (s.branch, s.repo) = (o.branch.clone(), o.repo);
         s.scripts.clone_from(&o.scripts);
-        if let Some(slot) = self.slot(&s.agent) {
+        if let Some(slot) = self.slot(&s.meta.agent) {
             slot.seed(&mut s);
         }
         Some(s)
@@ -97,10 +97,10 @@ impl Desk {
     /// The session `old` put away, and `new` in its place in the lists.
     pub(crate) fn replace(&mut self, old: u64, new: &mut Session) {
         if let Some(o) = self.session_mut(old) {
-            new.title.clone_from(&o.title);
-            new.flags.order = o.flags.order;
-            new.flags.pinned = o.flags.pinned.take();
-            o.flags.archived = true;
+            new.meta.title.clone_from(&o.meta.title);
+            new.meta.flags.order = o.meta.flags.order;
+            new.meta.flags.pinned = o.meta.flags.pinned.take();
+            o.meta.flags.archived = true;
         }
     }
 
@@ -111,7 +111,12 @@ impl Desk {
             return;
         }
         let index = Index {
-            sessions: self.sessions.iter().filter_map(Session::meta).collect(),
+            sessions: self
+                .sessions
+                .iter()
+                .filter_map(Session::kept)
+                .cloned()
+                .collect(),
             gone: self.gone.clone(),
             stashed: self.stashed.clone(),
         };
@@ -128,14 +133,14 @@ impl Desk {
         let Some(s) = self.session_mut(key) else {
             return;
         };
-        let Some(id) = s.id.clone() else { return };
+        let Some(id) = s.meta.id.clone() else { return };
         if s.log.is_empty() {
             return;
         }
         let events = std::mem::take(&mut s.log);
         s.recorded = true;
         store::queue(Job::Append(
-            store::record_path(&home, &s.agent, &id.0),
+            store::record_path(&home, &s.meta.agent, &id.0),
             events,
         ));
     }
@@ -169,9 +174,9 @@ impl Desk {
         let Some(s) = self.session_mut(key) else {
             return;
         };
-        match &s.id {
+        match &s.meta.id {
             Some(id) => {
-                let path = store::record_path(&home, &s.agent, &id.0);
+                let path = store::record_path(&home, &s.meta.agent, &id.0);
                 // Taken to have one until it is read, so it is read once.
                 s.recorded = true;
                 crate::hub::read_record(path, key, tx);
@@ -187,7 +192,7 @@ impl Desk {
         let Some(s) = self.session_at(key).filter(|s| s.state == State::Closed) else {
             return;
         };
-        let agent = s.agent.clone();
+        let agent = s.meta.agent.clone();
         // A subagent has no other copy; any other is loaded from its agent.
         let cut = |e: &[store::Event]| s.parent.is_none() && store::cut_short(e);
         let Some(events) = events.filter(|e| !e.is_empty()) else {
@@ -235,7 +240,7 @@ impl Desk {
         s.total = None;
         s.redo = None;
         s.state = State::Opening;
-        let agent = s.agent.clone();
+        let agent = s.meta.agent.clone();
         self.open_when_running(&agent, key);
     }
 
@@ -244,8 +249,8 @@ impl Desk {
     pub(crate) fn drop_record(&mut self, key: u64) {
         let home = self.home.clone();
         if let Some(s) = self.session_mut(key) {
-            if let Some(id) = &s.id {
-                store::queue(Job::Remove(store::record_path(&home, &s.agent, &id.0)));
+            if let Some(id) = &s.meta.id {
+                store::queue(Job::Remove(store::record_path(&home, &s.meta.agent, &id.0)));
             }
             s.forget();
             s.log.clear();
@@ -279,7 +284,7 @@ impl Desk {
         let keys: Vec<u64> = self
             .sessions
             .iter()
-            .filter(|s| s.agent == agent && s.id.is_some())
+            .filter(|s| s.meta.agent == agent && s.meta.id.is_some())
             .map(|s| s.key)
             .collect();
         for key in keys {
@@ -307,12 +312,18 @@ impl Desk {
             records: self
                 .sessions
                 .iter()
-                .filter_map(|s| Some(store::record_path(&self.home, &s.agent, &s.id.as_ref()?.0)))
+                .filter_map(|s| {
+                    Some(store::record_path(
+                        &self.home,
+                        &s.meta.agent,
+                        &s.meta.id.as_ref()?.0,
+                    ))
+                })
                 .collect(),
             worktrees: self
                 .sessions
                 .iter()
-                .filter_map(|s| s.worktree.as_ref().map(|w| w.path.clone()))
+                .filter_map(|s| s.meta.worktree.as_ref().map(|w| w.path.clone()))
                 .collect(),
             projects: self.settings.folders.clone(),
             uids: self

@@ -554,10 +554,10 @@ impl Desk {
             spent = spent.child(
                 setting(
                     faces,
-                    &ui::fit(&s.title, 48),
+                    &ui::fit(&s.meta.title, 48),
                     &format!(
                         "{} · {}k of {}k in context ({share:.0}%)",
-                        self.name_of(&s.agent),
+                        self.name_of(&s.meta.agent),
                         u.used / 1000,
                         u.size / 1000
                     ),

@@ -129,7 +129,7 @@ impl Desk {
     pub(crate) fn agent_busy(&self, agent: &str) -> bool {
         use crate::session::State;
         self.sessions.iter().any(|s| {
-            s.agent == agent
+            s.meta.agent == agent
                 && (matches!(s.state, State::Working | State::Opening | State::SignIn)
                     || s.waiting().is_some()
                     || (s.state != State::Closed

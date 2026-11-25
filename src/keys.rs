@@ -412,7 +412,7 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
         d.copy_of_session(|s| s.pr.as_ref().map(|p| p.url.clone()), cx);
     });
     on::<CopyId>(cx, window, |d, _, cx| {
-        d.copy_of_session(|s| s.id.as_ref().map(|i| i.0.to_string()), cx);
+        d.copy_of_session(|s| s.meta.id.as_ref().map(|i| i.0.to_string()), cx);
     });
     on::<Settle>(cx, window, |d, _, cx| {
         if let Some(key) = d.current {
@@ -427,7 +427,7 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
     on::<TakeBack>(cx, window, |d, _, cx| d.take_back(cx));
     on::<OpenFolder>(cx, window, |d, _, _| {
         if let Some(s) = d.session() {
-            d.edit(s.folder.clone(), None);
+            d.edit(s.meta.folder.clone(), None);
         }
     });
     on::<Dictate>(cx, window, |d, window, cx| {

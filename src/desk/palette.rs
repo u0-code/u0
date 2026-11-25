@@ -190,7 +190,7 @@ impl Desk {
     /// Open the palette to look through `through` (⌘P files, ⇧⌘F words).
     pub fn open_palette(&mut self, through: Through, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(s) = self.session() {
-            crate::hub::list_files(s.folder.clone(), self.tx.clone());
+            crate::hub::list_files(s.meta.folder.clone(), self.tx.clone());
         }
         self.palette = false;
         self.toggle_palette(window, cx);
@@ -212,7 +212,11 @@ impl Desk {
             self.grep.clear();
             return;
         }
-        crate::hub::grep(s.folder.clone(), words.trim().to_owned(), self.tx.clone());
+        crate::hub::grep(
+            s.meta.folder.clone(),
+            words.trim().to_owned(),
+            self.tx.clone(),
+        );
     }
 
     /// Open the palette, or close it.
@@ -256,7 +260,10 @@ impl Desk {
         };
         match self.through {
             Through::Files => {
-                let project = self.session().map(|s| s.folder.clone()).unwrap_or_default();
+                let project = self
+                    .session()
+                    .map(|s| s.meta.folder.clone())
+                    .unwrap_or_default();
                 return super::mention::ranked(self.files.get(&project), &q)
                     .into_iter()
                     .take(LINES)
@@ -368,7 +375,7 @@ impl Desk {
             let Some(s) = self.session_at(key) else {
                 continue;
             };
-            let project = self.project_name(&s.project);
+            let project = self.project_name(&s.meta.project);
             // Found by what was said in it too, where its thread is here.
             let said = q.len() >= 3
                 && s.items.iter().any(|i| match i {
@@ -377,10 +384,10 @@ impl Desk {
                     }
                     _ => false,
                 });
-            if !found(&s.title) && !found(&project) && !said {
+            if !found(&s.meta.title) && !found(&project) && !said {
                 continue;
             }
-            let hint = if said && !found(&s.title) {
+            let hint = if said && !found(&s.meta.title) {
                 format!("{project} · said in it")
             } else if n < 9 {
                 format!("{project}  ⌘{}", n + 1)
@@ -389,10 +396,10 @@ impl Desk {
             };
             sessions.push(Line {
                 group: "Sessions",
-                label: s.title.clone(),
+                label: s.meta.title.clone(),
                 hint,
                 act: Act::Go(key),
-                agent: Some(s.agent.clone()),
+                agent: Some(s.meta.agent.clone()),
                 icon: "",
                 live: matches!(s.state, State::Working | State::Opening),
             });
@@ -411,7 +418,7 @@ impl Desk {
         });
         // The open pull requests and issues of the project on screen, to
         // begin a session from.
-        let project = self.session().map(|s| s.project.clone());
+        let project = self.session().map(|s| s.meta.project.clone());
         let mut github = Vec::new();
         if let Some(project) = project {
             let of = |map: &HashMap<PathBuf, Vec<(u64, String)>>| {

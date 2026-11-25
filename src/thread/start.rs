@@ -113,13 +113,13 @@ impl Desk {
             .iter()
             .filter(|s| {
                 self.listed_now(s)
-                    && s.flags.settled.is_none()
+                    && s.meta.flags.settled.is_none()
                     && !(s.state == State::Draft && s.items.is_empty())
             })
             .collect();
         let (needs, mut rest): (Vec<&Session>, Vec<&Session>) =
             shown.into_iter().partition(|s| asks(s).is_some());
-        rest.sort_by_key(|s| std::cmp::Reverse(s.updated));
+        rest.sort_by_key(|s| std::cmp::Reverse(s.meta.updated));
         rest.truncate(RECENT);
         (needs, rest)
     }
@@ -209,7 +209,7 @@ impl Desk {
                 None if matches!(s.state, State::Working | State::Opening) => {
                     fine(faces, "running").text_color(theme::accent())
                 }
-                None => fine(faces, when::ago(s.updated, now)),
+                None => fine(faces, when::ago(s.meta.updated, now)),
             };
             let (added, gone) = s.total.as_ref().map_or((0, 0), |files| {
                 files
@@ -227,17 +227,20 @@ impl Desk {
                     .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
                     .cursor_pointer()
                     .hover(|st| st.bg(theme::hover()))
-                    .child(ui::mark(faces, &self.mark_of(&s.agent), 14.))
+                    .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 14.))
                     .child(
                         ui::one_line(
-                            ui::text(faces, ui::fit(&s.title, 52))
+                            ui::text(faces, ui::fit(&s.meta.title, 52))
                                 .text_size(px(13.5))
                                 .text_color(theme::text()),
                         )
                         .flex_1()
                         .min_w(px(0.)),
                     )
-                    .child(fine(faces, ui::fit(&self.project_name(&s.project), 16)))
+                    .child(fine(
+                        faces,
+                        ui::fit(&self.project_name(&s.meta.project), 16),
+                    ))
                     .when(added + gone > 0, |d| {
                         d.child(
                             ui::mono(faces, format!("+{added}"))

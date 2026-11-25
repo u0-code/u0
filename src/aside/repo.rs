@@ -281,11 +281,11 @@ impl Desk {
     pub(super) fn commit_form(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
         // The agent can write the message: a turn of its own.
         let key = s.key;
-        let name = self.name_of(&s.agent);
+        let name = self.name_of(&s.meta.agent);
         let write = ui::led_button(
             faces,
             "ask-message",
-            Some(ui::mark(faces, &self.mark_of(&s.agent), 12.)),
+            Some(ui::mark(faces, &self.mark_of(&s.meta.agent), 12.)),
             "Write it",
             Weight::Quiet,
         )
@@ -297,7 +297,7 @@ impl Desk {
         .on_click(cx.listener(move |this, _, _, cx| this.ask_message(key, cx)));
         let what = format!(
             "Everything in {} on {}, as you, with this message or the session's title",
-            Desk::shown(&s.folder),
+            Desk::shown(&s.meta.folder),
             s.branch.as_deref().unwrap_or("its branch")
         );
         div()

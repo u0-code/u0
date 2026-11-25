@@ -344,12 +344,12 @@ impl Desk {
             .child(tab(
                 parent.key,
                 div().child(ui::icon("list", 13.).text_color(theme::faint())),
-                &parent.title,
+                &parent.meta.title,
                 false,
                 cx,
             ));
         for c in kids {
-            bar = bar.child(tab(c.key, super::sub_mark(&c.sub), &c.title, true, cx));
+            bar = bar.child(tab(c.key, super::sub_mark(&c.sub), &c.meta.title, true, cx));
         }
         Some(bar)
     }
@@ -396,7 +396,7 @@ impl Desk {
                 State::Opening => step()
                     .child(div().mx(px(2.)).child(ui::live_dot()))
                     .child(
-                        verb(&faces, format!("Starting {}", self.name_of(&s.agent)))
+                        verb(&faces, format!("Starting {}", self.name_of(&s.meta.agent)))
                             .text_color(theme::accent()),
                     )
                     .into_any_element(),

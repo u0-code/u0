@@ -570,7 +570,7 @@ impl Desk {
         let x = x.min(f32::from(cols) * cell - WIDE).max(0.);
         let name = self
             .session()
-            .map(|s| (s.agent.clone(), self.name_of(&s.agent)));
+            .map(|s| (s.meta.agent.clone(), self.name_of(&s.meta.agent)));
         div().absolute().left(px(PAD + x)).top(px(TOP + y)).child(
             ui::menu("term-chosen")
                 .gap(px(2.))

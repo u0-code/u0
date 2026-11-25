@@ -139,7 +139,7 @@ impl Desk {
     ) {
         let host = self
             .session_at(key)
-            .and_then(|s| crate::remote::parse(&s.project))
+            .and_then(|s| crate::remote::parse(&s.meta.project))
             .map(|(host, _)| host);
         let id = self.take_key();
         let size = self.terminals.last().map_or(FIRST_SIZE, Terminal::size);
@@ -178,7 +178,7 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some((key, dir)) = self.session().map(|s| (s.key, s.folder.clone())) else {
+        let Some((key, dir)) = self.session().map(|s| (s.key, s.meta.folder.clone())) else {
             return;
         };
         self.open_terminal_in(key, &dir, first, cx);
@@ -253,7 +253,7 @@ impl Desk {
         }
         // ⌘T another terminal beside the session; ⌘W this one closed.
         if k.modifiers.platform && !k.modifiers.shift && k.key == "t" {
-            let dir = self.session().map(|s| (s.key, s.folder.clone()));
+            let dir = self.session().map(|s| (s.key, s.meta.folder.clone()));
             if let Some((key, dir)) = dir {
                 self.open_terminal_in(key, &dir, None, cx);
             }
@@ -346,7 +346,7 @@ impl Desk {
         };
         s.holding.retain(|t| *t != id);
         if s.holding.is_empty() {
-            let (agent, key) = (s.agent.clone(), s.key);
+            let (agent, key) = (s.meta.agent.clone(), s.key);
             self.open_when_running(&agent, key);
         }
     }
@@ -375,7 +375,7 @@ impl Desk {
     pub fn save_script(&mut self, keep: bool, cx: &mut Context<Self>) {
         let (Some(w), Some((key, dir))) = (
             self.writing,
-            self.session().map(|s| (s.key, s.folder.clone())),
+            self.session().map(|s| (s.key, s.meta.folder.clone())),
         ) else {
             return;
         };

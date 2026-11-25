@@ -88,8 +88,8 @@ impl Desk {
             let snoozed = self
                 .sessions
                 .iter()
-                .filter(|s| s.project == folder && !s.flags.archived)
-                .filter(|s| s.flags.snoozed.is_some_and(|t| t > now))
+                .filter(|s| s.meta.project == folder && !s.meta.flags.archived)
+                .filter(|s| s.meta.flags.snoozed.is_some_and(|t| t > now))
                 .count();
             let found = |s: &&Session| query.as_ref().is_none_or(|q| self.matches(s, q));
             let sessions: Vec<&Session> =
@@ -97,7 +97,9 @@ impl Desk {
             let done: Vec<&Session> = self
                 .sessions
                 .iter()
-                .filter(|s| s.project == folder && self.listed_now(s) && s.flags.settled.is_some())
+                .filter(|s| {
+                    s.meta.project == folder && self.listed_now(s) && s.meta.flags.settled.is_some()
+                })
                 .filter(found)
                 .collect();
             if query.is_some() && sessions.is_empty() && done.is_empty() {
@@ -132,7 +134,7 @@ impl Desk {
                     projects.child(Self::shelf_row(faces, key, "Done", done.len(), shown, cx));
                 if shown {
                     let mut done = done;
-                    done.sort_by_key(|s| std::cmp::Reverse(s.flags.settled));
+                    done.sort_by_key(|s| std::cmp::Reverse(s.meta.flags.settled));
                     for s in done {
                         projects = projects.child(self.session_row(faces, s, cx));
                     }
@@ -145,9 +147,9 @@ impl Desk {
                     projects.child(Self::shelf_row(faces, key, "Snoozed", snoozed, shown, cx));
                 if shown {
                     for s in self.sessions.iter().filter(|s| {
-                        s.project == folder
-                            && !s.flags.archived
-                            && s.flags.snoozed.is_some_and(|t| t > now)
+                        s.meta.project == folder
+                            && !s.meta.flags.archived
+                            && s.meta.flags.snoozed.is_some_and(|t| t > now)
                     }) {
                         projects = projects.child(self.session_row(faces, s, cx));
                     }
@@ -371,7 +373,7 @@ impl Desk {
         let running = self
             .sessions
             .iter()
-            .any(|s| s.agent == id && matches!(s.state, State::Working | State::Opening));
+            .any(|s| s.meta.agent == id && matches!(s.state, State::Working | State::Opening));
         let word = match &slot.stage {
             Stage::Ready | Stage::Running { .. }
                 if matches!(slot.auth, crate::hub::Auth::Needed(_)) =>
@@ -619,7 +621,7 @@ impl Desk {
         let title = if s.state == State::Draft && s.items.is_empty() {
             "New session".to_owned()
         } else {
-            s.title.clone()
+            s.meta.title.clone()
         };
         let (when, live, trouble) = match &s.state {
             State::Working | State::Opening if s.waiting().is_some() => {
@@ -631,12 +633,12 @@ impl Desk {
             State::Draft => (String::new(), false, false),
             State::Idle | State::Closed => match s.outcome() {
                 Some(o) => (o.to_owned(), false, o == "failed"),
-                None => (when::ago(s.updated, SystemTime::now()), false, false),
+                None => (when::ago(s.meta.updated, SystemTime::now()), false, false),
             },
         };
         // Listed by status, a row says which project it is in.
         let when = if self.settings.by_status {
-            let p = ui::fit(&self.project_name(&s.project), 12);
+            let p = ui::fit(&self.project_name(&s.meta.project), 12);
             if when.is_empty() {
                 p
             } else {
@@ -646,18 +648,22 @@ impl Desk {
             when
         };
         let agent = self
-            .entry(&s.agent)
-            .map_or_else(|| s.agent.clone(), |e| e.name.clone());
+            .entry(&s.meta.agent)
+            .map_or_else(|| s.meta.agent.clone(), |e| e.name.clone());
         let group = SharedString::from(format!("session-{key}"));
-        let done = s.flags.settled.is_some();
+        let done = s.meta.flags.settled.is_some();
         let menu_open = self.popup == Popup::Session(key);
         // The title has the room the row's other marks leave it: the time
         // or state, the unread dot, the pin, the pull request's number.
         let room = self.left_width()
             - 108.
             - (ui::fit(&when, 40).chars().count() as f32 * 7.5).max(30.)
-            - if s.flags.unread && !on { 12. } else { 0. }
-            - if s.flags.pinned.is_some() { 18. } else { 0. }
+            - if s.meta.flags.unread && !on { 12. } else { 0. }
+            - if s.meta.flags.pinned.is_some() {
+                18.
+            } else {
+                0.
+            }
             - if s.pr.is_some() { 36. } else { 0. };
         let name: AnyElement = if self.renaming == Some(key) && !self.renaming_here {
             self.rename_field().into_any_element()
@@ -681,7 +687,12 @@ impl Desk {
             crate::session::Item::Agent(t) => Some(gist(t)).filter(|g| !g.is_empty()),
             _ => None,
         });
-        let mut card = format!("{}\n{} · {}", s.title, agent, Desk::shown(&s.folder));
+        let mut card = format!(
+            "{}\n{} · {}",
+            s.meta.title,
+            agent,
+            Desk::shown(&s.meta.folder)
+        );
         if let Some(b) = &s.branch {
             card.push_str(" · ");
             card.push_str(b);
@@ -705,11 +716,11 @@ impl Desk {
             .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
             .child(div().when(done, |d| d.opacity(0.55)).child(ui::mark(
                 faces,
-                &self.mark_of(&s.agent),
+                &self.mark_of(&s.meta.agent),
                 14.,
             )))
             .child(name)
-            .when(s.flags.pinned.is_some(), |d| {
+            .when(s.meta.flags.pinned.is_some(), |d| {
                 d.child(ui::icon("pin", 12.).flex_none().text_color(theme::faint()))
             })
             // Its pull request, coloured by its checks.
@@ -728,7 +739,7 @@ impl Desk {
                     .text_size(px(11.))
                     .text_color(color)
             }))
-            .when(s.flags.unread && !on, |d| {
+            .when(s.meta.flags.unread && !on, |d| {
                 d.child(
                     div()
                         .flex_none()
@@ -915,7 +926,7 @@ impl Desk {
             menu.child(item(0, "pencil", "Rename".into(), None, cx).on_click(
                 cx.listener(move |this, _, window, cx| this.begin_rename(key, window, cx)),
             ));
-        let pin = if s.flags.pinned.is_some() {
+        let pin = if s.meta.flags.pinned.is_some() {
             "Unpin"
         } else {
             "Pin"
@@ -924,13 +935,13 @@ impl Desk {
             item(1, "pin", pin.into(), None, cx)
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle_pin(key, cx))),
         );
-        if !s.flags.unread {
+        if !s.meta.flags.unread {
             menu = menu.child(
                 item(2, "bell", "Mark as unread".into(), None, cx)
                     .on_click(cx.listener(move |this, _, _, cx| this.mark_unread(key, cx))),
             );
         }
-        let done = if s.flags.settled.is_some() {
+        let done = if s.meta.flags.settled.is_some() {
             "Not done"
         } else {
             "Mark as done"
@@ -939,7 +950,7 @@ impl Desk {
             item(3, "check", done.into(), None, cx)
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle_settled(key, cx))),
         );
-        if s.flags.snoozed.is_some_and(|t| t > now) {
+        if s.meta.flags.snoozed.is_some_and(|t| t > now) {
             menu = menu.child(
                 item(4, "clock", "Bring back now".into(), None, cx)
                     .on_click(cx.listener(move |this, _, _, cx| this.wake(key, cx))),
@@ -988,9 +999,11 @@ impl Desk {
                     .on_click(cx.listener(move |this, _, _, cx| this.copy_thread(key, cx))),
             );
             let copies = [
-                Some(("The folder's path", s.folder.display().to_string())),
+                Some(("The folder's path", s.meta.folder.display().to_string())),
                 s.branch.clone().map(|b| ("The branch's name", b)),
-                s.id.as_ref()
+                s.meta
+                    .id
+                    .as_ref()
                     .map(|id| ("The session's id", id.0.to_string())),
             ];
             for (n, (label, text)) in copies.into_iter().flatten().enumerate() {
@@ -1015,7 +1028,7 @@ impl Desk {
             );
         }
         // Another session where this one works: its worktree, its branch.
-        if s.worktree.is_some() {
+        if s.meta.worktree.is_some() {
             let on = s.branch.clone().unwrap_or_else(|| "its worktree".into());
             menu = menu.child(
                 item(
@@ -1030,7 +1043,7 @@ impl Desk {
                 ),
             );
         }
-        let kept = if s.flags.kept {
+        let kept = if s.meta.flags.kept {
             "Let it be done on its own"
         } else {
             "Never done on its own"
@@ -1065,13 +1078,15 @@ impl Desk {
         let mut here: Vec<&Session> = self
             .sessions
             .iter()
-            .filter(|s| s.project == folder && self.listed_now(s) && s.flags.settled.is_none())
+            .filter(|s| {
+                s.meta.project == folder && self.listed_now(s) && s.meta.flags.settled.is_none()
+            })
             .collect();
         here.sort_by_key(|s| {
             (
-                s.flags.pinned.is_none(),
-                s.flags.pinned,
-                s.flags.order,
+                s.meta.flags.pinned.is_none(),
+                s.meta.flags.pinned,
+                s.meta.flags.order,
                 s.key,
             )
         });
@@ -1093,26 +1108,30 @@ impl Desk {
         for s in self.sessions.iter().filter(|s| {
             self.listed_now(s)
                 && query.is_none_or(|q| self.matches(s, q))
-                && self.settings.only.as_ref().is_none_or(|p| &s.project == p)
+                && self
+                    .settings
+                    .only
+                    .as_ref()
+                    .is_none_or(|p| &s.meta.project == p)
         }) {
             let waiting = s.waiting().is_some()
                 || matches!(s.state, State::SignIn | State::Broken(_))
                 || s.outcome().is_some();
-            if s.flags.settled.is_some() {
+            if s.meta.flags.settled.is_some() {
                 done.push(s);
             } else if waiting {
                 needs.push(s);
             } else if matches!(s.state, State::Working | State::Opening) {
                 working.push(s);
-            } else if s.flags.pinned.is_some() {
+            } else if s.meta.flags.pinned.is_some() {
                 pinned.push(s);
             } else {
                 recent.push(s);
             }
         }
-        pinned.sort_by_key(|s| s.flags.pinned);
-        recent.sort_by_key(|s| (s.flags.order, s.key));
-        done.sort_by_key(|s| std::cmp::Reverse(s.flags.settled));
+        pinned.sort_by_key(|s| s.meta.flags.pinned);
+        recent.sort_by_key(|s| (s.meta.flags.order, s.key));
+        done.sort_by_key(|s| std::cmp::Reverse(s.meta.flags.settled));
         (
             [
                 ("Needs you", needs),
@@ -1236,7 +1255,7 @@ impl Desk {
     /// Whether the session `s` answers the search `query`: by its title,
     /// or by what was said in it.
     fn matches(&self, s: &Session, query: &str) -> bool {
-        s.title.to_lowercase().contains(query) || self.found.contains(&s.key)
+        s.meta.title.to_lowercase().contains(query) || self.found.contains(&s.key)
     }
 }
 

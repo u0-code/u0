@@ -28,18 +28,18 @@ impl Desk {
         if !s.repo {
             return;
         }
-        hub::commits(s.folder.clone(), key, self.tx.clone());
+        hub::commits(s.meta.folder.clone(), key, self.tx.clone());
         // Without gh there is no answer, and no pull request shown.
-        hub::pr(s.folder.clone(), key, self.tx.clone());
+        hub::pr(s.meta.folder.clone(), key, self.tx.clone());
     }
 
     /// Ask git about the folder the session `key` works in: not on another
     /// machine, whose git the desk does not read.
     pub(crate) fn look(&self, key: u64) {
         if let Some(s) = self.session_at(key)
-            && crate::remote::parse(&s.project).is_none()
+            && crate::remote::parse(&s.meta.project).is_none()
         {
-            hub::look(s.folder.clone(), key, self.tx.clone());
+            hub::look(s.meta.folder.clone(), key, self.tx.clone());
         }
     }
 
@@ -54,7 +54,7 @@ impl Desk {
         scripts: Vec<super::runs::Script>,
     ) {
         let under = self.home.join("worktrees");
-        let Some(s) = self.session_mut(key).filter(|s| s.folder == folder) else {
+        let Some(s) = self.session_mut(key).filter(|s| s.meta.folder == folder) else {
             return;
         };
         s.branch = branch;
@@ -64,13 +64,13 @@ impl Desk {
             return;
         }
         // A session in one of Ghost's worktrees works there again.
-        if s.worktree.is_none()
-            && s.folder.starts_with(&under)
+        if s.meta.worktree.is_none()
+            && s.meta.folder.starts_with(&under)
             && let Some(branch) = s.branch.clone()
         {
-            s.worktree = Some(crate::git::Worktree {
-                repo: s.project.clone(),
-                path: s.folder.clone(),
+            s.meta.worktree = Some(crate::git::Worktree {
+                repo: s.meta.project.clone(),
+                path: s.meta.folder.clone(),
                 branch,
             });
             self.save_index();
@@ -92,7 +92,7 @@ impl Desk {
             return;
         };
         let calls = std::mem::take(&mut s.placing);
-        if !calls.is_empty() && crate::remote::parse(&s.project).is_none() {
+        if !calls.is_empty() && crate::remote::parse(&s.meta.project).is_none() {
             hub::place(key, calls, tx);
         }
     }
@@ -105,10 +105,10 @@ impl Desk {
         if !s.repo {
             return;
         }
-        hub::uncommitted(s.folder.clone(), key, self.tx.clone());
+        hub::uncommitted(s.meta.folder.clone(), key, self.tx.clone());
         if let Some((scope, _)) = &s.scoped {
             hub::scope_diff(
-                s.folder.clone(),
+                s.meta.folder.clone(),
                 key,
                 scope.clone(),
                 s.compare_to.clone(),
@@ -128,9 +128,9 @@ impl Desk {
         for s in self
             .sessions
             .iter()
-            .filter(|s| s.repo && (s.worktree.is_some() || Some(s.key) == self.current))
+            .filter(|s| s.repo && (s.meta.worktree.is_some() || Some(s.key) == self.current))
         {
-            hub::pr(s.folder.clone(), s.key, self.tx.clone());
+            hub::pr(s.meta.folder.clone(), s.key, self.tx.clone());
         }
     }
 
@@ -143,7 +143,7 @@ impl Desk {
         }
         if let Some(s) = self.session_mut(key) {
             s.scoped = None;
-            let (dir, base) = (s.folder.clone(), s.compare_to.clone());
+            let (dir, base) = (s.meta.folder.clone(), s.compare_to.clone());
             hub::scope_diff(dir, key, scope.clone(), base, self.tx.clone());
         }
     }
@@ -167,11 +167,11 @@ impl Desk {
     fn branch_action(&mut self, action: hub::GitAction, cx: &mut Context<Self>) {
         self.popup = super::Popup::Closed;
         let Some(s) = self.session() else { return };
-        let (key, dir) = (s.key, s.folder.clone());
+        let (key, dir) = (s.key, s.meta.folder.clone());
         let busy = self
             .sessions
             .iter()
-            .any(|o| o.folder == dir && matches!(o.state, State::Working | State::Opening));
+            .any(|o| o.meta.folder == dir && matches!(o.state, State::Working | State::Opening));
         if busy {
             self.trouble(
                 "The branch is not switched",
@@ -196,7 +196,7 @@ impl Desk {
     pub fn new_in_worktree(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
         let Some(fresh) = self
             .session_at(key)
-            .is_some_and(|s| s.worktree.is_some())
+            .is_some_and(|s| s.meta.worktree.is_some())
             .then(|| self.beside(key))
             .flatten()
         else {
@@ -268,7 +268,7 @@ impl Desk {
     /// The comments, put in the line as a message to the agent, to be sent
     /// as you see fit.
     pub fn send_comments(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(folder) = self.session().map(|s| s.folder.clone()) else {
+        let Some(folder) = self.session().map(|s| s.meta.folder.clone()) else {
             return;
         };
         let mut text = String::from("Comments on the changes:\n");
@@ -293,9 +293,9 @@ impl Desk {
         let Some(s) = self.session_at(key) else {
             return;
         };
-        let Some(wt) = &s.worktree else { return };
+        let Some(wt) = &s.meta.worktree else { return };
         let prefix = &self.settings.branch_prefix;
-        let name = format!("{prefix}{}", crate::git::slug(&s.title));
+        let name = format!("{prefix}{}", crate::git::slug(&s.meta.title));
         if s.turns.len() <= 1 && wt.branch.starts_with(prefix.as_str()) && wt.branch != name {
             hub::git_action(
                 wt.path.clone(),

@@ -38,7 +38,10 @@ impl Desk {
     pub fn toggle_commit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.committing = !self.committing;
         if self.committing {
-            let title = self.session().map(|s| s.title.clone()).unwrap_or_default();
+            let title = self
+                .session()
+                .map(|s| s.meta.title.clone())
+                .unwrap_or_default();
             self.message.update(cx, |m, cx| m.set_text(&title, cx));
             window.focus(&self.message.focus_handle(cx));
         }
@@ -49,7 +52,9 @@ impl Desk {
     pub fn commit_message(&self, cx: &gpui::App) -> String {
         let typed = self.message.read(cx).text();
         if typed.is_empty() {
-            self.session().map(|s| s.title.clone()).unwrap_or_default()
+            self.session()
+                .map(|s| s.meta.title.clone())
+                .unwrap_or_default()
         } else {
             typed
         }
@@ -65,7 +70,7 @@ impl Desk {
         if s.repo {
             let turn = s.turn_count().saturating_sub(1);
             hub::checkpoint(
-                s.folder.clone(),
+                s.meta.folder.clone(),
                 format!("{}/{turn}-before", s.uid()),
                 key,
                 turn,
@@ -85,7 +90,7 @@ impl Desk {
         let Some(s) = self.session_at(key) else {
             return;
         };
-        let (agent, id) = (s.agent.clone(), s.id.clone());
+        let (agent, id) = (s.meta.agent.clone(), s.meta.id.clone());
         let attached = self
             .session_mut(key)
             .map(|s| std::mem::take(&mut s.attached))
@@ -117,7 +122,7 @@ impl Desk {
         }
         let turn = s.turns.len() - 1;
         hub::checkpoint(
-            s.folder.clone(),
+            s.meta.folder.clone(),
             format!("{}/{turn}-after", s.uid()),
             key,
             turn,
@@ -140,12 +145,12 @@ impl Desk {
         };
         match result {
             Ok((wt, scripts)) => {
-                s.folder.clone_from(&wt.path);
+                s.meta.folder.clone_from(&wt.path);
                 s.branch = Some(wt.branch.clone());
                 s.scripts = scripts;
                 let path = wt.path.clone();
-                s.worktree = Some(wt);
-                let agent = s.agent.clone();
+                s.meta.worktree = Some(wt);
+                let agent = s.meta.agent.clone();
                 // What the repository runs in each new worktree runs now;
                 // what it says to wait for, first.
                 if !self.run_worktree_scripts(key, &path, cx) {
@@ -213,7 +218,7 @@ impl Desk {
         let Some((target, undo)) = target else { return };
         let name = format!("{}/{turn}-{}", s.uid(), if undo { "undo" } else { "redo" });
         hub::restore(
-            s.folder.clone(),
+            s.meta.folder.clone(),
             target,
             name,
             s.first().map(str::to_owned),
@@ -234,7 +239,7 @@ impl Desk {
     ) {
         let name = self
             .session_at(key)
-            .map(|s| self.name_of(&s.agent))
+            .map(|s| self.name_of(&s.meta.agent))
             .unwrap_or_default();
         let Some(s) = self.session_mut(key) else {
             return;
@@ -267,7 +272,7 @@ impl Desk {
     /// session on screen.
     pub fn git_action(&mut self, action: hub::GitAction, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
-        let (dir, key) = (s.folder.clone(), s.key);
+        let (dir, key) = (s.meta.folder.clone(), s.key);
         let left_out: Vec<String> = s.left_out.iter().cloned().collect();
         if let Some(s) = self.session_mut(key) {
             s.git_step = Some("Working".into());
@@ -299,7 +304,7 @@ impl Desk {
         match (action, &result) {
             (hub::GitAction::RenameBranch(name), Ok(_)) => {
                 s.branch = Some(name.clone());
-                if let Some(wt) = &mut s.worktree {
+                if let Some(wt) = &mut s.meta.worktree {
                     wt.branch.clone_from(name);
                 }
                 self.save_index();
@@ -320,19 +325,19 @@ impl Desk {
         // not committed: read again after a commit, and after another
         // branch is checked out once git has said which.
         if looks {
-            hub::look(s.folder.clone(), key, tx);
+            hub::look(s.meta.folder.clone(), key, tx);
         } else if s.turns.is_empty() && s.repo && !removed {
-            hub::uncommitted(s.folder.clone(), key, tx);
+            hub::uncommitted(s.meta.folder.clone(), key, tx);
         }
         if removed {
-            s.worktree = None;
-            s.id = None;
+            s.meta.worktree = None;
+            s.meta.id = None;
             s.state =
                 State::Broken("Its worktree was removed. Start a new session to go on.".into());
         }
         // A repository made here: its project is read again.
         if matches!(action, hub::GitAction::Init) {
-            let project = s.project.clone();
+            let project = s.meta.project.clone();
             self.held.remove(&project);
         }
         match result {

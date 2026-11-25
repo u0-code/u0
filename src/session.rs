@@ -278,15 +278,8 @@ pub enum Begin {
 pub struct Session {
     /// The desk's own key for it, stable from before the agent names it.
     pub key: u64,
-    /// The registry id of its agent.
-    pub agent: String,
-    /// The agent's id for it, once opened.
-    pub id: Option<SessionId>,
-    /// The folder it works in: its project, or its worktree once it has one.
-    pub folder: PathBuf,
-    /// The project it is listed under: the folder it was begun in, which
-    /// stays when it moves into a worktree.
-    pub project: PathBuf,
+    /// What of it the desk keeps between runs (`sessions.json`).
+    pub meta: store::Meta,
     /// The git branch the folder was on when the session began.
     pub branch: Option<String>,
     /// Whether the folder is in a git repository: then each turn is
@@ -301,22 +294,17 @@ pub struct Session {
     /// once it does.
     pub chosen: Vec<(String, String)>,
     pub chosen_mode: Option<String>,
-    /// The worktree it works in, when it has one.
-    pub worktree: Option<git::Worktree>,
     /// Each turn's checkpoints, by turn, the first turn first.
     pub turns: Vec<Turn>,
     /// What changed from before the first turn to after the latest.
     pub total: Option<Vec<git::FileDiff>>,
     /// A turn undone, and the checkpoint that puts it back.
     pub redo: Option<(usize, String)>,
-    pub title: String,
     pub state: State,
     pub items: Vec<Item>,
     /// The ids the agent gave its messages and yours, each by the item of
     /// the thread it is in: where a fork can end.
     pub marks: Vec<(usize, MessageId)>,
-    /// The id of the session it was branched off, if it was.
-    pub from: Option<String>,
     /// How far its branch is behind its upstream, and whether the
     /// repository has an origin.
     pub upstream: (usize, bool),
@@ -338,14 +326,9 @@ pub struct Session {
     pub sub: Sub,
     /// The tasks its agent left going in the background: commands.
     pub tasks: Vec<Task>,
-    /// The subagents it set to work, by id and title, as its index keeps
-    /// them (its thread names them too, once read).
-    pub subagents: Vec<(String, String)>,
     /// The session this one asks a side question of: branched off it
     /// whole, not listed, its answer taken back to it if you want.
     pub beside: Option<u64>,
-    /// Folders it works in beside its own (ACP's additional directories).
-    pub also: Vec<PathBuf>,
     /// When each message (yours, the agent's) began, by its item; and the
     /// time read from the record for the next one.
     pub times: Vec<(usize, SystemTime)>,
@@ -354,19 +337,12 @@ pub struct Session {
     pub modes: Option<SessionModeState>,
     pub options: Vec<SessionConfigOption>,
     pub usage: Option<UsageUpdate>,
-    /// When it began, and when anything last happened in it.
-    pub begun: SystemTime,
-    pub updated: SystemTime,
     /// When the turn going on started, for the time beside it.
     pub since: Option<Instant>,
     /// When the thought being streamed began.
     thinking: Option<Instant>,
     /// What you said before the session was open, sent once it is.
     pub pending: Option<String>,
-    /// A title you gave it, which the agent's does not replace.
-    pub renamed: bool,
-    /// Where it stands in your lists: pinned, archived, settled, unread.
-    pub flags: store::Flags,
     /// What happened in it since its record was last written.
     pub log: Vec<store::Event>,
     /// Its record is being read back: nothing read is written again.
@@ -374,13 +350,6 @@ pub struct Session {
     /// It has a record the desk wrote: its agent's session is resumed, not
     /// loaded, so that nothing comes twice.
     pub recorded: bool,
-    /// What you said while a turn went on, said in order as each ends.
-    pub queued: Vec<String>,
-    /// What you wrote to be said in it later, kept with its index.
-    pub later: Vec<store::Later>,
-    /// What you were writing in it and had not sent, kept while another
-    /// session is on screen.
-    pub unsent: String,
     /// The commands the agent takes in it, typed after `/`.
     pub commands: Vec<agent_client_protocol::v1::schema::AvailableCommand>,
     /// What goes with the next thing said: images, files and sessions
@@ -455,15 +424,15 @@ impl Session {
     /// A session its agent listed, in `project`: closed until opened.
     pub fn listed(key: u64, agent: &str, info: SessionInfo, project: PathBuf) -> Self {
         let mut s = Self::new(key, agent, info.cwd);
-        s.project = project;
-        s.id = Some(info.session_id);
+        s.meta.project = project;
+        s.meta.id = Some(info.session_id);
         if let Some(title) = info.title.filter(|t| !t.trim().is_empty()) {
-            s.title = title;
+            s.meta.title = title;
         }
         if let Some(t) = info.updated_at.as_deref().and_then(crate::when::parse) {
-            s.begun = t;
-            s.updated = t;
-            s.flags.order = -i64::try_from(store::secs(t)).unwrap_or(0);
+            s.meta.begun = t;
+            s.meta.updated = t;
+            s.meta.flags.order = -i64::try_from(store::secs(t)).unwrap_or(0);
         }
         s.state = State::Closed;
         s
@@ -496,53 +465,21 @@ impl Session {
 
     /// Whether a worktree is to be made for it before it is opened.
     pub fn needs_worktree(&self) -> bool {
-        self.repo && self.wants_worktree && self.worktree.is_none()
+        self.repo && self.wants_worktree && self.meta.worktree.is_none()
     }
 
     /// A session the desk kept from an earlier run: closed until opened.
     pub fn stored(key: u64, meta: store::Meta) -> Self {
-        let mut s = Self::new(key, &meta.agent, meta.folder);
-        s.project = meta.project;
-        s.id = Some(SessionId::new(meta.id));
-        s.title = meta.title;
-        s.renamed = meta.renamed;
-        s.begun = store::time(meta.begun);
-        s.updated = store::time(meta.updated);
-        s.worktree = meta.worktree;
-        s.flags = meta.flags;
-        s.queued = meta.queued;
-        s.unsent = meta.unsent;
-        s.from = meta.from;
-        s.later = meta.later;
-        s.also = meta.also;
-        s.subagents = meta.subagents;
+        let mut s = Self::new(key, &meta.agent, meta.folder.clone());
+        s.meta = meta;
         s.state = State::Closed;
         s
     }
 
-    /// What the desk keeps of it; `None` until its agent has it.
-    pub fn meta(&self) -> Option<store::Meta> {
-        if self.parent.is_some() {
-            return None;
-        }
-        Some(store::Meta {
-            agent: self.agent.clone(),
-            id: self.id.as_ref()?.0.to_string(),
-            project: self.project.clone(),
-            folder: self.folder.clone(),
-            worktree: self.worktree.clone(),
-            title: self.title.clone(),
-            renamed: self.renamed,
-            begun: store::secs(self.begun),
-            updated: store::secs(self.updated),
-            flags: self.flags.clone(),
-            queued: self.queued.clone(),
-            unsent: self.unsent.clone(),
-            from: self.from.clone(),
-            later: self.later.clone(),
-            also: self.also.clone(),
-            subagents: self.subagents.clone(),
-        })
+    /// What the desk keeps of it; `None` until its agent has it, and for
+    /// a subagent, which is kept with its parent.
+    pub fn kept(&self) -> Option<&store::Meta> {
+        (self.parent.is_none() && self.meta.id.is_some()).then_some(&self.meta)
     }
 
     /// Build the thread again from its record.
@@ -712,31 +649,43 @@ impl Session {
         let now = SystemTime::now();
         Self {
             key,
-            agent: agent.to_owned(),
-            id: None,
+            meta: store::Meta {
+                agent: agent.to_owned(),
+                id: None,
+                project: folder.clone(),
+                folder,
+                worktree: None,
+                title,
+                renamed: false,
+                begun: now,
+                updated: now,
+                flags: store::Flags {
+                    order: -i64::try_from(store::secs(now)).unwrap_or(0),
+                    ..store::Flags::default()
+                },
+                queued: Vec::new(),
+                unsent: String::new(),
+                from: None,
+                later: Vec::new(),
+                also: Vec::new(),
+                subagents: Vec::new(),
+            },
             branch: None,
             repo: false,
             wants_worktree: false,
             begin: None,
             chosen: Vec::new(),
             chosen_mode: None,
-            worktree: None,
             turns: Vec::new(),
             total: None,
             redo: None,
-            project: folder.clone(),
-            folder,
-            title,
             state: State::Draft,
             items: Vec::new(),
             marks: Vec::new(),
-            from: None,
             parent: None,
             sub: Sub::default(),
             tasks: Vec::new(),
-            subagents: Vec::new(),
             beside: None,
-            also: Vec::new(),
             setup: Vec::new(),
             holding: Vec::new(),
             seen: None,
@@ -749,22 +698,12 @@ impl Session {
             modes: None,
             options: Vec::new(),
             usage: None,
-            begun: now,
-            updated: now,
             since: None,
             thinking: None,
             pending: None,
-            renamed: false,
-            flags: store::Flags {
-                order: -i64::try_from(store::secs(now)).unwrap_or(0),
-                ..store::Flags::default()
-            },
             log: Vec::new(),
             replaying: false,
             recorded: false,
-            queued: Vec::new(),
-            later: Vec::new(),
-            unsent: String::new(),
             commands: Vec::new(),
             attached: Vec::new(),
             scoped: None,
@@ -784,20 +723,20 @@ impl Session {
         self.record(store::Event::At(store::secs(now)));
         self.record(store::Event::You(text.to_owned()));
         self.times.push((self.items.len(), now));
-        if self.items.is_empty() && !self.renamed {
-            self.title = text
+        if self.items.is_empty() && !self.meta.renamed {
+            self.meta.title = text
                 .lines()
                 .next()
                 .unwrap_or(text)
                 .chars()
                 .take(60)
                 .collect();
-            self.begun = SystemTime::now();
+            self.meta.begun = SystemTime::now();
         }
         self.items.push(Item::You(text.to_owned()));
         self.state = State::Working;
         self.since = Some(Instant::now());
-        self.updated = SystemTime::now();
+        self.meta.updated = SystemTime::now();
     }
 
     /// The turn is over.
@@ -829,7 +768,7 @@ impl Session {
         }
         self.state = State::Idle;
         self.since = None;
-        self.updated = SystemTime::now();
+        self.meta.updated = SystemTime::now();
     }
 
     /// A thought being streamed is over: it is timed.
@@ -861,7 +800,7 @@ impl Session {
             if level == "error" {
                 self.note(text.trim());
             } else {
-                tracing::info!("{} said: {}", self.agent, text.trim());
+                tracing::info!("{} said: {}", self.meta.agent, text.trim());
             }
             return;
         }
@@ -881,7 +820,7 @@ impl Session {
             }
         }
         if !self.replaying {
-            self.updated = SystemTime::now();
+            self.meta.updated = SystemTime::now();
             self.record(store::Event::Update(Box::new(update.clone())));
         }
         if !matches!(update, SessionUpdate::AgentThoughtChunk(_)) {
@@ -986,8 +925,12 @@ impl Session {
             }
             SessionUpdate::ConfigOptionUpdate(o) => self.options = o.config_options,
             SessionUpdate::SessionInfoUpdate(info) => {
-                if let Some(title) = info.title.take().filter(|t| !t.is_empty() && !self.renamed) {
-                    self.title = title;
+                if let Some(title) = info
+                    .title
+                    .take()
+                    .filter(|t| !t.is_empty() && !self.meta.renamed)
+                {
+                    self.meta.title = title;
                 }
             }
             SessionUpdate::UsageUpdate(u) => self.usage = Some(u),
@@ -1017,9 +960,9 @@ impl Session {
                     _ => None,
                 });
                 let id = id.0.to_string();
-                match self.subagents.iter_mut().find(|(c, _)| *c == id) {
+                match self.meta.subagents.iter_mut().find(|(c, _)| *c == id) {
                     Some((_, t)) => *t = title.unwrap_or_default(),
-                    None => self.subagents.push((id, title.unwrap_or_default())),
+                    None => self.meta.subagents.push((id, title.unwrap_or_default())),
                 }
             }
             SessionUpdate::AvailableCommandsUpdate(c) => self.commands = c.available_commands,
@@ -1222,6 +1165,7 @@ impl Session {
     /// The name its checkpoints are kept under: unique across runs.
     pub fn uid(&self) -> String {
         let secs = self
+            .meta
             .begun
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs());
@@ -1270,7 +1214,7 @@ mod tests {
             r#"{"sessionUpdate":"subagent_update","sessionId":"c1","title":"Read the papers"}"#,
         ));
         assert_eq!(
-            s.subagents,
+            s.meta.subagents,
             [("c1".to_owned(), "Read the papers".to_owned())]
         );
     }
@@ -1374,7 +1318,7 @@ mod tests {
         s.apply(update(
             r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Done"}}"#,
         ));
-        assert_eq!(s.title, "fix it");
+        assert_eq!(s.meta.title, "fix it");
         assert!(matches!(&s.items[1], Item::Agent(t) if t == "Looking"));
         assert!(
             matches!(&s.items[2], Item::Tool(t) if t.call.status == ToolCallStatus::Completed && t.took.is_some())

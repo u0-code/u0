@@ -177,7 +177,7 @@ impl Desk {
             .children(Self::pull_request(faces, s, cx))
             .children(self.commits(faces, s, cx))
             // A folder that is not a repository can be made one.
-            .when(!s.repo && crate::remote::parse(&s.project).is_none() && s.state != crate::session::State::Draft, |d| {
+            .when(!s.repo && crate::remote::parse(&s.meta.project).is_none() && s.state != crate::session::State::Draft, |d| {
                 d.child(
                     div()
                         .flex()
@@ -256,7 +256,7 @@ impl Desk {
                 .cursor_pointer()
                 .when(key == s.key, |d| d.bg(theme::hover()))
                 .child(crate::thread::sub_mark(&c.sub))
-                .child(title(&c.title))
+                .child(title(&c.meta.title))
                 .children(c.sub.time().map(|t| fine(faces, t)))
                 .when(c.sub.working() && c.sub.stoppable, |d| {
                     d.child(
@@ -453,7 +453,7 @@ impl Desk {
                 continue;
             }
             let at = std::path::PathBuf::from(&f.path);
-            let on = same_file(&f.path, path, &s.folder);
+            let on = same_file(&f.path, path, &s.meta.folder);
             let name = at
                 .file_name()
                 .map_or_else(|| f.path.clone(), |n| n.to_string_lossy().into_owned());
@@ -739,8 +739,8 @@ impl Desk {
                 faces,
                 format!(
                     "Files the agent changes in {} show here.",
-                    s.folder.file_name().map_or_else(
-                        || Desk::shown(&s.folder),
+                    s.meta.folder.file_name().map_or_else(
+                        || Desk::shown(&s.meta.folder),
                         |n| n.to_string_lossy().into_owned()
                     )
                 ),
@@ -750,7 +750,7 @@ impl Desk {
         for (n, f) in files.iter().enumerate() {
             let name = f
                 .path
-                .strip_prefix(&s.folder)
+                .strip_prefix(&s.meta.folder)
                 .unwrap_or(&f.path)
                 .display()
                 .to_string();
@@ -776,7 +776,7 @@ impl Desk {
             );
         }
         let first = files[0].path.clone();
-        let folder = s.folder.clone();
+        let folder = s.meta.folder.clone();
         sec = sec.child(list).child(
             div()
                 .flex()
@@ -832,7 +832,7 @@ impl Desk {
         if found.is_empty() {
             return None;
         }
-        let remote = crate::remote::parse(&s.project).map(|(host, _)| host);
+        let remote = crate::remote::parse(&s.meta.project).map(|(host, _)| host);
         let mut sec = section(faces, "Servers", Some(fine(faces, found.len().to_string())));
         for (n, (id, address)) in found.into_iter().enumerate() {
             let (open, forward) = (address.clone(), address.clone());
@@ -998,13 +998,13 @@ impl Desk {
             .as_ref()
             .filter(|u| u.size > 0)
             .map(|u| u.used as f32 / u.size as f32);
-        let agent = match self.slot(&s.agent).filter(|x| x.running().is_some()) {
+        let agent = match self.slot(&s.meta.agent).filter(|x| x.running().is_some()) {
             Some(x) => x
                 .known
                 .as_ref()
                 .and_then(|k| k.agent_info.as_ref())
                 .map_or_else(
-                    || self.name_of(&s.agent),
+                    || self.name_of(&s.meta.agent),
                     |i| {
                         format!(
                             "{} {}",
@@ -1013,7 +1013,7 @@ impl Desk {
                         )
                     },
                 ),
-            _ => self.name_of(&s.agent),
+            _ => self.name_of(&s.meta.agent),
         };
         let mut sec = section(faces, "Context", note)
             .border_b_0()
@@ -1038,13 +1038,13 @@ impl Desk {
                     .flex()
                     .items_center()
                     .gap(px(6.))
-                    .child(ui::mark(faces, &self.mark_of(&s.agent), 12.))
+                    .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 12.))
                     .child(fine(faces, format!("{agent} · ACP v1"))),
             ))
             .child(key_value(faces, "Working directory", {
                 // A long one keeps its last folder, which says which it is.
-                let dir = Desk::shown(&s.folder);
-                let name = s.folder.file_name().map(|n| n.to_string_lossy());
+                let dir = Desk::shown(&s.meta.folder);
+                let name = s.meta.folder.file_name().map(|n| n.to_string_lossy());
                 fine_mono(
                     faces,
                     match name {
@@ -1055,14 +1055,14 @@ impl Desk {
                     },
                 )
             }));
-        for folder in &s.also {
+        for folder in &s.meta.also {
             sec = sec.child(key_value(
                 faces,
                 "And in",
                 fine_mono(faces, ui::fit(&Desk::shown(folder), 24)),
             ));
         }
-        if let Some(wt) = &s.worktree {
+        if let Some(wt) = &s.meta.worktree {
             let removable = !matches!(s.state, State::Working | State::Opening);
             let wt_for_click = wt.clone();
             sec = sec.child(key_value(
@@ -1104,12 +1104,12 @@ impl Desk {
         }
         if !s.items.is_empty() {
             let since = SystemTime::now()
-                .duration_since(s.begun)
+                .duration_since(s.meta.begun)
                 .unwrap_or_default();
             let turns = s.turn_count();
             let words = format!(
                 "{} · {} · {turns} {}",
-                when::clock(s.begun),
+                when::clock(s.meta.begun),
                 when::took(since),
                 if turns == 1 { "turn" } else { "turns" }
             );
@@ -1133,7 +1133,7 @@ impl Desk {
         }
         for (n, path) in files.into_iter().enumerate() {
             let name = path
-                .strip_prefix(&s.folder)
+                .strip_prefix(&s.meta.folder)
                 .unwrap_or(&path)
                 .display()
                 .to_string();
@@ -1178,20 +1178,22 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> Div {
         let name = path
-            .strip_prefix(&s.folder)
+            .strip_prefix(&s.meta.folder)
             .unwrap_or(path)
             .display()
             .to_string();
-        let from_git = self
-            .scoped(s)
-            .and_then(|files| files.iter().find(|f| same_file(&f.path, path, &s.folder)));
+        let from_git = self.scoped(s).and_then(|files| {
+            files
+                .iter()
+                .find(|f| same_file(&f.path, path, &s.meta.folder))
+        });
         let total = s
             .changed()
             .into_iter()
             .find(|c| c.path == path)
             .map(|c| (c.added, c.gone))
             .or_else(|| from_git.map(|f| (f.added, f.gone)));
-        let full = s.folder.join(path);
+        let full = s.meta.folder.join(path);
         let head = top()
             .gap(px(8.))
             .child(
@@ -1347,7 +1349,7 @@ impl Desk {
             );
         }
         if !self.comments.is_empty() {
-            let name = self.name_of(&s.agent);
+            let name = self.name_of(&s.meta.agent);
             let n = self.comments.len();
             sec = sec.child(
                 ui::button(

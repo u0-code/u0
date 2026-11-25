@@ -390,7 +390,7 @@ impl Slot {
     /// starts with, so they can be chosen before it is opened.
     pub fn seed(&self, s: &mut crate::session::Session) {
         if let Some(p) = &self.probe
-            && s.id.is_none()
+            && s.meta.id.is_none()
         {
             s.modes.clone_from(&p.modes);
             s.options.clone_from(&p.options);

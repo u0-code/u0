@@ -406,16 +406,16 @@ impl Desk {
 
     /// The line over the first turn: who, with what, where.
     fn turn_header(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
-        let name = self.name_of(&s.agent);
+        let name = self.name_of(&s.meta.agent);
         let mut parts = vec![name.clone()];
         parts.extend(Self::option_name(s, &SessionConfigOptionCategory::Model));
         parts.extend(Self::mode_name(s));
-        parts.push(Desk::shown(&s.folder));
+        parts.push(Desk::shown(&s.meta.folder));
         // Branched off another: which, to go back to it.
-        let origin = s.from.as_ref().and_then(|id| {
-            self.sessions
-                .iter()
-                .find(|o| o.agent == s.agent && o.id.as_ref().is_some_and(|i| *i.0 == **id))
+        let origin = s.meta.from.as_ref().and_then(|id| {
+            self.sessions.iter().find(|o| {
+                o.meta.agent == s.meta.agent && o.meta.id.as_ref().is_some_and(|i| *i.0 == **id)
+            })
         });
         // Scripts run in the new worktree: what they were, where to see them.
         let setup = (!s.setup.is_empty()).then(|| {
@@ -468,7 +468,7 @@ impl Desk {
                     .items_center()
                     .gap(px(8.))
                     .px(px(10.))
-                    .child(ui::mark(faces, &self.mark_of(&s.agent), 14.))
+                    .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 14.))
                     .child(meta(faces, parts.join(" · ")))
                     .children(origin.map(|o| {
                         let back = o.key;
@@ -480,7 +480,7 @@ impl Desk {
                             .cursor_pointer()
                             .child(ui::icon("branch", 12.).text_color(theme::faint()))
                             .child(
-                                meta(faces, format!("from “{}”", ui::fit(&o.title, 32)))
+                                meta(faces, format!("from “{}”", ui::fit(&o.meta.title, 32)))
                                     .hover(|st| st.text_color(theme::text2())),
                             )
                             .on_click(
@@ -493,14 +493,14 @@ impl Desk {
 
     /// A session begun, before anything is said: where it will work.
     fn fresh(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
-        let name = &self.name_of(&s.agent);
+        let name = &self.name_of(&s.meta.agent);
         div()
             .flex()
             .flex_col()
             .items_center()
             .gap(px(14.))
             .mt(px(140.))
-            .child(ui::mark(faces, &self.mark_of(&s.agent), 48.))
+            .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 48.))
             .child(
                 ui::text(faces, format!("New session with {name}"))
                     .text_size(px(22.))
@@ -522,7 +522,7 @@ impl Desk {
                     .hover(|st| st.bg(theme::hover()))
                     .child(ui::icon("folder", 14.).text_color(theme::faint()))
                     .child(
-                        ui::mono(faces, Desk::shown(&s.folder))
+                        ui::mono(faces, Desk::shown(&s.meta.folder))
                             .text_size(px(12.))
                             .text_color(theme::text2()),
                     )
@@ -548,10 +548,10 @@ impl Desk {
     /// away, and one more to add: where its agent says it can.
     fn also_row(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
         let able = self
-            .slot(&s.agent)
+            .slot(&s.meta.agent)
             .and_then(crate::hub::Slot::caps)
             .is_some_and(|k| k.session_capabilities.additional_directories.is_some());
-        if !able && s.also.is_empty() {
+        if !able && s.meta.also.is_empty() {
             return None;
         }
         let key = s.key;
@@ -561,7 +561,7 @@ impl Desk {
             .justify_center()
             .items_center()
             .gap(px(6.));
-        for (n, folder) in s.also.iter().enumerate() {
+        for (n, folder) in s.meta.also.iter().enumerate() {
             row = row.child(
                 div()
                     .flex()
@@ -588,9 +588,9 @@ impl Desk {
                         .size(px(20.))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if let Some(s) = this.session_mut(key)
-                                && n < s.also.len()
+                                && n < s.meta.also.len()
                             {
-                                s.also.remove(n);
+                                s.meta.also.remove(n);
                             }
                             cx.notify();
                         })),
@@ -683,7 +683,7 @@ impl Desk {
                 };
                 list = list.child(pick(n, b.clone(), on, Begin::Branch(b.clone()), cx));
             }
-            let prs = self.prs.get(&s.project).filter(|p| !p.is_empty());
+            let prs = self.prs.get(&s.meta.project).filter(|p| !p.is_empty());
             if let Some(prs) = prs {
                 list = list.child(
                     div()
@@ -771,7 +771,7 @@ impl Desk {
                 );
                 let first = s.items.iter().position(|x| matches!(x, Item::You(_))) == Some(i);
                 let branch = idle && s.fork_point(i).is_some() && self.can_fork(s);
-                let back = idle && s.id.is_some() && (branch || first);
+                let back = idle && s.meta.id.is_some() && (branch || first);
                 let at = s.key;
                 let copy = text.clone();
                 let rewinding = self.popup == crate::desk::Popup::Rewind(at, i);
@@ -1010,7 +1010,7 @@ impl Desk {
                 });
                 let (copy, keep) = (written.clone(), written);
                 let group = SharedString::from(format!("{key}-plan"));
-                let folder = s.folder.clone();
+                let folder = s.meta.folder.clone();
                 boxed()
                     .group(group.clone())
                     .child(
@@ -1083,7 +1083,7 @@ impl Desk {
                 let sub = self
                     .sessions
                     .iter()
-                    .find(|c| c.id.as_ref() == Some(id) && c.parent.is_some())
+                    .find(|c| c.meta.id.as_ref() == Some(id) && c.parent.is_some())
                     .map(|c| c.sub.clone())
                     .unwrap_or_default();
                 let id = id.clone();
@@ -1109,7 +1109,7 @@ impl Desk {
                         if let Some(key) = this
                             .sessions
                             .iter()
-                            .find(|c| c.id.as_ref() == Some(&id) && c.parent.is_some())
+                            .find(|c| c.meta.id.as_ref() == Some(&id) && c.parent.is_some())
                             .map(|c| c.key)
                         {
                             this.show(key, window, cx);
@@ -1456,7 +1456,7 @@ impl Desk {
     ) -> Div {
         let call = &tool.call;
         let key = format!("{}-{i}", s.key);
-        let row = row_of(tool, &s.folder);
+        let row = row_of(tool, &s.meta.folder);
         let open = self.tool_open(s.key, i, tool);
         let running = matches!(
             call.status,
