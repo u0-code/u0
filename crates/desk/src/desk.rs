@@ -792,10 +792,12 @@ impl Desk {
         self.page = Page::Thread;
         self.popup = Popup::Closed;
         self.close_settings(window, cx);
+        // Looked at: read, and no longer just woken.
         if let Some(s) = self.sessions.at_mut(key)
-            && s.meta.flags.unread
+            && (s.meta.flags.unread || lists::woke(s))
         {
             s.meta.flags.unread = false;
+            s.meta.flags.snoozed = None;
             self.save_index();
         }
         self.refresh_git(key);

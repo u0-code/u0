@@ -411,8 +411,8 @@ impl Desk {
             .filter_map(|s| lists::status(s))
             .min_by_key(|st| match st {
                 lists::Status::Approval | lists::Status::SignIn | lists::Status::Plan => 0,
-                lists::Status::Failed => 1,
-                lists::Status::Done => 2,
+                lists::Status::Failed | lists::Status::Limited => 1,
+                lists::Status::Done | lists::Status::Woke => 2,
                 lists::Status::Working => 3,
             });
         let name = if matches!(&self.renaming, Some(Renaming::Project(f)) if f == folder) {
@@ -497,16 +497,7 @@ impl Desk {
             s.meta.title.clone()
         };
         // It recedes while it works or waits, and once read and finished.
-        let wants = matches!(
-            status,
-            Some(
-                lists::Status::Approval
-                    | lists::Status::SignIn
-                    | lists::Status::Failed
-                    | lists::Status::Plan
-                    | lists::Status::Done
-            )
-        );
+        let wants = status.is_some_and(|st| st != lists::Status::Working);
         let name = if self.renaming == Some(Renaming::Session { key, here: false }) {
             self.rename_field().into_any_element()
         } else {

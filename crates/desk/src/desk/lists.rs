@@ -1061,10 +1061,14 @@ pub enum Status {
     Approval,
     SignIn,
     Failed,
+    /// It stopped at a limit of the agent's: usage, or a turn's.
+    Limited,
     /// A plan ready for you.
     Plan,
     /// Finished, and not read since.
     Done,
+    /// Back from being snoozed, and not looked at since.
+    Woke,
 }
 
 impl Status {
@@ -1074,15 +1078,17 @@ impl Status {
             Self::Approval => "Approval",
             Self::SignIn => "Sign in",
             Self::Failed => "Failed",
+            Self::Limited => "Limited",
             Self::Plan => "Plan",
             Self::Done => "Done",
+            Self::Woke => "Woke",
         }
     }
 
     pub fn color(self) -> gpui::Hsla {
         match self {
-            Self::Working | Self::Plan => crate::theme::link(),
-            Self::Approval | Self::SignIn => crate::theme::accent(),
+            Self::Working | Self::Plan | Self::Woke => crate::theme::link(),
+            Self::Approval | Self::SignIn | Self::Limited => crate::theme::accent(),
             Self::Failed => crate::theme::coral(),
             Self::Done => crate::theme::ok(),
         }
@@ -1097,12 +1103,30 @@ pub fn status(s: &Session) -> Option<Status> {
         State::SignIn => Some(Status::SignIn),
         State::Broken(_) => Some(Status::Failed),
         State::Idle | State::Closed => match s.outcome() {
+            Some("failed") if limited(s) => Some(Status::Limited),
             Some("failed") => Some(Status::Failed),
             Some(_) => Some(Status::Plan),
-            None => s.meta.flags.unread.then_some(Status::Done),
+            None if s.meta.flags.unread => Some(Status::Done),
+            None => woke(s).then_some(Status::Woke),
         },
         State::Draft => None,
     }
+}
+
+/// Whether the last turn of `s` ended at a limit the agent said it hit.
+fn limited(s: &Session) -> bool {
+    let start = s.items.iter().rposition(|i| matches!(i, Item::You(_)));
+    s.items[start.unwrap_or(0)..].iter().any(|i| {
+        matches!(i, Item::Note { text, trouble: true } if text.to_lowercase().contains("limit"))
+    })
+}
+
+/// Whether `s` was snoozed until a time now past, and not looked at since.
+pub fn woke(s: &Session) -> bool {
+    s.meta
+        .flags
+        .snoozed
+        .is_some_and(|t| t <= store::secs(SystemTime::now()))
 }
 
 /// When you last used the session `s`: your last message in it, where its
@@ -1135,5 +1159,21 @@ mod tests {
         let day = Duration::from_hours(25);
         assert!(Later::Daily.at(now) <= now + day);
         assert_eq!(Later::In(30).at(now), now + Duration::from_mins(30));
+    }
+
+    #[test]
+    fn a_turn_stopped_at_a_limit_says_limited_and_a_past_snooze_says_woke() {
+        let mut s = Session::new(1, "x", "/r".into());
+        s.state = State::Idle;
+        s.items.push(Item::You("go".into()));
+        s.items.push(Item::Note {
+            text: "You've hit your usage limit".into(),
+            trouble: true,
+        });
+        assert_eq!(status(&s), Some(Status::Limited));
+        s.items.push(Item::You("again".into()));
+        assert_eq!(status(&s), None);
+        s.meta.flags.snoozed = Some(store::secs(SystemTime::now()) - 60);
+        assert_eq!(status(&s), Some(Status::Woke));
     }
 }
