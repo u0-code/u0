@@ -271,6 +271,7 @@ pub struct Desk {
     pub through: palette::Through,
     pub grep: Vec<(String, String)>,
     pub prs: HashMap<PathBuf, Vec<(u64, String)>>,
+    pub issues: HashMap<PathBuf, Vec<(u64, String)>>,
     /// What was named with `@` and images put in, waiting to be sent.
     pub mentions: Vec<mention::Mention>,
     pub pictures: Vec<mention::Picture>,
@@ -710,6 +711,7 @@ impl Desk {
             term_on: None,
             split: false,
             prs: HashMap::new(),
+            issues: HashMap::new(),
             mentions: Vec::new(),
             pictures: Vec::new(),
             registry,
@@ -1554,8 +1556,7 @@ impl Desk {
                     .sessions
                     .iter()
                     .find(|s| s.key == key)
-                    .and_then(|s| s.from_branch.clone())
-                    .unwrap_or_else(|| "HEAD".into());
+                    .and_then(|s| s.begin.clone());
                 hub::make_worktree(
                     folder,
                     text,

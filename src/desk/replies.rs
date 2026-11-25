@@ -225,8 +225,13 @@ impl Desk {
             Msg::Files { folder, files } => {
                 self.files.insert(folder, files);
             }
-            Msg::Prs { folder, prs } => {
-                self.prs.insert(folder, prs);
+            Msg::Prs {
+                folder,
+                prs,
+                issues,
+            } => {
+                self.prs.insert(folder.clone(), prs);
+                self.issues.insert(folder, issues);
             }
             Msg::PrText { number, text } => {
                 for m in &mut self.mentions {

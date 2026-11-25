@@ -114,6 +114,7 @@ pub enum Msg {
     Prs {
         folder: PathBuf,
         prs: Vec<(u64, String)>,
+        issues: Vec<(u64, String)>,
     },
     /// What changed in a scope git is asked for: the branch against its
     /// base, or one commit.
@@ -734,11 +735,17 @@ pub fn list_files(folder: PathBuf, tx: Sender) {
     });
 }
 
-/// Read the open pull requests of `folder` with `gh`, for `@` to name.
+/// Read the open pull requests and issues of `folder` with `gh`, for `@`
+/// to name and the palette to begin from.
 pub fn list_prs(folder: PathBuf, tx: Sender) {
     acp::runtime().spawn_blocking(move || {
-        let prs = git::pull_requests(&folder);
-        let _ = tx.send(Msg::Prs { folder, prs });
+        let prs = git::open_on_github(&folder, "pr");
+        let issues = git::open_on_github(&folder, "issue");
+        let _ = tx.send(Msg::Prs {
+            folder,
+            prs,
+            issues,
+        });
     });
 }
 
@@ -1083,12 +1090,17 @@ pub fn make_worktree(
     dir: PathBuf,
     about: String,
     home: PathBuf,
-    (prefix, from): (String, String),
+    (prefix, from): (String, Option<crate::session::Begin>),
     key: u64,
     tx: Sender,
 ) {
+    use crate::session::Begin;
     acp::runtime().spawn_blocking(move || {
-        let result = git::worktree(&dir, &about, &home, &prefix, &from);
+        let result = match from {
+            Some(Begin::Pr(number, _)) => git::pr_worktree(&dir, number, &home),
+            Some(Begin::Branch(b)) => git::worktree(&dir, &about, &home, &prefix, &b),
+            None => git::worktree(&dir, &about, &home, &prefix, "HEAD"),
+        };
         let _ = tx.send(Msg::Worktree { key, result });
     });
 }

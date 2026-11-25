@@ -4,7 +4,7 @@
 //! sidebar's order, gone to by number (⌘1 to ⌘9) or one after another
 //! (⌘[ and ⌘]).
 
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use gpui::{
     AnyElement, Context, Focusable as _, InteractiveElement as _, IntoElement as _,
@@ -38,6 +38,12 @@ enum Act {
     NewIn(PathBuf),
     /// A file to open in your editor, by its name (with ":line").
     File(String),
+    /// A new session in a project on a pull request's own branch, in a
+    /// worktree.
+    FromPr(PathBuf, u64, String),
+    /// A new session in a project about an issue: its number and title
+    /// begin what you write.
+    FromIssue(PathBuf, u64, String),
 }
 
 /// What the palette looks through: everything, the project's files
@@ -224,6 +230,7 @@ impl Desk {
         self.palette = !self.palette;
         self.palette_at = 0;
         if self.palette {
+            self.want_offers();
             self.palette_input.update(cx, |i, cx| i.set_text("", cx));
             window.focus(&self.palette_input.focus_handle(cx));
         } else {
@@ -407,6 +414,43 @@ impl Desk {
                 live: false,
             })
         });
+        // The open pull requests and issues of the project on screen, to
+        // begin a session from.
+        let project = self.session().map(|s| s.project.clone());
+        let mut github = Vec::new();
+        if let Some(project) = project {
+            let of = |map: &HashMap<PathBuf, Vec<(u64, String)>>| {
+                map.get(&project).cloned().unwrap_or_default()
+            };
+            for (n, title) in of(&self.prs) {
+                let label = format!("#{n} {title}");
+                if found(&label) {
+                    github.push(Line {
+                        group: "Pull requests",
+                        label,
+                        hint: "a session on its branch".into(),
+                        act: Act::FromPr(project.clone(), n, title),
+                        agent: None,
+                        icon: "branch",
+                        live: false,
+                    });
+                }
+            }
+            for (n, title) in of(&self.issues) {
+                let label = format!("#{n} {title}");
+                if found(&label) {
+                    github.push(Line {
+                        group: "Issues",
+                        label,
+                        hint: "a session about it".into(),
+                        act: Act::FromIssue(project.clone(), n, title),
+                        agent: None,
+                        icon: "alert",
+                        live: false,
+                    });
+                }
+            }
+        }
         let mut all = if q.is_empty() {
             let mut all = actions;
             all.extend(sessions.into_iter().take(5));
@@ -414,6 +458,7 @@ impl Desk {
         } else {
             let mut all = sessions;
             all.extend(actions);
+            all.extend(github);
             all
         };
         all.extend(projects);
@@ -452,6 +497,23 @@ impl Desk {
             Act::Grouping => self.toggle_grouping(cx),
             Act::Go(key) => self.show(key, window, cx),
             Act::NewIn(folder) => self.new_in(folder, window, cx),
+            Act::FromPr(folder, n, title) => {
+                self.new_in(folder, window, cx);
+                if let Some(key) = self.current
+                    && let Some(s) = self.session_mut(key)
+                    && s.state == State::Draft
+                    && s.repo
+                {
+                    s.wants_worktree = true;
+                    s.begin = Some(crate::session::Begin::Pr(n, title));
+                }
+            }
+            Act::FromIssue(folder, n, title) => {
+                self.new_in(folder, window, cx);
+                self.input.update(cx, |i, cx| {
+                    i.set_text(&format!("Issue #{n}: {title}\n\n"), cx);
+                });
+            }
         }
         cx.notify();
     }

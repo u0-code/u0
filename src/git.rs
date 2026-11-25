@@ -163,6 +163,47 @@ pub fn worktree(
     Err("no free name for a worktree".into())
 }
 
+/// Make a worktree of the repository at `dir` on the branch of the pull
+/// request `number`, as `gh pr checkout` sets it up (a fork's included,
+/// so that a push goes to the pull request), under
+/// `home/worktrees/<repo>/pr-<number>`.
+pub fn pr_worktree(dir: &Path, number: u64, home: &Path) -> Result<Worktree, String> {
+    let repo = root(dir).ok_or("the folder is not in a git repository")?;
+    let name = repo
+        .file_name()
+        .map_or_else(|| "repo".to_owned(), |n| n.to_string_lossy().into_owned());
+    let path = (1..100)
+        .map(|n| {
+            let slug = if n == 1 {
+                format!("pr-{number}")
+            } else {
+                format!("pr-{number}-{n}")
+            };
+            home.join("worktrees").join(&name).join(slug)
+        })
+        .find(|p| !p.exists())
+        .ok_or("no free name for a worktree")?;
+    let at = path.to_string_lossy().into_owned();
+    git(&repo, &["worktree", "add", "--detach", &at, "HEAD"], None)?;
+    let mut gh = Command::new("gh");
+    gh.current_dir(&path)
+        .args(["pr", "checkout", &number.to_string()]);
+    let branch = run(&mut gh).and_then(|_| git(&path, &["branch", "--show-current"], None));
+    match branch {
+        Ok(branch) if !branch.trim().is_empty() => Ok(Worktree {
+            repo,
+            path,
+            branch: branch.trim().to_owned(),
+        }),
+        other => {
+            let _ = git(&repo, &["worktree", "remove", "--force", &at], None);
+            Err(other
+                .err()
+                .unwrap_or_else(|| "the pull request's branch was not checked out".into()))
+        }
+    }
+}
+
 /// Take the worktree away. A worktree with changes not committed is
 /// refused, and git says so; its branch is kept.
 pub fn remove_worktree(wt: &Worktree) -> Result<(), String> {
@@ -753,12 +794,13 @@ pub fn files(dir: &Path) -> Vec<String> {
     out
 }
 
-/// The open pull requests of the repository at `dir`, by number and title,
-/// as `gh` lists them; none where it is not installed or signed in.
-pub fn pull_requests(dir: &Path) -> Vec<(u64, String)> {
+/// The open pull requests (`what` "pr") or issues ("issue") of the
+/// repository at `dir`, by number and title, as `gh` lists them; none
+/// where it is not installed or signed in.
+pub fn open_on_github(dir: &Path, what: &str) -> Vec<(u64, String)> {
     let mut gh = Command::new("gh");
     gh.current_dir(dir)
-        .args(["pr", "list", "--limit", "30", "--json", "number,title"]);
+        .args([what, "list", "--limit", "30", "--json", "number,title"]);
     run(&mut gh)
         .ok()
         .and_then(|t| serde_json::from_str::<Vec<serde_json::Value>>(&t).ok())

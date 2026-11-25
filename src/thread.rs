@@ -376,13 +376,7 @@ impl Desk {
         match self.session() {
             None => col = col.child(self.start(faces, column, cx)),
             Some(s) => {
-                col = col.child(Self::fresh(
-                    faces,
-                    s,
-                    &self.name_of(&s.agent),
-                    self.popup == crate::desk::Popup::Base,
-                    cx,
-                ));
+                col = col.child(self.fresh(faces, s, cx));
             }
         }
         div()
@@ -485,13 +479,8 @@ impl Desk {
     }
 
     /// A session begun, before anything is said: where it will work.
-    fn fresh(
-        faces: &Faces,
-        s: &Session,
-        name: &str,
-        base_open: bool,
-        cx: &mut Context<Self>,
-    ) -> Div {
+    fn fresh(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
+        let name = &self.name_of(&s.agent);
         div()
             .flex()
             .flex_col()
@@ -537,18 +526,20 @@ impl Desk {
                 d.child(Self::where_toggle(faces, s.wants_worktree, cx))
             })
             .when(s.repo && s.wants_worktree, |d| {
-                d.child(Self::base_chip(faces, s, base_open, cx))
+                d.child(self.base_chip(faces, s, cx))
             })
     }
 
-    /// The branch a new worktree begins from: where the folder is, unless
-    /// another is chosen from the local ones.
-    fn base_chip(faces: &Faces, s: &Session, open: bool, cx: &mut Context<Self>) -> Div {
-        let shown = s
-            .from_branch
-            .clone()
-            .or_else(|| s.branch.clone())
-            .unwrap_or_else(|| "HEAD".into());
+    /// What a new worktree begins from: where the folder is, unless
+    /// another local branch is chosen, or an open pull request, whose own
+    /// branch it then works on.
+    fn base_chip(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
+        use crate::session::Begin;
+        let shown = match &s.begin {
+            Some(Begin::Branch(b)) => b.clone(),
+            Some(Begin::Pr(n, title)) => format!("#{n} {title}"),
+            None => s.branch.clone().unwrap_or_else(|| "HEAD".into()),
+        };
         let key = s.key;
         let mut wrap = div().relative().child(
             div()
@@ -570,40 +561,69 @@ impl Desk {
                 )
                 .child(ui::icon("chevron-down", 11.).text_color(theme::faint()))
                 .on_click(cx.listener(|this, _, _, cx| {
+                    this.want_offers();
                     this.toggle_popup(crate::desk::Popup::Base, cx);
                 })),
         );
-        if open {
-            let mut list = div().flex().flex_col().w(px(260.)).p(px(6.));
+        if self.popup == crate::desk::Popup::Base {
+            let pick = |n: usize, label: String, on: bool, begin: Begin, cx: &mut Context<Self>| {
+                div()
+                    .id(SharedString::from(format!("base-{n}")))
+                    .flex()
+                    .items_center()
+                    .h(px(30.))
+                    .px(px(10.))
+                    .rounded(px(7.))
+                    .cursor_pointer()
+                    .when(on, |d| d.bg(theme::hover()))
+                    .hover(|st| st.bg(theme::hover()))
+                    .child(ui::one_line(ui::mono(faces, label).text_size(px(12.5))))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(s) = this.session_mut(key) {
+                            s.begin = Some(begin.clone());
+                        }
+                        this.popup = crate::desk::Popup::Closed;
+                        cx.notify();
+                    }))
+            };
+            let mut list = div().flex().flex_col().w(px(300.)).p(px(6.));
             for (n, b) in s.branches.iter().enumerate() {
-                let (on, b) = (
-                    Some(b) == s.from_branch.as_ref()
-                        || (s.from_branch.is_none() && Some(b) == s.branch.as_ref()),
-                    b.clone(),
-                );
+                let on = match &s.begin {
+                    Some(Begin::Branch(f)) => f == b,
+                    Some(Begin::Pr(..)) => false,
+                    None => Some(b) == s.branch.as_ref(),
+                };
+                list = list.child(pick(n, b.clone(), on, Begin::Branch(b.clone()), cx));
+            }
+            let prs = self.prs.get(&s.project).filter(|p| !p.is_empty());
+            if let Some(prs) = prs {
                 list = list.child(
                     div()
-                        .id(SharedString::from(format!("base-{n}")))
-                        .flex()
-                        .items_center()
-                        .h(px(30.))
                         .px(px(10.))
-                        .rounded(px(7.))
-                        .cursor_pointer()
-                        .when(on, |d| d.bg(theme::hover()))
-                        .hover(|st| st.bg(theme::hover()))
-                        .child(ui::mono(faces, b.clone()).text_size(px(12.5)))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            if let Some(s) = this.session_mut(key) {
-                                s.from_branch = Some(b.clone());
-                            }
-                            this.popup = crate::desk::Popup::Closed;
-                            cx.notify();
-                        })),
+                        .pt(px(8.))
+                        .pb(px(4.))
+                        .child(meta(faces, "Pull requests: on its own branch")),
                 );
+                for (n, (number, title)) in prs.iter().enumerate() {
+                    let on = matches!(&s.begin, Some(Begin::Pr(p, _)) if p == number);
+                    list = list.child(pick(
+                        s.branches.len() + n,
+                        format!("#{number} {}", ui::fit(title, 34)),
+                        on,
+                        Begin::Pr(*number, title.clone()),
+                        cx,
+                    ));
+                }
             }
             wrap = wrap.child(gpui::deferred(
-                gpui::anchored().child(div().mt(px(30.)).child(ui::menu("base-menu").child(list))),
+                gpui::anchored().child(
+                    div().mt(px(30.)).child(
+                        ui::menu("base-menu")
+                            .max_h(px(360.))
+                            .overflow_y_scroll()
+                            .child(list),
+                    ),
+                ),
             ));
         }
         wrap

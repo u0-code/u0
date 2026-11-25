@@ -153,6 +153,15 @@ pub struct Turn {
     pub diff: Option<Vec<git::FileDiff>>,
 }
 
+/// What a draft's worktree begins from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Begin {
+    /// A local branch: a new branch from it.
+    Branch(String),
+    /// A pull request, by number and title: its own branch, checked out.
+    Pr(u64, String),
+}
+
 #[derive(Debug, Clone)]
 #[allow(
     clippy::struct_excessive_bools,
@@ -176,9 +185,9 @@ pub struct Session {
     /// checkpointed, and can be undone.
     pub repo: bool,
     /// For a draft: whether it is to work in a worktree of its own, and
-    /// the branch it is to begin from (where the folder is, if none).
+    /// what it is to begin from (where the folder is, if nothing).
     pub wants_worktree: bool,
-    pub from_branch: Option<String>,
+    pub begin: Option<Begin>,
     /// Options and a mode chosen before the agent opened it, set on it
     /// once it does.
     pub chosen: Vec<(String, String)>,
@@ -585,7 +594,7 @@ impl Session {
             branch: None,
             repo: false,
             wants_worktree: false,
-            from_branch: None,
+            begin: None,
             chosen: Vec::new(),
             chosen_mode: None,
             worktree: None,
