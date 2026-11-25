@@ -48,6 +48,59 @@ pub enum State {
     Broken(String),
 }
 
+/// What a session works towards, and whether its agent has it paused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Goal {
+    pub objective: String,
+    pub paused: bool,
+}
+
+impl Goal {
+    /// The goal once you said `text`, where it was `now`: `/goal <what
+    /// done means>` sets one, `/goal clear` takes it away, `/goal pause` and
+    /// `/goal resume` pause it and take it up; anything else leaves it.
+    pub fn asked(text: &str, now: Option<Self>) -> Option<Self> {
+        let Some(rest) = text.trim().strip_prefix("/goal") else {
+            return now;
+        };
+        if !rest.is_empty() && !rest.starts_with(char::is_whitespace) {
+            return now;
+        }
+        match rest.trim() {
+            "" => now,
+            "clear" => None,
+            "pause" => now.map(|g| Self { paused: true, ..g }),
+            "resume" => now.map(|g| Self { paused: false, ..g }),
+            objective => Some(Self {
+                objective: objective.to_owned(),
+                paused: false,
+            }),
+        }
+    }
+
+    /// What the agent's message `said` says of the goal, as Claude Code
+    /// says it ("Goal set: …", "Goal active: … (3 turns)", "Goal cleared:
+    /// …", "No goal set"): the goal now, or none; nothing where it says
+    /// nothing of one.
+    pub fn said(said: &str) -> Option<Option<Self>> {
+        let said = said.trim_start();
+        let set = |objective: &str| {
+            Some(Some(Self {
+                objective: objective.trim().to_owned(),
+                paused: false,
+            }))
+        };
+        if let Some(objective) = said.strip_prefix("Goal set: ") {
+            return set(objective.lines().next().unwrap_or_default());
+        }
+        if let Some(rest) = said.strip_prefix("Goal active: ") {
+            let line = rest.lines().next().unwrap_or_default();
+            return set(line.rsplit_once(" (").map_or(line, |(o, _)| o));
+        }
+        (said.starts_with("Goal cleared") || said.starts_with("No goal set")).then_some(None)
+    }
+}
+
 /// A question the agent asked, and what was chosen.
 #[derive(Debug, Clone)]
 pub struct Asked {
@@ -341,6 +394,10 @@ pub struct Session {
     pub sub: Sub,
     /// The tasks its agent left going in the background: commands.
     pub tasks: Vec<Task>,
+    /// What it works towards across turns, set with `/goal`: the
+    /// agent's own command (Claude Code's, Codex's), which it keeps
+    /// working on until it judges it met.
+    pub goal: Option<Goal>,
     /// The session this one asks a side question of: branched off it
     /// whole, not listed, its answer taken back to it if you want.
     pub beside: Option<u64>,
@@ -551,6 +608,7 @@ impl Session {
                 if let Some(t) = self.stamp.take() {
                     self.times.push((self.items.len(), t));
                 }
+                self.goal = Goal::asked(&text, self.goal.take());
                 self.items.push(Item::You(text));
             }
             store::Event::Update(u) => self.apply(*u),
@@ -737,6 +795,7 @@ impl Session {
             parent: None,
             sub: Sub::default(),
             tasks: Vec::new(),
+            goal: None,
             beside: None,
             setup: Vec::new(),
             holding: Vec::new(),
@@ -778,6 +837,7 @@ impl Session {
                 .collect();
             self.meta.begun = SystemTime::now();
         }
+        self.goal = Goal::asked(text, self.goal.take());
         self.items.push(Item::You(text.to_owned()));
         // What goes with it shows under it, and is kept with its record:
         // images, files and long pastes; not what a session or pull
@@ -947,6 +1007,11 @@ impl Session {
                 match self.items.last_mut() {
                     Some(Item::Agent(t)) => t.push_str(&text),
                     _ => self.items.push(Item::Agent(text)),
+                }
+                if let Some(Item::Agent(said)) = self.items.last()
+                    && let Some(goal) = Goal::said(said)
+                {
+                    self.goal = goal;
                 }
             }
             SessionUpdate::AgentThoughtChunk(c) => {
@@ -1320,6 +1385,30 @@ fn informational(c: &agent_client_protocol::v1::schema::ContentChunk) -> Option<
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_goal_is_set_paused_and_cleared_by_what_you_say_and_what_the_agent_answers() {
+        use super::Goal;
+        let goal = Goal::asked("/goal all tests pass", None);
+        assert_eq!(
+            goal.as_ref().map(|g| g.objective.as_str()),
+            Some("all tests pass")
+        );
+        let paused = Goal::asked("/goal pause", goal.clone()).unwrap();
+        assert!(paused.paused);
+        assert!(!Goal::asked("/goal resume", Some(paused)).unwrap().paused);
+        assert_eq!(Goal::asked("/goal", goal.clone()), goal);
+        assert_eq!(Goal::asked("/goals are nice", goal.clone()), goal);
+        assert_eq!(Goal::asked("/goal clear", goal), None);
+        let set = Goal::said("Goal set: the build is green").unwrap().unwrap();
+        assert_eq!(set.objective, "the build is green");
+        let active = Goal::said("Goal active: lint is clean (3 turns)")
+            .unwrap()
+            .unwrap();
+        assert_eq!(active.objective, "lint is clean");
+        assert_eq!(Goal::said("Goal cleared: done"), Some(None));
+        assert_eq!(Goal::said("Working on it"), None);
+    }
+
     use super::*;
 
     fn update(json: &str) -> SessionUpdate {

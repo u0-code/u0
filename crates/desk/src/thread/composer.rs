@@ -77,6 +77,7 @@ impl Desk {
             .children(self.children_asking(faces, s, column, cx))
             .children(self.sign_in_banner(faces, s, &name, column, cx))
             .children(self.offers_menu(faces, column, cx))
+            .children(Self::goal_row(faces, s, column, cx))
             .children(Self::changes_row(faces, s, column, cx))
             .children(Self::queued_list(faces, s, column, cx))
             .children(self.held_banner(column, cx))
@@ -666,6 +667,51 @@ impl Desk {
                         cx.notify();
                     });
                 }),
+        )
+    }
+
+    /// Over the box, while the session has a goal (`/goal`): what done
+    /// means, whether it is paused, and the agent's own commands to pause,
+    /// take up or clear it.
+    fn goal_row(faces: &Faces, s: &Session, column: f32, cx: &mut Context<Self>) -> Option<Div> {
+        let goal = s.goal.as_ref()?;
+        let command = |id: &'static str, label: &'static str, said: &'static str| {
+            ui::button(id, label, ui::Weight::Quiet)
+                .on_click(cx.listener(move |this, _, _, cx| this.say(said, cx)))
+        };
+        Some(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .w(px(column))
+                .mb(px(8.))
+                .px(px(12.))
+                .py(px(6.))
+                .rounded(px(10.))
+                .border_1()
+                .border_color(theme::border2())
+                .child(ui::icon("circle-dot", 14.).text_color(if goal.paused {
+                    theme::faint()
+                } else {
+                    theme::accent()
+                }))
+                .child(
+                    chip_text(faces, if goal.paused { "Goal, paused" } else { "Goal" }).flex_none(),
+                )
+                .child(
+                    ui::one_line(
+                        chip_text(faces, goal.objective.clone()).text_color(theme::text()),
+                    )
+                    .flex_1()
+                    .min_w(px(0.)),
+                )
+                .child(if goal.paused {
+                    command("goal-resume", "Resume", "/goal resume")
+                } else {
+                    command("goal-pause", "Pause", "/goal pause")
+                })
+                .child(command("goal-clear", "Clear", "/goal clear")),
         )
     }
 
