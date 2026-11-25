@@ -8,6 +8,7 @@ use std::{path::Path, time::SystemTime};
 
 use gpui::component::{
     Sizable as _, input::Input, kbd::Kbd, popover::Popover, scroll::ScrollableElement as _,
+    separator::Separator,
 };
 use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 
@@ -591,7 +592,7 @@ impl Desk {
                 )),
             );
         }
-        menu = menu.child(div().h(px(1.)).mx(px(2.)).my(px(4.)).bg(theme::border2()));
+        menu = menu.child(Separator::horizontal().mx(px(2.)).my(px(4.)));
         menu =
             menu.child(item(8, "archive", "Archive".into()).on_click(
                 cx.listener(move |this, _, _, cx| this.archive_project(&archive_dir, cx)),
@@ -996,7 +997,7 @@ impl Desk {
         )));
         if !busy {
             menu = menu
-                .child(div().h(px(1.)).mx(px(2.)).my(px(4.)).bg(theme::border2()))
+                .child(Separator::horizontal().mx(px(2.)).my(px(4.)))
                 .child(
                     item(9, "archive", "Archive".into())
                         .on_click(cx.listener(move |this, _, _, cx| this.archive(key, cx))),

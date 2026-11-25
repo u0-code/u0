@@ -10,6 +10,7 @@ use gpui::component::{
     popover::Popover,
     progress::ProgressCircle,
     scroll::ScrollableElement as _,
+    separator::Separator,
 };
 use gpui::{AnyElement, Context, Div, SharedString, Stateful, Window, div, prelude::*, px};
 
@@ -914,7 +915,7 @@ impl Desk {
         if *popup == Popup::Agent && usable > 1 {
             let on = self.composer.fanout;
             menu = menu
-                .child(div().h(px(1.)).mx(px(2.)).my(px(4.)).bg(theme::border2()))
+                .child(Separator::horizontal().mx(px(2.)).my(px(4.)))
                 .child(
                     ui::menu_row("fanout", on)
                         .child(ui::icon("plus", 14.).text_color(theme::muted()))

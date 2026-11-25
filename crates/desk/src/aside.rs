@@ -12,8 +12,10 @@ use agent_client_protocol::v1::schema::{ToolCallContent, ToolCallStatus};
 use gpui::component::{
     Sizable as _,
     button::Button,
+    checkbox::Checkbox,
     input::Input,
     popover::Popover,
+    progress::Progress,
     scroll::ScrollableElement as _,
     tab::{Tab, TabBar},
 };
@@ -467,29 +469,15 @@ impl Desk {
                         let (key, named) = (s.key, f.path.clone());
                         let goes = !s.git.left_out.contains(&f.path);
                         d.child(
-                            div()
-                                .id(SharedString::from(format!("goes-{n}")))
-                                .flex()
-                                .flex_none()
-                                .items_center()
-                                .justify_center()
-                                .size(px(14.))
-                                .rounded(px(4.))
-                                .border_1()
-                                .border_color(if goes {
-                                    theme::text2()
-                                } else {
-                                    theme::ghost_line()
-                                })
-                                .when(goes, |d| {
-                                    d.child(ui::icon("check", 10.).text_color(theme::text()))
-                                })
-                                .tooltip(ui::tip(if goes {
+                            Checkbox::new(SharedString::from(format!("goes-{n}")))
+                                .small()
+                                .checked(goes)
+                                .tooltip(if goes {
                                     "In the next commit: click to leave it out"
                                 } else {
                                     "Left out of the next commit"
-                                }))
-                                .on_click(cx.listener(move |this, _, _, cx| {
+                                })
+                                .on_click(cx.listener(move |this, _: &bool, _, cx| {
                                     cx.stop_propagation();
                                     if let Some(s) = this.sessions.at_mut(key)
                                         && !s.git.left_out.remove(&named)
@@ -995,18 +983,10 @@ impl Desk {
         let mut sec = section(faces, "Context", note)
             .border_b_0()
             .children(share.map(|share| {
-                div()
-                    .h(px(4.))
-                    .w_full()
-                    .rounded(px(2.))
-                    .bg(theme::tag_line())
-                    .overflow_hidden()
-                    .child(
-                        div()
-                            .h_full()
-                            .w(gpui::relative(share.clamp(0., 1.)))
-                            .bg(theme::muted()),
-                    )
+                Progress::new("context-share")
+                    .xsmall()
+                    .value(share * 100.)
+                    .color(theme::muted())
             }))
             .child(key_value(
                 faces,

@@ -12,6 +12,7 @@ pub use settings::{Shown, Tab, height as settings_height};
 use gpui::component::{
     Sizable as _,
     input::{Input, InputEvent, InputState},
+    progress::Progress,
     scroll::ScrollableElement as _,
 };
 use gpui::{Context, Div, Entity, SharedString, Window, div, prelude::*, px};
@@ -253,13 +254,10 @@ impl Desk {
             // How far it is, when the size is known; never a guess.
             download = download
                 .children(install.share.map(|share| {
-                    div()
-                        .h(px(4.))
-                        .w_full()
-                        .rounded(px(2.))
-                        .bg(theme::tag_line())
-                        .overflow_hidden()
-                        .child(div().h_full().w(gpui::relative(share)).bg(theme::accent()))
+                    Progress::new("install-share")
+                        .xsmall()
+                        .value(share * 100.)
+                        .color(theme::accent())
                 }))
                 .child(ui::fine(faces, install.what.clone()));
         } else if let Stage::Missing(m) = &stage

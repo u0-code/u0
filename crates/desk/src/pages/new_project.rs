@@ -4,7 +4,7 @@
 //! scratch session in a folder of its own.
 
 use gpui::component::input::{Input, InputState};
-use gpui::component::scroll::ScrollableElement as _;
+use gpui::component::{Sizable as _, progress::Progress, scroll::ScrollableElement as _};
 use gpui::{Context, Div, Entity, div, prelude::*, px};
 
 use super::card;
@@ -118,13 +118,10 @@ impl Desk {
         if let Some(c) = &self.adding.cloning {
             clone = clone
                 .children(c.share.map(|share| {
-                    div()
-                        .h(px(4.))
-                        .w_full()
-                        .rounded(px(2.))
-                        .bg(theme::tag_line())
-                        .overflow_hidden()
-                        .child(div().h_full().w(gpui::relative(share)).bg(theme::accent()))
+                    Progress::new("clone-share")
+                        .xsmall()
+                        .value(share * 100.)
+                        .color(theme::accent())
                 }))
                 .child(ui::fine(faces, c.what.clone()))
                 .child(

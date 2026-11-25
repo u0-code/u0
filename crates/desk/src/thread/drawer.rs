@@ -6,6 +6,7 @@
 use gpui::component::{
     Sizable as _,
     input::{Input, InputState},
+    separator::Separator,
     switch::Switch,
     tab::{Tab, TabBar},
 };
@@ -160,7 +161,12 @@ impl Desk {
         }
         bar = bar
             .when(ruled, |d| {
-                d.child(div().w(px(1.)).h(px(18.)).mx(px(4.)).bg(theme::tag_line()))
+                d.child(
+                    Separator::vertical()
+                        .h(px(18.))
+                        .mx(px(4.))
+                        .color(theme::tag_line()),
+                )
             })
             .child(
                 ui::icon_button(
@@ -203,7 +209,7 @@ impl Desk {
             .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, cx| this.terminal_key(e, cx)));
         for (n, t) in panes.iter().enumerate() {
             if n > 0 {
-                body = body.child(div().w(px(1.)).h_full().bg(theme::border()));
+                body = body.child(Separator::vertical().color(theme::border()));
             }
             let focused = Some(t.id) == on;
             body = body.child(self.pane(faces, t, cell, focused, cx));
