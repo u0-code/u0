@@ -1,8 +1,9 @@
-//! What an agent says, drawn the way it was written: the small part of
-//! Markdown a model actually writes. Paragraphs, headings, lists (nested
-//! by their indent), quotes, fenced code, tables, and inside a line
-//! `code`, **bold** and *italic* (with asterisks only). Anything else is
-//! left as the text it is.
+//! What an agent says, drawn the way it was written: standard Markdown with
+//! GitHub's tables and ~~strikes~~, read by `pulldown-cmark` and folded
+//! into the few blocks drawn here. Paragraphs, headings, list items (by
+//! how deep they are nested), quotes, code and tables, and inside a line
+//! `code`, **bold**, *italic*, strikes and links. An address written on
+//! its own is a link too.
 //!
 //! It is set in the desk's type (`style.rs`): body text with room
 //! between its lines, blocks a step apart and the items of a list closer,
@@ -10,12 +11,13 @@
 //! scrolls sideways rather than wrapping a command, as a table wider than
 //! the column does rather than widening it.
 
-use std::{collections::HashSet, ops::Range};
+use std::{collections::HashSet, mem::take, ops::Range};
 
 use gpui::{
     AnyElement, Context, Div, FontStyle, FontWeight, Hsla, InteractiveText, SharedString,
     StyledText, TextRun, div, prelude::*, px,
 };
+use pulldown_cmark::{Alignment, CodeBlockKind, Event, Options, Parser, Tag, TagEnd};
 
 use crate::{
     desk::Desk,
@@ -28,63 +30,64 @@ use crate::{
 
 /// One block of a message.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Block {
-    Paragraph(String),
-    Heading(u8, String),
-    /// A list item: its marker as written (`•` for an unordered one), its
-    /// text, and how deep it is nested, from 0.
+enum Block {
+    Paragraph(Inline),
+    Heading(u8, Inline),
+    /// A list item: its marker (`•` for an unordered one, none for a
+    /// second paragraph of the item), its words, and how deep it is
+    /// nested, from 0.
     Item {
         marker: String,
-        text: String,
+        text: Inline,
         depth: u8,
     },
-    Quote(String),
+    Quote(Inline),
     Code {
         lang: String,
         text: String,
     },
-    /// A table: its head, how each column is set, and its rows, each cut
-    /// or padded to as many cells as the head has.
+    /// A table: its head, how each column is set (to the right or not),
+    /// and its rows.
     Table {
-        head: Vec<String>,
+        head: Vec<Inline>,
         right: Vec<bool>,
-        rows: Vec<Vec<String>>,
+        rows: Vec<Vec<Inline>>,
     },
 }
 
-/// The cells of a table's line: what is between its bars, trimmed.
-fn cells(line: &str) -> Vec<String> {
-    let inner = line.trim();
-    let inner = inner.strip_prefix('|').unwrap_or(inner);
-    let inner = inner.strip_suffix('|').unwrap_or(inner);
-    inner.split('|').map(|c| c.trim().to_owned()).collect()
+/// A line's words with their marks taken out, and how each stretch of
+/// them is set.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Inline {
+    text: String,
+    /// Each stretch of the text and how it is set, in order and leaving
+    /// nothing out: what a run of text is drawn from.
+    spans: Vec<(Range<usize>, Mark)>,
+    /// Links: where each is in the text, and where it goes.
+    links: Vec<(Range<usize>, String)>,
 }
 
-/// Whether a line is the rule under a table's head, `|---|:--:|`; and if
-/// so, which of its columns are set to the right.
-fn rule(line: &str) -> Option<Vec<bool>> {
-    let t = line.trim();
-    if !t.contains('-') || !t.contains('|') && !t.starts_with('-') {
-        return None;
+impl Inline {
+    fn add(&mut self, words: &str, mark: Mark) {
+        let start = self.text.len();
+        self.text.push_str(words);
+        match self.spans.last_mut() {
+            Some((r, m)) if *m == mark && r.end == start => r.end = self.text.len(),
+            _ => self.spans.push((start..self.text.len(), mark)),
+        }
     }
-    cells(t)
-        .iter()
-        .map(|c| {
-            let dashes = c.trim_matches(':');
-            (!dashes.is_empty() && dashes.chars().all(|ch| ch == '-'))
-                .then(|| c.ends_with(':') && !c.starts_with(':'))
-        })
-        .collect()
 }
 
-/// How deep a line is nested, by its indent: two spaces, or a tab, a level.
-fn depth(line: &str) -> u8 {
-    let spaces: usize = line
-        .chars()
-        .take_while(|c| c.is_whitespace())
-        .map(|c| if c == '\t' { 2 } else { 1 })
-        .sum();
-    u8::try_from((spaces / 2).min(3)).unwrap_or(3)
+/// How a stretch of a line is set. Where marks nest, the stretch takes
+/// code over the others, then a link, bold, italic and a strike.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mark {
+    Plain,
+    Code,
+    Bold,
+    Italic,
+    Strike,
+    Link,
 }
 
 /// Whether a character belongs to a script written without spaces between
@@ -99,262 +102,261 @@ fn unspaced(c: char) -> bool {
     )
 }
 
-/// The lines of a paragraph as one: a space between lines, except where
-/// both sides are Chinese or Japanese, which a line break does not space.
-fn joined(lines: &[&str]) -> String {
-    let mut out = String::new();
-    for line in lines {
-        let starts_unspaced = line.chars().next().is_some_and(unspaced);
-        let ends_unspaced = out.chars().next_back().is_some_and(unspaced);
-        if !(out.is_empty() || starts_unspaced && ends_unspaced) {
-            out.push(' ');
-        }
-        out.push_str(line);
-    }
-    out
-}
-
 /// Split a message into blocks.
-pub fn parse(text: &str) -> Vec<Block> {
-    let mut blocks = Vec::new();
-    let mut paragraph: Vec<&str> = Vec::new();
-    let lines = text.lines();
-    let flush = |paragraph: &mut Vec<&str>, blocks: &mut Vec<Block>| {
-        if !paragraph.is_empty() {
-            blocks.push(Block::Paragraph(joined(paragraph)));
-            paragraph.clear();
+fn parse(text: &str) -> Vec<Block> {
+    let mut read = Reader::default();
+    for event in Parser::new_ext(text, Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH) {
+        read.event(event);
+    }
+    read.blocks
+}
+
+/// What the words being read are inside of.
+enum Within {
+    Quote,
+    /// A list, and the number its next item takes if it counts.
+    List(Option<u64>),
+    /// A list item, and its marker until its first words take it.
+    Item(Option<String>),
+}
+
+/// Markdown's events folded into blocks as they come.
+#[derive(Default)]
+struct Reader {
+    blocks: Vec<Block>,
+    within: Vec<Within>,
+    heading: Option<u8>,
+    /// A block of code being read: its language and its text.
+    code: Option<(String, String)>,
+    /// The words being read, and whether a line ended before the next.
+    line: Inline,
+    broken: bool,
+    strong: u8,
+    emphasis: u8,
+    struck: u8,
+    /// A link being read: where its words began, and where it goes.
+    link: Option<(usize, String)>,
+    /// A table being read: how its columns are set, its head, its rows
+    /// and the row being read.
+    right: Vec<bool>,
+    head: Vec<Inline>,
+    rows: Vec<Vec<Inline>>,
+    row: Vec<Inline>,
+}
+
+impl Reader {
+    fn event(&mut self, event: Event) {
+        match event {
+            Event::Start(tag) => self.start(tag),
+            Event::End(tag) => self.end(tag),
+            Event::Text(t) => match &mut self.code {
+                Some((_, code)) => code.push_str(&t),
+                None => self.push(&t, self.mark()),
+            },
+            Event::Code(t) => self.push(&t, Mark::Code),
+            Event::Html(t) | Event::InlineHtml(t) => {
+                for piece in t.split_inclusive('\n') {
+                    self.push(piece.trim_end_matches('\n'), Mark::Plain);
+                    self.broken |= piece.ends_with('\n');
+                }
+            }
+            Event::SoftBreak | Event::HardBreak => self.broken = true,
+            _ => {}
         }
-    };
-    let mut lines = lines.peekable();
-    while let Some(line) = lines.next() {
-        let trimmed = line.trim_start();
-        // A table: a line of bars over a rule, then the lines of bars that
-        // follow.
-        if trimmed.starts_with('|')
-            && let Some(right) = lines.peek().and_then(|next| rule(next))
-        {
-            flush(&mut paragraph, &mut blocks);
-            lines.next();
-            let head = cells(trimmed);
-            let n = head.len();
-            let mut rows = Vec::new();
-            while let Some(next) = lines.peek() {
-                if !next.trim_start().starts_with('|') {
-                    break;
-                }
-                let mut row = cells(next);
-                row.resize(n, String::new());
-                rows.push(row);
-                lines.next();
+    }
+
+    fn start(&mut self, tag: Tag) {
+        match tag {
+            Tag::Heading { level, .. } => {
+                self.flush();
+                self.heading = Some(level as u8);
             }
-            let mut right = right;
-            right.resize(n, false);
-            blocks.push(Block::Table { head, right, rows });
-        } else if let Some(lang) = trimmed.strip_prefix("```") {
-            flush(&mut paragraph, &mut blocks);
-            let mut code = Vec::new();
-            for inner in lines.by_ref() {
-                if inner.trim_start().starts_with("```") {
-                    break;
-                }
-                code.push(inner);
+            Tag::BlockQuote(_) => {
+                self.flush();
+                self.within.push(Within::Quote);
             }
-            blocks.push(Block::Code {
-                lang: lang.trim().to_owned(),
-                text: code.join("\n"),
-            });
-        } else if trimmed.is_empty() {
-            flush(&mut paragraph, &mut blocks);
-        } else if let Some((level, rest)) = heading(trimmed) {
-            flush(&mut paragraph, &mut blocks);
-            blocks.push(Block::Heading(level, rest.to_owned()));
-        } else if let Some(rest) = trimmed
-            .strip_prefix("- ")
-            .or_else(|| trimmed.strip_prefix("* "))
-            .or_else(|| trimmed.strip_prefix("• "))
-        {
-            flush(&mut paragraph, &mut blocks);
-            blocks.push(Block::Item {
-                marker: "•".to_owned(),
-                text: rest.to_owned(),
-                depth: depth(line),
-            });
-        } else if let Some((n, rest)) = numbered(trimmed) {
-            flush(&mut paragraph, &mut blocks);
-            blocks.push(Block::Item {
-                marker: format!("{n}."),
-                text: rest.to_owned(),
-                depth: depth(line),
-            });
-        } else if let Some(rest) = trimmed
-            .strip_prefix("> ")
-            .or_else(|| trimmed.strip_prefix('>'))
-        {
-            flush(&mut paragraph, &mut blocks);
-            blocks.push(Block::Quote(rest.to_owned()));
+            Tag::List(first) => {
+                self.flush();
+                self.within.push(Within::List(first));
+            }
+            Tag::Item => {
+                self.flush();
+                let marker = match self.within.last_mut() {
+                    Some(Within::List(Some(n))) => {
+                        *n += 1;
+                        format!("{}.", *n - 1)
+                    }
+                    _ => "•".to_owned(),
+                };
+                self.within.push(Within::Item(Some(marker)));
+            }
+            Tag::CodeBlock(kind) => {
+                self.flush();
+                let lang = match kind {
+                    CodeBlockKind::Fenced(lang) => lang.to_string(),
+                    CodeBlockKind::Indented => String::new(),
+                };
+                self.code = Some((lang, String::new()));
+            }
+            Tag::Table(columns) => {
+                self.right = columns.iter().map(|a| *a == Alignment::Right).collect();
+            }
+            Tag::Strong => self.strong += 1,
+            Tag::Emphasis => self.emphasis += 1,
+            Tag::Strikethrough => self.struck += 1,
+            Tag::Link { dest_url, .. } | Tag::Image { dest_url, .. } => {
+                self.link = Some((self.line.text.len(), dest_url.to_string()));
+            }
+            _ => {}
+        }
+    }
+
+    fn end(&mut self, tag: TagEnd) {
+        match tag {
+            TagEnd::Paragraph | TagEnd::HtmlBlock => self.flush(),
+            TagEnd::Heading(_) => {
+                self.flush();
+                self.heading = None;
+            }
+            TagEnd::BlockQuote(_) | TagEnd::List(_) | TagEnd::Item => {
+                self.flush();
+                self.within.pop();
+            }
+            TagEnd::CodeBlock => {
+                if let Some((lang, mut text)) = self.code.take() {
+                    if text.ends_with('\n') {
+                        text.pop();
+                    }
+                    self.blocks.push(Block::Code { lang, text });
+                }
+            }
+            TagEnd::TableCell => {
+                let cell = self.take_line();
+                self.row.push(cell);
+            }
+            TagEnd::TableHead => self.head = take(&mut self.row),
+            TagEnd::TableRow => self.rows.push(take(&mut self.row)),
+            TagEnd::Table => self.blocks.push(Block::Table {
+                head: take(&mut self.head),
+                right: take(&mut self.right),
+                rows: take(&mut self.rows),
+            }),
+            TagEnd::Strong => self.strong -= 1,
+            TagEnd::Emphasis => self.emphasis -= 1,
+            TagEnd::Strikethrough => self.struck -= 1,
+            TagEnd::Link | TagEnd::Image => {
+                if let Some((start, to)) = self.link.take()
+                    && start < self.line.text.len()
+                {
+                    self.line.links.push((start..self.line.text.len(), to));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// How the words read now are set.
+    fn mark(&self) -> Mark {
+        if self.link.is_some() {
+            Mark::Link
+        } else if self.strong > 0 {
+            Mark::Bold
+        } else if self.emphasis > 0 {
+            Mark::Italic
+        } else if self.struck > 0 {
+            Mark::Strike
         } else {
-            paragraph.push(trimmed);
+            Mark::Plain
         }
     }
-    flush(&mut paragraph, &mut blocks);
-    blocks
-}
 
-fn heading(line: &str) -> Option<(u8, &str)> {
-    let hashes = line.chars().take_while(|c| *c == '#').count();
-    if (1..=4).contains(&hashes) {
-        line[hashes..]
-            .strip_prefix(' ')
-            .map(|rest| (u8::try_from(hashes).unwrap_or(4), rest))
-    } else {
-        None
-    }
-}
-
-fn numbered(line: &str) -> Option<(&str, &str)> {
-    let digits = line.chars().take_while(char::is_ascii_digit).count();
-    if digits == 0 || digits > 3 {
-        return None;
-    }
-    let rest = line[digits..].strip_prefix(". ")?;
-    Some((&line[..digits], rest))
-}
-
-/// A line's text with its inline marks taken out, and where each mark was.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Inline {
-    pub text: String,
-    pub code: Vec<Range<usize>>,
-    pub bold: Vec<Range<usize>>,
-    pub italic: Vec<Range<usize>>,
-    /// Links: where each is in the text, and where it goes.
-    pub links: Vec<(Range<usize>, String)>,
-}
-
-/// Take `code`, **bold** and *italic* out of a line. An unclosed mark is
-/// left as the character it is.
-pub fn inline(source: &str) -> Inline {
-    let mut out = Inline {
-        text: String::with_capacity(source.len()),
-        code: Vec::new(),
-        bold: Vec::new(),
-        italic: Vec::new(),
-        links: Vec::new(),
-    };
-    let mut rest = source;
-    while let Some(c) = rest.chars().next() {
-        // A link written `[words](address)`, or an address on its own.
-        if let Some((words, address, used)) = link(rest) {
-            let start = out.text.len();
-            out.text.push_str(words);
-            out.links.push((start..out.text.len(), address.to_owned()));
-            rest = &rest[used..];
-            continue;
+    /// Words onto the line: after a line's end, a space first, except
+    /// where both sides are Chinese or Japanese, which a line break does
+    /// not space.
+    fn push(&mut self, words: &str, mark: Mark) {
+        if words.is_empty() {
+            return;
         }
-        let marked = match c {
-            '`' => take(rest, "`").map(|(inner, used)| (inner, used, 0)),
-            '*' if rest.starts_with("**") => take(rest, "**").map(|(inner, used)| (inner, used, 1)),
-            // Only `*`: an underscore is far more often part of a name.
-            '*' => take(rest, "*").map(|(inner, used)| (inner, used, 2)),
-            _ => None,
-        };
-        match marked {
-            Some((inner, used, which)) if !inner.is_empty() => {
-                let start = out.text.len();
-                out.text.push_str(inner);
-                let range = start..out.text.len();
-                match which {
-                    0 => out.code.push(range),
-                    1 => out.bold.push(range),
-                    _ => out.italic.push(range),
+        let line = &mut self.line;
+        if take(&mut self.broken)
+            && !line.text.is_empty()
+            && !(line.text.ends_with(unspaced) && words.starts_with(unspaced))
+        {
+            line.add(" ", mark);
+        }
+        line.add(words, mark);
+    }
+
+    /// The line read so far, with each address written on its own in it
+    /// made a link; a new line begins.
+    fn take_line(&mut self) -> Inline {
+        self.broken = false;
+        let mut line = take(&mut self.line);
+        let mut spans = Vec::with_capacity(line.spans.len());
+        for (r, mark) in take(&mut line.spans) {
+            let mut at = r.start;
+            while mark == Mark::Plain
+                && let Some(found) = address(&line.text[at..r.end])
+            {
+                let found = at + found.start..at + found.end;
+                if found.start > at {
+                    spans.push((at..found.start, Mark::Plain));
                 }
-                rest = &rest[used..];
+                spans.push((found.clone(), Mark::Link));
+                line.links
+                    .push((found.clone(), line.text[found.clone()].to_owned()));
+                at = found.end;
             }
-            _ => {
-                out.text.push(c);
-                rest = &rest[c.len_utf8()..];
+            if at < r.end {
+                spans.push((at..r.end, mark));
             }
         }
+        line.spans = spans;
+        line
     }
-    out
+
+    /// The line read so far as a block of its own, by what it is inside.
+    fn flush(&mut self) {
+        let line = self.take_line();
+        if line.text.is_empty() {
+            return;
+        }
+        let lists = self
+            .within
+            .iter()
+            .filter(|w| matches!(w, Within::List(_)))
+            .count();
+        let depth = u8::try_from(lists.saturating_sub(1).min(3)).unwrap_or(3);
+        let block = match (self.heading, self.within.last_mut()) {
+            (Some(level), _) => Block::Heading(level, line),
+            (None, Some(Within::Item(marker))) => Block::Item {
+                marker: marker.take().unwrap_or_default(),
+                text: line,
+                depth,
+            },
+            (None, Some(Within::Quote)) => Block::Quote(line),
+            _ => Block::Paragraph(line),
+        };
+        self.blocks.push(block);
+    }
 }
 
-/// A link at the start of `s`: its words, its address and how many bytes
-/// the whole took. `[words](https://…)` shows its words; an address on its
-/// own shows itself, up to a space or a mark of Chinese punctuation, and
-/// without a full stop or comma it ends a sentence with.
-fn link(s: &str) -> Option<(&str, &str, usize)> {
-    if let Some(after) = s.strip_prefix('[') {
-        let close = after.find("](")?;
-        let words = &after[..close];
-        let rest = &after[close + 2..];
-        let end = rest.find(')')?;
-        let address = &rest[..end];
-        let web = address.starts_with("http://") || address.starts_with("https://");
-        return (web && !words.is_empty() && !words.contains('[')).then_some((
-            words,
-            address,
-            1 + close + 2 + end + 1,
-        ));
-    }
-    if !(s.starts_with("https://") || s.starts_with("http://")) {
-        return None;
-    }
-    let end = s
+/// Where the first address written on its own in `s` is: up to a space or
+/// a mark of Chinese punctuation, and without a full stop or comma it ends
+/// a sentence with.
+fn address(s: &str) -> Option<Range<usize>> {
+    let start = s
+        .find("https://")
+        .into_iter()
+        .chain(s.find("http://"))
+        .min()?;
+    let rest = &s[start..];
+    let end = rest
         .char_indices()
         .find(|(_, c)| c.is_whitespace() || unspaced(*c) || "，。）、；：》」』\"'<>`".contains(*c))
-        .map_or(s.len(), |(i, _)| i);
-    let address = s[..end].trim_end_matches(['.', ',', ')', ';', ':', '!', '?']);
-    (address.len() > "https://".len()).then_some((address, address, address.len()))
-}
-
-/// The text between an opening `mark` at the start of `s` and the next
-/// one, and how many bytes the whole took.
-fn take<'a>(s: &'a str, mark: &str) -> Option<(&'a str, usize)> {
-    let after = &s[mark.len()..];
-    let end = after.find(mark)?;
-    // `* ` is a bullet or a product, not emphasis.
-    if mark != "`" && (after.starts_with(' ') || after[..end].ends_with(' ')) {
-        return None;
-    }
-    Some((&after[..end], mark.len() + end + mark.len()))
-}
-
-/// How a stretch of a line is set.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Mark {
-    Plain,
-    Code,
-    Bold,
-    Italic,
-    Link,
-}
-
-/// The whole of a line's text in stretches, each with how it is set, in
-/// order and leaving nothing out: what a run of text is drawn from.
-pub fn spans(line: &Inline) -> Vec<(Range<usize>, Mark)> {
-    let mut marked: Vec<(Range<usize>, Mark)> = line
-        .code
-        .iter()
-        .map(|r| (r.clone(), Mark::Code))
-        .chain(line.bold.iter().map(|r| (r.clone(), Mark::Bold)))
-        .chain(line.italic.iter().map(|r| (r.clone(), Mark::Italic)))
-        .chain(line.links.iter().map(|(r, _)| (r.clone(), Mark::Link)))
-        .collect();
-    marked.sort_by_key(|(r, _)| r.start);
-    let mut out = Vec::new();
-    let mut at = 0;
-    for (r, mark) in marked {
-        if r.start > at {
-            out.push((at..r.start, Mark::Plain));
-        }
-        at = r.end;
-        out.push((r, mark));
-    }
-    if at < line.text.len() {
-        out.push((at..line.text.len(), Mark::Plain));
-    }
-    out
+        .map_or(rest.len(), |(i, _)| i);
+    let address = rest[..end].trim_end_matches(['.', ',', ')', ';', ':', '!', '?']);
+    (address.len() > "https://".len()).then(|| start..start + address.len())
 }
 
 /// The weight bold is set in: a semibold, as the design sets it.
@@ -403,8 +405,8 @@ impl Setting {
 
 /// A line of text with its marks drawn: inline code in mono on a faint
 /// ground, bold and italic in the face of the line.
-fn styled(faces: &Faces, id: &str, line: &str, base: &Base) -> StyledText {
-    styled_from(faces, id, &padded(inline(line)), base)
+fn styled(faces: &Faces, id: &str, line: &Inline, base: &Base) -> StyledText {
+    styled_from(faces, id, &padded(line), base)
 }
 
 /// `text`, which draws `words`, drawn so that they can be chosen with the
@@ -421,8 +423,8 @@ fn choosable(id: &str, text: StyledText, words: &str) -> AnyElement {
 }
 
 /// A line with its marks drawn, its words choosable, as the paragraph `id`.
-fn choosable_line(faces: &Faces, id: &str, line: &str, base: &Base) -> AnyElement {
-    let parsed = padded(inline(line));
+fn choosable_line(faces: &Faces, id: &str, line: &Inline, base: &Base) -> AnyElement {
+    let parsed = padded(line);
     let text = styled_from(faces, id, &parsed, base);
     choosable(id, text, &parsed.text)
 }
@@ -434,33 +436,34 @@ const PAD: char = '\u{2009}';
 
 /// `line` with a thin space put either side of each stretch of code, and
 /// every stretch after it moved along to match.
-fn padded(line: Inline) -> Inline {
-    if line.code.is_empty() {
-        return line;
-    }
+fn padded(line: &Inline) -> Inline {
     let w = PAD.len_utf8();
-    // Bold, italic and links never overlap code, so a boundary of theirs
-    // moves by two pads for each stretch of code that ends before it.
-    let shift = |at: usize| 2 * w * line.code.iter().filter(|c| c.end <= at).count();
+    let code = |m: &Mark| *m == Mark::Code;
+    // A boundary moves by two pads for each stretch of code that ends
+    // before it: a stretch of code takes its own two.
+    let shift = |at: usize| {
+        2 * w
+            * line
+                .spans
+                .iter()
+                .filter(|(r, m)| code(m) && r.end <= at)
+                .count()
+    };
     let moved = |r: &Range<usize>| (r.start + shift(r.start))..(r.end + shift(r.end));
-    let mut text = String::with_capacity(line.text.len() + line.code.len() * 2 * w);
-    let mut at = 0;
-    let mut code = Vec::with_capacity(line.code.len());
-    for c in &line.code {
-        text.push_str(&line.text[at..c.start]);
-        let start = text.len();
-        text.push(PAD);
-        text.push_str(&line.text[c.clone()]);
-        text.push(PAD);
-        code.push(start..text.len());
-        at = c.end;
+    let mut text = String::with_capacity(line.text.len() + 2 * w * line.spans.len());
+    for (r, m) in &line.spans {
+        let words = &line.text[r.clone()];
+        if code(m) {
+            text.push(PAD);
+            text.push_str(words);
+            text.push(PAD);
+        } else {
+            text.push_str(words);
+        }
     }
-    text.push_str(&line.text[at..]);
     Inline {
         text,
-        code,
-        bold: line.bold.iter().map(moved).collect(),
-        italic: line.italic.iter().map(moved).collect(),
+        spans: line.spans.iter().map(|(r, m)| (moved(r), *m)).collect(),
         links: line
             .links
             .iter()
@@ -475,15 +478,15 @@ fn padded(line: Inline) -> Inline {
 fn linked(
     faces: &Faces,
     id: String,
-    line: &str,
+    line: &Inline,
     base: &Base,
     desk: &gpui::WeakEntity<Desk>,
 ) -> AnyElement {
-    let parsed = padded(inline(line));
+    let parsed = padded(line);
     let text = styled_from(faces, &id, &parsed, base);
     let mut ranges: Vec<Range<usize>> = parsed.links.iter().map(|(r, _)| r.clone()).collect();
     let mut addresses: Vec<String> = parsed.links.iter().map(|(_, a)| a.clone()).collect();
-    for r in &parsed.code {
+    for (r, _) in parsed.spans.iter().filter(|(_, m)| *m == Mark::Code) {
         let named = parsed.text[r.clone()].trim_matches(PAD);
         if path_like(named) {
             ranges.push(r.clone());
@@ -540,7 +543,8 @@ fn styled_from(faces: &Faces, id: &str, parsed: &Inline, base: &Base) -> StyledT
     };
     // Inline code is three runs: its thin spaces in the line's face, its
     // words in mono between them, all on the one shade.
-    let pieces = spans(parsed).into_iter().flat_map(|(r, mark)| {
+    let pieces = parsed.spans.iter().flat_map(|(r, mark)| {
+        let (r, mark) = (r.clone(), *mark);
         let w = PAD.len_utf8();
         if mark == Mark::Code && r.len() > 2 * w {
             vec![
@@ -582,6 +586,11 @@ fn styled_from(faces: &Faces, id: &str, parsed: &Inline, base: &Base) -> StyledT
                     base.color,
                     None,
                 ),
+                Mark::Strike => (
+                    face(&base.face, base.weight, FontStyle::Normal),
+                    base.color,
+                    None,
+                ),
                 Mark::Link => (
                     face(&base.face, base.weight, FontStyle::Normal),
                     theme::link(),
@@ -603,7 +612,10 @@ fn styled_from(faces: &Faces, id: &str, parsed: &Inline, base: &Base) -> StyledT
                     color: Some(theme::link_line()),
                     wavy: false,
                 }),
-                strikethrough: None,
+                strikethrough: (mark == Mark::Strike).then(|| gpui::StrikethroughStyle {
+                    thickness: px(1.),
+                    color: Some(base.color),
+                }),
             }
         })
         .collect();
@@ -780,7 +792,7 @@ const COLUMN_GAP: f32 = 20.;
 const CELL_PAD: f32 = 9.;
 
 /// The rows a table shows, and how many it folds away.
-fn table_rows(rows: &[Vec<String>], all: bool) -> (&[Vec<String>], usize) {
+fn table_rows<T>(rows: &[T], all: bool) -> (&[T], usize) {
     let shown = if all {
         rows.len()
     } else {
@@ -791,9 +803,9 @@ fn table_rows(rows: &[Vec<String>], all: bool) -> (&[Vec<String>], usize) {
 
 /// What a table is made of, as it was parsed.
 struct Table<'a> {
-    head: &'a [String],
+    head: &'a [Inline],
     right: &'a [bool],
-    rows: &'a [Vec<String>],
+    rows: &'a [Vec<Inline>],
 }
 
 /// A table, set the way a careful page sets one: the head in the bold of
@@ -823,6 +835,7 @@ fn table(
         ..body(faces, set)
     };
     let plain = body(faces, set);
+    let empty = Inline::default();
     let mut grid = div().flex().flex_none();
     for (i, title) in t.head.iter().enumerate() {
         let gap = i + 1 < t.head.len();
@@ -847,7 +860,7 @@ fn table(
         );
         for (r, cells) in shown.iter().enumerate() {
             let ruled = r + 1 < shown.len();
-            let text = cells.get(i).map_or("", String::as_str);
+            let text = cells.get(i).unwrap_or(&empty);
             column = column.child(
                 cell()
                     .h(px(line + 2. * CELL_PAD + if ruled { 1. } else { 0. }))
@@ -919,9 +932,11 @@ fn table(
         })
 }
 
-/// A table as Markdown, or as CSV (cells quoted where they need it).
+/// A table's words as Markdown, or as CSV (cells quoted where they need
+/// it).
 fn table_text(t: &Table, csv: bool) -> String {
-    let row = |cells: &[String]| {
+    let row = |cells: &[Inline]| {
+        let cells: Vec<&str> = cells.iter().map(|c| c.text.as_str()).collect();
         if csv {
             cells
                 .iter()
@@ -929,7 +944,7 @@ fn table_text(t: &Table, csv: bool) -> String {
                     if c.contains([',', '"', '\n']) {
                         format!("\"{}\"", c.replace('"', "\"\""))
                     } else {
-                        c.clone()
+                        (*c).to_owned()
                     }
                 })
                 .collect::<Vec<_>>()
@@ -1041,10 +1056,35 @@ fn code(
 mod tests {
     use super::*;
 
+    /// Words with no marks.
+    fn plain(text: &str) -> Inline {
+        let mut line = Inline::default();
+        line.add(text, Mark::Plain);
+        line
+    }
+
+    /// The words of a message of one paragraph.
+    fn inline(text: &str) -> Inline {
+        match parse(text).pop() {
+            Some(Block::Paragraph(line)) => line,
+            None => Inline::default(),
+            other => panic!("not a paragraph: {other:?}"),
+        }
+    }
+
+    /// The words of a line set with `mark`.
+    fn marked(line: &Inline, mark: Mark) -> Vec<&str> {
+        line.spans
+            .iter()
+            .filter(|(_, m)| *m == mark)
+            .map(|(r, _)| &line.text[r.clone()])
+            .collect()
+    }
+
     #[test]
     fn a_table_copies_as_markdown_or_csv_and_code_naming_a_file_is_a_path() {
-        let head = vec!["a".to_owned(), "b".to_owned()];
-        let rows = vec![vec!["1".to_owned(), "x, y".to_owned()]];
+        let head = vec![plain("a"), plain("b")];
+        let rows = vec![vec![plain("1"), plain("x, y")]];
         let t = Table {
             head: &head,
             right: &[],
@@ -1062,7 +1102,7 @@ mod tests {
     fn item(marker: &str, text: &str, depth: u8) -> Block {
         Block::Item {
             marker: marker.into(),
-            text: text.into(),
+            text: plain(text),
             depth,
         }
     }
@@ -1073,17 +1113,29 @@ mod tests {
         assert_eq!(
             parse(text),
             vec![
-                Block::Heading(1, "Done".into()),
-                Block::Paragraph("Cleared the cache from two places.".into()),
+                Block::Heading(1, plain("Done")),
+                Block::Paragraph(plain("Cleared the cache from two places.")),
                 item("•", "one", 0),
                 item("•", "under one", 1),
                 item("•", "two", 0),
                 item("1.", "first", 0),
-                Block::Quote("quoted".into()),
+                Block::Quote(plain("quoted")),
                 Block::Code {
                     lang: "sh".into(),
                     text: "du -sh ~".into()
                 },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_list_counts_from_its_first_number_and_an_item_keeps_its_second_paragraph() {
+        assert_eq!(
+            parse("3. three\n4. four\n\n   more of four"),
+            vec![
+                item("3.", "three", 0),
+                item("4.", "four", 0),
+                item("", "more of four", 0),
             ]
         );
     }
@@ -1094,16 +1146,16 @@ mod tests {
         assert_eq!(
             parse(text),
             vec![
-                Block::Paragraph("统计好了：".into()),
+                Block::Paragraph(plain("统计好了：")),
                 Block::Table {
-                    head: vec!["crate".into(), "行数".into()],
+                    head: vec![plain("crate"), plain("行数")],
                     right: vec![false, true],
                     rows: vec![
-                        vec!["ghost-mind".into(), "18,856".into()],
-                        vec!["ghost-net".into(), String::new()],
+                        vec![plain("ghost-mind"), plain("18,856")],
+                        vec![plain("ghost-net"), Inline::default()],
                     ],
                 },
-                Block::Paragraph("最大的三个".into()),
+                Block::Paragraph(plain("最大的三个")),
             ]
         );
     }
@@ -1112,7 +1164,7 @@ mod tests {
     fn a_line_of_bars_with_no_rule_under_it_is_text() {
         assert_eq!(
             parse("| not | a table |\nreally"),
-            vec![Block::Paragraph("| not | a table | really".into())]
+            vec![Block::Paragraph(plain("| not | a table | really"))]
         );
     }
 
@@ -1132,7 +1184,7 @@ mod tests {
     fn chinese_lines_of_a_paragraph_join_without_a_space_and_english_with_one() {
         assert_eq!(
             parse("我看了一下\n磁盘的情况\nthen ran\ndu"),
-            vec![Block::Paragraph("我看了一下磁盘的情况 then ran du".into())]
+            vec![Block::Paragraph(plain("我看了一下磁盘的情况 then ran du"))]
         );
     }
 
@@ -1145,23 +1197,35 @@ mod tests {
         assert_eq!(&line.text[line.links[0].0.clone()], "PR 147");
         assert_eq!(line.links[0].1, "https://github.com/a/b/pull/147");
         assert_eq!(line.links[1].1, "https://example.com/x");
+        assert_eq!(
+            marked(&line, Mark::Link),
+            ["PR 147", "https://example.com/x"]
+        );
         assert!(inline("[not](a link)").links.is_empty());
     }
 
     #[test]
     fn inline_marks_come_out_of_the_text_and_are_remembered() {
-        let line = inline("run `ls` then **look**, *then* rest");
-        assert_eq!(line.text, "run ls then look, then rest");
-        assert_eq!(&line.text[line.code[0].clone()], "ls");
-        assert_eq!(&line.text[line.bold[0].clone()], "look");
-        assert_eq!(&line.text[line.italic[0].clone()], "then");
+        let line = inline("run `ls` then **look**, *then* _too_ ~~gone~~ rest");
+        assert_eq!(line.text, "run ls then look, then too gone rest");
+        assert_eq!(marked(&line, Mark::Code), ["ls"]);
+        assert_eq!(marked(&line, Mark::Bold), ["look"]);
+        assert_eq!(marked(&line, Mark::Italic), ["then", "too"]);
+        assert_eq!(marked(&line, Mark::Strike), ["gone"]);
+    }
+
+    #[test]
+    fn a_mark_inside_another_takes_its_own_stretch() {
+        let line = inline("**see `a.rs` now**");
+        assert_eq!(marked(&line, Mark::Bold), ["see ", " now"]);
+        assert_eq!(marked(&line, Mark::Code), ["a.rs"]);
     }
 
     #[test]
     fn a_line_is_set_in_stretches_that_cover_all_of_it_in_order() {
         let line = inline("run `ls` then **看看**");
-        let spans = spans(&line);
-        let marks: Vec<(&str, Mark)> = spans
+        let marks: Vec<(&str, Mark)> = line
+            .spans
             .iter()
             .map(|(r, m)| (&line.text[r.clone()], *m))
             .collect();
@@ -1174,16 +1238,16 @@ mod tests {
                 ("看看", Mark::Bold)
             ]
         );
-        let total: usize = spans.iter().map(|(r, _)| r.len()).sum();
+        let total: usize = line.spans.iter().map(|(r, _)| r.len()).sum();
         assert_eq!(total, line.text.len());
-        assert!(super::spans(&inline("")).is_empty());
+        assert!(inline("").spans.is_empty());
     }
 
     #[test]
     fn inline_code_is_padded_inside_its_shade_and_what_follows_moves_along() {
-        let line = padded(inline("a `ls` then **b** [c](https://x.y)"));
-        assert_eq!(&line.text[line.code[0].clone()], "\u{2009}ls\u{2009}");
-        assert_eq!(&line.text[line.bold[0].clone()], "b");
+        let line = padded(&inline("a `ls` then **b** [c](https://x.y)"));
+        assert_eq!(marked(&line, Mark::Code), ["\u{2009}ls\u{2009}"]);
+        assert_eq!(marked(&line, Mark::Bold), ["b"]);
         assert_eq!(&line.text[line.links[0].0.clone()], "c");
     }
 
