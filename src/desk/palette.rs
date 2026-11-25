@@ -23,13 +23,9 @@ use crate::{
 /// What a line of the palette does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Act {
-    NewSession,
-    Scratch,
+    /// One of the window's actions, by its name in `keys::ACTIONS`.
+    Key(&'static str),
     AddProject,
-    Settings,
-    Find,
-    Drawer,
-    Sidebar,
     Grouping,
     CopyThread,
     Restart,
@@ -298,14 +294,14 @@ impl Desk {
     /// Move the palette's choice up (below zero) or down.
     pub(crate) fn step_palette(&mut self, by: isize, cx: &mut Context<Self>) {
         let query = self.palette.input.read(cx).text();
-        let last = self.lines(&query).len().saturating_sub(1);
+        let last = self.lines(&query, cx).len().saturating_sub(1);
         self.palette.at = self.palette.at.saturating_add_signed(by).min(last);
         cx.notify();
     }
 
     /// The lines the palette offers for what is typed: with nothing typed
     /// what can be done leads, else the sessions found.
-    fn lines(&self, query: &str) -> Vec<Line> {
+    fn lines(&self, query: &str, cx: &gpui::App) -> Vec<Line> {
         let q = query.trim().to_lowercase();
         // The project's files, or what was found in them, alone.
         let file = |name: String, hint: String| Line {
@@ -345,91 +341,77 @@ impl Desk {
             Through::Everything => {}
         }
         let found = |text: &str| q.is_empty() || text.to_lowercase().contains(&q);
-        let act = |label: &str, hint: &str, act: Act, icon: &'static str| Line {
+        let act = |label: &str, act: Act, icon: &'static str| Line {
             group: "Actions",
             label: label.to_owned(),
-            hint: hint.to_owned(),
+            hint: String::new(),
             act,
             agent: None,
             icon,
             live: false,
         };
-        let actions: Vec<Line> = [
-            act("New session", "⌘N", Act::NewSession, "plus"),
-            act("New scratch session", "", Act::Scratch, "file-plus"),
-            act("Add a project", "", Act::AddProject, "folder"),
-            act("Find in this session", "⌘F", Act::Find, "search"),
-            act("Commands drawer", "⌘J", Act::Drawer, "terminal"),
-            act("Show or hide the sidebar", "⌘B", Act::Sidebar, "sidebar"),
-            act(
-                "Group sessions by project or status",
-                "",
-                Act::Grouping,
-                "list",
-            ),
-            act("Settings", "⌘,", Act::Settings, "settings"),
-            act("Copy this conversation", "", Act::CopyThread, "copy"),
-            act("Restart the session", "", Act::Restart, "retry"),
-            act("Ask a side question", "", Act::Beside, "bulb"),
-            act(
-                "Look: dark",
-                "",
-                Act::Look(crate::settings::Look::Dark),
-                "settings",
-            ),
-            act(
-                "Look: light",
-                "",
-                Act::Look(crate::settings::Look::Light),
-                "settings",
-            ),
-            act(
-                "Look: as the system",
-                "",
-                Act::Look(crate::settings::Look::System),
-                "settings",
-            ),
-            act("Go to a file", "⌘P", Act::File(String::new()), "file"),
-            act(
-                "Settings: General",
-                "",
-                Act::Tab(crate::pages::Tab::General),
-                "settings",
-            ),
-            act(
-                "Settings: Appearance",
-                "",
-                Act::Tab(crate::pages::Tab::Appearance),
-                "settings",
-            ),
-            act(
-                "Settings: Chat",
-                "",
-                Act::Tab(crate::pages::Tab::Chat),
-                "settings",
-            ),
-            act(
-                "Settings: New sessions",
-                "",
-                Act::Tab(crate::pages::Tab::NewSessions),
-                "settings",
-            ),
-            act(
-                "Settings: Agents",
-                "",
-                Act::Tab(crate::pages::Tab::Agents),
-                "settings",
-            ),
-            act(
-                "Settings: Keyboard",
-                "",
-                Act::Tab(crate::pages::Tab::Keyboard),
-                "settings",
-            ),
-        ]
-        .into_iter()
-        .filter(|l| found(&l.label))
-        .collect();
+        // The window's actions, then what only the palette does.
+        let actions: Vec<Line> = crate::keys::ACTIONS
+            .iter()
+            .filter(|(name, _, _)| *name != "palette")
+            .map(|(name, does, _)| Line {
+                hint: crate::keys::keys_of(cx, name).unwrap_or_default(),
+                ..act(does, Act::Key(name), "chevron-right")
+            })
+            .chain([
+                act("Add a project", Act::AddProject, "folder"),
+                act("Group sessions by project or status", Act::Grouping, "list"),
+                act("Copy this conversation", Act::CopyThread, "copy"),
+                act("Restart the session", Act::Restart, "retry"),
+                act("Ask a side question", Act::Beside, "bulb"),
+                act(
+                    "Look: dark",
+                    Act::Look(crate::settings::Look::Dark),
+                    "settings",
+                ),
+                act(
+                    "Look: light",
+                    Act::Look(crate::settings::Look::Light),
+                    "settings",
+                ),
+                act(
+                    "Look: as the system",
+                    Act::Look(crate::settings::Look::System),
+                    "settings",
+                ),
+                act(
+                    "Settings: General",
+                    Act::Tab(crate::pages::Tab::General),
+                    "settings",
+                ),
+                act(
+                    "Settings: Appearance",
+                    Act::Tab(crate::pages::Tab::Appearance),
+                    "settings",
+                ),
+                act(
+                    "Settings: Chat",
+                    Act::Tab(crate::pages::Tab::Chat),
+                    "settings",
+                ),
+                act(
+                    "Settings: New sessions",
+                    Act::Tab(crate::pages::Tab::NewSessions),
+                    "settings",
+                ),
+                act(
+                    "Settings: Agents",
+                    Act::Tab(crate::pages::Tab::Agents),
+                    "settings",
+                ),
+                act(
+                    "Settings: Keyboard",
+                    Act::Tab(crate::pages::Tab::Keyboard),
+                    "settings",
+                ),
+            ])
+            .filter(|l| found(&l.label))
+            .collect();
         let mut sessions = Vec::new();
         for (n, key) in self.ordered().into_iter().enumerate() {
             let Some(s) = self.sessions.at(key) else {
@@ -531,16 +513,18 @@ impl Desk {
     /// Do the line `n` of the palette.
     pub fn run_act(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
         let query = self.palette.input.read(cx).text();
-        let Some(line) = self.lines(&query).into_iter().nth(n) else {
+        let Some(line) = self.lines(&query, cx).into_iter().nth(n) else {
             return;
         };
         self.palette.open = false;
         window.focus(&self.composer.input.focus_handle(cx));
         match line.act {
-            Act::NewSession => self.new_default(window, cx),
-            Act::Scratch => self.new_scratch(window, cx),
+            Act::Key(name) => {
+                if let Some(action) = crate::keys::action(name) {
+                    window.dispatch_action(action, cx);
+                }
+            }
             Act::AddProject => self.open_page(Page::NewProject, cx),
-            Act::Settings => self.open_page(Page::Settings, cx),
             Act::CopyThread => {
                 if let Some(key) = self.current {
                     self.copy_thread(key, cx);
@@ -560,11 +544,7 @@ impl Desk {
                 self.pages.tab = tab;
                 self.open_page(Page::Settings, cx);
             }
-            Act::File(name) if name.is_empty() => self.open_palette(Through::Files, window, cx),
             Act::File(name) => self.open_named(&name),
-            Act::Find => self.toggle_find(window, cx),
-            Act::Drawer => self.toggle_drawer(window, cx),
-            Act::Sidebar => self.toggle_sidebar(cx),
             Act::Grouping => self.toggle_grouping(cx),
             Act::Go(key) => self.show(key, window, cx),
             Act::NewIn(folder) => self.new_in(folder, window, cx),
@@ -596,7 +576,7 @@ impl Desk {
         let query = self.palette.input.read(cx).text();
         let mut list = div().flex().flex_col().p(px(6.));
         let mut group = "";
-        for (n, line) in self.lines(&query).into_iter().enumerate() {
+        for (n, line) in self.lines(&query, cx).into_iter().enumerate() {
             if line.group != group {
                 group = line.group;
                 list = list.child(

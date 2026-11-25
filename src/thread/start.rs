@@ -100,8 +100,10 @@ impl Desk {
                 .justify_center()
                 .gap(px(18.))
                 .mt(px(18.))
-                .child(key(faces, "⌘K", "go to anything"))
-                .child(key(faces, "⌘J", "terminal"))
+                .children(
+                    crate::keys::keys_of(cx, "palette").map(|k| key(faces, k, "go to anything")),
+                )
+                .children(crate::keys::keys_of(cx, "drawer").map(|k| key(faces, k, "terminal")))
                 .child(key(faces, "⌘1–9", "a session")),
         )
     }
@@ -285,7 +287,7 @@ fn head(faces: &Faces, label: &str, note: String) -> Div {
         .child(fine(faces, note))
 }
 
-fn key(faces: &Faces, keys: &'static str, does: &'static str) -> Div {
+fn key(faces: &Faces, keys: impl Into<SharedString>, does: &'static str) -> Div {
     div()
         .flex()
         .items_center()

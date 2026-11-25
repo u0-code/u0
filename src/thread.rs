@@ -1301,7 +1301,11 @@ impl Desk {
                                 .child(
                                     meta(
                                         faces,
-                                        "Choose the words, then copy them (⌘C) or quote them.",
+                                        crate::keys::hint(
+                                            cx,
+                                            "Choose the words, then copy them or quote them",
+                                            "copy_chosen",
+                                        ),
                                     )
                                     .flex_1(),
                                 )

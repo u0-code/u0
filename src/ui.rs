@@ -316,7 +316,7 @@ pub fn menu_row(id: impl Into<gpui::ElementId>, on: bool) -> gpui::Stateful<Div>
 pub fn icon_button(
     id: impl Into<gpui::ElementId>,
     icon_name: &str,
-    tip_text: &'static str,
+    tip_text: impl Into<SharedString>,
 ) -> gpui::Stateful<Div> {
     div()
         .id(id)

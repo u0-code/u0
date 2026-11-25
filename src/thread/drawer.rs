@@ -166,9 +166,13 @@ impl Desk {
                 })),
             )
             .child(
-                ui::icon_button("hide-drawer", "chevron-down", "Hide · ⌘J")
-                    .size(px(26.))
-                    .on_click(cx.listener(|this, _, window, cx| this.toggle_drawer(window, cx))),
+                ui::icon_button(
+                    "hide-drawer",
+                    "chevron-down",
+                    crate::keys::hint(cx, "Hide", "drawer"),
+                )
+                .size(px(26.))
+                .on_click(cx.listener(|this, _, window, cx| this.toggle_drawer(window, cx))),
             );
 
         // The one keys go to; side by side, all of them, four at most.

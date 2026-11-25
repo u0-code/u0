@@ -33,8 +33,12 @@ impl Desk {
             .border_color(theme::border());
         if !self.panes.left {
             bar = bar.child(
-                ui::icon_button("show-sidebar", "sidebar", "Show the sidebar · ⌘B")
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
+                ui::icon_button(
+                    "show-sidebar",
+                    "sidebar",
+                    crate::keys::hint(cx, "Show the sidebar", "toggle_sidebar"),
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
             );
         }
         let title = |t: String| {

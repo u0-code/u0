@@ -312,7 +312,7 @@ impl Desk {
                                     .text_color(theme::text2()),
                             ),
                     )
-                    .child(kbd(faces, "⌘N"))
+                    .children(crate::keys::keys_of(cx, "new_session").map(|k| kbd(faces, k)))
             }))
             .children(
                 self.settings_refused

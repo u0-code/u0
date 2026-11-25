@@ -357,16 +357,17 @@ impl Desk {
         Some(sec)
     }
 
-    /// Widen the column over the thread (⇧⌘B), or give the thread back.
+    /// Widen the column over the thread, or give the thread back.
     fn whole_button(&self, cx: &mut Context<Self>) -> gpui::Stateful<Div> {
+        let what = if self.panes.whole {
+            "Back beside the thread"
+        } else {
+            "Widen over the thread"
+        };
         ui::icon_button(
             "whole",
             "expand",
-            if self.panes.whole {
-                "Back beside the thread  ⇧⌘B"
-            } else {
-                "Widen over the thread  ⇧⌘B"
-            },
+            crate::keys::hint(cx, what, "whole_right"),
         )
         .when(self.panes.whole, |d| d.text_color(theme::text()))
         .on_click(cx.listener(|this, _, _, cx| this.toggle_whole(cx)))

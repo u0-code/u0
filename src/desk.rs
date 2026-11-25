@@ -949,7 +949,7 @@ impl Desk {
 
     /// Whether Ghost may quit now: at once with no agent at work, else at
     /// the second asking within a few seconds.
-    pub fn may_quit(&mut self) -> bool {
+    pub fn may_quit(&mut self, cx: &gpui::App) -> bool {
         let working = self
             .sessions
             .all
@@ -964,7 +964,11 @@ impl Desk {
         self.quit_asked = Some(std::time::Instant::now());
         self.trouble(
             "Agents are at work",
-            Some("Quitting stops their turns. ⌘Q again to quit.".into()),
+            Some(crate::keys::hint(
+                cx,
+                "Quitting stops their turns. Quit again to quit",
+                "quit",
+            )),
             None,
         );
         false

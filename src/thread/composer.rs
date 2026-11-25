@@ -340,7 +340,7 @@ impl Desk {
                 .bg(theme::panel2())
                 .hover(|st| st.bg(theme::ghost_line()))
                 .child(div().size(px(8.)).rounded(px(1.5)).bg(theme::text()))
-                .tooltip(ui::tip("Stop the turn · ⌘."))
+                .tooltip(ui::tip(crate::keys::hint(cx, "Stop the turn", "stop")))
                 .on_click(cx.listener(|this, _, _, cx| this.stop(cx)))
         } else {
             let input = self.composer.input.clone();

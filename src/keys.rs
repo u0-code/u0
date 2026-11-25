@@ -146,19 +146,39 @@ pub struct Binding {
     action: String,
 }
 
+/// The action named `name` in `ACTIONS`.
+pub fn action(name: &str) -> Option<Box<dyn Action>> {
+    let (_, _, make) = ACTIONS.iter().find(|(n, _, _)| *n == name)?;
+    Some(make())
+}
+
 /// A binding of `key` to the action named `name`.
 fn binding(key: &str, name: &str) -> Option<KeyBinding> {
-    let (_, _, make) = ACTIONS.iter().find(|(n, _, _)| *n == name)?;
-    KeyBinding::load(key, make(), None, false, None, &gpui::DummyKeyboardMapper).ok()
+    KeyBinding::load(
+        key,
+        action(name)?,
+        None,
+        false,
+        None,
+        &gpui::DummyKeyboardMapper,
+    )
+    .ok()
+}
+
+/// `what`, with the keys the action named `name` is bound to now after it.
+pub fn hint(cx: &App, what: &str, name: &str) -> String {
+    match keys_of(cx, name) {
+        Some(keys) => format!("{what} · {keys}"),
+        None => what.to_owned(),
+    }
 }
 
 /// The keys the action named `name` is bound to now, yours over the
 /// window's, as a Mac writes them ("⌘⇧M"); none when it has none.
 pub fn keys_of(cx: &App, name: &str) -> Option<String> {
-    let (_, _, make) = ACTIONS.iter().find(|(n, _, _)| *n == name)?;
+    let action = action(name)?;
     let keymap = cx.key_bindings();
     let keymap = keymap.borrow();
-    let action = make();
     let binding = keymap.bindings_for_action(action.as_ref()).last()?;
     Some(
         binding
@@ -350,7 +370,7 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
     cx.on_action(move |_: &Quit, cx| {
         cx.defer(move |cx| {
             let quit = window.update(cx, |d, _, cx| {
-                let may = d.may_quit();
+                let may = d.may_quit(cx);
                 cx.notify();
                 may
             });

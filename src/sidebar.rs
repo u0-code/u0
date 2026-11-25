@@ -72,7 +72,7 @@ impl Desk {
                         .text_size(px(13.))
                         .weight(gpui::FontWeight::MEDIUM),
                 )
-                .child(kbd(faces, "⌘N"))
+                .children(crate::keys::keys_of(cx, "new_session").map(|k| kbd(faces, k)))
                 .on_click(cx.listener(|this, _, window, cx| this.new_default(window, cx))),
         );
 
@@ -1305,7 +1305,7 @@ fn fine(faces: &Faces, text: impl Into<SharedString>) -> Div {
 }
 
 /// A key, in a hairline box.
-pub(crate) fn kbd(faces: &Faces, text: &'static str) -> Div {
+pub(crate) fn kbd(faces: &Faces, text: impl Into<SharedString>) -> Div {
     ui::mono(faces, text)
         .flex_none()
         .px(px(4.))
