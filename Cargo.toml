@@ -73,3 +73,16 @@ unusual_byte_groupings = "allow"
 # 35, which matters while the app is changed and bundled many times a day.
 [profile.release]
 strip = true
+
+# Temporary, until gpui-kit releases them: a soft break between Chinese,
+# Japanese or Korean characters joins without a space
+# (https://github.com/longbridge/gpui-kit/pull/4123), and a key hint can be
+# a label rather than one keystroke (https://github.com/longbridge/gpui-kit/pull/4124).
+# The branch is v0.11.0 with those two commits; back to crates.io once they
+# are released.
+[patch.crates-io]
+gpui-kit = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd" }
+gpui-base = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd" }
+gpui-component = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd" }
+gpui-component-macros = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd" }
+gpui-kit-assets = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd" }

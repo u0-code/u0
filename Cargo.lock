@@ -2099,8 +2099,7 @@ dependencies = [
 [[package]]
 name = "gpui-base"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "604d277dd339c63d13a3016d22a84622cc7511fdfd8e88573c0709088ede3500"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd#5a10bff27a37416b3eee60f89a0ab5c2cf1ded5e"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -2142,8 +2141,7 @@ dependencies = [
 [[package]]
 name = "gpui-component"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cdfec0424e4d9d78dcec4b4410e310b43ac1c4ef3efb971cfb63f5855754798b"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd#5a10bff27a37416b3eee60f89a0ab5c2cf1ded5e"
 dependencies = [
  "anyhow",
  "core-text",
@@ -2189,8 +2187,7 @@ dependencies = [
 [[package]]
 name = "gpui-component-macros"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4b7cd4c54d1521c9453a0d45a8101a642773f78774961fc54d9e8b62a2bdd66d"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd#5a10bff27a37416b3eee60f89a0ab5c2cf1ded5e"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -2201,8 +2198,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60c0655c4af9fe268693531ebfe6d322809e7771e8a5cd5faceca358d479dd90"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd#5a10bff27a37416b3eee60f89a0ab5c2cf1ded5e"
 dependencies = [
  "gpui-base",
  "gpui-component",
@@ -2216,8 +2212,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit-assets"
 version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "003d6a55cfa4fff4f44247a162443a48a949faaa19e8687c51c4fe5ed793a539"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd#5a10bff27a37416b3eee60f89a0ab5c2cf1ded5e"
 dependencies = [
  "anyhow",
  "gpui-pre",

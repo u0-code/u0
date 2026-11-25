@@ -35,6 +35,8 @@ wildcards = "deny"
 allow-wildcard-paths = true
 
 [sources]
-# crates.io and nothing else: no git dependencies, no other registries.
+# crates.io, and one git source: the gpui-kit branch Cargo.toml patches in
+# until its two fixes are released.
 unknown-registry = "deny"
 unknown-git = "deny"
+allow-git = ["https://github.com/mizorewww/gpui-kit"]
