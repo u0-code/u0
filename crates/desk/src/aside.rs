@@ -188,6 +188,57 @@ impl Desk {
             .when(shown(Detail::Terminals), |d| {
                 d.child(Self::commands(faces, s, cx))
             })
+            .when(shown(Detail::Lineage), |d| {
+                d.children(self.lineage(faces, s, cx))
+            })
+    }
+
+    /// The sessions `s` is kin to, as t3code's Lineage: the one it was
+    /// branched off, those branched off it, the subagents it set to work
+    /// and the side chats asked of it; each a click away. None with none.
+    fn lineage(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
+        let id = s.meta.id.as_ref().map(|i| i.0.to_string());
+        let mut kin: Vec<(&str, &Session)> = Vec::new();
+        if let Some(o) = self.origin_of(s).and_then(|k| self.sessions.at(k)) {
+            kin.push(("Branched off", o));
+        }
+        for o in &self.sessions.all {
+            let word = if o.parent == Some(s.key) {
+                "Subagent"
+            } else if o.beside == Some(s.key) {
+                "Side chat"
+            } else if o.meta.agent == s.meta.agent && id.is_some() && o.meta.from == id {
+                "Branch"
+            } else {
+                continue;
+            };
+            kin.push((word, o));
+        }
+        if kin.is_empty() {
+            return None;
+        }
+        let mut sec = section(faces, Detail::Lineage.head(), None);
+        for (word, o) in kin {
+            let (key, side) = (o.key, o.beside == Some(s.key));
+            let at = s.key;
+            sec = sec.child(
+                frow()
+                    .id(SharedString::from(format!("kin-{key}")))
+                    .cursor_pointer()
+                    .child(ui::mark(faces, &self.mark_of(&o.meta.agent), 14.))
+                    .child(ui::one_line(ui::text(faces, o.meta.title.clone())).flex_1())
+                    .child(fine(faces, word))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if side {
+                            this.columns.entry(at).or_default().open(Surface::Side(key));
+                            cx.notify();
+                        } else {
+                            this.show(key, window, cx);
+                        }
+                    })),
+            );
+        }
+        Some(sec)
     }
 
     /// What opens the choice of the details shown.
