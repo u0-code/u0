@@ -78,6 +78,14 @@ no HTML rendered from what an agent says (Markdown is the thread's format).
     the crates.io version.
   - A component that is not Material at all goes in a crate and repository
     of its own, the same way.
+- A bug in, or a missing piece of, a library someone else keeps
+  (`gpui-kit` is longbridge's) is fixed there, by a pull request opened
+  without asking first. It must stand on its own for every user of that
+  library: it fixes a bug that gets in the way of using it, or it adds what
+  everyone needs. A new API argues why everyone needs it. Never "an app
+  needs it". The pull request carries screenshots of the component, before
+  and after where it shows. Meanwhile Ghost takes the fix from a fork through
+  `[patch.crates-io]`, and drops the patch once upstream releases it.
 - Anything else a crate already does (a PDF view, a parser, a format) comes
   from that crate.
 
