@@ -273,8 +273,8 @@ pub fn kit(cx: &mut App) {
         c.link = link();
         c.link_hover = link();
         c.link_active = link();
-        c.list_hover = hover();
-        c.list_active = panel2();
+        c.list_hover = row_hover();
+        c.list_active = row_open();
         c.overlay = bg().opacity(0.64);
     });
 }

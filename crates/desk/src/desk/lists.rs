@@ -227,22 +227,6 @@ impl Desk {
     }
 
     /// Snooze the session `key` for the while `text` says ("3h", "2d").
-    pub fn snooze_for(&mut self, key: u64, text: &str, cx: &mut Context<Self>) {
-        match when::span(text) {
-            Some(d) => {
-                self.popup = super::Popup::Closed;
-                let at = SystemTime::now() + d;
-                self.mark(key, cx, |f| f.snoozed = Some(store::secs(at)));
-            }
-            None => self.trouble(
-                format!("“{}” is not a while Ghost reads", text.trim()),
-                Some("Say it as 45m, 3h, 2d or 1w.".into()),
-                None,
-            ),
-        }
-        cx.notify();
-    }
-
     pub fn wake(&mut self, key: u64, cx: &mut Context<Self>) {
         self.mark(key, cx, |f| f.snoozed = None);
     }

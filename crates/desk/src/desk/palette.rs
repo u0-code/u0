@@ -108,11 +108,7 @@ impl Desk {
     /// The sessions as the sidebar lists them, by project or by status;
     /// none done or put away.
     pub(crate) fn ordered(&self) -> Vec<u64> {
-        self.projects()
-            .iter()
-            .flat_map(|f| self.in_project(f))
-            .map(|s| s.key)
-            .collect()
+        self.side_order.clone()
     }
 
     /// Go to the `n`th session in the sidebar's order; while a menu of

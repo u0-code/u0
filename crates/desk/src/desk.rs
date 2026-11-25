@@ -34,7 +34,7 @@ use tokio::sync::mpsc;
 mod agents;
 mod gitview;
 mod kept;
-mod lists;
+pub(crate) mod lists;
 pub(crate) mod mention;
 pub(crate) mod notices;
 pub(crate) mod palette;
@@ -104,10 +104,6 @@ pub enum Popup {
     /// The choices of one of the session's options, by id, beside it in
     /// the model picker.
     Option(String),
-    /// What can be done with a session in the sidebar, by key.
-    Session(u64),
-    /// What can be done with a project in the sidebar.
-    Project(PathBuf),
     /// The branches to check out, in the column beside.
     Branch,
     /// What you put aside from the composer, to take back.
@@ -242,6 +238,14 @@ pub struct Desk {
     pub expanded: HashSet<String>,
     /// Projects folded shut down the left.
     pub closed: HashSet<PathBuf>,
+    /// The sidebar's list: its tree, the shape it was last given, the
+    /// session open in it then, the sessions in the order it lists them,
+    /// and how many settled sessions it shows.
+    pub side: Entity<gpui::component::tree::TreeState>,
+    pub side_shape: String,
+    pub side_current: Option<u64>,
+    pub side_order: Vec<u64>,
+    pub settled_shown: usize,
     /// What each project's folder holds, once read (see `read_projects`).
     pub held: HashMap<PathBuf, crate::repo::Held>,
     /// The thread as a list drawn where it is seen, its lines, and the
@@ -332,8 +336,7 @@ impl Desk {
         mirror(&settings, cx);
         let composer = mention::Composer::new(settings.cmd_sends, window, cx);
         let reader = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 24));
-        let menu_search =
-            cx.new(|cx| InputState::new(window, cx).placeholder("Search, or a while: 3h"));
+        let menu_search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
         cx.subscribe_in(
             &menu_search,
             window,
@@ -343,10 +346,8 @@ impl Desk {
                     return;
                 }
                 let text = input.read(cx).value().trim().to_owned();
-                match this.popup {
-                    Popup::Session(key) => this.snooze_for(key, &text, cx),
-                    Popup::Branch => this.new_branch(&text, cx),
-                    _ => {}
+                if this.popup == Popup::Branch {
+                    this.new_branch(&text, cx);
                 }
             },
         )
@@ -482,6 +483,11 @@ impl Desk {
             composer,
             expanded: HashSet::new(),
             closed: HashSet::new(),
+            side: crate::sidebar::side_tree(window, cx),
+            side_shape: String::new(),
+            side_current: None,
+            side_order: Vec::new(),
+            settled_shown: 0,
             held: HashMap::new(),
             list: gpui::ListState::new(0, gpui::ListAlignment::Top, px(800.)),
             lines: Vec::new(),
@@ -894,14 +900,6 @@ impl Desk {
         cx.notify();
     }
 
-    /// Fold the project `folder` shut, or open it.
-    pub fn toggle_project(&mut self, folder: &Path, cx: &mut Context<Self>) {
-        if !self.closed.remove(folder) {
-            self.closed.insert(folder.to_path_buf());
-        }
-        cx.notify();
-    }
-
     /// Begin again where the session on screen left off: a draft with the
     /// same agent, in the same project.
     pub fn restart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -1061,7 +1059,6 @@ impl Desk {
         // The menu's line says what it takes there.
         let says = match popup {
             Popup::Branch => "A new branch: its name, then Return",
-            Popup::Session(_) => "Or for a while: 3h, 2d",
             _ => "Search",
         };
         self.menu_search.update(cx, |i, cx| {
@@ -1366,6 +1363,7 @@ impl Render for Desk {
         );
         self.sync_lines();
         self.read_projects();
+        self.sync_side(cx);
         let faces = fonts::faces(cx).clone();
         let lights = lights_room(window);
         let left = self

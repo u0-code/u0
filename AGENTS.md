@@ -133,6 +133,7 @@ crates/desk/src/
                 project), rank (what is typed, found), agents, send, turns,
                 replies, notices
   sidebar.rs, thread.rs, aside.rs, pages.rs   what is drawn
+  sidebar/      its list (gpui-kit's Tree): pinned, projects, the shelves
   thread/       the thread as a list (lines), folds, cards, the composer and what
                 waits beside it (later), the model
                 picker (picker) and the mode menu (modes), the start,
