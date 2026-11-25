@@ -691,9 +691,7 @@ impl Desk {
             new_name,
             remote_at,
             hosts: Vec::new(),
-            parent: settings::home()
-                .parent()
-                .map_or_else(|| PathBuf::from("/"), Path::to_path_buf),
+            parent: projects::made_here(),
             cloning: None,
             adding_trouble: None,
             fanout: false,

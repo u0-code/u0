@@ -10,6 +10,16 @@ use gpui::{Context, Focusable as _, Window};
 use super::{Desk, Popup};
 use crate::settings::Prefs;
 
+/// Where a project made or cloned in Ghost goes unless you choose
+/// another folder: ~/Documents/Ghost, as Codex keeps its own in
+/// ~/Documents/Codex. It is made with the first project.
+pub fn made_here() -> PathBuf {
+    std::env::var_os("HOME")
+        .map_or_else(|| PathBuf::from("/"), PathBuf::from)
+        .join("Documents")
+        .join("Ghost")
+}
+
 impl Desk {
     /// Change what is set for the project `folder`, and keep it.
     fn set_prefs(&mut self, folder: &Path, cx: &mut Context<Self>, f: impl FnOnce(&mut Prefs)) {
