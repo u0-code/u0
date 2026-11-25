@@ -1122,7 +1122,14 @@ impl Desk {
             );
             crate::acp::runtime().spawn_blocking(move || crate::git::drop_checkpoints(&dir, &uid));
         }
-        if let Some(wt) = s.worktree {
+        // Its worktree goes too, unless another session works in it (a
+        // fork, or a new session begun there).
+        if let Some(wt) = s.worktree
+            && !self
+                .sessions
+                .iter()
+                .any(|o| o.worktree.as_ref().is_some_and(|w| w.path == wt.path))
+        {
             hub::git_action(
                 wt.repo.clone(),
                 hub::GitAction::RemoveWorktree(wt),
@@ -1268,9 +1275,13 @@ impl Desk {
                 return;
             }
             // Said while a turn goes on: it waits its turn, and is said as
-            // the one going on ends.
-            session.queued.push(text);
+            // the one going on ends, with what goes with it.
+            session.queued.push(text.clone());
             let last = session.queued.len() - 1;
+            let attached = self.attach(key, &text);
+            if let Some(s) = self.session_mut(key) {
+                s.attached.extend(attached);
+            }
             self.save_index();
             // Or it goes in now, the turn stopped for it, as you asked.
             if self.settings.steer {
@@ -1281,10 +1292,17 @@ impl Desk {
         }
         if session.state == State::Closed {
             // Its agent opens it again (resumed from the record, or loaded),
-            // and then it goes.
+            // and then it goes; after what was queued before, if anything
+            // was (kept from an earlier run).
             if !session.recorded {
                 session.forget();
             }
+            let text = if session.queued.is_empty() {
+                text
+            } else {
+                session.queued.push(text);
+                session.queued.remove(0)
+            };
             session.pending = Some(text.clone());
             session.state = State::Opening;
             let agent = session.agent.clone();
@@ -1440,15 +1458,23 @@ impl Desk {
 
     /// Say the queued `n` now: the turn going on is stopped, and it is
     /// said as soon as that has ended.
+    /// With no turn going on (the session closed, as after a restart),
+    /// it is said at once.
     pub fn steer(&mut self, n: usize, cx: &mut Context<Self>) {
         let Some(key) = self.current else { return };
-        if let Some(s) = self.session_mut(key)
-            && n < s.queued.len()
-        {
-            let text = s.queued.remove(n);
-            s.queued.insert(0, text);
+        let Some(s) = self.session_mut(key) else {
+            return;
+        };
+        if n >= s.queued.len() {
+            return;
         }
-        self.stop(cx);
+        let text = s.queued.remove(n);
+        if matches!(s.state, State::Working | State::Opening) {
+            s.queued.insert(0, text);
+            self.stop(cx);
+        } else {
+            self.send_in(key, &text, cx);
+        }
     }
 
     /// Take the queued `n` back into the line.

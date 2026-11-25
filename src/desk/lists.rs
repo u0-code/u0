@@ -114,6 +114,8 @@ impl Desk {
 
     /// Archive the session `key`: hidden and read only until restored.
     pub fn archive(&mut self, key: u64, cx: &mut Context<Self>) {
+        // A delete still waiting is done first, not brought back.
+        self.finish_undo(cx);
         self.mark(key, cx, |f| f.archived = true);
         self.undo = Some(Undo {
             key,

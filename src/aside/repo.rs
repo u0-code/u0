@@ -234,7 +234,15 @@ impl Desk {
                     .border_1()
                     .border_color(theme::border2())
                     .child(div().flex_1().min_w(px(0.)).child(self.message.clone()))
-                    .child(write),
+                    // Asked during a turn, its answer would be taken for
+                    // that turn's: it waits for the turn to end.
+                    .when(
+                        !matches!(
+                            s.state,
+                            crate::session::State::Working | crate::session::State::Opening
+                        ),
+                        |d| d.child(write),
+                    ),
             )
             .child(
                 div()
