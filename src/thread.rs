@@ -1090,14 +1090,13 @@ impl Desk {
             }
             // A subagent set to work: its own session, a click away.
             Item::Child { id, title } => {
-                let sub = self
+                let child = self
                     .sessions
                     .all
                     .iter()
-                    .find(|c| c.meta.id.as_ref() == Some(id) && c.parent.is_some())
-                    .map(|c| c.sub.clone())
-                    .unwrap_or_default();
-                let id = id.clone();
+                    .find(|c| c.meta.id.as_ref() == Some(id) && c.parent.is_some());
+                let sub = child.map(|c| c.sub.clone()).unwrap_or_default();
+                let child = child.map(|c| c.key);
                 step()
                     .id(SharedString::from(format!("{key}-child")))
                     .rounded(px(8.))
@@ -1117,13 +1116,7 @@ impl Desk {
                         _ => right(faces, "Open"),
                     })
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        if let Some(key) = this
-                            .sessions
-                            .all
-                            .iter()
-                            .find(|c| c.meta.id.as_ref() == Some(&id) && c.parent.is_some())
-                            .map(|c| c.key)
-                        {
+                        if let Some(key) = child {
                             this.show(key, window, cx);
                         }
                     }))
