@@ -37,7 +37,9 @@ pub struct Terminal {
     /// Set by the reader when the screen changed and the window has not
     /// been told since.
     pub changed: Arc<AtomicBool>,
-    writer: Box<dyn std::io::Write + Send>,
+    /// What is sent to it, written by a thread of its own: a program that
+    /// does not read would otherwise hold the window as the pty fills.
+    writer: std::sync::mpsc::Sender<Vec<u8>>,
     master: Box<dyn MasterPty + Send>,
     child: Box<dyn portable_pty::Child + Send + Sync>,
     /// How it ended, once it has.
@@ -135,9 +137,21 @@ impl Terminal {
             }
             let _ = tx.send(Msg::TerminalEnded(id));
         });
+        let (to_writer, sent) = std::sync::mpsc::channel::<Vec<u8>>();
+        std::thread::spawn(move || {
+            for bytes in sent {
+                if writer
+                    .write_all(&bytes)
+                    .and_then(|()| writer.flush())
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
         let title = match first {
             Some(line) => {
-                let _ = writer.write_all(format!("{line}\r").as_bytes());
+                let _ = to_writer.send(format!("{line}\r").into_bytes());
                 line.to_owned()
             }
             None => title,
@@ -148,7 +162,7 @@ impl Terminal {
             title,
             screen,
             changed,
-            writer,
+            writer: to_writer,
             master: pty.master,
             child,
             ended: None,
@@ -168,8 +182,7 @@ impl Terminal {
         // Typing brings the screen back to its bottom.
         self.parser().screen_mut().set_scrollback(0);
         self.selection = None;
-        let _ = self.writer.write_all(bytes);
-        let _ = self.writer.flush();
+        let _ = self.writer.send(bytes.to_vec());
     }
 
     /// Paste `text`, marked as a paste where the program asked for that.
@@ -509,6 +522,26 @@ mod tests {
         );
         assert_eq!(rows[1][0].background, Some(theme::text2()));
         assert_eq!(cursor, Some((1, 3)));
+    }
+
+    #[test]
+    fn what_is_sent_to_a_program_that_does_not_read_does_not_wait() {
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut t = Terminal::open(
+            1,
+            1,
+            &std::env::temp_dir(),
+            None,
+            // Raw, so that its input fills rather than being dropped.
+            Some("stty raw -echo; sleep 5"),
+            (6, 40),
+            tx,
+        )
+        .expect("a terminal opens");
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let began = std::time::Instant::now();
+        t.send(&vec![b'x'; 1 << 20]);
+        assert!(began.elapsed() < std::time::Duration::from_secs(1));
     }
 
     #[test]
