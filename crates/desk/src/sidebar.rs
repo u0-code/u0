@@ -185,23 +185,47 @@ impl Desk {
                     })),
             );
         }
+        // Each an action of the window's, its key in its tip.
+        let nav = |id: &'static str, icon: &'static str, tip: &'static str, on: bool| {
+            Button::new(id)
+                .ghost()
+                .child(ui::icon(icon, 16.))
+                .tooltip(crate::keys::hint(cx, tip, id))
+                .selected(on)
+                .on_click(move |_, window, cx| {
+                    if let Some(action) = crate::keys::action(id) {
+                        window.dispatch_action(action, cx);
+                    }
+                })
+        };
+        let forge = |kind| self.page == Page::Forge(kind);
         let foot = div()
             .flex()
             .flex_none()
             .items_center()
+            .gap(px(2.))
             .px(px(8.))
             .pt(px(4.))
             .pb(px(8.))
-            .child(
-                Button::new("settings")
-                    .ghost()
-                    .child(ui::icon("settings", 16.))
-                    .tooltip(crate::keys::hint(cx, "Settings", "settings"))
-                    .selected(self.pages.open)
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_tab(this.pages.tab, window, cx);
-                    })),
-            )
+            .child(nav("settings", "settings", "Settings", self.pages.open))
+            .child(nav(
+                "pull_requests",
+                "pull-request",
+                "Pull requests",
+                forge(crate::github::Kind::Pr),
+            ))
+            .child(nav(
+                "issues",
+                "circle-dot",
+                "Issues",
+                forge(crate::github::Kind::Issue),
+            ))
+            .child(nav(
+                "usage",
+                "gauge",
+                "Usage",
+                self.pages.open && self.pages.tab == crate::pages::Tab::Usage,
+            ))
             .child(div().flex_1())
             .child(pills);
 

@@ -10,7 +10,8 @@ sliders.svg, reply.svg, arrow-down.svg, expand.svg, camera.svg,
 keyboard.svg, sun.svg, diff.svg, pull-request.svg
                Line icons drawn for the desk.
 square-pen.svg, square-dashed.svg, text-search.svg, folder-plus.svg,
-undo-2.svg, arrow-left.svg, list-plus.svg, corner-up-right.svg
+undo-2.svg, arrow-left.svg, list-plus.svg, corner-up-right.svg,
+circle-dot.svg, gauge.svg
                Lucide's (lucide.dev, ISC licence), drawn at the desk's
                1.5 stroke.
 

@@ -1548,6 +1548,20 @@ impl Render for Desk {
             })
             .when(!whole, |d| d.child(middle))
             .children(right)
+            // Hidden, the sidebar is dragged back out from the left edge.
+            .when(!self.panes.left, |d| {
+                use gpui::component::resizable::{HandleEdge, resize_handle};
+                d.child(
+                    resize_handle::<crate::sidebar::LeftEdge, crate::sidebar::LeftEdge>(
+                        "left-show",
+                        gpui::Axis::Horizontal,
+                    )
+                    .inside(HandleEdge::Leading)
+                    .on_drag(crate::sidebar::LeftEdge, |edge, _, _, cx| {
+                        cx.new(|_| edge.clone())
+                    }),
+                )
+            })
             .children(self.zoomed(&faces, window, cx))
             .children(self.reading_view(&faces, cx))
     }

@@ -75,6 +75,8 @@ const FILES: &[(&str, &[u8])] = icons![
     "pull-request",
     "list-plus",
     "corner-up-right",
+    "circle-dot",
+    "gauge",
 ];
 
 impl AssetSource for Assets {
