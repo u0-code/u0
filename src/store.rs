@@ -217,6 +217,20 @@ pub fn read(path: &Path) -> Option<Vec<Event>> {
     )
 }
 
+/// Whether a record ends in a turn it never saw end: Ghost stopped before
+/// the rest was written, and resuming would leave that rest out for good.
+pub fn cut_short(events: &[Event]) -> bool {
+    events
+        .iter()
+        .rev()
+        .find_map(|e| match e {
+            Event::You(_) => Some(true),
+            Event::Ended { .. } | Event::Note { .. } => Some(false),
+            _ => None,
+        })
+        .unwrap_or(false)
+}
+
 /// What the writer does, in the order it was asked.
 pub enum Job {
     Append(PathBuf, Vec<Event>),
@@ -315,6 +329,26 @@ mod tests {
         assert!(matches!(&events[0], Event::You(t) if t == "go"));
         assert!(matches!(events[2], Event::Ended { secs: 3, .. }));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_record_that_stops_inside_a_turn_is_cut_short() {
+        let you = || Event::You("go".into());
+        let ended = || Event::Ended {
+            reason: StopReason::EndTurn,
+            secs: 1,
+        };
+        let update = || {
+            Event::Update(Box::new(
+                serde_json::from_str(
+                    r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Do"}}"#,
+                )
+                .unwrap(),
+            ))
+        };
+        assert!(cut_short(&[you(), update()]));
+        assert!(!cut_short(&[you(), update(), ended(), update()]));
+        assert!(!cut_short(&[update()]));
     }
 
     #[test]

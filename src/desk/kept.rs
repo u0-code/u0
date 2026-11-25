@@ -129,6 +129,11 @@ impl Desk {
             return false;
         };
         let agent = s.agent.clone();
+        // A subagent has no other copy; any other is loaded from its agent.
+        if s.parent.is_none() && store::cut_short(&events) {
+            self.drop_record(key);
+            return false;
+        }
         let slot = self.slots.iter().find(|x| x.entry.id == agent);
         let s = self
             .sessions
