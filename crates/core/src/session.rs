@@ -13,10 +13,10 @@ use std::{
 };
 
 use agent_client_protocol::v1::schema::{
-    ContentBlock, EmbeddedResourceResource, MessageId, PermissionOption, PermissionOptionKind,
-    Plan, RequestPermissionRequest, SessionConfigOption, SessionId, SessionInfo, SessionModeState,
-    SessionUpdate, StopReason, ToolCall, ToolCallContent, ToolCallId, ToolCallStatus,
-    ToolCallUpdate, ToolKind, UsageUpdate,
+    CompactionStatus, ContentBlock, EmbeddedResourceResource, MessageId, PermissionOption,
+    PermissionOptionKind, Plan, RequestPermissionRequest, SessionConfigOption, SessionId,
+    SessionInfo, SessionModeState, SessionUpdate, StopReason, ToolCall, ToolCallContent,
+    ToolCallId, ToolCallStatus, ToolCallUpdate, ToolKind, UsageUpdate,
 };
 use base64::{
     Engine as _, alphabet,
@@ -1021,6 +1021,24 @@ impl Session {
                 },
                 trouble: false,
             }),
+            // The context compacted: said where it was, as a divider is.
+            SessionUpdate::CompactionUpdate(c) => match c.status {
+                CompactionStatus::Completed => self.items.push(Item::Note {
+                    text: "The context was compacted: what came before is summarized for the agent"
+                        .into(),
+                    trouble: false,
+                }),
+                CompactionStatus::Failed => self.items.push(Item::Note {
+                    text: match c.error {
+                        agent_client_protocol::schema::MaybeUndefined::Value(why) => {
+                            format!("The context could not be compacted: {why}")
+                        }
+                        _ => "The context could not be compacted".into(),
+                    },
+                    trouble: true,
+                }),
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -1250,6 +1268,26 @@ mod tests {
 
     fn update(json: &str) -> SessionUpdate {
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn a_compaction_is_said_once_done_and_as_trouble_when_it_fails() {
+        let mut s = Session::new(1, "claude-acp", PathBuf::from("/tmp"));
+        s.apply(update(
+            r#"{"sessionUpdate":"compaction_update","compactionId":"c","status":"in_progress"}"#,
+        ));
+        assert!(s.items.is_empty());
+        s.apply(update(
+            r#"{"sessionUpdate":"compaction_update","compactionId":"c","status":"completed"}"#,
+        ));
+        s.apply(update(
+            r#"{"sessionUpdate":"compaction_update","compactionId":"d","status":"failed","error":"too big"}"#,
+        ));
+        assert!(matches!(
+            &s.items[..],
+            [Item::Note { trouble: false, .. }, Item::Note { text, trouble: true }]
+                if text.ends_with("too big")
+        ));
     }
 
     #[test]

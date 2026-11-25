@@ -21,10 +21,11 @@ use agent_client_protocol::{
     JsonRpcRequest,
     schema::ProtocolVersion,
     v1::schema::{
-        AuthenticateRequest, CancelNotification, ClientCapabilities, CloseSessionRequest,
-        ContentBlock, ContentChunk, DeleteSessionRequest, ForkSessionRequest, Implementation,
-        InitializeRequest, ListSessionsRequest, LoadSessionRequest, LogoutRequest, MessageId,
-        NewSessionRequest, PromptRequest, RequestPermissionOutcome, RequestPermissionResponse,
+        AuthenticateRequest, CancelNotification, ClientCapabilities, ClientSessionCapabilities,
+        CloseSessionRequest, CompactionCapabilities, ContentBlock, ContentChunk,
+        DeleteSessionRequest, ForkSessionRequest, Implementation, InitializeRequest,
+        ListSessionsRequest, LoadSessionRequest, LogoutRequest, MessageId, NewSessionRequest,
+        NoticeCapabilities, PromptRequest, RequestPermissionOutcome, RequestPermissionResponse,
         ResumeSessionRequest, SessionConfigId, SessionConfigOptionCategory,
         SessionConfigOptionValue, SessionConfigValueId, SessionId, SessionModeId, SessionUpdate,
         SetSessionConfigOptionRequest, SetSessionModeRequest, SubagentCapabilities,
@@ -521,6 +522,13 @@ impl Server {
                         .client_capabilities(
                             ClientCapabilities::new()
                                 .subagents(SubagentCapabilities::new())
+                                // Notices, and the context compacted, are
+                                // said in the thread.
+                                .session(
+                                    ClientSessionCapabilities::new()
+                                        .notices(NoticeCapabilities::new())
+                                        .compaction(CompactionCapabilities::new()),
+                                )
                                 // Tasks left going in the background (a
                                 // command), as the JetBrains extension says
                                 // them, are shown.
