@@ -203,6 +203,7 @@ impl Desk {
                 if let Some(t) = self.terminals.iter_mut().find(|t| t.id == id) {
                     t.end();
                 }
+                self.setup_ended(id);
             }
             Msg::Elsewhere { agent, folders } => {
                 self.elsewhere.insert(agent, folders);

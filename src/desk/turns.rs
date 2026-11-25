@@ -144,9 +144,11 @@ impl Desk {
                 let path = wt.path.clone();
                 s.worktree = Some(wt);
                 let agent = s.agent.clone();
-                self.open_when_running(&agent, key);
-                // What the repository runs in each new worktree runs now.
-                self.run_worktree_scripts(key, &path, cx);
+                // What the repository runs in each new worktree runs now;
+                // what it says to wait for, first.
+                if !self.run_worktree_scripts(key, &path, cx) {
+                    self.open_when_running(&agent, key);
+                }
             }
             Err(why) => {
                 s.pending = None;

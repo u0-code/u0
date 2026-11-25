@@ -220,6 +220,8 @@ pub struct Session {
     /// The scripts run in its new worktree as it was made (ghost.json's),
     /// each in a terminal: said at its head until put away.
     pub setup: Vec<String>,
+    /// The terminals of setup scripts its first message waits for.
+    pub holding: Vec<u64>,
     /// The session whose agent set this one to work as its subagent: shown,
     /// not listed, not kept, not written in.
     pub parent: Option<u64>,
@@ -610,6 +612,7 @@ impl Session {
             from: None,
             parent: None,
             setup: Vec::new(),
+            holding: Vec::new(),
             seen: None,
             upstream: (0, true),
             compare_to: None,

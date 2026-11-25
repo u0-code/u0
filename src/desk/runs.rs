@@ -13,12 +13,14 @@
 //!
 //! Each shows as a button in the drawer and runs in a terminal of its own;
 //! one marked `worktree` runs in each new worktree made for a session, as
-//! it is made.
+//! it is made, and one marked `wait` as well holds the session's first
+//! message until it has run. The drawer adds, changes and takes away
+//! scripts, written back to the file.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use gpui::{ClipboardItem, Context, Focusable as _, KeyDownEvent, Window};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::Desk;
 use crate::terminal::{self, Terminal};
@@ -46,21 +48,70 @@ pub fn address(text: &str) -> Option<String> {
 }
 
 /// A repository's own commands, from `ghost.json` at its root.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default)]
     pub scripts: Vec<Script>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Script {
     pub name: String,
     pub command: String,
     /// Run in each new worktree, as it is made.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub worktree: bool,
+    /// Run so in a new worktree, the session's first message waits until
+    /// it has run.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub wait: bool,
+}
+
+/// The script being written in the drawer: the one at `at` changed, or a
+/// new one; its name and command are in the drawer's two fields.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Writing {
+    pub at: Option<usize>,
+    pub worktree: bool,
+    pub wait: bool,
+}
+
+/// `ghost.json` of the repository at `dir`, and what it says: nothing
+/// where there is no such file; refused where it does not read, so that
+/// nothing is written over it.
+fn read_config(dir: &Path) -> Result<(PathBuf, Config), String> {
+    let root = crate::git::root(dir).ok_or("the folder is not in a git repository")?;
+    let path = root.join("ghost.json");
+    match std::fs::read_to_string(&path) {
+        Err(_) => Ok((path, Config::default())),
+        Ok(text) => serde_json::from_str(&text)
+            .map(|c| (path.clone(), c))
+            .map_err(|e| {
+                format!(
+                    "{} does not read ({e}); move it away or mend it",
+                    path.display()
+                )
+            }),
+    }
+}
+
+/// Put `script` at `at` in `ghost.json` (a new one at the end), or take
+/// the one at `at` away when `script` is none.
+fn write_script(dir: &Path, at: Option<usize>, script: Option<Script>) -> Result<(), String> {
+    let (path, mut config) = read_config(dir)?;
+    match (at, script) {
+        (Some(at), Some(script)) if at < config.scripts.len() => config.scripts[at] = script,
+        (Some(at), None) if at < config.scripts.len() => {
+            config.scripts.remove(at);
+        }
+        (None, Some(script)) => config.scripts.push(script),
+        _ => return Err("the script is no longer in ghost.json".into()),
+    }
+    let mut text = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
+    text.push('\n');
+    crate::whole::write(&path, text.as_bytes()).map_err(|e| e.to_string())
 }
 
 /// The commands `ghost.json` names in the repository at `dir`; none where
@@ -254,13 +305,94 @@ impl Desk {
 
     /// The scripts of a new worktree's repository marked to run in each new
     /// worktree, each run there now in a terminal beside the session `key`.
-    pub(crate) fn run_worktree_scripts(&mut self, key: u64, dir: &Path, cx: &mut Context<Self>) {
+    /// Those marked `wait` end their terminal as they end, and the
+    /// session's first message is held until each has: true when one is.
+    pub(crate) fn run_worktree_scripts(
+        &mut self,
+        key: u64,
+        dir: &Path,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let mut held = false;
         for script in config(dir).scripts.into_iter().filter(|s| s.worktree) {
-            self.open_terminal_in(key, dir, Some(&script.command), cx);
+            let command = if script.wait {
+                format!("{}; exit", script.command)
+            } else {
+                script.command.clone()
+            };
+            self.open_terminal_in(key, dir, Some(&command), cx);
+            let term = self.term_on;
             if let Some(s) = self.sessions.iter_mut().find(|s| s.key == key) {
                 s.setup.push(script.name);
+                if script.wait {
+                    s.holding.extend(term);
+                    held = true;
+                }
             }
         }
+        held
+    }
+
+    /// A terminal ended: a session whose first message waited for it, and
+    /// for nothing else now, is opened.
+    pub(crate) fn setup_ended(&mut self, id: u64) {
+        let Some(s) = self.sessions.iter_mut().find(|s| s.holding.contains(&id)) else {
+            return;
+        };
+        s.holding.retain(|t| *t != id);
+        if s.holding.is_empty() {
+            let (agent, key) = (s.agent.clone(), s.key);
+            self.open_when_running(&agent, key);
+        }
+    }
+
+    /// Begin writing a script in the drawer: the one at `at` of the
+    /// repository on screen, or a new one.
+    pub fn write_script(&mut self, at: Option<usize>, window: &mut Window, cx: &mut Context<Self>) {
+        let script = at
+            .and_then(|n| {
+                let dir = self.session()?.folder.clone();
+                config(&dir).scripts.into_iter().nth(n)
+            })
+            .unwrap_or_default();
+        self.script_name
+            .update(cx, |i, cx| i.set_text(&script.name, cx));
+        self.script_command
+            .update(cx, |i, cx| i.set_text(&script.command, cx));
+        self.writing = Some(Writing {
+            at,
+            worktree: script.worktree,
+            wait: script.wait,
+        });
+        window.focus(&self.script_name.focus_handle(cx));
+        cx.notify();
+    }
+
+    /// Keep the script being written in `ghost.json`, or (`keep` false)
+    /// take it away.
+    pub fn save_script(&mut self, keep: bool, cx: &mut Context<Self>) {
+        let (Some(w), Some(dir)) = (self.writing, self.session().map(|s| s.folder.clone())) else {
+            return;
+        };
+        let script = keep.then(|| Script {
+            name: self.script_name.read(cx).text().trim().to_owned(),
+            command: self.script_command.read(cx).text().trim().to_owned(),
+            worktree: w.worktree,
+            wait: w.worktree && w.wait,
+        });
+        if script
+            .as_ref()
+            .is_some_and(|s| s.name.is_empty() || s.command.is_empty())
+        {
+            self.trouble("A script needs a name and a command", None, None);
+            cx.notify();
+            return;
+        }
+        match write_script(&dir, w.at, script) {
+            Ok(()) => self.writing = None,
+            Err(why) => self.trouble("Couldn't write ghost.json", Some(why), None),
+        }
+        cx.notify();
     }
 
     /// Bring the port of `address` on the machine `host` here (ssh -L),
@@ -312,6 +444,41 @@ impl Desk {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_script_written_is_kept_in_ghost_json_and_one_that_does_not_read_is_left_alone() {
+        let dir = std::env::temp_dir().join(format!("ghost-scripts-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("dir");
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .expect("git");
+        };
+        git(&["init", "-q"]);
+        let script = |name: &str| Script {
+            name: name.into(),
+            command: "npm i".into(),
+            worktree: true,
+            wait: true,
+        };
+        write_script(&dir, None, Some(script("setup"))).expect("written");
+        write_script(&dir, None, Some(script("dev"))).expect("written");
+        write_script(&dir, Some(0), None).expect("taken away");
+        let names: Vec<_> = config(&dir).scripts.into_iter().map(|s| s.name).collect();
+        assert_eq!(names, ["dev"]);
+        let text = std::fs::read_to_string(dir.join("ghost.json")).expect("file");
+        assert!(text.contains("\"wait\": true"), "{text}");
+        std::fs::write(dir.join("ghost.json"), "{ not json").expect("broken");
+        assert!(write_script(&dir, None, Some(script("x"))).is_err());
+        assert_eq!(
+            std::fs::read_to_string(dir.join("ghost.json")).expect("kept"),
+            "{ not json"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn the_last_local_address_a_terminal_shows_is_the_one_to_open() {

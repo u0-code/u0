@@ -118,10 +118,26 @@ impl Desk {
                 )
                 .h(px(24.))
                 .px(px(8.))
-                .tooltip(ui::tip(script.command))
+                .tooltip(ui::tip(format!(
+                    "{}  ·  right-click to change it",
+                    script.command
+                )))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.open_terminal(Some(&command), window, cx);
-                })),
+                }))
+                .on_mouse_down(
+                    gpui::MouseButton::Right,
+                    cx.listener(move |this, _, window, cx| this.write_script(Some(n), window, cx)),
+                ),
+            );
+        }
+        if self.session().is_some_and(|s| s.repo) {
+            bar = bar.child(
+                ui::icon_button("add-script", "file-plus", "Add a script to ghost.json")
+                    .size(px(24.))
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.write_script(None, window, cx)),
+                    ),
             );
         }
         let shown = on.and_then(|id| terms.iter().find(|t| t.id == id).copied());
@@ -191,8 +207,99 @@ impl Desk {
                 .border_color(theme::border())
                 .bg(theme::well())
                 .child(bar)
+                .children(self.script_form(faces, cx))
                 .child(body),
         )
+    }
+
+    /// The script being written: its name and command, where it runs, and
+    /// Save, Delete (a script already kept) and Cancel.
+    fn script_form(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<Div> {
+        let w = self.writing?;
+        let field = |input: gpui::Entity<crate::input::TextInput>, width: f32| {
+            div()
+                .w(px(width))
+                .h(px(28.))
+                .flex()
+                .items_center()
+                .px(px(6.))
+                .rounded(px(7.))
+                .bg(theme::panel())
+                .border_1()
+                .border_color(theme::border2())
+                .font_family(faces.mono.clone())
+                .text_size(px(12.5))
+                .child(input)
+        };
+        let flag =
+            |id: &'static str, label: &'static str, on: bool, set: fn(&mut runs::Writing)| {
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(
+                        ui::switch(id, on).on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(w) = &mut this.writing {
+                                set(w);
+                            }
+                            cx.notify();
+                        })),
+                    )
+                    .child(
+                        ui::text(faces, label)
+                            .text_size(px(12.))
+                            .text_color(theme::text2()),
+                    )
+            };
+        let mut form = div()
+            .flex()
+            .flex_none()
+            .flex_wrap()
+            .items_center()
+            .gap(px(10.))
+            .px(px(12.))
+            .py(px(8.))
+            .border_b_1()
+            .border_color(theme::border())
+            .child(field(self.script_name.clone(), 120.))
+            .child(field(self.script_command.clone(), 280.))
+            .child(flag(
+                "script-worktree",
+                "In each new worktree",
+                w.worktree,
+                |w| {
+                    w.worktree = !w.worktree;
+                },
+            ))
+            .when(w.worktree, |d| {
+                d.child(flag(
+                    "script-wait",
+                    "Before the first message",
+                    w.wait,
+                    |w| {
+                        w.wait = !w.wait;
+                    },
+                ))
+            })
+            .child(div().flex_1())
+            .child(
+                ui::button(faces, "script-save", "Save", Weight::Primary)
+                    .on_click(cx.listener(|this, _, _, cx| this.save_script(true, cx))),
+            );
+        if w.at.is_some() {
+            form = form.child(
+                ui::button(faces, "script-delete", "Delete", Weight::Quiet)
+                    .on_click(cx.listener(|this, _, _, cx| this.save_script(false, cx))),
+            );
+        }
+        Some(form.child(
+            ui::button(faces, "script-cancel", "Cancel", Weight::Quiet).on_click(cx.listener(
+                |this, _, _, cx| {
+                    this.writing = None;
+                    cx.notify();
+                },
+            )),
+        ))
     }
 
     fn tab(faces: &Faces, t: &Terminal, on: bool, cx: &mut Context<Self>) -> impl IntoElement {

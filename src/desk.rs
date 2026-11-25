@@ -264,6 +264,10 @@ pub struct Desk {
     pub settings_search: Entity<TextInput>,
     /// What worktree branches begin with, as you write it in settings.
     pub prefix_input: Entity<TextInput>,
+    /// A script being written in the drawer, and its name and command.
+    pub writing: Option<runs::Writing>,
+    pub script_name: Entity<TextInput>,
+    pub script_command: Entity<TextInput>,
     /// The folders each agent has sessions in that are not projects.
     pub elsewhere: std::collections::BTreeMap<String, Vec<(PathBuf, usize)>>,
     /// What `@` can name: each folder's files, each project's open pull
@@ -442,6 +446,8 @@ impl Desk {
             cx.notify();
         })
         .detach();
+        let script_name = cx.new(|cx| TextInput::new(cx, "dev").padded(4.).keeping());
+        let script_command = cx.new(|cx| TextInput::new(cx, "npm run dev").padded(4.).keeping());
         let prefix = cx.new(|cx| {
             let mut i = TextInput::new(cx, "ghost/").padded(4.).keeping();
             i.set_text(&settings.branch_prefix, cx);
@@ -694,6 +700,9 @@ impl Desk {
             agent_search,
             settings_search,
             prefix_input: prefix,
+            writing: None,
+            script_name,
+            script_command,
             sizes: Vec::new(),
             palette: false,
             palette_input,
