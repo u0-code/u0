@@ -9,10 +9,11 @@ use gpui::component::{
     Icon, Sizable as _,
     input::Input,
     kbd::Kbd,
+    scroll::ScrollableElement as _,
     sidebar::{Sidebar, SidebarGroup, SidebarMenu, SidebarMenuItem},
     switch::Switch,
 };
-use gpui::{Context, Entity, SharedString, Window, div, prelude::*, px};
+use gpui::{Context, Entity, Pixels, SharedString, Window, div, prelude::*, px};
 
 use super::card;
 use crate::fonts::Weighted as _;
@@ -40,10 +41,19 @@ impl Shown {
 }
 
 impl Render for Shown {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let faces = crate::fonts::faces(cx).clone();
-        self.desk.update(cx, |d, cx| d.settings_dialog(&faces, cx))
+        // Held to the dialog's height, not grown to what it holds, so each
+        // column scrolls on its own rather than the dialog's body.
+        div()
+            .h(height(window))
+            .child(self.desk.update(cx, |d, cx| d.settings_dialog(&faces, cx)))
     }
+}
+
+/// How tall the settings dialog stands in `window`.
+pub fn height(window: &Window) -> Pixels {
+    (window.viewport_size().height - px(80.)).min(px(820.))
 }
 
 /// A tab of the settings.
@@ -221,8 +231,8 @@ impl Desk {
                             .items_center()
                             .flex_1()
                             .min_h(px(0.))
-                            .overflow_y_scroll()
-                            .child(shown.w_full()),
+                            .child(shown.w_full())
+                            .overflow_y_scrollbar(),
                     ),
             )
             .into_any_element()

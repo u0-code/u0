@@ -27,7 +27,9 @@ use agent_client_protocol::v1::schema::{
     Plan, PlanEntryStatus, SessionConfigKind, SessionConfigOptionCategory,
     SessionConfigSelectOptions, ToolCallContent, ToolCallStatus, ToolKind,
 };
-use gpui::component::{button::Button, input::Textarea, popover::Popover};
+use gpui::component::{
+    button::Button, input::Textarea, popover::Popover, scroll::ScrollableElement as _,
+};
 use gpui::{AnyElement, Context, Div, SharedString, Stateful, div, prelude::*, px};
 
 use crate::fonts::Weighted as _;
@@ -435,8 +437,8 @@ impl Desk {
             .items_center()
             .flex_1()
             .min_h(px(0.))
-            .overflow_y_scroll()
             .child(col)
+            .overflow_y_scrollbar()
             .into_any_element()
     }
 
@@ -683,7 +685,7 @@ impl Desk {
             move |d, _, cx| {
                 // The pull requests it lists are asked for once, as it opens.
                 d.want_offers();
-                d.base_menu(&faces, key, cx)
+                d.base_menu(&faces, key, cx).overflow_y_scrollbar()
             },
             cx,
         )
@@ -698,8 +700,7 @@ impl Desk {
             .flex()
             .flex_col()
             .w(px(288.))
-            .max_h(px(348.))
-            .overflow_y_scroll();
+            .max_h(px(348.));
         let Some(s) = self.sessions.at(key) else {
             return list;
         };

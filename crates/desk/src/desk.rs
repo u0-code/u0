@@ -1194,7 +1194,7 @@ impl Desk {
             let desk = cx.entity();
             let shown = cx.new(|cx| crate::pages::Shown::new(desk.clone(), cx));
             window.open_dialog(cx, move |dialog, window, _| {
-                let tall = (window.viewport_size().height - px(80.)).min(px(820.));
+                let tall = crate::pages::settings_height(window);
                 let desk = desk.clone();
                 dialog
                     .w(px(1080.))

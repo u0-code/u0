@@ -7,11 +7,12 @@ mod new_project;
 mod prefs;
 mod settings;
 
-pub use settings::{Shown, Tab};
+pub use settings::{Shown, Tab, height as settings_height};
 
 use gpui::component::{
     Sizable as _,
     input::{Input, InputEvent, InputState},
+    scroll::ScrollableElement as _,
 };
 use gpui::{Context, Div, Entity, SharedString, Window, div, prelude::*, px};
 
@@ -144,11 +145,11 @@ impl Desk {
             .flex_col()
             .items_center()
             .flex_1()
-            .min_h(px(0.))
-            .overflow_y_scroll();
+            .min_h(px(0.));
         let Some(entry) = self.entry(id) else {
             return page
-                .child(ui::text(faces, "The registry does not list this agent.").mt(px(72.)));
+                .child(ui::text(faces, "The registry does not list this agent.").mt(px(72.)))
+                .overflow_y_scrollbar();
         };
         let enabled = self.settings.enabled.iter().any(|e| e == id);
         let stage = self.slot(id).map_or_else(
@@ -491,6 +492,7 @@ impl Desk {
                 .child(actions)
                 .child(self.agent_own(faces, id, &stage, cx)),
         )
+        .overflow_y_scrollbar()
     }
 
     /// What you set for an agent: a command line of your own that starts

@@ -4,6 +4,7 @@
 //! scratch session in a folder of its own.
 
 use gpui::component::input::{Input, InputState};
+use gpui::component::scroll::ScrollableElement as _;
 use gpui::{Context, Div, Entity, div, prelude::*, px};
 
 use super::card;
@@ -82,7 +83,7 @@ impl Desk {
         &self,
         faces: &Faces,
         cx: &mut Context<Self>,
-    ) -> gpui::Stateful<Div> {
+    ) -> impl IntoElement {
         let field = |input: &Entity<InputState>| Input::new(input);
         let heading = |text: &'static str| ui::text(faces, text).weight(gpui::FontWeight::MEDIUM);
         let parent = div()
@@ -258,7 +259,6 @@ impl Desk {
             .items_center()
             .flex_1()
             .min_h(px(0.))
-            .overflow_y_scroll()
             .child(
                 div()
                     .flex()
@@ -291,5 +291,6 @@ impl Desk {
                     )
                     .children(self.worked_here(faces, cx)),
             )
+            .overflow_y_scrollbar()
     }
 }

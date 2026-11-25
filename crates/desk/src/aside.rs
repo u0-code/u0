@@ -14,6 +14,7 @@ use gpui::component::{
     button::Button,
     input::Input,
     popover::Popover,
+    scroll::ScrollableElement as _,
     tab::{Tab, TabBar},
 };
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
@@ -153,13 +154,7 @@ impl Desk {
                     .map(|b| self.branch_chip(faces, s, b, cx)),
             )
             .child(self.whole_button(cx));
-        let body = div()
-            .id("aside")
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_h(px(0.))
-            .overflow_y_scroll();
+        let body = div().id("aside").flex().flex_col().flex_1().min_h(px(0.));
         let body = if self.aside == Aside::Files {
             body.child(Self::files(faces, s, cx))
         } else {
@@ -192,7 +187,7 @@ impl Desk {
             .child(Self::terminals(faces, s, cx))
             .child(self.context(faces, s, cx))
         };
-        frame(head).child(body)
+        frame(head).child(body.overflow_y_scrollbar())
     }
 
     /// What goes on beside the session (or its parent, on a subagent's own
@@ -1231,7 +1226,6 @@ impl Desk {
             .flex_col()
             .flex_1()
             .min_h(px(0.))
-            .overflow_y_scroll()
             .py(px(6.));
         body = body.children(self.comment_box(faces, s, path, cx));
         if let Some(file) = from_git {
@@ -1259,7 +1253,13 @@ impl Desk {
                     Some(&on),
                 )
             };
-            return frame(head).child(self.review(faces, s, path, body.child(hunks), cx));
+            return frame(head).child(self.review(
+                faces,
+                s,
+                path,
+                body.child(hunks).overflow_y_scrollbar(),
+                cx,
+            ));
         }
         for t in s.tools() {
             let mut n = 0;
@@ -1282,7 +1282,7 @@ impl Desk {
                 }
             }
         }
-        frame(head).child(self.review(faces, s, path, body, cx))
+        frame(head).child(self.review(faces, s, path, body.overflow_y_scrollbar(), cx))
     }
 
     /// What you are saying of lines of this file: the line being commented

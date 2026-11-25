@@ -9,6 +9,7 @@ use gpui::component::{
     kbd::Kbd,
     popover::Popover,
     progress::ProgressCircle,
+    scroll::ScrollableElement as _,
 };
 use gpui::{AnyElement, Context, Div, SharedString, Stateful, Window, div, prelude::*, px};
 
@@ -874,8 +875,7 @@ impl Desk {
             .id(SharedString::from(format!("{id}-list")))
             .flex()
             .flex_col()
-            .max_h(px(360.))
-            .overflow_y_scroll();
+            .max_h(px(360.));
         let mut shown = 0;
         for (n, (value, label, on)) in choices.into_iter().enumerate() {
             if !shown_by(&query, &value, &label) {
@@ -908,7 +908,7 @@ impl Desk {
                     })),
             );
         }
-        menu = menu.child(scroll);
+        menu = menu.child(scroll.overflow_y_scrollbar());
         // A new session can go to every agent at once, one each.
         let usable = self.usable_agents();
         if *popup == Popup::Agent && usable > 1 {

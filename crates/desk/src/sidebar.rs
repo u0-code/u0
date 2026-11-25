@@ -6,7 +6,9 @@
 
 use std::{path::Path, time::SystemTime};
 
-use gpui::component::{Sizable as _, input::Input, kbd::Kbd, popover::Popover};
+use gpui::component::{
+    Sizable as _, input::Input, kbd::Kbd, popover::Popover, scroll::ScrollableElement as _,
+};
 use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 
 use crate::fonts::Weighted as _;
@@ -228,7 +230,6 @@ impl Desk {
             .flex_col()
             .flex_1()
             .min_h(px(0.))
-            .overflow_y_scroll()
             .gap(px(14.))
             .children(self.search.open.then(|| {
                 div().px(px(8.)).child(
@@ -357,7 +358,7 @@ impl Desk {
             )
             .child(head)
             .child(new)
-            .child(list)
+            .child(list.overflow_y_scrollbar())
             .children(self.chosen_bar(faces, cx))
             .child(foot)
     }
