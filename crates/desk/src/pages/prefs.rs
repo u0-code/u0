@@ -779,7 +779,12 @@ impl Desk {
     /// The keys as they are now, yours over the window's, and the file
     /// yours are kept in.
     fn keyboard(&self, faces: &Faces, q: &str, cx: &mut Context<Self>) -> Option<Div> {
-        let mut list = card().overflow_hidden();
+        let grouped = |name: &str| keys::GROUPS.iter().position(|(_, g)| g.contains(&name));
+        let mut groups: Vec<(&str, Vec<Option<Div>>)> = keys::GROUPS
+            .iter()
+            .map(|(title, _)| (*title, Vec::new()))
+            .chain(std::iter::once(("Other", Vec::new())))
+            .collect();
         let mut n = 0;
         for (name, does, _) in keys::ACTIONS {
             let bound = keys::keys_of(cx, name);
@@ -787,17 +792,31 @@ impl Desk {
                 continue;
             }
             n += 1;
+            let os = cx.platform_info().os;
+            let unparsed: Vec<String> = bound.iter().map(|k| k.unparse(os)).collect();
+            let off = (!bound.is_empty()).then(|| {
+                ui::icon_button(
+                    SharedString::from(format!("unassign-{name}")),
+                    "minus",
+                    "Take its keys away",
+                )
+                .size(px(22.))
+                .text_color(theme::faint())
+                .on_click(cx.listener(move |this, _, _, _| {
+                    this.set_keys(name, keys::Keys::Off(unparsed.clone()));
+                }))
+            });
             let keys = div()
                 .flex()
                 .gap(px(4.))
                 .children(bound.into_iter().map(Kbd::new));
-            list = list.child(
+            let at = grouped(name).unwrap_or(keys::GROUPS.len());
+            groups[at].1.push(Some(
                 div()
                     .flex()
                     .items_center()
                     .h(px(36.))
                     .px(px(16.))
-                    .when(n > 1, |d| d.border_t_1().border_color(theme::border()))
                     .child(ui::text(faces, does).flex_1().text_size(px(13.)))
                     // A click records new keys for it; the arrow gives it
                     // back Ghost's.
@@ -821,6 +840,7 @@ impl Desk {
                                 cx.notify();
                             })),
                     )
+                    .children(off)
                     .child(
                         ui::icon_button(
                             SharedString::from(format!("unbind-{name}")),
@@ -830,10 +850,10 @@ impl Desk {
                         .size(px(22.))
                         .text_color(theme::faint())
                         .on_click(cx.listener(move |this, _, _, _| {
-                            this.set_keys(name, None);
+                            this.set_keys(name, keys::Keys::Ghosts);
                         })),
                     ),
-            );
+            ));
         }
         let path = self.home.join("keybindings.json");
         let open = ui::button("open-keys", "Open keybindings.json", Weight::Secondary).on_click(
@@ -849,14 +869,19 @@ impl Desk {
             super::Tab::Keyboard.title(),
             "The keys as they are now, yours over Ghost's.",
         )
-        .child(list);
+        .gap(px(22.))
+        .children(
+            groups
+                .into_iter()
+                .filter_map(|(title, rows)| group(faces, title, rows)),
+        );
         if !q.is_empty() {
             return Some(page);
         }
         Some(page
             .child(ui::fine(
                 faces,
-                "A rule is { \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }, with \"when\": \"Terminal\" (or \"Composer\", with !, && and ||) for where it holds, and \"action\": \"none\" to take a key away. The last rule that holds wins. Ghost reads the file as it starts.",
+                "A rule is { \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }, with \"when\": \"Terminal\" (or \"Composer\", with !, && and ||) for where it holds, \"action\": \"none\" to take a key away, and \"-new_session\" to take it from that action alone; \"script:dev\" runs the script dev. The last rule that holds wins. Ghost reads the file as it starts.",
             ))
             .child(div().flex().child(open)))
     }

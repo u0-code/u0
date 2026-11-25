@@ -1322,7 +1322,7 @@ impl Desk {
                 None,
             );
         }
-        self.set_keys(name, Some(key));
+        self.set_keys(name, crate::keys::Keys::Yours(key));
         cx.notify();
         true
     }
@@ -1639,8 +1639,8 @@ impl Desk {
 
     /// Bind the action `name` to `key` in your keybindings.json, or with
     /// none give it Ghost's keys back, off the window's thread.
-    pub fn set_keys(&self, name: &'static str, key: Option<String>) {
-        hub::set_keys(self.home.clone(), name, key, self.tx.clone());
+    pub fn set_keys(&self, name: &'static str, keys: crate::keys::Keys) {
+        hub::set_keys(self.home.clone(), name, keys, self.tx.clone());
     }
 
     /// Write `text` to `path` whole, off the window's thread, and say so.

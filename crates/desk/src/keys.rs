@@ -207,8 +207,82 @@ pub const ACTIONS: [(&str, &str, Make); 50] = [
     }),
 ];
 
+/// The Keyboard page's groups, as t3code's: each action named in one;
+/// one named in none shows under Other.
+pub const GROUPS: [(&str, &[&str]); 6] = [
+    (
+        "Sessions",
+        &[
+            "new_session",
+            "new_here",
+            "new_scratch",
+            "next_session",
+            "previous_session",
+            "settle",
+            "pin",
+            "copy_id",
+        ],
+    ),
+    (
+        "The thread",
+        &[
+            "find",
+            "stop",
+            "model",
+            "mode",
+            "effort",
+            "dictate",
+            "previous_turn",
+            "next_turn",
+            "transcript_view",
+        ],
+    ),
+    (
+        "Going about",
+        &[
+            "palette",
+            "go_to_file",
+            "search_words",
+            "back",
+            "ahead",
+            "next_area",
+            "toggle_sidebar",
+            "settings",
+            "usage",
+        ],
+    ),
+    (
+        "The column beside",
+        &[
+            "review",
+            "right_column",
+            "open_surface",
+            "reopen_surface",
+            "close_surface",
+            "pull_requests",
+            "issues",
+            "copy_pr",
+            "open_folder",
+        ],
+    ),
+    (
+        "Terminal",
+        &[
+            "drawer",
+            "next_terminal",
+            "previous_terminal",
+            "clear_terminal",
+        ],
+    ),
+    (
+        "The window",
+        &["light_or_dark", "full_screen", "minimize", "quit"],
+    ),
+];
+
 /// A binding of yours: `action` is a name in `ACTIONS`, or "none" to
-/// take the key from whatever has it; `when`, where it holds, as a key
+/// take the key from whatever has it, or `-` and a name to take the key
+/// from that action alone (as VS Code and t3code write it); `when`, where it holds, as a key
 /// context predicate over the window's parts ("Terminal", "Composer",
 /// with `!`, `&&` and `||`), as t3code's `when` clauses.
 #[derive(Debug, Deserialize, serde::Serialize)]
@@ -238,10 +312,10 @@ pub fn action(name: &str) -> Option<Box<dyn Action>> {
 /// A binding of yours as the window's: none where its action, keys or
 /// `when` do not read, which is said in the log.
 fn binding(cx: &App, b: &Binding) -> Option<KeyBinding> {
-    let made = if b.action == "none" {
-        Some(Box::new(gpui::NoAction) as Box<dyn Action>)
-    } else {
-        action(&b.action)
+    let made = match b.action.strip_prefix('-') {
+        _ if b.action == "none" => Some(Box::new(gpui::NoAction) as Box<dyn Action>),
+        Some(name) => action(name).map(|_| Box::new(gpui::NoAction) as Box<dyn Action>),
+        None => action(&b.action),
     };
     let Some(made) = made else {
         tracing::warn!(
@@ -318,19 +392,33 @@ pub fn written(keys: &[Keystroke]) -> String {
     keys.iter().map(Kbd::format).collect::<Vec<_>>().join(" ")
 }
 
-/// Bind the action `name` to `key` ("cmd-shift-k") in your
-/// keybindings.json, or with none take yours for it away: your bindings
-/// now. A file that does not read is left alone. Blocking.
-pub fn set_yours(home: &Path, name: &str, key: Option<String>) -> Result<Vec<Binding>, String> {
+/// What you set for an action's keys.
+pub enum Keys {
+    /// Ghost's again: yours for it taken away.
+    Ghosts,
+    /// These ("cmd-shift-k").
+    Yours(String),
+    /// None: the keys it has now taken from it.
+    Off(Vec<String>),
+}
+
+/// Set the keys of the action `name` in your keybindings.json as `keys`
+/// says: your bindings now. A file that does not read is left alone.
+/// Blocking.
+pub fn set_yours(home: &Path, name: &str, keys: Keys) -> Result<Vec<Binding>, String> {
     let path = home.join("keybindings.json");
     let mut list: Vec<Binding> = crate::whole::read_json(&path)?;
-    list.retain(|b| b.action != name);
-    if let Some(key) = key {
-        list.push(Binding {
-            key,
-            action: name.to_owned(),
-            when: None,
-        });
+    let off = format!("-{name}");
+    list.retain(|b| b.action != name && b.action != off);
+    let bound = |key, action: &str| Binding {
+        key,
+        action: action.to_owned(),
+        when: None,
+    };
+    match keys {
+        Keys::Ghosts => {}
+        Keys::Yours(key) => list.push(bound(key, name)),
+        Keys::Off(keys) => list.extend(keys.into_iter().map(|k| bound(k, &off))),
     }
     let text = serde_json::to_vec_pretty(&list).map_err(|e| e.to_string())?;
     crate::whole::write(&path, &text).map_err(|e| e.to_string())?;
@@ -620,13 +708,16 @@ mod tests {
     fn a_key_of_yours_replaces_your_last_for_that_action_and_a_broken_file_is_left_alone() {
         let home = tempfile::tempdir().unwrap();
         let home = home.path();
-        set_yours(home, "palette", Some("cmd-shift-k".into())).unwrap();
-        let list = set_yours(home, "palette", Some("cmd-y".into())).unwrap();
+        set_yours(home, "palette", Keys::Yours("cmd-shift-k".into())).unwrap();
+        let list = set_yours(home, "palette", Keys::Yours("cmd-y".into())).unwrap();
         assert_eq!(list.len(), 1);
         assert_eq!(yours(home)[0].key, "cmd-y");
-        assert!(set_yours(home, "palette", None).unwrap().is_empty());
+        // Taken away, its keys go to nothing; given back, nothing of yours is left.
+        let list = set_yours(home, "palette", Keys::Off(vec!["cmd-k".into()])).unwrap();
+        assert_eq!((list.len(), list[0].action.as_str()), (1, "-palette"));
+        assert!(set_yours(home, "palette", Keys::Ghosts).unwrap().is_empty());
         std::fs::write(home.join("keybindings.json"), "{ not json").unwrap();
-        assert!(set_yours(home, "palette", None).is_err());
+        assert!(set_yours(home, "palette", Keys::Ghosts).is_err());
         assert_eq!(
             std::fs::read_to_string(home.join("keybindings.json")).unwrap(),
             "{ not json"

@@ -190,9 +190,9 @@ pub fn edit(path: PathBuf, chosen: Option<String>, start: Option<&'static [u8]>,
 /// Bind the action `name` to `key` in your keybindings.json (none: give
 /// it Ghost's keys back), on the writer, so that two binds made quickly
 /// are kept in the order they were made.
-pub fn set_keys(home: PathBuf, name: &'static str, key: Option<String>, tx: Sender) {
+pub fn set_keys(home: PathBuf, name: &'static str, keys: crate::keys::Keys, tx: Sender) {
     crate::store::queue(crate::store::Job::Then(Box::new(move || {
-        let _ = tx.send(Msg::Keys(crate::keys::set_yours(&home, name, key)));
+        let _ = tx.send(Msg::Keys(crate::keys::set_yours(&home, name, keys)));
     })));
 }
 
