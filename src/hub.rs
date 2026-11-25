@@ -1205,8 +1205,9 @@ pub fn git_action(
                 text: text.to_owned(),
             });
         };
-        // Work on the main branch goes on a branch of its own before it is
-        // pushed: named for what the commit says.
+        // Work on the main branch goes on a branch of its own before a pull
+        // request is opened for it: named for what the commit says. A push
+        // alone goes where you are.
         let own_branch = |m: &str| -> Result<(), String> {
             let main = git::default_branch(&dir);
             let now = git::branch(&dir);
@@ -1222,13 +1223,13 @@ pub fn git_action(
             GitAction::Commit(m) => {
                 git::commit(&dir, m, &left_out).map(|id| format!("Committed {id}"))
             }
-            GitAction::CommitPush(m) => own_branch(m).and_then(|()| {
+            GitAction::CommitPush(m) => {
                 step("Committing");
                 git::commit(&dir, m, &left_out).and_then(|id| {
                     step("Pushing");
                     git::push(&dir).map(|_| format!("Committed {id} and pushed"))
                 })
-            }),
+            }
             GitAction::PullRequest(m) => own_branch(m).and_then(|()| {
                 step("Committing");
                 // Nothing left to commit is no reason to stop.

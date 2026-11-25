@@ -24,6 +24,8 @@ fn git(dir: &Path, args: &[&str], index: Option<&Path>) -> Result<String, String
     command
         .arg("-C")
         .arg(dir)
+        // Names as they are (架构.md), not in octal escapes.
+        .args(["-c", "core.quotepath=false"])
         .args(args)
         .stdin(Stdio::null())
         // A checkpoint is the desk's, not yours: it is signed by Ghost and
@@ -367,13 +369,58 @@ pub fn diff(dir: &Path, from: &str, to: &str) -> Result<Vec<FileDiff>, String> {
     Ok(parse(&out))
 }
 
+/// The new name in a `diff --git a/x b/y` line: after " b/", or the
+/// second name quoted where git quotes it (a tab, a quote in it).
+fn new_name(rest: &str) -> String {
+    if rest.ends_with('"')
+        && let Some(at) = rest.rfind(" \"b/")
+    {
+        let named = unquote(&rest[at + 1..]);
+        return named.strip_prefix("b/").unwrap_or(&named).to_owned();
+    }
+    rest.rsplit_once(" b/").map_or(rest, |(_, b)| b).to_owned()
+}
+
+/// A name as git writes it: as it is, or in quotes with C escapes (\t,
+/// \", \\, and each byte not plain ASCII as three octal digits).
+fn unquote(name: &str) -> String {
+    let Some(inner) = name.strip_prefix('"').and_then(|n| n.strip_suffix('"')) else {
+        return name.to_owned();
+    };
+    let mut bytes = Vec::new();
+    let mut chars = inner.bytes().peekable();
+    while let Some(b) = chars.next() {
+        if b != b'\\' {
+            bytes.push(b);
+            continue;
+        }
+        match chars.next() {
+            Some(b't') => bytes.push(b'\t'),
+            Some(b'n') => bytes.push(b'\n'),
+            Some(d @ b'0'..=b'7') => {
+                let mut n = u32::from(d - b'0');
+                for _ in 0..2 {
+                    if let Some(&d @ b'0'..=b'7') = chars.peek() {
+                        n = n * 8 + u32::from(d - b'0');
+                        chars.next();
+                    }
+                }
+                bytes.push(u8::try_from(n).unwrap_or(b'?'));
+            }
+            Some(other) => bytes.push(other),
+            None => {}
+        }
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
 /// A unified diff, read.
 pub fn parse(text: &str) -> Vec<FileDiff> {
     let mut files: Vec<FileDiff> = Vec::new();
     let (mut old, mut new) = (0usize, 0usize);
     for line in text.lines() {
         if let Some(rest) = line.strip_prefix("diff --git ") {
-            let path = rest.rsplit_once(" b/").map_or(rest, |(_, b)| b).to_owned();
+            let path = new_name(rest);
             files.push(FileDiff {
                 path,
                 from: None,
@@ -394,9 +441,9 @@ pub fn parse(text: &str) -> Vec<FileDiff> {
             file.status = Status::Deleted;
         } else if let Some(from) = line.strip_prefix("rename from ") {
             file.status = Status::Renamed;
-            file.from = Some(from.to_owned());
+            file.from = Some(unquote(from));
         } else if let Some(to) = line.strip_prefix("rename to ") {
-            to.clone_into(&mut file.path);
+            file.path = unquote(to);
         } else if line.starts_with("Binary files ") {
             file.binary = true;
         } else if line.starts_with("@@") {
@@ -880,6 +927,17 @@ mod tests {
         git(&dir, &["add", "a.txt"], None).unwrap();
         git(&dir, &["commit", "-q", "-m", "first"], None).unwrap();
         dir
+    }
+
+    #[test]
+    fn a_name_git_quotes_reads_as_it_is() {
+        let d = parse(
+            "diff --git \"a/reports/JEPA \\346\\236\\266.md\" \"b/reports/JEPA \\346\\236\\266.md\"\nnew file mode 100644\n@@ -0,0 +1 @@\n+x\n",
+        );
+        assert_eq!(d[0].path, "reports/JEPA 架.md");
+        let d = parse("diff --git a/报告 一.md b/报告 一.md\n@@ -1 +1 @@\n-a\n+b\n");
+        assert_eq!(d[0].path, "报告 一.md");
+        assert_eq!(unquote("\"tab\\there\""), "tab\there");
     }
 
     #[test]

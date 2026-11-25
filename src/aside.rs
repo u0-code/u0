@@ -1115,7 +1115,13 @@ impl Desk {
             .py(px(6.));
         body = body.children(self.comment_box(faces, s, path, cx));
         if let Some(file) = from_git {
-            let hunks = if self.settings.side_by_side {
+            // A file only added or only taken away has one side: it reads
+            // in one column, side by side or not.
+            let two_sides = !matches!(
+                file.status,
+                crate::git::Status::Added | crate::git::Status::Deleted
+            );
+            let hunks = if self.settings.side_by_side && two_sides {
                 drawn::hunks_split(faces, file)
             } else {
                 // A line clicked is one to say something of, to the agent.
