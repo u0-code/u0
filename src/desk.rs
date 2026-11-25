@@ -2040,18 +2040,25 @@ impl Desk {
         }
     }
 
-    /// Escape closes the menu open, wherever the keys go: true when one
-    /// was.
+    /// Escape closes the menu open, else leaves the page open for the
+    /// thread, wherever the keys go: true when it did.
     fn escape_closes(
         &mut self,
         k: &gpui::Keystroke,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if k.key != "escape" || k.modifiers.modified() || self.popup == Popup::Closed {
+        if k.key != "escape" || k.modifiers.modified() {
             return false;
         }
-        self.close_popup(window, cx);
+        if self.popup != Popup::Closed {
+            self.close_popup(window, cx);
+        } else if self.page != Page::Thread && !self.palette {
+            self.page = Page::Thread;
+            cx.notify();
+        } else {
+            return false;
+        }
         true
     }
 

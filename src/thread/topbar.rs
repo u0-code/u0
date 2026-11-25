@@ -48,6 +48,12 @@ impl Desk {
             .w_auto()
             .flex_shrink()
         };
+        if self.page != Page::Thread {
+            bar = bar.child(
+                ui::icon_button("back", "chevron-left", "Back · Esc")
+                    .on_click(cx.listener(|this, _, _, cx| this.open_page(Page::Thread, cx))),
+            );
+        }
         match &self.page {
             Page::Thread => {
                 if let Some(s) = self.session() {
