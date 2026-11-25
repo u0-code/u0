@@ -12,7 +12,7 @@ use gpui::{
 use super::Desk;
 use crate::{
     hub,
-    session::{Session, State},
+    session::{Item, Session, State},
     store, when,
 };
 
@@ -359,6 +359,76 @@ impl Desk {
         self.current = Some(key);
         self.page = super::Page::Thread;
         cx.notify();
+    }
+
+    /// Branch the session `key` off before your message at `item` in its
+    /// thread: a new session with what was said up to it (see `fork`).
+    pub fn fork_at(&mut self, key: u64, item: usize, cx: &mut Context<Self>) {
+        let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
+            return;
+        };
+        let Some(Item::You(text)) = s.items.get(item) else {
+            return;
+        };
+        let nth = s.items[..item]
+            .iter()
+            .filter(|i| matches!(i, Item::You(t) if t.trim() == text.trim()))
+            .count();
+        let mine = crate::fork::Mine {
+            text: text.clone(),
+            nth,
+        };
+        let (Some(id), Some(slot)) = (s.id.clone(), self.slot(&s.agent)) else {
+            return;
+        };
+        match slot.launch(&self.home) {
+            Ok(launch) => {
+                crate::fork::at(launch, key, id, s.folder.clone(), mine, self.tx.clone());
+            }
+            Err(m) => {
+                let why = m.say(&slot.entry.name);
+                if let Some(s) = self.session_mut(key) {
+                    s.note(&format!("It could not be branched off here: {why}"));
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// The session branched off `from` before your message `text`: on
+    /// screen, loaded from its agent, with `text` to write again.
+    pub(crate) fn forked_at(
+        &mut self,
+        from: u64,
+        text: String,
+        result: Result<agent_client_protocol_schema::v1::SessionId, crate::acp::Failure>,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(origin) = self.sessions.iter().find(|s| s.key == from).cloned() else {
+            return;
+        };
+        let id = match result {
+            Ok(id) => id,
+            Err(f) => {
+                if let Some(s) = self.session_mut(from) {
+                    s.note(&format!("It could not be branched off here: {}", f.message));
+                }
+                cx.notify();
+                return;
+            }
+        };
+        let key = self.take_key();
+        let mut s = Session::new(key, &origin.agent, origin.folder.clone());
+        s.project.clone_from(&origin.project);
+        s.worktree.clone_from(&origin.worktree);
+        s.title = format!("{} (fork)", origin.title);
+        s.renamed = true;
+        s.id = Some(id);
+        s.state = State::Closed;
+        s.unsent = text;
+        self.sessions.push(s);
+        self.save_index();
+        self.bring(key, cx);
     }
 
     /// Carry out the plan the session `key` made: out of the mode that only

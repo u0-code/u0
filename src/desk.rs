@@ -878,6 +878,12 @@ impl Desk {
 
     /// Put the session `key` on screen.
     pub fn show(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
+        self.bring(key, cx);
+        window.focus(&self.input.focus_handle(cx));
+    }
+
+    /// Put the session `key` on screen, opening it if it is closed.
+    pub(crate) fn bring(&mut self, key: u64, cx: &mut Context<Self>) {
         if self.current != Some(key) {
             // What was being written stays with its session, and the
             // session shown brings back what was being written in it.
@@ -929,7 +935,6 @@ impl Desk {
             self.open_when_running(&agent, key);
         }
         self.to_bottom();
-        window.focus(&self.input.focus_handle(cx));
         cx.notify();
     }
 

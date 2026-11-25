@@ -95,6 +95,13 @@ pub enum Msg {
         from: u64,
         result: Result<Box<ForkSessionResponse>, Failure>,
     },
+    /// A session branched off the session `from` before your message
+    /// `text`, or why it was not.
+    ForkedAt {
+        from: u64,
+        text: String,
+        result: Result<SessionId, Failure>,
+    },
     /// The files of a project, for `@` to name.
     Files {
         folder: PathBuf,

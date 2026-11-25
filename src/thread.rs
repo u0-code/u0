@@ -516,20 +516,53 @@ impl Desk {
     ) -> AnyElement {
         let key = format!("{}-{i}", s.key);
         match item {
-            Item::You(text) => div()
-                .flex()
-                .justify_end()
-                .child(
-                    ui::text(faces, text.clone())
-                        .max_w(px(520.))
-                        .px(px(16.))
-                        .py(px(12.))
-                        .rounded(px(BUBBLE_RADIUS))
-                        .bg(theme::bubble())
-                        .text_size(px(14.))
-                        .line_height(px(21.)),
-                )
-                .into_any_element(),
+            Item::You(text) => {
+                // Beside a message of yours after the first, on hover: a new
+                // session with what was said before it, to say it again.
+                let group = SharedString::from(format!("{key}-you"));
+                let branch = i > 0
+                    && s.items[..i].iter().any(|x| matches!(x, Item::You(_)))
+                    && matches!(
+                        s.state,
+                        crate::session::State::Idle | crate::session::State::Closed
+                    )
+                    && self.can_fork(s);
+                let at = s.key;
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_end()
+                    .gap(px(6.))
+                    .group(group.clone())
+                    .when(branch, |d| {
+                        d.child(
+                            div().invisible().group_hover(group, Styled::visible).child(
+                                ui::icon_button(
+                                    SharedString::from(format!("{key}-branch")),
+                                    "branch",
+                                    "Branch off here, to say this again",
+                                )
+                                .size(px(24.))
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.fork_at(at, i, cx);
+                                    },
+                                )),
+                            ),
+                        )
+                    })
+                    .child(
+                        ui::text(faces, text.clone())
+                            .max_w(px(520.))
+                            .px(px(16.))
+                            .py(px(12.))
+                            .rounded(px(BUBBLE_RADIUS))
+                            .bg(theme::bubble())
+                            .text_size(px(14.))
+                            .line_height(px(21.)),
+                    )
+                    .into_any_element()
+            }
             Item::Agent(text) => {
                 // What the agent said, copied whole from beside it on hover.
                 let group = SharedString::from(format!("{key}-said"));
