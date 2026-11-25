@@ -265,6 +265,8 @@ pub struct Desk {
     pub palette_input: Entity<TextInput>,
     /// The line of the palette Return takes.
     pub palette_at: usize,
+    /// What the composer offers that Return or Tab takes.
+    pub offer_at: usize,
     /// How much each part of Ghost's home takes, and what the last tidying
     /// did, for the settings.
     pub sizes: Vec<(&'static str, u64)>,
@@ -366,10 +368,12 @@ impl Desk {
             .detach();
         // Keys pressed while one is being recorded are its, not done.
         let me = cx.entity().downgrade();
-        cx.intercept_keystrokes(move |e, _, cx| {
+        cx.intercept_keystrokes(move |e, window, cx| {
             let took = me
                 .update(cx, |d, cx| {
-                    d.record_key(&e.keystroke, cx) || d.escape_closes(&e.keystroke, cx)
+                    d.record_key(&e.keystroke, cx)
+                        || d.escape_closes(&e.keystroke, window, cx)
+                        || d.offer_keys(&e.keystroke, window, cx)
                 })
                 .unwrap_or(false);
             if took {
@@ -407,19 +411,12 @@ impl Desk {
         )
         .detach();
         cx.subscribe(&input, |this, input, _: &crate::input::Changed, cx| {
+            this.offer_at = 0;
             if input.read(cx).text().contains('@') {
                 this.want_offers();
             }
             cx.notify();
         })
-        .detach();
-        cx.subscribe_in(
-            &input,
-            window,
-            |this, _, _: &crate::input::Complete, window, cx| {
-                this.take_offer(0, window, cx);
-            },
-        )
         .detach();
         cx.subscribe(&input, |this, _, crate::input::PastedImage(image), cx| {
             let mime = match image.format {
@@ -445,13 +442,22 @@ impl Desk {
                 .padded(2.)
                 .keeping()
         });
-        cx.subscribe(&menu_search, |this, _, Submitted(text), cx| {
-            match this.popup {
-                Popup::Session(key) => this.snooze_for(key, text, cx),
-                Popup::Branch => this.new_branch(text, cx),
-                _ => {}
-            }
-        })
+        cx.subscribe_in(
+            &menu_search,
+            window,
+            |this, _, Submitted(text), window, cx| {
+                match this.popup {
+                    Popup::Session(key) => this.snooze_for(key, text, cx),
+                    Popup::Branch => this.new_branch(text, cx),
+                    // A list narrowed by what is typed: the first left.
+                    Popup::Mode | Popup::Option(_) => {
+                        this.choose_nth(0, cx);
+                        this.close_popup(window, cx);
+                    }
+                    _ => {}
+                }
+            },
+        )
         .detach();
         cx.subscribe(&menu_search, |_, _, _: &crate::input::Changed, cx| {
             cx.notify();
@@ -723,6 +729,7 @@ impl Desk {
             through: palette::Through::Everything,
             grep: Vec::new(),
             palette_at: 0,
+            offer_at: 0,
             tidied: None,
             pr_tick: 0,
             health_tick: 0,
@@ -2035,12 +2042,52 @@ impl Desk {
 
     /// Escape closes the menu open, wherever the keys go: true when one
     /// was.
-    fn escape_closes(&mut self, k: &gpui::Keystroke, cx: &mut Context<Self>) -> bool {
+    fn escape_closes(
+        &mut self,
+        k: &gpui::Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         if k.key != "escape" || k.modifiers.modified() || self.popup == Popup::Closed {
             return false;
         }
+        self.close_popup(window, cx);
+        true
+    }
+
+    /// Close the menu open; the keys its search had go back to the
+    /// composer.
+    pub(crate) fn close_popup(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.popup = Popup::Closed;
         self.menu_search.update(cx, |i, cx| i.set_text("", cx));
+        if self.menu_search.focus_handle(cx).is_focused(window) {
+            window.focus(&self.input.focus_handle(cx));
+        }
+        cx.notify();
+    }
+
+    /// While the composer offers something for the word being typed, ↑
+    /// and ↓ choose among the offers and Return or Tab takes the one
+    /// chosen: true when the key went to them.
+    fn offer_keys(
+        &mut self,
+        k: &gpui::Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if k.modifiers.modified() || !self.input.focus_handle(cx).is_focused(window) {
+            return false;
+        }
+        let text = self.input.read(cx).text();
+        let Some(count) = self.offers(&text).map(|(_, o)| o.len()).filter(|n| *n > 0) else {
+            return false;
+        };
+        match k.key.as_str() {
+            "up" => self.offer_at = (self.offer_at + count - 1) % count,
+            "down" => self.offer_at = (self.offer_at + 1) % count,
+            "enter" | "tab" => self.take_offer(self.offer_at.min(count - 1), window, cx),
+            _ => return false,
+        }
         cx.notify();
         true
     }

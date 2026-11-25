@@ -373,8 +373,8 @@ impl Desk {
         };
 
         // What is offered for the word being typed: the agent's commands
-        // after `/`, after `@` files, sessions and pull requests. Tab takes
-        // the first.
+        // after `/`, after `@` files, sessions and pull requests. ↑ and ↓
+        // choose one, Return or Tab takes it.
         let typed = self.input.read(cx).text();
         let offers = self
             .offers(&typed)
@@ -382,6 +382,7 @@ impl Desk {
             .map(|(_, list)| {
                 use crate::desk::mention::Offer;
                 let mut menu = div().flex().flex_col().p(px(6.)).w(px(column));
+                let chosen = self.offer_at.min(list.len() - 1);
                 for (n, offer) in list.into_iter().enumerate() {
                     let (icon, name, about) = match offer {
                         Offer::Command { name, about } => ("terminal", format!("/{name}"), about),
@@ -411,7 +412,7 @@ impl Desk {
                             .h(px(30.))
                             .rounded(px(7.))
                             .cursor_pointer()
-                            .when(n == 0, |d| d.bg(theme::panel2()))
+                            .when(n == chosen, |d| d.bg(theme::panel2()))
                             .hover(|st| st.bg(theme::hover()))
                             .child(ui::icon(icon, 14.).text_color(theme::faint()))
                             .child(
@@ -715,6 +716,8 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> Div {
         let menu_able = !choices.is_empty();
+        // A long list can be narrowed by what is typed.
+        let long = choices.len() > 8;
         let open = &self.popup == popup && menu_able;
         let id = match popup {
             Popup::Mode => "chip-mode".to_owned(),
@@ -760,8 +763,15 @@ impl Desk {
                             .text_color(theme::faint()),
                     )
                 })
-                .on_click(cx.listener(move |this, _, _, cx| {
+                .on_click(cx.listener(move |this, _, window, cx| {
                     this.toggle_popup(for_click.clone(), cx);
+                    // What is typed then narrows the list.
+                    if long && this.popup == for_click {
+                        window.focus(&gpui::Focusable::focus_handle(
+                            this.menu_search.read(cx),
+                            cx,
+                        ));
+                    }
                 }));
         }
         let mut wrap = div().relative().flex().flex_none().child(chip);
@@ -772,8 +782,6 @@ impl Desk {
                 .w(px(260.))
                 .p(px(6.))
                 .child(ui::label(faces, head).px(px(10.)).pt(px(6.)).pb(px(4.)));
-            // A long list can be narrowed by what is typed.
-            let long = choices.len() > 8;
             let query = self.menu_search.read(cx).text().to_lowercase();
             if long {
                 menu = menu.child(
@@ -816,13 +824,16 @@ impl Desk {
                                 .text_size(px(11.5))
                                 .text_color(theme::faint())
                         }))
-                        .on_click(cx.listener(move |this, _, _, cx| match &popup {
-                            Popup::Mode => this.set_mode(value.clone(), cx),
-                            Popup::Option(config) => {
-                                this.set_option(config.clone(), value.clone(), cx);
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            match &popup {
+                                Popup::Mode => this.set_mode(value.clone(), cx),
+                                Popup::Option(config) => {
+                                    this.set_option(config.clone(), value.clone(), cx);
+                                }
+                                Popup::Agent => this.switch_agent(&value, cx),
+                                _ => {}
                             }
-                            Popup::Agent => this.switch_agent(&value, cx),
-                            _ => {}
+                            this.close_popup(window, cx);
                         })),
                 );
             }

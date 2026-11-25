@@ -93,9 +93,6 @@ pub struct Cancelled;
 /// to go back through: a list beside it can move its choice.
 pub struct Stepped(pub isize);
 
-/// Tab was pressed: what is offered for the word being typed is taken.
-pub struct Complete;
-
 /// What is typed, put aside (⌘S) to come back to.
 pub struct Stashed(pub String);
 
@@ -146,7 +143,6 @@ impl EventEmitter<SubmittedAside> for TextInput {}
 impl EventEmitter<Changed> for TextInput {}
 impl EventEmitter<Cancelled> for TextInput {}
 impl EventEmitter<Stepped> for TextInput {}
-impl EventEmitter<Complete> for TextInput {}
 impl EventEmitter<PastedImage> for TextInput {}
 impl EventEmitter<Stashed> for TextInput {}
 
@@ -222,9 +218,9 @@ impl TextInput {
         self
     }
 
-    fn tab(_: &mut Self, _: &Tab, _: &mut Window, cx: &mut Context<Self>) {
-        cx.emit(Complete);
-    }
+    /// Tab is not typed: what the line offers takes it, before it gets
+    /// here (see `Desk::offer_keys`).
+    fn tab(_: &mut Self, _: &Tab, _: &mut Window, _: &mut Context<Self>) {}
 
     /// A new paragraph, where the line wraps (⇧Return).
     /// A new line, where lines wrap; on one line, ⇧Return hands it over
