@@ -5,7 +5,7 @@
 //! branch's pull request with its checks.
 
 use gpui::component::{
-    Sizable as _,
+    Selectable as _, Sizable as _,
     input::Input,
     popover::Popover,
     tab::{Tab, TabBar},
@@ -310,7 +310,26 @@ impl Desk {
                         .child(
                             ui::button("refresh-pr", "Check again", Weight::Quiet)
                                 .on_click(cx.listener(move |this, _, _, _| this.refresh_git(key))),
-                        ),
+                        )
+                        .when(pr.state == "open", |d| {
+                            let (watching, number) = (s.meta.watch == Some(pr.number), pr.number);
+                            d.child(
+                                ui::button(
+                                    "watch-pr",
+                                    if watching { "Watching" } else { "Watch" },
+                                    Weight::Quiet,
+                                )
+                                .selected(watching)
+                                .tooltip("Its checks finishing, or a review coming in, is said in this session")
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    if let Some(s) = this.sessions.at_mut(key) {
+                                        s.meta.watch = (!watching).then_some(number);
+                                    }
+                                    this.save_index();
+                                    cx.notify();
+                                })),
+                            )
+                        }),
                 )
                 // The way on from where it stands: merged once clear; what
                 // stops it, handed to the agent (a turn, spent as any is).

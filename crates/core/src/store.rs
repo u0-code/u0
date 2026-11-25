@@ -79,6 +79,10 @@ pub struct Meta {
     /// The id of the session it was branched off, if it was.
     #[serde(default)]
     pub from: Option<String>,
+    /// The pull request of its branch it watches, by number: its checks
+    /// finishing, or a review coming in, is said in it as a turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub watch: Option<u64>,
     /// Folders it works in beside its own.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub also: Vec<PathBuf>,

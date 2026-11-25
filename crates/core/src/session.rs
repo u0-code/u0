@@ -822,6 +822,7 @@ impl Session {
                 queued: Vec::new(),
                 unsent: String::new(),
                 from: None,
+                watch: None,
                 also: Vec::new(),
                 subagents: Vec::new(),
             },

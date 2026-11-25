@@ -94,6 +94,9 @@ struct Shared {
     tasks: Arc<Mutex<Result<crate::tasks::Tasks, String>>>,
     /// The workflows' runs, or why they do not read.
     runs: Arc<Mutex<Result<crate::workflows::Runs, String>>>,
+    /// What each watched pull request last stood at, by its session's
+    /// agent and id (`scheduled::Shared::watch_prs`).
+    watched: Arc<Mutex<HashMap<(String, SessionId), String>>>,
 }
 
 impl Shared {
@@ -241,6 +244,7 @@ impl Server {
                 turning: Arc::default(),
                 tasks: Arc::new(Mutex::new(tasks)),
                 runs: Arc::new(Mutex::new(runs)),
+                watched: Arc::default(),
             },
             installs: Mutex::default(),
             cloning: Mutex::default(),

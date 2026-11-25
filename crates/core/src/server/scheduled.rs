@@ -25,6 +25,9 @@ use crate::{
 /// How often the server looks for tasks due.
 const TICK: Duration = Duration::from_secs(20);
 
+/// How many ticks between looks at the pull requests watched: two minutes.
+const PR_TICKS: u32 = 6;
+
 impl Server {
     /// Keep `task` as it is now: a new one (id 0) is given the next id. Its
     /// next run is worked out again from its schedule.
@@ -67,9 +70,14 @@ impl Shared {
     pub(super) fn schedule(&self) {
         let this = self.clone();
         acp::runtime().spawn(async move {
+            let mut ticks = 0u32;
             loop {
                 tokio::time::sleep(TICK).await;
                 this.run_due();
+                ticks = (ticks + 1) % PR_TICKS;
+                if ticks == 0 {
+                    this.watch_prs();
+                }
             }
         });
     }
@@ -162,6 +170,74 @@ impl Shared {
                 }
             });
         });
+    }
+
+    /// Look at each pull request a session watches: where its checks
+    /// finished, or a review came in, since it was last looked at, say so
+    /// in the session, as a turn; one merged or closed is watched no more.
+    fn watch_prs(&self) {
+        let watching: Vec<Meta> = match &*self.index.lock().expect("index") {
+            Ok(index) => (index.sessions.iter())
+                .filter(|m| m.watch.is_some())
+                .cloned()
+                .collect(),
+            Err(_) => return,
+        };
+        for meta in watching {
+            let this = self.clone();
+            acp::runtime().spawn(async move {
+                let folder = meta.folder.clone();
+                let Ok(Some(pr)) = tokio::task::spawn_blocking(move || git::read_pr(&folder)).await
+                else {
+                    return;
+                };
+                let Some(id) = meta.id.clone() else { return };
+                if Some(pr.number) != meta.watch || pr.state != "open" {
+                    this.change_index(|index| {
+                        if let Some(m) = index.sessions.iter_mut().find(|m| super::same(m, &meta)) {
+                            m.watch = None;
+                        }
+                    });
+                    return;
+                }
+                let now = watched(&pr);
+                let at = (meta.agent.clone(), id.clone());
+                let was = this
+                    .watched
+                    .lock()
+                    .expect("watched")
+                    .insert(at.clone(), now.clone());
+                let Some(said) = was.and_then(|was| woken(&was, &now, &pr)) else {
+                    return;
+                };
+                if this.turning.lock().expect("turning").contains(&at) {
+                    // Said once the turn going on is over: looked at again.
+                    this.watched
+                        .lock()
+                        .expect("watched")
+                        .insert(at, was_of(&now));
+                    return;
+                }
+                let task = Task {
+                    id: 0,
+                    title: meta.title.clone(),
+                    prompt: said,
+                    agent: meta.agent.clone(),
+                    model: None,
+                    mode: None,
+                    project: meta.project.clone(),
+                    schedule: tasks::Schedule::Every(0),
+                    paused: false,
+                    same: true,
+                    worktree: false,
+                    session: Some(id),
+                    next: None,
+                    last: None,
+                    runs: 0,
+                };
+                let _ = this.turn_with(&task, |_| {}).await;
+            });
+        }
     }
 
     /// The agent `id`, started here if it is not running: as the desk
@@ -371,8 +447,80 @@ impl Shared {
     }
 }
 
+/// Where a pull request stands, as its watch compares it: its checks
+/// (going, or how many passed and failed) and the review decided.
+fn watched(pr: &git::Pr) -> String {
+    let checks = if pr.going > 0 {
+        "going".to_owned()
+    } else {
+        format!("{}/{}", pr.passed, pr.failed)
+    };
+    format!("{checks}|{}", pr.review)
+}
+
+/// A standing that will be woken on again: its checks taken as going.
+fn was_of(now: &str) -> String {
+    format!("going|{}", now.split_once('|').map_or("", |(_, r)| r))
+}
+
+/// What to say in a session that watches `pr`, which stood at `was` and
+/// stands at `now`: its checks finished, or a review came in; nothing
+/// where neither happened.
+fn woken(was: &str, now: &str, pr: &git::Pr) -> Option<String> {
+    let (checks_was, review_was) = was.split_once('|')?;
+    let (checks, review) = now.split_once('|')?;
+    let mut said = Vec::new();
+    if checks_was == "going" && checks != "going" {
+        said.push(format!(
+            "The checks on pull request #{} finished: {} passed, {} failed.",
+            pr.number, pr.passed, pr.failed
+        ));
+    }
+    if review != review_was && !review.is_empty() {
+        said.push(format!(
+            "A review came in on pull request #{}: {}.",
+            pr.number,
+            review.to_lowercase()
+        ));
+    }
+    (!said.is_empty()).then(|| {
+        format!(
+            "{} Look at it (gh pr view {n} --comments, gh pr checks {n}) and carry on from there.",
+            said.join(" "),
+            n = pr.number
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_watched_pull_request_wakes_its_session_when_checks_finish_or_a_review_comes_in() {
+        let pr = |going, passed, failed, review: &str| git::Pr {
+            number: 7,
+            title: "t".into(),
+            url: String::new(),
+            state: "open".into(),
+            draft: false,
+            conflicts: false,
+            passed,
+            failed,
+            going,
+            review: review.into(),
+        };
+        let going = watched(&pr(2, 1, 0, ""));
+        let done = pr(0, 2, 1, "");
+        let said = woken(&going, &watched(&done), &done).unwrap();
+        assert!(said.starts_with("The checks on pull request #7 finished: 2 passed, 1 failed."));
+        // Nothing new, nothing said.
+        assert_eq!(woken(&watched(&done), &watched(&done), &done), None);
+        let reviewed = pr(0, 2, 1, "CHANGES_REQUESTED");
+        let said = woken(&watched(&done), &watched(&reviewed), &reviewed).unwrap();
+        assert!(said.starts_with("A review came in on pull request #7: changes_requested."));
+        // One woken on while a turn went on is woken on again after.
+        assert!(woken(&was_of(&watched(&done)), &watched(&done), &done).is_some());
+    }
+
     use std::sync::mpsc;
 
     use super::*;
