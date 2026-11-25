@@ -203,6 +203,9 @@ pub struct Desk {
     pub tunnels: Vec<(u16, std::process::Child)>,
     /// The sessions chosen with ⌘-click in the sidebar.
     pub chosen: std::collections::BTreeSet<u64>,
+    /// The sessions a Settle pressed and dragged down the sidebar has
+    /// passed over, to settle as it is let go.
+    pub sweep: Vec<u64>,
     /// The projects the sidebar shows; none chosen, all.
     pub filter: Vec<PathBuf>,
     /// Sessions deleted whose worktree you kept.
@@ -496,6 +499,7 @@ impl Desk {
             filter: Vec::new(),
             keep_worktree: HashSet::new(),
             chosen: std::collections::BTreeSet::new(),
+            sweep: Vec::new(),
             tunnels: Vec::new(),
             trail: Vec::new(),
             ahead: Vec::new(),

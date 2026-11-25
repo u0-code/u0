@@ -581,10 +581,18 @@ impl Desk {
                     act("snooze", "clock", "Snooze")
                         .dropdown_menu(move |menu, _, cx| snooze_items(menu, &snooze, &[key], cx)),
                 )
-                .child(act("settle", "check", "Settle").on_click(move |_, _, cx| {
-                    cx.stop_propagation();
-                    settle.update(cx, |d, cx| d.toggle_settled(key, cx));
-                }))
+                .child(
+                    act(
+                        "settle",
+                        "check",
+                        "Settle · drag across rows to settle them too",
+                    )
+                    .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
+                        cx.stop_propagation();
+                        settle.update(cx, |d, cx| d.sweep_from(key, cx));
+                    })
+                    .on_click(|_, _, cx| cx.stop_propagation()),
+                )
         };
         // On hover, a card: its whole title, its agent, where it works, its
         // branch, and the last thing the agent said.
@@ -610,8 +618,12 @@ impl Desk {
             title: SharedString::from(ui::fit(&title, 40)),
         };
         let (click, drop, files) = (desk.clone(), desk.clone(), desk.clone());
+        let (over, up, up_out) = (desk.clone(), desk.clone(), desk.clone());
         item.when(in_folder, |d| d.pl(px(36.)))
-            .when(self.chosen.contains(&key), |d| d.bg(theme::row_chosen()))
+            .when(
+                self.chosen.contains(&key) || self.sweep.contains(&key),
+                |d| d.bg(theme::row_chosen()),
+            )
             .child(
                 div()
                     .id(group.clone())
@@ -659,6 +671,19 @@ impl Desk {
                             .group_hover(group, gpui::Styled::visible)
                             .child(on_hover),
                     )
+                    // Settle held down and dragged over it settles it too;
+                    // let go anywhere, all it passed are settled.
+                    .on_mouse_move(move |e: &gpui::MouseMoveEvent, _, cx| {
+                        if e.pressed_button == Some(gpui::MouseButton::Left) {
+                            over.update(cx, |d, cx| d.sweep_over(key, cx));
+                        }
+                    })
+                    .on_mouse_up(gpui::MouseButton::Left, move |_, _, cx| {
+                        up.update(cx, Desk::sweep_end);
+                    })
+                    .on_mouse_up_out(gpui::MouseButton::Left, move |_, _, cx| {
+                        up_out.update(cx, Desk::sweep_end);
+                    })
                     // Dragged onto another row, it takes that row's place
                     // in the lists.
                     .on_drag(dragged, |d, _, _, cx| cx.new(|_| d.clone()))

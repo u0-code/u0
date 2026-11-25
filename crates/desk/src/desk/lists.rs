@@ -304,6 +304,31 @@ impl Desk {
         self.mark(key, cx, |f| f.unread = true);
     }
 
+    /// Settle pressed on the session `key`'s row: as t3code's, it and
+    /// each row the pointer is dragged over are settled as it is let go.
+    pub fn sweep_from(&mut self, key: u64, cx: &mut Context<Self>) {
+        self.sweep = vec![key];
+        cx.notify();
+    }
+
+    /// The pointer, Settle held, passed over the session `key`'s row.
+    pub fn sweep_over(&mut self, key: u64, cx: &mut Context<Self>) {
+        if !self.sweep.is_empty() && !self.sweep.contains(&key) {
+            self.sweep.push(key);
+            cx.notify();
+        }
+    }
+
+    /// Settle let go: the rows it passed over are settled, as one undo.
+    pub fn sweep_end(&mut self, cx: &mut Context<Self>) {
+        let keys = std::mem::take(&mut self.sweep);
+        if !keys.is_empty() {
+            self.undoable(Undone::Settle, &keys, cx);
+            self.save_index();
+            cx.notify();
+        }
+    }
+
     /// Done for now, or back among the rest.
     pub fn toggle_settled(&mut self, key: u64, cx: &mut Context<Self>) {
         if self.flags_mut(key).is_some_and(|f| f.settled.is_some()) {
