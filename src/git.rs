@@ -256,7 +256,11 @@ fn snapshot(dir: &Path, name: &str) -> Result<String, String> {
     let result = (|| {
         let head = git(dir, &["rev-parse", "--verify", "--quiet", "HEAD"], None).ok();
         if head.is_some() {
-            git(dir, &["read-tree", "HEAD"], Some(&index))?;
+            // HEAD read over a copy of your index keeps its stat data
+            // where the two agree, so `add` hashes only files that changed
+            // since, not the whole tree.
+            let _ = std::fs::copy(index.with_file_name("index"), &index);
+            git(dir, &["read-tree", "--reset", "HEAD"], Some(&index))?;
         }
         git(dir, &["add", "-A", "--", "."], Some(&index))?;
         let tree = git(dir, &["write-tree"], Some(&index))?;
@@ -1142,6 +1146,34 @@ mod tests {
             "mine\n"
         );
         assert!(top.join("lib/new").exists());
+        let _ = std::fs::remove_dir_all(&top);
+    }
+
+    #[test]
+    fn a_checkpoint_holds_the_folder_as_on_disk_and_the_rest_as_committed_whatever_is_staged() {
+        let top = repo("staged");
+        std::fs::create_dir_all(top.join("app")).unwrap();
+        std::fs::create_dir_all(top.join("lib")).unwrap();
+        std::fs::write(top.join("app/x"), "x\n").unwrap();
+        std::fs::write(top.join("lib/o"), "o\n").unwrap();
+        git(&top, &["add", "-A"], None).unwrap();
+        git(&top, &["commit", "-q", "-m", "second"], None).unwrap();
+        std::fs::write(top.join("lib/o"), "staged\n").unwrap();
+        std::fs::write(top.join("lib/s"), "new\n").unwrap();
+        // Staged, then changed again at once, to the same size: only its
+        // contents tell the two apart.
+        std::fs::write(top.join("app/x"), "stg\n").unwrap();
+        git(&top, &["add", "-A"], None).unwrap();
+        std::fs::write(top.join("app/x"), "dsk\n").unwrap();
+        let c = checkpoint(&top.join("app"), "s1/1-before").unwrap();
+        let show = |p: &str| git(&top, &["show", &format!("{c}:{p}")], None);
+        assert_eq!(show("app/x").unwrap(), "dsk");
+        assert_eq!(show("lib/o").unwrap(), "o");
+        assert!(show("lib/s").is_err());
+        assert_eq!(
+            git(&top, &["diff", "--cached", "--name-only"], None).unwrap(),
+            "app/x\nlib/o\nlib/s"
+        );
         let _ = std::fs::remove_dir_all(&top);
     }
 
