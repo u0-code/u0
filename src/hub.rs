@@ -1087,6 +1087,18 @@ pub fn in_terminal(
     args: &[String],
     env: &[(String, String)],
 ) -> std::io::Result<()> {
+    // A key goes into the line as it is: one that is not a name would be
+    // a command of its own, and a remote agent's come from that machine.
+    let name = |k: &str| {
+        k.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    if let Some((k, _)) = env.iter().find(|(k, _)| !name(k)) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("the agent asks to set {k:?}, which is not a name a shell takes"),
+        ));
+    }
     let mut parts: Vec<String> = env
         .iter()
         .map(|(k, v)| format!("{k}={}", shell_words::quote(v)))
