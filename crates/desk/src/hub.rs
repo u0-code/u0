@@ -203,6 +203,37 @@ pub fn write(path: PathBuf, text: String, tx: Sender) {
     });
 }
 
+/// The `ghost` command, as t3code's `t3`: each folder named (none, the
+/// one you are in) opened in Ghost as a project, through macOS, which
+/// hands it to the Ghost running or starts one.
+const COMMAND: &str = "#!/bin/sh\n# Open each folder named (none: this one) in Ghost, as a project.\n[ $# -eq 0 ] && set -- .\nfor f in \"$@\"; do open -b local.ghost.desk \"$f\" || exit; done\n";
+
+/// Put the `ghost` command in `~/.local/bin`, and say where it is, or
+/// why it is not.
+pub fn install_command(tx: Sender) {
+    off(tx, || {
+        let Some(home) = crate::desk::Desk::home_path() else {
+            return Msg::Notice(Err((
+                "Couldn't add the ghost command".into(),
+                "HOME is not set".into(),
+            )));
+        };
+        let path = home.join(".local/bin/ghost");
+        let shown = crate::desk::Desk::shown(&path);
+        let put = crate::whole::write(&path, COMMAND.as_bytes()).and_then(|()| {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+        });
+        Msg::Notice(match put {
+            Ok(()) if registry::which("ghost").is_some_and(|p| p == path) => {
+                Ok(format!("ghost <folder> opens it in Ghost: {shown}"))
+            }
+            Ok(()) => Ok(format!("It is in {shown}; add ~/.local/bin to your PATH")),
+            Err(e) => Err(("Couldn't add the ghost command".into(), e.to_string())),
+        })
+    });
+}
+
 /// Which of the programs the desk offers (gh, the editors it knows) are
 /// on the PATH.
 pub fn on_path(tx: Sender) {

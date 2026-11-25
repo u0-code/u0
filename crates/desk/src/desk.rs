@@ -1599,6 +1599,12 @@ impl Desk {
         hub::write(path, text, self.tx.clone());
     }
 
+    /// Put the `ghost` command where your shell finds it, off the
+    /// window's thread (`hub::install_command`).
+    pub fn install_command(&self) {
+        hub::install_command(self.tx.clone());
+    }
+
     /// Open `path` in your editor, off the window's thread (`hub::edit`).
     pub fn edit(&self, path: PathBuf, start: Option<&'static [u8]>) {
         hub::edit(path, self.settings.editor.clone(), start, self.tx.clone());

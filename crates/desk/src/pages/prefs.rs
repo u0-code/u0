@@ -757,7 +757,16 @@ impl Desk {
         let registry = ui::button("open-registry", "Open", Weight::Quiet).on_click(
             cx.listener(|_, _, _, cx| cx.open_url("https://agentclientprotocol.com/registry")),
         );
+        let command = ui::button("install-command", "Add", Weight::Quiet)
+            .on_click(cx.listener(|this, _, _, _| this.install_command()));
         let rows: Vec<Div> = [
+            row(
+                faces,
+                q,
+                "The ghost command",
+                "ghost <folder> in a terminal opens the folder here as a project. It goes in ~/.local/bin.",
+                command,
+            ),
             row(
                 faces,
                 q,
