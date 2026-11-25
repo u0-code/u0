@@ -493,16 +493,29 @@ impl Desk {
         let row = agent_shell(group.clone(), false)
             .group(group.clone())
             .child(
-                // A project on another machine shows as one.
-                ui::icon(
-                    match (open, crate::remote::parse(folder).is_some()) {
-                        (false, _) => "chevron-right",
-                        (true, true) => "server",
-                        (true, false) => "folder",
-                    },
-                    16.,
-                )
-                .text_color(theme::faint()),
+                // Open, a project shows its own icon if it has one; one on
+                // another machine shows as one.
+                match (
+                    open,
+                    crate::remote::parse(folder).is_some(),
+                    project_icon(folder),
+                ) {
+                    (true, false, Some(icon)) => div()
+                        .size(px(16.))
+                        .flex_none()
+                        .child(gpui::img(icon).size(px(16.)).rounded(px(3.)))
+                        .into_any_element(),
+                    (open, remote, _) => ui::icon(
+                        match (open, remote) {
+                            (false, _) => "chevron-right",
+                            (true, true) => "server",
+                            (true, false) => "folder",
+                        },
+                        16.,
+                    )
+                    .text_color(theme::faint())
+                    .into_any_element(),
+                },
             )
             .child(name)
             .when(pinned, |d| {
@@ -1324,4 +1337,24 @@ impl gpui::Render for Dragged {
             .text_color(theme::text())
             .child(self.title.clone())
     }
+}
+
+/// The icon a project has of its own, if it has one where icons are kept.
+fn project_icon(folder: &std::path::Path) -> Option<std::path::PathBuf> {
+    [
+        "favicon.svg",
+        "favicon.png",
+        "public/favicon.svg",
+        "public/favicon.png",
+        "static/favicon.png",
+        "assets/icon.svg",
+        "assets/icon.png",
+        "icon.svg",
+        "icon.png",
+        "logo.svg",
+        "logo.png",
+    ]
+    .iter()
+    .map(|name| folder.join(name))
+    .find(|p| p.is_file())
 }
