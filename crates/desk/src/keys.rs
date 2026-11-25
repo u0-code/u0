@@ -191,12 +191,17 @@ pub const ACTIONS: [(&str, &str, Make); 46] = [
     ),
 ];
 
-/// A binding of yours.
+/// A binding of yours: `action` is a name in `ACTIONS`, or "none" to
+/// take the key from whatever has it; `when`, where it holds, as a key
+/// context predicate over the window's parts ("Terminal", "Composer",
+/// with `!`, `&&` and `||`), as t3code's `when` clauses.
 #[derive(Debug, Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Binding {
     key: String,
     action: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    when: Option<String>,
 }
 
 /// The action named `name` in `ACTIONS`.
@@ -205,9 +210,38 @@ pub fn action(name: &str) -> Option<Box<dyn Action>> {
     Some(make())
 }
 
-/// A binding of `key` to the action named `name`.
-fn binding(cx: &App, key: &str, name: &str) -> Option<KeyBinding> {
-    KeyBinding::load(key, action(name)?, None, false, None, cx).ok()
+/// A binding of yours as the window's: none where its action, keys or
+/// `when` do not read, which is said in the log.
+fn binding(cx: &App, b: &Binding) -> Option<KeyBinding> {
+    let made = if b.action == "none" {
+        Some(Box::new(gpui::NoAction) as Box<dyn Action>)
+    } else {
+        action(&b.action)
+    };
+    let Some(made) = made else {
+        tracing::warn!(
+            "keybindings.json: no action is named {:?}; the names are {:?}",
+            b.action,
+            ACTIONS.map(|(n, _, _)| n)
+        );
+        return None;
+    };
+    let when = match b
+        .when
+        .as_deref()
+        .map(gpui::KeyBindingContextPredicate::parse)
+    {
+        Some(Ok(p)) => Some(std::rc::Rc::new(p)),
+        Some(Err(e)) => {
+            tracing::warn!(
+                "keybindings.json: {:?} does not read as a when: {e}",
+                b.when
+            );
+            return None;
+        }
+        None => None,
+    };
+    KeyBinding::load(&b.key, made, when, false, None, cx).ok()
 }
 
 /// ⌘ and the digit `n`, which goes to the nth of a list (a session, a
@@ -270,6 +304,7 @@ pub fn set_yours(home: &Path, name: &str, key: Option<String>) -> Result<Vec<Bin
         list.push(Binding {
             key,
             action: name.to_owned(),
+            when: None,
         });
     }
     let text = serde_json::to_vec_pretty(&list).map_err(|e| e.to_string())?;
@@ -360,20 +395,7 @@ pub fn bind(cx: &mut App, yours: &[Binding]) {
         // Pasted as text, however long, not attached.
         KeyBinding::new("cmd-shift-v", gpui::component::input::Paste, composer),
     ]);
-    let yours: Vec<KeyBinding> = yours
-        .iter()
-        .filter_map(|b| {
-            let found = binding(cx, &b.key, &b.action);
-            if found.is_none() {
-                tracing::warn!(
-                    "keybindings.json: no action is named {:?}; the names are {:?}",
-                    b.action,
-                    ACTIONS.map(|(n, _, _)| n)
-                );
-            }
-            found
-        })
-        .collect();
+    let yours: Vec<KeyBinding> = yours.iter().filter_map(|b| binding(cx, b)).collect();
     cx.bind_keys(yours);
 }
 
@@ -567,5 +589,17 @@ mod tests {
             assert!(action(name).is_some(), "{name}");
         }
         assert!(action("no_such_action").is_none());
+    }
+
+    #[test]
+    fn a_when_of_yours_reads_as_the_window_s_key_contexts() {
+        let b: Binding = serde_json::from_str(
+            r#"{"key":"cmd-}","action":"next_terminal","when":"Terminal && !Composer"}"#,
+        )
+        .unwrap();
+        let when = b.when.unwrap();
+        assert!(gpui::KeyBindingContextPredicate::parse(&when).is_ok());
+        assert!(gpui::KeyBindingContextPredicate::parse("Terminal &&").is_err());
+        assert!(when.contains(crate::desk::runs::CONTEXT));
     }
 }

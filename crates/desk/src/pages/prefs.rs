@@ -744,7 +744,7 @@ impl Desk {
         Some(page
             .child(ui::fine(
                 faces,
-                "A rule is { \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }. Ghost reads the file as it starts.",
+                "A rule is { \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }, with \"when\": \"Terminal\" (or \"Composer\", with !, && and ||) for where it holds, and \"action\": \"none\" to take a key away. The last rule that holds wins. Ghost reads the file as it starts.",
             ))
             .child(div().flex().child(open)))
     }
