@@ -121,8 +121,22 @@ impl Desk {
                 })),
         );
         if open {
+            // The other branches: the one it is on compares with nothing.
+            let others: Vec<&String> = s
+                .branches
+                .iter()
+                .filter(|b| Some(*b) != s.branch.as_ref())
+                .collect();
             let mut list = div().flex().flex_col().w(px(220.)).p(px(6.));
-            for (n, b) in s.branches.iter().enumerate() {
+            if others.is_empty() {
+                list = list.child(
+                    div()
+                        .px(px(8.))
+                        .py(px(6.))
+                        .child(fine(faces, "No other branch here to compare with.")),
+                );
+            }
+            for (n, b) in others.into_iter().enumerate() {
                 let b = b.clone();
                 list = list.child(
                     div()
@@ -145,12 +159,13 @@ impl Desk {
                         })),
                 );
             }
+            // Under the chip, its right edge on the chip's.
             wrap = wrap.child(gpui::deferred(
-                gpui::anchored().child(
-                    div()
-                        .mt(px(24.))
-                        .child(ui::menu("compare-menu").child(list)),
-                ),
+                div()
+                    .absolute()
+                    .top(px(26.))
+                    .right(px(0.))
+                    .child(ui::menu("compare-menu").child(list)),
             ));
         }
         wrap
