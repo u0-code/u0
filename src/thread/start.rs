@@ -49,7 +49,9 @@ impl Desk {
         agents = agents.child(
             ui::button(faces, "start-more", "+ More agents", ui::Weight::Quiet)
                 .h(px(34.))
-                .on_click(cx.listener(|this, _, _, cx| this.open_agents(cx))),
+                .on_click(
+                    cx.listener(|this, _, _, cx| this.open_tab(crate::pages::Tab::Agents, cx)),
+                ),
         );
 
         let (needs, recent) = self.to_pick_up();

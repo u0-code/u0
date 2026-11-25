@@ -32,20 +32,42 @@ pub enum Tab {
     About,
 }
 
+impl Tab {
+    /// Each tab, in the order the side list shows them.
+    pub const ALL: [Self; 9] = [
+        Self::General,
+        Self::Appearance,
+        Self::Chat,
+        Self::NewSessions,
+        Self::Agents,
+        Self::Sessions,
+        Self::Keyboard,
+        Self::Usage,
+        Self::About,
+    ];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::General => "General",
+            Self::Appearance => "Appearance",
+            Self::Chat => "Chat",
+            Self::NewSessions => "New sessions",
+            Self::Agents => "Agents",
+            Self::Sessions => "Sessions",
+            Self::Keyboard => "Keyboard",
+            Self::Usage => "Usage",
+            Self::About => "About",
+        }
+    }
+}
+
 impl Desk {
     /// Every setting and key in which `q` is said, under its tab's title.
     fn found(&self, faces: &Faces, q: &str, cx: &mut Context<Self>) -> gpui::Div {
-        let pages: Vec<_> = [
-            Tab::General,
-            Tab::Appearance,
-            Tab::Chat,
-            Tab::NewSessions,
-            Tab::Keyboard,
-            Tab::About,
-        ]
-        .into_iter()
-        .filter_map(|tab| self.own_tab(faces, tab, q, cx))
-        .collect();
+        let pages: Vec<_> = Tab::ALL
+            .into_iter()
+            .filter_map(|tab| self.own_tab(faces, tab, q, cx))
+            .collect();
         if pages.is_empty() {
             return div()
                 .px(px(40.))
@@ -86,21 +108,11 @@ impl Desk {
                     ),
             );
         let q = self.pages.search.read(cx).text().trim().to_lowercase();
-        for (tab, label) in [
-            (Tab::General, "General"),
-            (Tab::Appearance, "Appearance"),
-            (Tab::Chat, "Chat"),
-            (Tab::NewSessions, "New sessions"),
-            (Tab::Agents, "Agents"),
-            (Tab::Sessions, "Sessions"),
-            (Tab::Keyboard, "Keyboard"),
-            (Tab::Usage, "Usage"),
-            (Tab::About, "About"),
-        ] {
+        for tab in Tab::ALL {
             let on = q.is_empty() && self.pages.tab == tab;
             nav = nav.child(
                 div()
-                    .id(SharedString::from(format!("tab-{label}")))
+                    .id(SharedString::from(format!("tab-{tab:?}")))
                     .flex()
                     .items_center()
                     .h(px(32.))
@@ -109,18 +121,8 @@ impl Desk {
                     .cursor_pointer()
                     .when(on, |d| d.bg(theme::panel2()))
                     .when(!on, |d| d.hover(|s| s.bg(theme::hover())))
-                    .child(ui::text(faces, label).text_size(px(13.5)))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.pages.search.update(cx, |i, cx| i.set_text("", cx));
-                        this.pages.tab = tab;
-                        if tab == Tab::Sessions {
-                            this.measure();
-                        }
-                        if tab == Tab::Usage {
-                            this.weigh_agents();
-                        }
-                        cx.notify();
-                    })),
+                    .child(ui::text(faces, tab.title()).text_size(px(13.5)))
+                    .on_click(cx.listener(move |this, _, _, cx| this.open_tab(tab, cx))),
             );
         }
         let own = if q.is_empty() {

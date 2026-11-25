@@ -25,9 +25,8 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> Option<Div> {
         use super::Tab;
-        let (title, lede, groups) = match tab {
+        let (lede, groups) = match tab {
             Tab::General => (
-                "General",
                 "How Ghost tells you things, and what it does while you are away.",
                 vec![
                     group(
@@ -106,7 +105,6 @@ impl Desk {
                 ],
             ),
             Tab::Appearance => (
-                "Appearance",
                 "How the thread and what is beside it read.",
                 vec![group(
                     faces,
@@ -254,7 +252,6 @@ impl Desk {
                 )],
             ),
             Tab::Chat => (
-                "Chat",
                 "What you write, and what the agent did.",
                 vec![
                     group(
@@ -318,7 +315,6 @@ impl Desk {
                 ],
             ),
             Tab::NewSessions => (
-                "New sessions",
                 "How a session begins in a repository.",
                 vec![group(
                     faces,
@@ -366,7 +362,7 @@ impl Desk {
             Tab::Agents | Tab::Sessions => return None,
         };
         let groups: Vec<Div> = groups.into_iter().flatten().collect();
-        (!groups.is_empty()).then(|| page(faces, title, lede).children(groups))
+        (!groups.is_empty()).then(|| page(faces, tab.title(), lede).children(groups))
     }
 
     /// A choice among `choices`, the one equal to `now` lit; picking one
@@ -509,7 +505,7 @@ impl Desk {
         }
         let page = page(
             faces,
-            "Keyboard",
+            super::Tab::Keyboard.title(),
             "The keys as they are now, yours over Ghost's.",
         )
         .child(list);
@@ -613,7 +609,7 @@ impl Desk {
         }
         page(
             faces,
-            "Usage",
+            super::Tab::Usage.title(),
             "What the sessions hold and spent, as their agents say, and what runs.",
         )
         .child(

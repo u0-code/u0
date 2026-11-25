@@ -17,7 +17,7 @@ use agent_client_protocol::v1::schema::SessionConfigOptionCategory as Kind;
 use gpui::{Action, App, KeyBinding, WindowHandle, actions};
 use serde::Deserialize;
 
-use crate::{desk::Desk, input};
+use crate::{desk::Desk, input, pages::Tab};
 
 actions!(
     desk,
@@ -378,10 +378,7 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
         }
     });
-    on::<About>(cx, window, |d, _, cx| {
-        d.pages.tab = crate::pages::Tab::About;
-        d.open_page(crate::desk::Page::Settings, cx);
-    });
+    on::<About>(cx, window, |d, _, cx| d.open_tab(Tab::About, cx));
     on::<Minimize>(cx, window, |_, window, _| window.minimize_window());
     on::<NewSession>(cx, window, Desk::new_default);
     on::<Find>(cx, window, Desk::toggle_find);
@@ -400,11 +397,7 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
     });
     on::<RightColumn>(cx, window, |d, _, cx| d.toggle_aside(cx));
     on::<WholeRight>(cx, window, |d, _, cx| d.toggle_whole(cx));
-    on::<Usage>(cx, window, |d, _, cx| {
-        d.pages.tab = crate::pages::Tab::Usage;
-        d.weigh_agents();
-        d.open_page(crate::desk::Page::Settings, cx);
-    });
+    on::<Usage>(cx, window, |d, _, cx| d.open_tab(Tab::Usage, cx));
     on::<LightOrDark>(cx, window, |d, _, cx| {
         // From the look as drawn now, the other one.
         d.settings.look = if crate::theme::is_light() {

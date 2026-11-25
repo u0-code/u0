@@ -575,7 +575,7 @@ impl Desk {
         let there = match crate::remote::parse(&folder) {
             Some((host, _)) if crate::remote::split(agent).1.is_none() => {
                 let Some(id) = self.remote_slot(agent, &host) else {
-                    self.open_agents(cx);
+                    self.open_tab(crate::pages::Tab::Agents, cx);
                     return;
                 };
                 Some(id)
@@ -714,7 +714,7 @@ impl Desk {
                 });
             match base.and_then(|a| self.remote_slot(&a, &host)) {
                 Some(id) => self.new_session(&id, folder, window, cx),
-                None => self.open_agents(cx),
+                None => self.open_tab(crate::pages::Tab::Agents, cx),
             }
             return;
         }
@@ -732,7 +732,7 @@ impl Desk {
             .map(|s| s.entry.id.clone());
         match agent {
             Some(agent) => self.new_session(&agent, folder, window, cx),
-            None => self.open_agents(cx),
+            None => self.open_tab(crate::pages::Tab::Agents, cx),
         }
     }
 
@@ -1124,9 +1124,16 @@ impl Desk {
         true
     }
 
-    /// Settings, at the agents: to switch one on, or install one.
-    pub fn open_agents(&mut self, cx: &mut Context<Self>) {
-        self.pages.tab = crate::pages::Tab::Agents;
+    /// Settings, at the tab `tab`, with nothing searched for; what Sessions
+    /// and Usage show is measured afresh.
+    pub fn open_tab(&mut self, tab: crate::pages::Tab, cx: &mut Context<Self>) {
+        self.pages.tab = tab;
+        self.pages.search.update(cx, |i, cx| i.set_text("", cx));
+        match tab {
+            crate::pages::Tab::Sessions => self.measure(),
+            crate::pages::Tab::Usage => self.weigh_agents(),
+            _ => {}
+        }
         self.open_page(Page::Settings, cx);
     }
 

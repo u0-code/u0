@@ -379,37 +379,14 @@ impl Desk {
                     Act::Look(crate::settings::Look::System),
                     "settings",
                 ),
-                act(
-                    "Settings: General",
-                    Act::Tab(crate::pages::Tab::General),
-                    "settings",
-                ),
-                act(
-                    "Settings: Appearance",
-                    Act::Tab(crate::pages::Tab::Appearance),
-                    "settings",
-                ),
-                act(
-                    "Settings: Chat",
-                    Act::Tab(crate::pages::Tab::Chat),
-                    "settings",
-                ),
-                act(
-                    "Settings: New sessions",
-                    Act::Tab(crate::pages::Tab::NewSessions),
-                    "settings",
-                ),
-                act(
-                    "Settings: Agents",
-                    Act::Tab(crate::pages::Tab::Agents),
-                    "settings",
-                ),
-                act(
-                    "Settings: Keyboard",
-                    Act::Tab(crate::pages::Tab::Keyboard),
-                    "settings",
-                ),
             ])
+            .chain(crate::pages::Tab::ALL.map(|tab| {
+                act(
+                    &format!("Settings: {}", tab.title()),
+                    Act::Tab(tab),
+                    "settings",
+                )
+            }))
             .filter(|l| found(&l.label))
             .collect();
         let mut sessions = Vec::new();
@@ -540,10 +517,7 @@ impl Desk {
                     self.ask_beside(key, cx);
                 }
             }
-            Act::Tab(tab) => {
-                self.pages.tab = tab;
-                self.open_page(Page::Settings, cx);
-            }
+            Act::Tab(tab) => self.open_tab(tab, cx),
             Act::File(name) => self.open_named(&name),
             Act::Grouping => self.toggle_grouping(cx),
             Act::Go(key) => self.show(key, window, cx),
