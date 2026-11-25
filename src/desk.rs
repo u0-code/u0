@@ -2398,7 +2398,7 @@ impl Desk {
             _ => path.to_path_buf(),
         };
         if full.exists() {
-            open_in_editor(&full);
+            open_in_editor(&full, self.settings.editor.as_deref());
         } else {
             self.trouble(
                 format!("There is no {name} here"),
@@ -2419,35 +2419,22 @@ pub const EDITORS: [(&str, &str); 4] = [
     ("subl", "Sublime Text"),
 ];
 
-/// The editor you chose (its command), as the settings set it: none, the
-/// first found.
-static EDITOR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
 /// Set what the settings say where it is read as the window is drawn,
 /// not from the settings: as Ghost starts and as they change.
 fn mirror(settings: &settings::Settings, cx: &mut gpui::App) {
     crate::thread::drawn::set_wrap(settings.diff_wrap);
     crate::git::leave_out_spacing(settings.no_spacing);
-    choose_editor(settings.editor.clone());
     crate::when::set_twelve(settings.twelve);
     theme::set_blue_orange(settings.blue_orange);
     theme::set_contrast(settings.contrast);
     fonts::set_mono(cx, settings.mono);
 }
 
-pub fn choose_editor(command: Option<String>) {
-    if let Ok(mut e) = EDITOR.lock() {
-        *e = command;
-    }
-}
-
-/// Open `path` in your editor: the one you chose, else the first of
-/// Cursor, VS Code, Zed and Sublime Text whose command is on the PATH,
-/// else the app macOS opens text in.
-pub fn open_in_editor(path: &Path) {
-    let chosen = EDITOR.lock().ok().and_then(|e| e.clone());
+/// Open `path` in your editor: the one you chose (its command), else the
+/// first of Cursor, VS Code, Zed and Sublime Text whose command is on the
+/// PATH, else the app macOS opens text in.
+pub fn open_in_editor(path: &Path, chosen: Option<&str>) {
     let editor = chosen
-        .as_deref()
         .and_then(registry::which)
         .or_else(|| EDITORS.into_iter().find_map(|(c, _)| registry::which(c)));
     let spawned = match editor {

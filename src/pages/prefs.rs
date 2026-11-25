@@ -499,6 +499,7 @@ impl Desk {
             );
         }
         let path = self.home.join("keybindings.json");
+        let editor = self.settings.editor.clone();
         let open = ui::button(
             faces,
             "open-keys",
@@ -509,7 +510,7 @@ impl Desk {
             if !path.exists() {
                 let _ = crate::whole::write(&path, b"[]\n");
             }
-            crate::desk::open_in_editor(&path);
+            crate::desk::open_in_editor(&path, editor.as_deref());
         });
         if n == 0 {
             return None;

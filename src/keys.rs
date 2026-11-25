@@ -437,7 +437,7 @@ pub fn handle(cx: &mut App, window: WindowHandle<Desk>) {
     on::<TakeBack>(cx, window, |d, _, cx| d.take_back(cx));
     on::<OpenFolder>(cx, window, |d, _, _| {
         if let Some(s) = d.session() {
-            crate::desk::open_in_editor(&s.folder);
+            crate::desk::open_in_editor(&s.folder, d.settings.editor.as_deref());
         }
     });
     on::<Dictate>(cx, window, |d, window, cx| {

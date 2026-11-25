@@ -1192,6 +1192,7 @@ impl Desk {
             .map(|c| (c.added, c.gone))
             .or_else(|| from_git.map(|f| (f.added, f.gone)));
         let full = s.folder.join(path);
+        let editor = self.settings.editor.clone();
         let head = top()
             .gap(px(8.))
             .child(
@@ -1236,7 +1237,7 @@ impl Desk {
             })
             .child(
                 ui::icon_button("open-editor", "pencil", "Open in your editor")
-                    .on_click(move |_, _, _| crate::desk::open_in_editor(&full)),
+                    .on_click(move |_, _, _| crate::desk::open_in_editor(&full, editor.as_deref())),
             )
             .child(self.whole_button(cx));
         let mut body = div()
