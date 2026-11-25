@@ -51,10 +51,6 @@ impl Desk {
             .child(
                 ui::icon_button("search", "search", "Search sessions")
                     .on_click(cx.listener(|this, _, window, cx| this.toggle_search(window, cx))),
-            )
-            .child(
-                ui::icon_button("new-icon", "pencil", "New session · ⌘N")
-                    .on_click(cx.listener(|this, _, window, cx| this.new_default(window, cx))),
             );
 
         let new = div().px(px(8.)).pt(px(8.)).pb(px(12.)).child(
