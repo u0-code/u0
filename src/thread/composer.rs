@@ -385,6 +385,11 @@ impl Desk {
                         Offer::Own { name, about } => {
                             ("ghost", format!("/{name}"), about.to_owned())
                         }
+                        Offer::Model { label, .. } => (
+                            "sliders",
+                            format!("@{label}"),
+                            "switch to this model".into(),
+                        ),
                         Offer::File(f) => ("file", f, String::new()),
                         Offer::Session { title, .. } => ("list", title, "session".into()),
                         Offer::Pr { number, title } => (
@@ -729,10 +734,38 @@ impl Desk {
                 .w(px(260.))
                 .p(px(6.))
                 .child(ui::label(faces, head).px(px(10.)).pt(px(6.)).pb(px(4.)));
+            // A long list can be narrowed by what is typed.
+            let long = choices.len() > 8;
+            let query = self.menu_search.read(cx).text().to_lowercase();
+            if long {
+                menu = menu.child(
+                    div()
+                        .mx(px(4.))
+                        .mb(px(4.))
+                        .px(px(8.))
+                        .rounded(px(7.))
+                        .bg(theme::well())
+                        .border_1()
+                        .border_color(theme::border2())
+                        .child(self.menu_search.clone()),
+                );
+            }
+            let mut scroll = div()
+                .id(SharedString::from(format!("{id}-list")))
+                .flex()
+                .flex_col()
+                .max_h(px(360.))
+                .overflow_y_scroll();
             for (n, (value, label, on)) in choices.into_iter().enumerate() {
+                if !query.is_empty()
+                    && !label.to_lowercase().contains(&query)
+                    && !value.to_lowercase().contains(&query)
+                {
+                    continue;
+                }
                 let popup = popup.clone();
                 let agent_mark = (popup == Popup::Agent).then(|| Mark::of(&value, &label));
-                menu = menu.child(
+                scroll = scroll.child(
                     row(SharedString::from(format!("{id}-{n}")), on)
                         .children(agent_mark.map(|m| ui::mark(faces, &m, 16.)))
                         .child(ui::text(faces, label).flex_1().text_size(px(13.)))
@@ -749,6 +782,7 @@ impl Desk {
                         })),
                 );
             }
+            menu = menu.child(scroll);
             // A new session can go to every agent at once, one each.
             let usable = self.usable_agents();
             if *popup == Popup::Agent && usable > 1 {

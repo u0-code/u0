@@ -302,7 +302,7 @@ pub fn plan_steps(plan: &Plan) -> Vec<(kinds::Status, String)> {
 /// A menu's choices: `(id, name, current)` each.
 type Choices = Vec<(String, String, bool)>;
 
-fn select_choices(kind: &SessionConfigKind) -> Option<(String, Choices)> {
+pub(crate) fn select_choices(kind: &SessionConfigKind) -> Option<(String, Choices)> {
     let SessionConfigKind::Select(select) = kind else {
         return None;
     };

@@ -149,6 +149,8 @@ pub struct Desk {
     /// item, and the line it is in.
     pub reading: Option<(u64, usize)>,
     pub reader: Entity<TextInput>,
+    /// What is typed to narrow a long menu of choices (a model's).
+    pub menu_search: Entity<TextInput>,
     /// The composer opened tall, to write at length.
     pub tall: bool,
     /// The image looked at large: the session's key and its item.
@@ -359,6 +361,11 @@ impl Desk {
         .detach();
         let search = cx.new(|cx| TextInput::new(cx, "Search sessions").padded(4.).keeping());
         let reader = cx.new(|cx| TextInput::new(cx, "").wrapping(24).keeping());
+        let menu_search = cx.new(|cx| TextInput::new(cx, "Search").padded(4.).keeping());
+        cx.subscribe(&menu_search, |_, _, _: &crate::input::Changed, cx| {
+            cx.notify();
+        })
+        .detach();
         let prefix = cx.new(|cx| {
             let mut i = TextInput::new(cx, "ghost/").padded(4.).keeping();
             i.set_text(&settings.branch_prefix, cx);
@@ -553,6 +560,7 @@ impl Desk {
             renaming_here: false,
             zoom: None,
             tall: false,
+            menu_search,
             reading: None,
             reader,
             rename,
@@ -1660,6 +1668,7 @@ impl Desk {
     }
 
     pub fn toggle_popup(&mut self, popup: Popup, cx: &mut Context<Self>) {
+        self.menu_search.update(cx, |i, cx| i.set_text("", cx));
         self.popup = if self.popup == popup {
             Popup::Closed
         } else {

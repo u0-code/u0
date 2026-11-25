@@ -39,6 +39,12 @@ pub enum Offer {
         name: &'static str,
         about: &'static str,
     },
+    /// A model to switch to, by its option and value.
+    Model {
+        config: String,
+        value: String,
+        label: String,
+    },
     File(String),
     Session {
         key: u64,
@@ -118,6 +124,25 @@ impl Desk {
                 });
             }
         }
+        // The models the agent offers: @ switches to one.
+        if let Some(option) = s.options.iter().find(|o| {
+            o.category == Some(agent_client_protocol_schema::v1::SessionConfigOptionCategory::Model)
+        }) && let Some((_, choices)) = crate::thread::select_choices(&option.kind)
+        {
+            for (value, label, on) in choices {
+                if !on
+                    && !query.is_empty()
+                    && (label.to_lowercase().contains(&query)
+                        || value.to_lowercase().contains(&query))
+                {
+                    offers.push(Offer::Model {
+                        config: option.id.0.to_string(),
+                        value,
+                        label,
+                    });
+                }
+            }
+        }
         for other in self.sessions.iter().filter(|o| {
             o.project == s.project && o.key != s.key && (o.recorded || !o.items.is_empty())
         }) {
@@ -175,6 +200,13 @@ impl Desk {
         let Some(offer) = offers.get(n).cloned() else {
             return;
         };
+        // A model is switched to, and its word taken out.
+        if let Offer::Model { config, value, .. } = &offer {
+            let line = text[..start].to_owned();
+            self.input.update(cx, |i, cx| i.set_text(&line, cx));
+            self.set_option(config.clone(), value.clone(), cx);
+            return;
+        }
         // One of Ghost's own is done, not written.
         if let Offer::Own { name, .. } = offer {
             self.input.update(cx, |i, cx| i.set_text("", cx));
@@ -197,6 +229,7 @@ impl Desk {
         }
         let token = match &offer {
             Offer::Own { name, .. } => format!("/{name}"),
+            Offer::Model { label, .. } => format!("@{label}"),
             Offer::Command { name, .. } => format!("/{name}"),
             Offer::File(f) => format!("@{f}"),
             Offer::Session { title, .. } => {
@@ -359,7 +392,7 @@ impl Desk {
                         blocks.push(text_resource(&format!("ghost://pr/{number}"), t));
                     }
                 }
-                Offer::Command { .. } | Offer::Own { .. } => {}
+                Offer::Command { .. } | Offer::Own { .. } | Offer::Model { .. } => {}
             }
         }
         // A path typed by hand after `@` that names a file goes too.
