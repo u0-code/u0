@@ -303,7 +303,9 @@ impl Desk {
             }
             Through::Everything => {}
         }
-        let found = |text: &str| q.is_empty() || text.to_lowercase().contains(&q);
+        let query = super::rank::Query::new(&q);
+        let found =
+            |text: &str| q.is_empty() || super::rank::terms(&query, text, &[], true).is_some();
         let act = |label: &str, act: Act, icon: &'static str| Line {
             group: "Actions",
             label: label.to_owned(),
@@ -354,7 +356,34 @@ impl Desk {
             .filter(|l| found(&l.label))
             .collect();
         let mut sessions = Vec::new();
-        for (n, key) in self.ordered().into_iter().enumerate() {
+        let now = std::time::SystemTime::now();
+        let mut order = self.ordered();
+        let mut ranked = Vec::new();
+        // What answers the query best first, else the sidebar's order;
+        // what is said in a session is looked through below.
+        if !q.is_empty() {
+            let found = super::rank::rank(vec![((), order.clone())], |key, typos| {
+                let s = self.sessions.at(*key)?;
+                super::rank::session(
+                    &query,
+                    &s.meta.title,
+                    s.git.pr.as_ref().map(|p| p.number),
+                    s.branch.as_deref(),
+                    &self.project_name(&s.meta.project),
+                    s.meta.updated,
+                    now,
+                    typos,
+                )
+            });
+            ranked = found
+                .into_iter()
+                .flat_map(|((), rows)| rows)
+                .map(|(k, _)| k)
+                .collect();
+            order.retain(|k| !ranked.contains(k));
+            order.splice(0..0, ranked.iter().copied());
+        }
+        for (n, key) in order.into_iter().enumerate() {
             let Some(s) = self.sessions.at(key) else {
                 continue;
             };
@@ -367,7 +396,7 @@ impl Desk {
                     }
                     _ => false,
                 });
-            if !found(&s.meta.title) && !found(&project) && !said {
+            if !q.is_empty() && !ranked.contains(&key) && !said {
                 continue;
             }
             let (hint, keys) = if said && !found(&s.meta.title) {

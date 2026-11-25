@@ -39,6 +39,7 @@ pub(crate) mod mention;
 pub(crate) mod notices;
 pub(crate) mod palette;
 mod projects;
+mod rank;
 pub(crate) mod runs;
 
 pub use lists::{Later, Renaming};
