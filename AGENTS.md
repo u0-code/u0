@@ -84,7 +84,7 @@ assets/           fonts and the desk's own icons, built into the binary
 |---|---|
 | A request to an agent | `acp::Agent::request` with a schema type |
 | Work off the window's thread | a function in `hub.rs` that returns a `Msg` |
-| Atomic file write | `whole::write` |
+| Atomic file write | `whole::write`, off the window's thread: `store::queue(Job::Write)` for the desk's own files |
 | Where Ghost keeps its files | `settings::home()` |
 | A program on the PATH | `registry::which` |
 | An agent's logo | `ui::Mark::of` and `ui::mark` |

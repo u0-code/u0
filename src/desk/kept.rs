@@ -111,7 +111,10 @@ impl Desk {
             gone: self.gone.clone(),
             stashed: self.stashed.clone(),
         };
-        store::queue(Job::Save(self.home.clone(), store::bytes(&index)));
+        store::queue(Job::Write(
+            store::index_path(&self.home),
+            store::bytes(&index),
+        ));
     }
 
     /// Write what happened in the session `key` since its record was last

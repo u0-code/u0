@@ -1012,9 +1012,7 @@ impl Desk {
         if self.settings_refused.is_some() {
             return;
         }
-        if let Err(e) = self.settings.save(&self.home) {
-            warn!("the settings could not be saved: {e}");
-        }
+        self.settings.save(&self.home);
     }
 
     /// The project a new session starts in: that of the session on

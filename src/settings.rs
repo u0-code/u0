@@ -12,8 +12,6 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::whole;
-
 /// The agents switched on when the desk is first opened.
 pub const FIRST: [&str; 3] = ["claude-acp", "codex-acp", "antigravity-acp"];
 
@@ -288,9 +286,10 @@ impl Settings {
         }
     }
 
-    pub fn save(&self, home: &Path) -> std::io::Result<()> {
+    /// Hand the settings to the writer, to be written in `home`.
+    pub fn save(&self, home: &Path) {
         let text = serde_json::to_vec_pretty(self).expect("settings serialize");
-        whole::write(&home.join("settings.json"), &text)
+        crate::store::queue(crate::store::Job::Write(home.join("settings.json"), text));
     }
 
     /// Switch the agent `id` on or off.

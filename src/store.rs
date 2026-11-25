@@ -181,11 +181,6 @@ pub fn bytes(index: &Index) -> Vec<u8> {
     serde_json::to_vec_pretty(index).expect("the index serializes")
 }
 
-/// Write `bytes` as the index in `home`.
-pub fn save(home: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    whole::write(&index_path(home), bytes)
-}
-
 /// Add `events` to the end of the record at `path`.
 pub fn append(path: &Path, events: &[Event]) -> std::io::Result<()> {
     if events.is_empty() {
@@ -244,7 +239,8 @@ pub fn cut_short(events: &[Event]) -> bool {
 /// What the writer does, in the order it was asked.
 pub enum Job {
     Append(PathBuf, Vec<Event>),
-    Save(PathBuf, Vec<u8>),
+    /// A file the desk keeps, written whole (`whole::write`).
+    Write(PathBuf, Vec<u8>),
     Remove(PathBuf),
     /// Answer once everything asked before is done.
     Done(std::sync::mpsc::Sender<()>),
@@ -263,7 +259,7 @@ pub fn queue(job: Job) {
                 for job in rx {
                     let done = match job {
                         Job::Append(path, events) => append(&path, &events),
-                        Job::Save(home, bytes) => save(&home, &bytes),
+                        Job::Write(path, bytes) => whole::write(&path, &bytes),
                         Job::Remove(path) => match std::fs::remove_file(&path) {
                             Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e),
                             _ => Ok(()),
@@ -274,7 +270,7 @@ pub fn queue(job: Job) {
                         }
                     };
                     if let Err(e) = done {
-                        tracing::warn!("a session's record could not be written: {e}");
+                        tracing::warn!("a file of the desk's could not be written: {e}");
                     }
                 }
             })
