@@ -6,7 +6,7 @@
 
 use std::{path::Path, time::SystemTime};
 
-use gpui::component::{Sizable as _, input::Input};
+use gpui::component::{Sizable as _, input::Input, popover::Popover};
 use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 
 use crate::fonts::Weighted as _;
@@ -435,7 +435,7 @@ impl Desk {
             )
             .into_any_element()
         };
-        let menu_for = folder.to_path_buf();
+        let (menu_faces, menu_for) = (faces.clone(), folder.to_path_buf());
         let row = agent_shell(group.clone(), false)
             .group(group.clone())
             .child(
@@ -479,19 +479,19 @@ impl Desk {
                         d.invisible().group_hover(group, Styled::visible)
                     })
                     .child(
-                        ui::icon_button(
-                            SharedString::from(format!("pmore-{}", folder.display())),
-                            "dots",
-                            "More",
+                        self.menu(
+                            Popup::Project(folder.to_path_buf()),
+                            ui::icon_button(
+                                SharedString::from(format!("pmore-{}", folder.display())),
+                                "dots",
+                                "More",
+                            )
+                            .size(px(22.))
+                            .text_color(theme::faint()),
+                            move |d, _, cx| d.project_menu(&menu_faces, &menu_for, cx),
+                            cx,
                         )
-                        .size(px(22.))
-                        .text_color(theme::faint())
-                        .on_click(cx.listener(
-                            move |this, _, window, cx| {
-                                cx.stop_propagation();
-                                this.toggle_popup(Popup::Project(menu_for.clone()), window, cx);
-                            },
-                        )),
+                        .anchor(gpui::Anchor::TopRight),
                     )
                     .child(
                         ui::icon_button(
@@ -510,15 +510,7 @@ impl Desk {
                     ),
             )
             .on_click(cx.listener(move |this, _, _, cx| this.toggle_project(&toggle, cx)));
-        let mut wrap = div().relative().child(row);
-        if menu_open {
-            wrap = wrap.child(gpui::deferred(
-                gpui::anchored()
-                    .anchor(gpui::Anchor::TopRight)
-                    .child(self.project_menu(faces, folder, cx)),
-            ));
-        }
-        wrap.into_any_element()
+        row.into_any_element()
     }
 
     /// What can be done with a project: name it, pin it, the agent and the
@@ -540,7 +532,7 @@ impl Desk {
                 .text_color(theme::faint())
         };
         let dir = folder.to_path_buf();
-        let mut menu = div().flex().flex_col().w(px(240.)).p(px(6.));
+        let mut menu = div().flex().flex_col().w(px(228.));
         let (rename_dir, pin_dir, show_dir, archive_dir) =
             (dir.clone(), dir.clone(), dir.clone(), dir.clone());
         menu = menu
@@ -606,9 +598,7 @@ impl Desk {
                     cx.listener(move |this, _, _, cx| this.forget_project(&forget_dir, cx)),
                 ));
         }
-        div()
-            .mt(px(4.))
-            .child(ui::menu(SharedString::from(format!("project-menu-{id}"))).child(menu))
+        menu
     }
 
     fn session_row(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> AnyElement {
@@ -757,15 +747,26 @@ impl Desk {
                     .when(!menu_open, |d| {
                         d.invisible().group_hover(group, Styled::visible)
                     })
-                    .child(
-                        ui::icon_button(SharedString::from(format!("more-{key}")), "dots", "More")
+                    .child({
+                        let faces = faces.clone();
+                        self.menu(
+                            Popup::Session(key),
+                            ui::icon_button(
+                                SharedString::from(format!("more-{key}")),
+                                "dots",
+                                "More",
+                            )
                             .size(px(20.))
-                            .text_color(theme::faint())
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                cx.stop_propagation();
-                                this.toggle_popup(Popup::Session(key), window, cx);
-                            })),
-                    ),
+                            .text_color(theme::faint()),
+                            move |d, _, cx| {
+                                div().children(
+                                    d.sessions.at(key).map(|s| d.session_menu(&faces, s, cx)),
+                                )
+                            },
+                            cx,
+                        )
+                        .anchor(gpui::Anchor::TopRight)
+                    }),
             )
             // ⌘-click chooses it among others, to act on them together.
             .when(self.chosen.contains(&key), |d| {
@@ -782,15 +783,7 @@ impl Desk {
                     this.show(key, window, cx);
                 }
             }));
-        let mut wrap = div().relative().child(row);
-        if menu_open {
-            wrap = wrap.child(gpui::deferred(
-                gpui::anchored()
-                    .anchor(gpui::Anchor::TopRight)
-                    .child(self.session_menu(faces, s, cx)),
-            ));
-        }
-        wrap.into_any_element()
+        row.into_any_element()
     }
 
     /// The sessions chosen with ⌘-click, and what can be done with all of
@@ -884,59 +877,59 @@ impl Desk {
         let key = s.key;
         let now = crate::store::secs(SystemTime::now());
         let busy = matches!(s.state, State::Working | State::Opening);
-        // A line of the menu; hovering one closes a part shown beside,
-        // unless it is the line of that part.
-        let item = |n: usize,
-                    icon: &'static str,
-                    label: String,
-                    part: Option<&'static str>,
-                    cx: &mut Context<Self>| {
-            ui::menu_row(SharedString::from(format!("smenu-{key}-{n}")), false)
-                .when(part.is_some() && self.submenu == part, |d| {
-                    d.bg(theme::hover())
+        let item =
+            |n: usize, icon: &'static str, label: String| session_item(faces, key, n, icon, label);
+        // A part of the menu, opened beside the line that names it: a
+        // Popover within the menu's.
+        let beside = |n: usize,
+                      icon: &'static str,
+                      label: &'static str,
+                      part: fn(&Self, &Faces, &Session, &mut Context<Self>) -> Div,
+                      cx: &mut Context<Self>| {
+            let (faces, desk) = (faces.clone(), cx.entity());
+            let line = ui::opener(SharedString::from(format!("smenu-{key}-{n}")))
+                .w_full()
+                .h(px(30.))
+                .px(px(8.))
+                .child(
+                    div()
+                        .flex()
+                        .flex_1()
+                        .items_center()
+                        .gap(px(10.))
+                        .child(ui::icon(icon, 14.).text_color(theme::faint()))
+                        .child(ui::text(&faces, label).flex_1().text_size(px(13.)))
+                        .child(ui::icon("chevron-right", 12.).text_color(theme::faint())),
+                );
+            Popover::new(SharedString::from(format!("session-sub-{key}-{n}")))
+                .anchor(gpui::Anchor::LeftCenter)
+                .trigger_style(gpui::StyleRefinement::default().w_full())
+                .p(px(6.))
+                .trigger(line)
+                .content(move |_, _, cx| {
+                    desk.update(cx, |d, cx| {
+                        div().children(d.sessions.at(key).map(|s| part(d, &faces, s, cx)))
+                    })
                 })
-                .child(ui::icon(icon, 14.).text_color(theme::faint()))
-                .child(ui::text(faces, label).flex_1().text_size(px(13.)))
-                .when(part.is_some(), |d| {
-                    d.child(ui::icon("chevron-right", 12.).text_color(theme::faint()))
-                })
-                .on_hover(cx.listener(move |this, over: &bool, _, cx| {
-                    if *over && this.submenu != part {
-                        this.submenu = part;
-                        cx.notify();
-                    }
-                }))
         };
-        // A part of the menu, beside the line that opens it.
-        let beside =
-            |line: gpui::Stateful<Div>, part: Div| {
-                div().relative().child(line).child(gpui::deferred(
-                    div().absolute().top(px(-6.)).left(px(212.)).child(
-                        ui::menu(SharedString::from(format!("session-sub-{key}"))).child(part),
-                    ),
-                ))
-            };
-        let part = || div().flex().flex_col().w(px(220.)).p(px(6.));
-        let mut menu = div().flex().flex_col().w(px(220.)).p(px(6.));
-        menu = menu.child(
-            item(0, "pencil", "Rename".into(), None, cx).on_click(cx.listener(
-                move |this, _, window, cx| {
-                    this.begin_rename(Renaming::Session { key, here: false }, window, cx);
-                },
-            )),
-        );
+        let mut menu = div().flex().flex_col().w(px(208.));
+        menu = menu.child(item(0, "pencil", "Rename".into()).on_click(cx.listener(
+            move |this, _, window, cx| {
+                this.begin_rename(Renaming::Session { key, here: false }, window, cx);
+            },
+        )));
         let pin = if s.meta.flags.pinned.is_some() {
             "Unpin"
         } else {
             "Pin"
         };
         menu = menu.child(
-            item(1, "pin", pin.into(), None, cx)
+            item(1, "pin", pin.into())
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle_pin(key, cx))),
         );
         if !s.meta.flags.unread {
             menu = menu.child(
-                item(2, "bell", "Mark as unread".into(), None, cx)
+                item(2, "bell", "Mark as unread".into())
                     .on_click(cx.listener(move |this, _, _, cx| this.mark_unread(key, cx))),
             );
         }
@@ -946,79 +939,28 @@ impl Desk {
             "Mark as done"
         };
         menu = menu.child(
-            item(3, "check", done.into(), None, cx)
+            item(3, "check", done.into())
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle_settled(key, cx))),
         );
         if s.meta.flags.snoozed.is_some_and(|t| t > now) {
             menu = menu.child(
-                item(4, "clock", "Bring back now".into(), None, cx)
+                item(4, "clock", "Bring back now".into())
                     .on_click(cx.listener(move |this, _, _, cx| this.wake(key, cx))),
             );
         } else {
-            let line = item(5, "clock", "Snooze".into(), Some("snooze"), cx);
-            if self.submenu == Some("snooze") {
-                let mut snooze = part();
-                for (n, (label, later)) in [
-                    ("For an hour", Later::In(60)),
-                    ("Until tomorrow", Later::Tomorrow),
-                    ("Until next week", Later::NextWeek),
-                ]
-                .into_iter()
-                .enumerate()
-                {
-                    snooze = snooze.child(
-                        item(30 + n, "clock", label.into(), Some("snooze"), cx).on_click(
-                            cx.listener(move |this, _, _, cx| this.snooze(key, later, cx)),
-                        ),
-                    );
-                }
-                // Or for as long as you say.
-                snooze = snooze.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .px(px(8.))
-                        .h(px(32.))
-                        .child(div().flex_1().child(Input::new(&self.menu_search).xsmall())),
-                );
-                menu = menu.child(beside(line, snooze));
-            } else {
-                menu = menu.child(line);
-            }
+            menu = menu.child(beside(5, "clock", "Snooze", Self::snooze_part, cx));
         }
         // What it said and what names it, copied.
-        let line = item(6, "copy", "Copy".into(), Some("copy"), cx);
-        if self.submenu == Some("copy") {
-            let mut copy = part().child(
-                item(40, "copy", "The conversation".into(), Some("copy"), cx)
-                    .on_click(cx.listener(move |this, _, _, cx| this.copy_thread(key, cx))),
-            );
-            let copies = [
-                Some(("The folder's path", s.meta.folder.display().to_string())),
-                s.branch.clone().map(|b| ("The branch's name", b)),
-                s.meta
-                    .id
-                    .as_ref()
-                    .map(|id| ("The session's id", id.0.to_string())),
-            ];
-            for (n, (label, text)) in copies.into_iter().flatten().enumerate() {
-                copy = copy.child(
-                    item(41 + n, "copy", label.into(), Some("copy"), cx).on_click(cx.listener(
-                        move |this, _, _, cx| {
-                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
-                            this.popup = crate::desk::Popup::Closed;
-                            cx.notify();
-                        },
-                    )),
-                );
-            }
-            menu = menu.child(beside(line, copy));
-        } else {
-            menu = menu.child(line);
-        }
+        menu = menu.child(beside(
+            6,
+            "copy",
+            "Copy",
+            |_, faces, s, cx| Self::copy_part(faces, s, cx),
+            cx,
+        ));
         if self.can_fork(s) && !busy {
             menu = menu.child(
-                item(8, "branch", "Branch off a copy".into(), None, cx)
+                item(8, "branch", "Branch off a copy".into())
                     .on_click(cx.listener(move |this, _, _, cx| this.fork(key, cx))),
             );
         }
@@ -1030,8 +972,6 @@ impl Desk {
                     24,
                     "plus",
                     format!("New session on {}", crate::ui::fit(&on, 22)),
-                    None,
-                    cx,
                 )
                 .on_click(
                     cx.listener(move |this, _, window, cx| this.new_in_worktree(key, window, cx)),
@@ -1043,7 +983,7 @@ impl Desk {
         } else {
             "Never done on its own"
         };
-        menu = menu.child(item(25, "pin", kept.into(), None, cx).on_click(cx.listener(
+        menu = menu.child(item(25, "pin", kept.into()).on_click(cx.listener(
             move |this, _, _, cx| {
                 this.popup = crate::desk::Popup::Closed;
                 this.mark(key, cx, |f| f.kept = !f.kept);
@@ -1053,17 +993,73 @@ impl Desk {
             menu = menu
                 .child(div().h(px(1.)).mx(px(2.)).my(px(4.)).bg(theme::border2()))
                 .child(
-                    item(9, "archive", "Archive".into(), None, cx)
+                    item(9, "archive", "Archive".into())
                         .on_click(cx.listener(move |this, _, _, cx| this.archive(key, cx))),
                 )
                 .child(
-                    item(10, "trash", "Delete".into(), None, cx)
+                    item(10, "trash", "Delete".into())
                         .on_click(cx.listener(move |this, _, _, cx| this.delete_later(key, cx))),
                 );
         }
-        div()
-            .mt(px(4.))
-            .child(ui::menu(SharedString::from(format!("session-menu-{key}"))).child(menu))
+        menu
+    }
+
+    /// For how long a session is put out of sight: a while chosen, or one
+    /// written.
+    fn snooze_part(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
+        let key = s.key;
+        let mut snooze = div().flex().flex_col().w(px(208.));
+        for (n, (label, later)) in [
+            ("For an hour", Later::In(60)),
+            ("Until tomorrow", Later::Tomorrow),
+            ("Until next week", Later::NextWeek),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            snooze = snooze.child(
+                session_item(faces, key, 30 + n, "clock", label.into())
+                    .on_click(cx.listener(move |this, _, _, cx| this.snooze(key, later, cx))),
+            );
+        }
+        // Or for as long as you say.
+        snooze.child(
+            div()
+                .flex()
+                .items_center()
+                .px(px(8.))
+                .h(px(32.))
+                .child(div().flex_1().child(Input::new(&self.menu_search).xsmall())),
+        )
+    }
+
+    /// What of a session can be copied: what was said, and what names it.
+    fn copy_part(faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
+        let key = s.key;
+        let mut copy = div().flex().flex_col().w(px(208.)).child(
+            session_item(faces, key, 40, "copy", "The conversation".into())
+                .on_click(cx.listener(move |this, _, _, cx| this.copy_thread(key, cx))),
+        );
+        let copies = [
+            Some(("The folder's path", s.meta.folder.display().to_string())),
+            s.branch.clone().map(|b| ("The branch's name", b)),
+            s.meta
+                .id
+                .as_ref()
+                .map(|id| ("The session's id", id.0.to_string())),
+        ];
+        for (n, (label, text)) in copies.into_iter().flatten().enumerate() {
+            copy = copy.child(
+                session_item(faces, key, 41 + n, "copy", label.into()).on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
+                        this.popup = crate::desk::Popup::Closed;
+                        cx.notify();
+                    },
+                )),
+            );
+        }
+        copy
     }
 
     /// The sessions of `folder` as the sidebar lists them: pinned on top
@@ -1139,6 +1135,24 @@ impl Desk {
         )
     }
 
+    /// The projects the list by status can be narrowed to, or all.
+    fn only_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+        let mut menu = div().flex().flex_col().w(px(208.));
+        let choices = std::iter::once(None).chain(self.projects().into_iter().map(Some));
+        for (n, p) in choices.enumerate() {
+            let label = p
+                .as_ref()
+                .map_or_else(|| "All projects".to_owned(), |p| self.project_name(p));
+            let on = self.settings.only == p;
+            menu = menu.child(
+                ui::menu_row(SharedString::from(format!("only-{n}")), on)
+                    .child(ui::text(faces, label).text_size(px(13.)))
+                    .on_click(cx.listener(move |this, _, _, cx| this.show_only(p.clone(), cx))),
+            );
+        }
+        menu
+    }
+
     /// The sessions by where they stand: needing you, working, pinned,
     /// recent, and done (folded); in one project, or in all.
     fn by_status(&self, faces: &Faces, query: Option<&str>, cx: &mut Context<Self>) -> Div {
@@ -1148,44 +1162,34 @@ impl Desk {
             .only
             .as_ref()
             .map_or_else(|| "All projects".to_owned(), |p| self.project_name(p));
-        let filter_open = self.popup == Popup::Only;
-        let mut filter = div().relative().child(
-            session_shell("only-project", false)
-                .pl(px(8.))
-                .cursor_pointer()
-                .hover(|st| st.bg(theme::hover()))
-                .child(ui::icon("folder", 14.).text_color(theme::faint()))
-                .child(
-                    ui::text(faces, only)
-                        .flex_1()
-                        .text_size(px(12.5))
-                        .text_color(theme::text2()),
-                )
-                .child(ui::icon("chevron-down", 12.).text_color(theme::faint()))
-                .on_click(
-                    cx.listener(|this, _, window, cx| this.toggle_popup(Popup::Only, window, cx)),
-                ),
-        );
-        if filter_open {
-            let mut menu = div().flex().flex_col().w(px(220.)).p(px(6.));
-            let choices = std::iter::once(None).chain(self.projects().into_iter().map(Some));
-            for (n, p) in choices.enumerate() {
-                let label = p
-                    .as_ref()
-                    .map_or_else(|| "All projects".to_owned(), |p| self.project_name(p));
-                let on = self.settings.only == p;
-                menu = menu.child(
-                    ui::menu_row(SharedString::from(format!("only-{n}")), on)
-                        .child(ui::text(faces, label).text_size(px(13.)))
-                        .on_click(cx.listener(move |this, _, _, cx| this.show_only(p.clone(), cx))),
-                );
-            }
-            filter =
-                filter
-                    .child(gpui::deferred(gpui::anchored().child(
-                        div().mt(px(30.)).child(ui::menu("only-menu").child(menu)),
-                    )));
-        }
+        let line = ui::opener("only-project")
+            .w_full()
+            .h(px(28.))
+            .px(px(8.))
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(ui::icon("folder", 14.).text_color(theme::faint()))
+                    .child(
+                        ui::text(faces, only)
+                            .flex_1()
+                            .text_size(px(12.5))
+                            .text_color(theme::text2()),
+                    )
+                    .child(ui::icon("chevron-down", 12.).text_color(theme::faint())),
+            );
+        let menu_faces = faces.clone();
+        let filter = self
+            .menu(
+                Popup::Only,
+                line,
+                move |d, _, cx| d.only_menu(&menu_faces, cx),
+                cx,
+            )
+            .trigger_style(gpui::StyleRefinement::default().w_full());
         let mut list = div().flex().flex_col().gap(px(2.)).px(px(8.)).child(filter);
         for (label, sessions) in groups {
             if sessions.is_empty() {
@@ -1285,6 +1289,19 @@ fn session_shell(id: impl Into<SharedString>, on: bool) -> gpui::Stateful<Div> {
         .pr(px(8.))
         .rounded(px(8.))
         .when(on, |d| d.bg(theme::panel2()))
+}
+
+/// A line of a session's menu, `n`th: its icon and what it does.
+fn session_item(
+    faces: &Faces,
+    key: u64,
+    n: usize,
+    icon: &'static str,
+    label: String,
+) -> gpui::Stateful<Div> {
+    ui::menu_row(SharedString::from(format!("smenu-{key}-{n}")), false)
+        .child(ui::icon(icon, 14.).text_color(theme::faint()))
+        .child(ui::text(faces, label).flex_1().text_size(px(13.)))
 }
 
 /// Small print at the right of a row.

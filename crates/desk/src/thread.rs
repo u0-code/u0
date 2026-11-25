@@ -27,8 +27,8 @@ use agent_client_protocol::v1::schema::{
     Plan, PlanEntryStatus, SessionConfigKind, SessionConfigOptionCategory,
     SessionConfigSelectOptions, ToolCallContent, ToolCallStatus, ToolKind,
 };
-use gpui::component::{button::Button, input::Textarea};
-use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
+use gpui::component::{button::Button, input::Textarea, popover::Popover};
+use gpui::{AnyElement, Context, Div, SharedString, Stateful, div, prelude::*, px};
 
 use crate::fonts::Weighted as _;
 use crate::{
@@ -658,100 +658,100 @@ impl Desk {
     /// What a new worktree begins from: where the folder is, unless
     /// another local branch is chosen, or an open pull request, whose own
     /// branch it then works on.
-    fn base_chip(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
+    fn base_chip(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Popover {
         use crate::session::Begin;
         let shown = match &s.begin {
             Some(Begin::Branch(b)) => b.clone(),
             Some(Begin::Pr(n, title)) => format!("#{n} {title}"),
             None => s.branch.clone().unwrap_or_else(|| "HEAD".into()),
         };
-        let key = s.key;
-        let mut wrap = div().relative().child(
+        let chip = ui::opener("base")
+            .h(px(26.))
+            .px(px(8.))
+            .child(icon("branch"))
+            .child(meta(faces, "from"))
+            .child(
+                ui::mono(faces, ui::fit(&shown, 32))
+                    .text_size(px(12.))
+                    .text_color(theme::text2()),
+            )
+            .child(ui::icon("chevron-down", 11.).text_color(theme::faint()));
+        let (faces, key) = (faces.clone(), s.key);
+        self.menu(
+            crate::desk::Popup::Base,
+            chip,
+            move |d, _, cx| {
+                // The pull requests it lists are asked for once, as it opens.
+                d.want_offers();
+                d.base_menu(&faces, key, cx)
+            },
+            cx,
+        )
+    }
+
+    /// The local branches a new worktree can begin from, then the open
+    /// pull requests.
+    fn base_menu(&self, faces: &Faces, key: u64, cx: &mut Context<Self>) -> Stateful<Div> {
+        use crate::session::Begin;
+        let mut list = div()
+            .id("base-menu")
+            .flex()
+            .flex_col()
+            .w(px(288.))
+            .max_h(px(348.))
+            .overflow_y_scroll();
+        let Some(s) = self.sessions.at(key) else {
+            return list;
+        };
+        let pick = |n: usize, label: String, on: bool, begin: Begin, cx: &mut Context<Self>| {
             div()
-                .id("base")
+                .id(SharedString::from(format!("base-{n}")))
                 .flex()
                 .items_center()
-                .gap(px(6.))
-                .h(px(26.))
-                .px(px(8.))
+                .h(px(30.))
+                .px(px(10.))
                 .rounded(px(7.))
                 .cursor_pointer()
+                .when(on, |d| d.bg(theme::hover()))
                 .hover(|st| st.bg(theme::hover()))
-                .child(icon("branch"))
-                .child(meta(faces, "from"))
-                .child(
-                    ui::mono(faces, ui::fit(&shown, 32))
-                        .text_size(px(12.))
-                        .text_color(theme::text2()),
-                )
-                .child(ui::icon("chevron-down", 11.).text_color(theme::faint()))
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.want_offers();
-                    this.toggle_popup(crate::desk::Popup::Base, window, cx);
-                })),
-        );
-        if self.popup == crate::desk::Popup::Base {
-            let pick = |n: usize, label: String, on: bool, begin: Begin, cx: &mut Context<Self>| {
-                div()
-                    .id(SharedString::from(format!("base-{n}")))
-                    .flex()
-                    .items_center()
-                    .h(px(30.))
-                    .px(px(10.))
-                    .rounded(px(7.))
-                    .cursor_pointer()
-                    .when(on, |d| d.bg(theme::hover()))
-                    .hover(|st| st.bg(theme::hover()))
-                    .child(ui::one_line(ui::mono(faces, label).text_size(px(12.5))))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if let Some(s) = this.sessions.at_mut(key) {
-                            s.begin = Some(begin.clone());
-                        }
-                        this.popup = crate::desk::Popup::Closed;
-                        cx.notify();
-                    }))
+                .child(ui::one_line(ui::mono(faces, label).text_size(px(12.5))))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if let Some(s) = this.sessions.at_mut(key) {
+                        s.begin = Some(begin.clone());
+                    }
+                    this.popup = crate::desk::Popup::Closed;
+                    cx.notify();
+                }))
+        };
+        for (n, b) in s.git.branches.iter().enumerate() {
+            let on = match &s.begin {
+                Some(Begin::Branch(f)) => f == b,
+                Some(Begin::Pr(..)) => false,
+                None => Some(b) == s.branch.as_ref(),
             };
-            let mut list = div().flex().flex_col().w(px(300.)).p(px(6.));
-            for (n, b) in s.git.branches.iter().enumerate() {
-                let on = match &s.begin {
-                    Some(Begin::Branch(f)) => f == b,
-                    Some(Begin::Pr(..)) => false,
-                    None => Some(b) == s.branch.as_ref(),
-                };
-                list = list.child(pick(n, b.clone(), on, Begin::Branch(b.clone()), cx));
-            }
-            let prs = self.prs.get(&s.meta.project).filter(|p| !p.is_empty());
-            if let Some(prs) = prs {
-                list = list.child(
-                    div()
-                        .px(px(10.))
-                        .pt(px(8.))
-                        .pb(px(4.))
-                        .child(meta(faces, "Pull requests: on its own branch")),
-                );
-                for (n, (number, title)) in prs.iter().enumerate() {
-                    let on = matches!(&s.begin, Some(Begin::Pr(p, _)) if p == number);
-                    list = list.child(pick(
-                        s.git.branches.len() + n,
-                        format!("#{number} {}", ui::fit(title, 34)),
-                        on,
-                        Begin::Pr(*number, title.clone()),
-                        cx,
-                    ));
-                }
-            }
-            wrap = wrap.child(gpui::deferred(
-                gpui::anchored().child(
-                    div().mt(px(30.)).child(
-                        ui::menu("base-menu")
-                            .max_h(px(360.))
-                            .overflow_y_scroll()
-                            .child(list),
-                    ),
-                ),
-            ));
+            list = list.child(pick(n, b.clone(), on, Begin::Branch(b.clone()), cx));
         }
-        wrap
+        let prs = self.prs.get(&s.meta.project).filter(|p| !p.is_empty());
+        if let Some(prs) = prs {
+            list = list.child(
+                div()
+                    .px(px(10.))
+                    .pt(px(8.))
+                    .pb(px(4.))
+                    .child(meta(faces, "Pull requests: on its own branch")),
+            );
+            for (n, (number, title)) in prs.iter().enumerate() {
+                let on = matches!(&s.begin, Some(Begin::Pr(p, _)) if p == number);
+                list = list.child(pick(
+                    s.git.branches.len() + n,
+                    format!("#{number} {}", ui::fit(title, 34)),
+                    on,
+                    Begin::Pr(*number, title.clone()),
+                    cx,
+                ));
+            }
+        }
+        list
     }
 
     /// Whether the session works in the folder itself or in a worktree of
@@ -811,7 +811,6 @@ impl Desk {
                 let copy = text.clone();
                 let rewinding = self.popup == crate::desk::Popup::Rewind(at, i);
                 let tools = div()
-                    .relative()
                     .flex()
                     .items_center()
                     .gap(px(2.))
@@ -837,24 +836,22 @@ impl Desk {
                         )
                     })
                     .when(back, |d| {
+                        let faces = faces.clone();
                         d.child(
-                            Self::under(&key, "rewind", "retry", "Roll back to here").on_click(
-                                cx.listener(move |this, _, window, cx| {
-                                    this.toggle_popup(
-                                        crate::desk::Popup::Rewind(at, i),
-                                        window,
-                                        cx,
-                                    );
-                                }),
-                            ),
+                            self.menu(
+                                crate::desk::Popup::Rewind(at, i),
+                                Self::under(&key, "rewind", "retry", "Roll back to here"),
+                                move |d, _, cx| d.rewind_menu(&faces, at, i, cx),
+                                cx,
+                            )
+                            .anchor(gpui::Anchor::TopRight),
                         )
                     })
                     .child(
                         Self::under(&key, "copy", "copy", "Copy").on_click(move |_, _, cx| {
                             cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
                         }),
-                    )
-                    .children(rewinding.then(|| Self::rewind_menu(faces, s, i, cx)));
+                    );
                 // A long message shows its first lines, the rest a click away.
                 let full_key = format!("{key}:full");
                 let long = text.lines().count() > 12 || text.len() > 1500;
@@ -1393,17 +1390,13 @@ impl Desk {
 
     /// How to take the session back to your message at `item`: keeping
     /// the files as they are, or putting them back as they were before.
-    fn rewind_menu(
-        faces: &Faces,
-        s: &Session,
-        item: usize,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
-        let key = s.key;
-        let files = s.repo
-            && s.turn_of(item)
-                .and_then(|t| s.turns.get(t))
-                .is_some_and(|t| t.before.is_some());
+    fn rewind_menu(&self, faces: &Faces, key: u64, item: usize, cx: &mut Context<Self>) -> Div {
+        let files = self.sessions.at(key).is_some_and(|s| {
+            s.repo
+                && s.turn_of(item)
+                    .and_then(|t| s.turns.get(t))
+                    .is_some_and(|t| t.before.is_some())
+        });
         let row = |id: &'static str, label: &'static str, about: &'static str| {
             div()
                 .id(id)
@@ -1421,41 +1414,32 @@ impl Desk {
                         .text_color(theme::faint()),
                 )
         };
-        gpui::deferred(
-            div().absolute().top(px(28.)).right(px(0.)).child(
-                ui::menu("rewind-menu").child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .w(px(300.))
-                        .p(px(6.))
-                        .child(
-                            row(
-                                "rewind-keep",
-                                "Roll back to here",
-                                "What came after is left behind; it is in the composer to say again. The files stay as they are.",
-                            )
-                            .on_click(cx.listener(
-                                move |this, _, window, cx| {
-                                    this.rewind(key, item, false, window, cx);
-                                },
-                            )),
-                        )
-                        .when(files, |d| {
-                            d.child(
-                                row(
-                                    "rewind-files",
-                                    "Roll back to here, files too",
-                                    "The files go back to how they were before this.",
-                                )
-                                .on_click(cx.listener(
-                                    move |this, _, window, cx| this.rewind(key, item, true, window, cx),
-                                )),
-                            )
-                        }),
-                ),
-            ),
-        )
+        div()
+            .flex()
+            .flex_col()
+            .w(px(288.))
+            .child(
+                row(
+                    "rewind-keep",
+                    "Roll back to here",
+                    "What came after is left behind; it is in the composer to say again. The files stay as they are.",
+                )
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.rewind(key, item, false, window, cx);
+                })),
+            )
+            .when(files, |d| {
+                d.child(
+                    row(
+                        "rewind-files",
+                        "Roll back to here, files too",
+                        "The files go back to how they were before this.",
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.rewind(key, item, true, window, cx);
+                    })),
+                )
+            })
     }
 
     /// A folded stretch of the thread, as one line: a chevron, and what

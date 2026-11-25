@@ -22,9 +22,12 @@ use std::{
     time::Duration,
 };
 
+use gpui::component::Selectable;
 use gpui::component::input::{InputEvent, InputState, TextareaState};
+use gpui::component::popover::Popover;
 use gpui::{
-    Context, Entity, Focusable as _, MouseButton, PathPromptOptions, Window, div, prelude::*, px,
+    Context, Entity, Focusable as _, MouseButton, PathPromptOptions, SharedString, Window, div,
+    prelude::*, px,
 };
 use tokio::sync::mpsc;
 
@@ -187,8 +190,6 @@ pub struct Desk {
     /// The subagents' tabs over the thread you closed: hidden, still at
     /// work.
     pub closed_tabs: HashSet<u64>,
-    /// The part of an open menu shown beside it: "snooze", "copy".
-    pub submenu: Option<&'static str>,
     /// What waits for an agent to start, by agent: a fork, a delete.
     pub waiting: Vec<(String, lists::Waiting)>,
     /// Sessions deleted whose agent cannot delete them (see `store::Index`).
@@ -422,7 +423,6 @@ impl Desk {
             rewinding: None,
             asking_beside: None,
             choosing: false,
-            submenu: None,
             closed_tabs: HashSet::new(),
             gone: Vec::new(),
             kept: HashMap::new(),
@@ -974,8 +974,43 @@ impl Desk {
         false
     }
 
-    pub fn toggle_popup(&mut self, popup: Popup, window: &mut Window, cx: &mut Context<Self>) {
-        self.submenu = None;
+    /// The menu `popup` opens from `trigger`: gpui-kit's Popover, open
+    /// while the desk says so, its body drawn by `body` from the desk each
+    /// time the popover is drawn.
+    pub fn menu<E: IntoElement>(
+        &self,
+        popup: Popup,
+        trigger: impl Selectable + IntoElement + 'static,
+        body: impl Fn(&mut Self, &mut Window, &mut Context<Self>) -> E + 'static,
+        cx: &mut Context<Self>,
+    ) -> Popover {
+        let desk = cx.entity();
+        let drawn = desk.clone();
+        Popover::new(SharedString::from(format!("{popup:?}")))
+            .open(self.popup == popup)
+            .p(px(6.))
+            .trigger(trigger)
+            .content(move |_, window, cx| drawn.update(cx, |d, cx| body(d, window, cx)))
+            .on_open_change(move |open, window, cx| {
+                desk.update(cx, |d, cx| d.menu_opened(&popup, *open, window, cx));
+            })
+    }
+
+    /// The popover of `popup` opened or closed itself (its trigger, a
+    /// click outside it): the desk follows.
+    fn menu_opened(
+        &mut self,
+        popup: &Popup,
+        open: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !open {
+            if self.popup == *popup {
+                self.close_popup(window, cx);
+            }
+            return;
+        }
         // The menu's line says what it takes there.
         let says = match popup {
             Popup::Branch => "A new branch: its name, then Return",
@@ -986,11 +1021,7 @@ impl Desk {
             i.set_value("", window, cx);
             i.set_placeholder(says, window, cx);
         });
-        self.popup = if self.popup == popup {
-            Popup::Closed
-        } else {
-            popup
-        };
+        self.popup = popup.clone();
         cx.notify();
     }
 
@@ -1331,40 +1362,36 @@ impl Render for Desk {
             })
             .when(!whole, |d| d.child(middle))
             .children(right)
-            // Under a menu, the palette or the settings, the rest of the
-            // window: a click there closes what is on top and does nothing
-            // else. The settings sit on it, the window dimmed around them.
-            .when(
-                self.popup != Popup::Closed || self.palette.open || self.pages.open,
-                |d| {
-                    d.child(
-                        div()
-                            .absolute()
-                            .inset_0()
-                            .occlude()
-                            .on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(|this, _, window, cx| {
-                                    if this.popup != Popup::Closed {
-                                        this.close_popup(window, cx);
-                                    } else if this.palette.open {
-                                        this.toggle_palette(window, cx);
-                                    } else {
-                                        this.close_settings(window, cx);
-                                    }
-                                }),
-                            )
-                            .when(self.pages.open, |d| {
-                                d.flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .p(px(40.))
-                                    .bg(gpui::black().opacity(0.45))
-                                    .child(self.settings_dialog(&faces, cx))
+            // Under the palette or the settings, the rest of the window: a
+            // click there closes what is on top and does nothing else. The
+            // settings sit on it, the window dimmed around them. A menu is
+            // a Popover, which closes itself on a click outside.
+            .when(self.palette.open || self.pages.open, |d| {
+                d.child(
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .occlude()
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _, window, cx| {
+                                if this.palette.open {
+                                    this.toggle_palette(window, cx);
+                                } else {
+                                    this.close_settings(window, cx);
+                                }
                             }),
-                    )
-                },
-            )
+                        )
+                        .when(self.pages.open, |d| {
+                            d.flex()
+                                .items_center()
+                                .justify_center()
+                                .p(px(40.))
+                                .bg(gpui::black().opacity(0.45))
+                                .child(self.settings_dialog(&faces, cx))
+                        }),
+                )
+            })
             .children(self.notices_view(&faces, cx))
             .children(self.palette_view(&faces, cx))
             .children(self.zoomed(&faces, window, cx))

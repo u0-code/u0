@@ -4,6 +4,7 @@
 
 use std::time::SystemTime;
 
+use gpui::component::popover::Popover;
 use gpui::{Context, Div, SharedString, Styled as _, div, prelude::*, px};
 
 use crate::{
@@ -130,71 +131,58 @@ impl Desk {
 
     /// The project a session begun here starts in, and the others to
     /// choose from.
-    fn start_in(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+    fn start_in(&self, faces: &Faces, cx: &mut Context<Self>) -> Popover {
+        let named = self
+            .chosen_project()
+            .map_or_else(|| "a scratch folder".into(), |p| self.project_name(&p));
+        let chip = ui::opener("start-in")
+            .h(px(26.))
+            .px(px(8.))
+            .border_1()
+            .border_color(theme::tag_line())
+            .child(ui::icon("folder", 13.).text_color(theme::faint()))
+            .child(
+                ui::mono(faces, ui::fit(&named, 28))
+                    .text_size(px(12.))
+                    .text_color(theme::text2()),
+            )
+            .child(ui::icon("chevron-down", 11.).text_color(theme::faint()));
+        let faces = faces.clone();
+        self.menu(
+            Popup::StartIn,
+            chip,
+            move |d, _, cx| d.start_in_menu(&faces, cx),
+            cx,
+        )
+    }
+
+    /// The projects a session begun here can start in, or a folder to add.
+    fn start_in_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let here = self.chosen_project();
-        let named = here
-            .as_ref()
-            .map_or_else(|| "a scratch folder".into(), |p| self.project_name(p));
-        let mut chip = div().relative().child(
-            div()
-                .id("start-in")
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .h(px(26.))
-                .px(px(8.))
-                .rounded(px(7.))
-                .border_1()
-                .border_color(theme::tag_line())
-                .cursor_pointer()
-                .hover(|st| st.bg(theme::hover()))
-                .child(ui::icon("folder", 13.).text_color(theme::faint()))
-                .child(
-                    ui::mono(faces, ui::fit(&named, 28))
-                        .text_size(px(12.))
-                        .text_color(theme::text2()),
-                )
-                .child(ui::icon("chevron-down", 11.).text_color(theme::faint()))
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.toggle_popup(Popup::StartIn, window, cx);
-                })),
-        );
-        if self.popup == Popup::StartIn {
-            let mut menu = div().flex().flex_col().w(px(240.)).p(px(6.));
-            for (n, p) in self.projects().into_iter().enumerate() {
-                let on = here.as_ref() == Some(&p);
-                menu = menu.child(
-                    ui::menu_row(SharedString::from(format!("start-in-{n}")), on)
-                        .child(ui::icon("folder", 13.).text_color(theme::faint()))
-                        .child(
-                            ui::text(faces, ui::fit(&self.project_name(&p), 28)).text_size(px(13.)),
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.start_in = Some(p.clone());
-                            this.popup = Popup::Closed;
-                            cx.notify();
-                        })),
-                );
-            }
-            // Or a folder not listed yet.
+        let mut menu = div().flex().flex_col().w(px(228.));
+        for (n, p) in self.projects().into_iter().enumerate() {
+            let on = here.as_ref() == Some(&p);
             menu = menu.child(
-                ui::menu_row("start-in-open", false)
-                    .child(ui::icon("plus", 13.).text_color(theme::faint()))
-                    .child(ui::text(faces, "Open a folder…").text_size(px(13.)))
-                    .on_click(cx.listener(|this, _, _, cx| {
+                ui::menu_row(SharedString::from(format!("start-in-{n}")), on)
+                    .child(ui::icon("folder", 13.).text_color(theme::faint()))
+                    .child(ui::text(faces, ui::fit(&self.project_name(&p), 28)).text_size(px(13.)))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.start_in = Some(p.clone());
                         this.popup = Popup::Closed;
-                        Self::add_project(cx);
+                        cx.notify();
                     })),
             );
-            chip = chip.child(gpui::deferred(
-                gpui::anchored().child(
-                    div()
-                        .mt(px(30.))
-                        .child(ui::menu("start-in-menu").child(menu)),
-                ),
-            ));
         }
-        chip
+        // Or a folder not listed yet.
+        menu.child(
+            ui::menu_row("start-in-open", false)
+                .child(ui::icon("plus", 13.).text_color(theme::faint()))
+                .child(ui::text(faces, "Open a folder…").text_size(px(13.)))
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.popup = Popup::Closed;
+                    Self::add_project(cx);
+                })),
+        )
     }
 
     /// Sessions as rows of a card: the agent, the title, the project, what

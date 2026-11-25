@@ -9,7 +9,7 @@ mod repo;
 use std::time::SystemTime;
 
 use agent_client_protocol::v1::schema::{ToolCallContent, ToolCallStatus};
-use gpui::component::{Sizable as _, button::Button, input::Input};
+use gpui::component::{Sizable as _, button::Button, input::Input, popover::Popover};
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use crate::{
@@ -642,83 +642,79 @@ impl Desk {
 
     /// The branch where the session works; a click lists the others, to
     /// check one out.
-    fn branch_chip(&self, faces: &Faces, s: &Session, branch: &str, cx: &mut Context<Self>) -> Div {
-        let open = self.popup == crate::desk::Popup::Branch;
-        let mut chip = div().relative().child(
-            div()
-                .id("branch-chip")
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .px(px(6.))
-                .h(px(22.))
-                .rounded(px(6.))
-                .cursor_pointer()
-                .hover(|st| st.bg(theme::hover()))
-                .child(fine_mono(faces, ui::fit(branch, 22)))
-                .child(ui::icon("chevron-down", 10.).text_color(theme::faint()))
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.toggle_popup(crate::desk::Popup::Branch, window, cx);
-                })),
+    fn branch_chip(
+        &self,
+        faces: &Faces,
+        s: &Session,
+        branch: &str,
+        cx: &mut Context<Self>,
+    ) -> Popover {
+        let chip = ui::opener("branch-chip")
+            .h(px(22.))
+            .px(px(6.))
+            .child(fine_mono(faces, ui::fit(branch, 22)))
+            .child(ui::icon("chevron-down", 10.).text_color(theme::faint()));
+        let (faces, key, branch) = (faces.clone(), s.key, branch.to_owned());
+        self.menu(
+            crate::desk::Popup::Branch,
+            chip,
+            move |d, _, cx| d.branch_menu(&faces, key, &branch, cx),
+            cx,
+        )
+        .anchor(gpui::Anchor::TopRight)
+    }
+
+    /// The branches to check out, and a line for a new one.
+    fn branch_menu(&self, faces: &Faces, key: u64, branch: &str, cx: &mut Context<Self>) -> Div {
+        let mut menu = div().flex().flex_col().w(px(228.)).child(
+            ui::text(faces, "Check out")
+                .px(px(8.))
+                .pt(px(6.))
+                .pb(px(2.))
+                .text_size(px(11.5))
+                .text_color(theme::faint()),
         );
-        if open {
-            let mut menu = div().flex().flex_col().w(px(240.)).p(px(6.)).child(
-                ui::text(faces, "Check out")
-                    .px(px(8.))
-                    .pt(px(6.))
-                    .pb(px(2.))
-                    .text_size(px(11.5))
-                    .text_color(theme::faint()),
-            );
-            for (n, b) in s.git.branches.iter().enumerate() {
-                let (on, name) = (b == branch, b.clone());
-                menu = menu.child(
-                    div()
-                        .id(SharedString::from(format!("branch-{n}")))
-                        .flex()
-                        .items_center()
-                        .px(px(8.))
-                        .h(px(28.))
-                        .rounded(px(7.))
-                        .cursor_pointer()
-                        .when(on, |d| d.bg(theme::panel2()))
-                        .hover(|st| st.bg(theme::hover()))
-                        .child(ui::mono(faces, ui::fit(b, 30)).text_size(px(12.)).flex_1())
-                        .child({
-                            let copied = name.clone();
-                            ui::icon_button(
-                                SharedString::from(format!("branch-copy-{n}")),
-                                "copy",
-                                "Copy its name",
-                            )
-                            .size(px(20.))
-                            .text_color(theme::faint())
-                            .on_click(move |_, _, cx| {
-                                cx.stop_propagation();
-                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(
-                                    copied.clone(),
-                                ));
-                            })
-                        })
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.switch_branch(name.clone(), cx)),
-                        ),
-                );
-            }
-            // A new one, from where it is: its name, then Return.
+        let branches = self.sessions.at(key).map(|s| s.git.branches.as_slice());
+        for (n, b) in branches.unwrap_or_default().iter().enumerate() {
+            let (on, name) = (b == branch, b.clone());
             menu = menu.child(
                 div()
-                    .mt(px(4.))
-                    .mx(px(4.))
-                    .child(Input::new(&self.menu_search).xsmall()),
+                    .id(SharedString::from(format!("branch-{n}")))
+                    .flex()
+                    .items_center()
+                    .px(px(8.))
+                    .h(px(28.))
+                    .rounded(px(7.))
+                    .cursor_pointer()
+                    .when(on, |d| d.bg(theme::panel2()))
+                    .hover(|st| st.bg(theme::hover()))
+                    .child(ui::mono(faces, ui::fit(b, 30)).text_size(px(12.)).flex_1())
+                    .child({
+                        let copied = name.clone();
+                        ui::icon_button(
+                            SharedString::from(format!("branch-copy-{n}")),
+                            "copy",
+                            "Copy its name",
+                        )
+                        .size(px(20.))
+                        .text_color(theme::faint())
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(copied.clone()));
+                        })
+                    })
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.switch_branch(name.clone(), cx)),
+                    ),
             );
-            chip = chip.child(gpui::deferred(
-                gpui::anchored()
-                    .anchor(gpui::Anchor::TopRight)
-                    .child(div().mt(px(24.)).child(ui::menu("branch-menu").child(menu))),
-            ));
         }
-        chip
+        // A new one, from where it is: its name, then Return.
+        menu.child(
+            div()
+                .mt(px(4.))
+                .mx(px(4.))
+                .child(Input::new(&self.menu_search).xsmall()),
+        )
     }
 
     fn changes(faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {

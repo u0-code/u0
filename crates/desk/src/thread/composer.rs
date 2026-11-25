@@ -4,10 +4,12 @@
 use agent_client_protocol::v1::schema::SessionConfigOptionCategory;
 use gpui::component::{
     Sizable as _,
+    button::Button,
     input::{Enter, Input, MoveDown, MoveUp, Textarea},
+    popover::Popover,
     progress::ProgressCircle,
 };
-use gpui::{Context, Div, SharedString, Stateful, Window, div, prelude::*, px};
+use gpui::{AnyElement, Context, Div, SharedString, Stateful, Window, div, prelude::*, px};
 
 use super::{Choices, select_choices};
 use crate::{
@@ -783,355 +785,346 @@ impl Desk {
         head: &str,
         choices: Choices,
         cx: &mut Context<Self>,
-    ) -> Div {
-        let menu_able = !choices.is_empty();
-        // A long list can be narrowed by what is typed.
-        let long = choices.len() > 8;
-        let open = &self.popup == popup && menu_able;
+    ) -> AnyElement {
+        let says: Vec<AnyElement> = mark
+            .map(|m| ui::mark(faces, m, 15.))
+            .into_iter()
+            .chain((!current.is_empty()).then(|| {
+                ui::one_line(
+                    ui::text(faces, ui::fit(current, 24))
+                        .text_size(px(12.5))
+                        .text_color(if mark.is_some() {
+                            theme::text2()
+                        } else {
+                            theme::muted()
+                        }),
+                )
+                .w_auto()
+                .into_any_element()
+            }))
+            .collect();
+        if choices.is_empty() {
+            return div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(6.))
+                .h(px(26.))
+                .px(px(7.))
+                .children(says)
+                .into_any_element();
+        }
         let id = match popup {
             Popup::Mode => "chip-mode".to_owned(),
             Popup::Option(o) => format!("chip-{o}"),
             Popup::Agent => "chip-agent".to_owned(),
             _ => "chip".to_owned(),
         };
-        let for_click = popup.clone();
-        let named = !current.is_empty();
-        let mut chip: Stateful<Div> = div()
-            .id(SharedString::from(id.clone()))
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(6.))
+        let chip = ui::opener(SharedString::from(id.clone()))
             .h(px(26.))
             .px(px(7.))
-            .rounded(px(7.))
-            .when(open, |d| d.bg(theme::hover()))
-            .children(mark.map(|m| ui::mark(faces, m, 15.)))
-            .when(named, |d| {
-                d.child(
-                    ui::one_line(
-                        ui::text(faces, ui::fit(current, 24))
-                            .text_size(px(12.5))
-                            .text_color(if mark.is_some() {
-                                theme::text2()
-                            } else {
-                                theme::muted()
-                            }),
-                    )
-                    .w_auto(),
-                )
-            });
-        if menu_able {
-            chip = chip
-                .cursor_pointer()
-                .hover(|st| st.bg(theme::hover()))
-                .child(
-                    ui::icon("chevron-down", 11.)
-                        .flex_none()
-                        .text_color(theme::faint()),
-                )
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.toggle_popup(for_click.clone(), window, cx);
-                    // What is typed then narrows the list.
-                    if long && this.popup == for_click {
-                        window.focus(
-                            &gpui::Focusable::focus_handle(this.menu_search.read(cx), cx),
-                            cx,
-                        );
-                    }
-                }));
+            .children(says)
+            .child(
+                ui::icon("chevron-down", 11.)
+                    .flex_none()
+                    .text_color(theme::faint()),
+            );
+        // A long list can be narrowed by what is typed, which goes there as
+        // it opens.
+        let long = choices.len() > 8;
+        let search = gpui::Focusable::focus_handle(self.menu_search.read(cx), cx);
+        let (faces, shown, head) = (faces.clone(), popup.clone(), head.to_owned());
+        over_line(self.menu(
+            popup.clone(),
+            chip,
+            move |d, _, cx| d.chip_menu(&faces, &shown, &id, &head, choices.clone(), cx),
+            cx,
+        ))
+        .when(long, |p| p.track_focus(&search))
+        .into_any_element()
+    }
+
+    /// The choices of `popup`, under `head`: narrowed by what is typed
+    /// when there are many; the first nine numbered.
+    fn chip_menu(
+        &self,
+        faces: &Faces,
+        popup: &Popup,
+        id: &str,
+        head: &str,
+        choices: Choices,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let mut menu = div()
+            .flex()
+            .flex_col()
+            .w(px(248.))
+            .child(ui::label(faces, head).px(px(8.)).pt(px(6.)).pb(px(4.)));
+        let query = self.menu_search.read(cx).value().trim().to_lowercase();
+        if choices.len() > 8 {
+            menu = menu.child(
+                div()
+                    .mx(px(4.))
+                    .mb(px(4.))
+                    .child(Input::new(&self.menu_search).small()),
+            );
         }
-        let mut wrap = div().relative().flex().flex_none().child(chip);
-        if open {
-            let mut menu = div()
-                .flex()
-                .flex_col()
-                .w(px(260.))
-                .p(px(6.))
-                .child(ui::label(faces, head).px(px(8.)).pt(px(6.)).pb(px(4.)));
-            let query = self.menu_search.read(cx).value().trim().to_lowercase();
-            if long {
-                menu = menu.child(
-                    div()
-                        .mx(px(4.))
-                        .mb(px(4.))
-                        .child(Input::new(&self.menu_search).small()),
-                );
+        let mut scroll = div()
+            .id(SharedString::from(format!("{id}-list")))
+            .flex()
+            .flex_col()
+            .max_h(px(360.))
+            .overflow_y_scroll();
+        let mut shown = 0;
+        for (n, (value, label, on)) in choices.into_iter().enumerate() {
+            if !shown_by(&query, &value, &label) {
+                continue;
             }
-            let mut scroll = div()
-                .id(SharedString::from(format!("{id}-list")))
-                .flex()
-                .flex_col()
-                .max_h(px(360.))
-                .overflow_y_scroll();
-            let mut shown = 0;
-            for (n, (value, label, on)) in choices.into_iter().enumerate() {
-                if !shown_by(&query, &value, &label) {
-                    continue;
-                }
-                shown += 1;
-                // ⌘1 to ⌘9 choose among the first nine, while it is open.
-                let numbered = (shown <= 9 && *popup != Popup::Agent).then(|| format!("⌘{shown}"));
-                let popup = popup.clone();
-                let agent_mark = (popup == Popup::Agent).then(|| self.mark_of(&value));
-                scroll = scroll.child(
-                    ui::menu_row(SharedString::from(format!("{id}-{n}")), on)
-                        .children(agent_mark.map(|m| ui::mark(faces, &m, 16.)))
-                        .child(ui::text(faces, label).flex_1().text_size(px(13.)))
-                        .when(on, |d| {
-                            d.child(ui::icon("check", 13.).text_color(theme::muted()))
-                        })
-                        .children(numbered.map(|k| {
-                            ui::text(faces, k)
-                                .text_size(px(11.5))
-                                .text_color(theme::faint())
-                        }))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            match &popup {
-                                Popup::Mode => this.set_mode(value.clone(), cx),
-                                Popup::Option(config) => {
-                                    this.set_option(config.clone(), value.clone(), cx);
-                                }
-                                Popup::Agent => this.switch_agent(&value, cx),
-                                _ => {}
+            shown += 1;
+            // ⌘1 to ⌘9 choose among the first nine, while it is open.
+            let numbered = (shown <= 9 && *popup != Popup::Agent).then(|| format!("⌘{shown}"));
+            let popup = popup.clone();
+            let agent_mark = (popup == Popup::Agent).then(|| self.mark_of(&value));
+            scroll = scroll.child(
+                ui::menu_row(SharedString::from(format!("{id}-{n}")), on)
+                    .children(agent_mark.map(|m| ui::mark(faces, &m, 16.)))
+                    .child(ui::text(faces, label).flex_1().text_size(px(13.)))
+                    .when(on, |d| {
+                        d.child(ui::icon("check", 13.).text_color(theme::muted()))
+                    })
+                    .children(numbered.map(|k| {
+                        ui::text(faces, k)
+                            .text_size(px(11.5))
+                            .text_color(theme::faint())
+                    }))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        match &popup {
+                            Popup::Mode => this.set_mode(value.clone(), cx),
+                            Popup::Option(config) => {
+                                this.set_option(config.clone(), value.clone(), cx);
                             }
-                            this.close_popup(window, cx);
+                            Popup::Agent => this.switch_agent(&value, cx),
+                            _ => {}
+                        }
+                        this.close_popup(window, cx);
+                    })),
+            );
+        }
+        menu = menu.child(scroll);
+        // A new session can go to every agent at once, one each.
+        let usable = self.usable_agents();
+        if *popup == Popup::Agent && usable > 1 {
+            let on = self.composer.fanout;
+            menu = menu
+                .child(div().h(px(1.)).mx(px(2.)).my(px(4.)).bg(theme::border2()))
+                .child(
+                    ui::menu_row("fanout", on)
+                        .child(ui::icon("plus", 14.).text_color(theme::muted()))
+                        .child(
+                            ui::text(faces, format!("Send to all {usable} agents"))
+                                .flex_1()
+                                .text_size(px(13.)),
+                        )
+                        .child(
+                            ui::text(faces, if on { "on" } else { "a session each" })
+                                .text_size(px(12.))
+                                .text_color(theme::faint()),
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.composer.fanout = !this.composer.fanout;
+                            this.popup = Popup::Closed;
+                            cx.notify();
                         })),
                 );
-            }
-            menu = menu.child(scroll);
-            // A new session can go to every agent at once, one each.
-            let usable = self.usable_agents();
-            if *popup == Popup::Agent && usable > 1 {
-                let on = self.composer.fanout;
-                menu = menu
-                    .child(div().h(px(1.)).mx(px(2.)).my(px(4.)).bg(theme::border2()))
-                    .child(
-                        ui::menu_row("fanout", on)
-                            .child(ui::icon("plus", 14.).text_color(theme::muted()))
-                            .child(
-                                ui::text(faces, format!("Send to all {usable} agents"))
-                                    .flex_1()
-                                    .text_size(px(13.)),
-                            )
-                            .child(
-                                ui::text(faces, if on { "on" } else { "a session each" })
-                                    .text_size(px(12.))
-                                    .text_color(theme::faint()),
-                            )
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.composer.fanout = !this.composer.fanout;
-                                this.popup = Popup::Closed;
-                                cx.notify();
-                            })),
-                    );
-            }
-            wrap = wrap.child(gpui::deferred(
-                div()
-                    .absolute()
-                    .bottom(px(LIFT))
-                    .left(px(0.))
-                    .child(ui::menu(SharedString::from(format!("{id}-menu"))).child(menu)),
-            ));
         }
-        wrap
+        menu
     }
 
     /// The slider mark, and under it the options beyond the model and the
     /// mode, each with its value; one chosen opens its choices beside.
-    fn more(&self, faces: &Faces, name: &str, more: Vec<More>, cx: &mut Context<Self>) -> Div {
-        let open_one = match &self.popup {
-            Popup::Option(id) => more.iter().position(|m| &m.id == id),
-            _ => None,
-        };
-        let open = self.popup == Popup::More || open_one.is_some();
+    fn more(&self, faces: &Faces, name: &str, more: Vec<More>, cx: &mut Context<Self>) -> Popover {
+        let open_one = matches!(&self.popup, Popup::Option(id) if more.iter().any(|m| &m.id == id));
         let tip = more
             .iter()
             .map(|m| format!("{}: {}", m.name, m.current))
             .collect::<Vec<_>>()
             .join(" · ");
-        let mut wrap = div().relative().flex().flex_none().child(
-            div()
-                .id("chip-more")
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .size(px(28.))
-                .rounded(px(7.))
-                .cursor_pointer()
-                .text_color(theme::faint())
-                .hover(|st| st.bg(theme::hover()))
-                .when(open, |d| d.bg(theme::hover()))
-                .child(ui::icon("sliders", 15.))
-                .tooltip(ui::tip(tip))
-                .on_click(
-                    cx.listener(|this, _, window, cx| this.toggle_popup(Popup::More, window, cx)),
-                ),
-        );
-        if !open {
-            return wrap;
-        }
+        let mark = ui::icon_button("chip-more", "sliders", tip)
+            .size(px(22.))
+            .text_color(theme::faint());
+        let (faces, name) = (faces.clone(), name.to_owned());
+        over_line(self.menu(
+            Popup::More,
+            mark,
+            move |d, _, cx| d.more_menu(&faces, &name, more.clone(), cx),
+            cx,
+        ))
+        // Open too while one of its options shows its choices.
+        .open(self.popup == Popup::More || open_one)
+    }
+
+    /// The options behind the slider mark, each a line whose choices open
+    /// beside it, in a Popover within the menu's.
+    fn more_menu(&self, faces: &Faces, name: &str, more: Vec<More>, cx: &mut Context<Self>) -> Div {
         let mut list = div()
             .flex()
             .flex_col()
-            .w(px(280.))
-            .p(px(6.))
+            .w(px(268.))
             .child(ui::label(faces, name).px(px(8.)).pt(px(6.)).pb(px(4.)));
-        let mut beside = None;
+        let desk = cx.entity();
         for (n, m) in more.into_iter().enumerate() {
-            let on = open_one == Some(n);
-            let id = m.id.clone();
+            let line = ui::opener(SharedString::from(format!("more-{n}")))
+                .w_full()
+                .h(px(30.))
+                .px(px(8.))
+                .child(
+                    div()
+                        .flex()
+                        .flex_1()
+                        .items_center()
+                        .gap(px(10.))
+                        .child(ui::text(faces, m.name).flex_1().text_size(px(13.)))
+                        .child(
+                            ui::text(faces, ui::fit(&m.current, 18))
+                                .text_size(px(12.5))
+                                .text_color(theme::muted()),
+                        )
+                        .child(ui::icon("chevron-right", 11.).text_color(theme::faint())),
+                );
+            let shown = Popup::Option(m.id.clone());
+            let (desk, drawn, faces) = (desk.clone(), desk.clone(), faces.clone());
+            let (id, choices) = (m.id, m.choices);
             list = list.child(
-                ui::menu_row(SharedString::from(format!("more-{n}")), on)
-                    .child(ui::text(faces, m.name).flex_1().text_size(px(13.)))
-                    .child(
-                        ui::text(faces, ui::fit(&m.current, 18))
-                            .text_size(px(12.5))
-                            .text_color(theme::muted()),
-                    )
-                    .child(ui::icon("chevron-right", 11.).text_color(theme::faint()))
+                Popover::new(SharedString::from(format!("more-{n}-choices")))
+                    .anchor(gpui::Anchor::LeftCenter)
+                    .trigger_style(gpui::StyleRefinement::default().w_full())
+                    .p(px(6.))
+                    .open(self.popup == shown)
+                    .trigger(line)
+                    .on_open_change(move |open, _, cx| {
+                        desk.update(cx, |d, cx| {
+                            if *open {
+                                d.popup = shown.clone();
+                            } else if d.popup == shown {
+                                d.popup = Popup::More;
+                            }
+                            cx.notify();
+                        });
+                    })
+                    .content(move |_, _, cx| {
+                        drawn.update(cx, |_, cx| {
+                            Self::more_choices(&faces, &id, choices.clone(), cx)
+                        })
+                    }),
+            );
+        }
+        list
+    }
+
+    /// The choices of the option `config`, beside its line.
+    fn more_choices(faces: &Faces, config: &str, choices: Choices, cx: &mut Context<Self>) -> Div {
+        let mut list = div().flex().flex_col().w(px(188.));
+        for (k, (value, label, chosen)) in choices.into_iter().enumerate() {
+            let config = config.to_owned();
+            list = list.child(
+                ui::menu_row(SharedString::from(format!("more-{config}-{k}")), chosen)
+                    .child(ui::text(faces, label).flex_1().text_size(px(13.)))
+                    .when(chosen, |d| {
+                        d.child(ui::icon("check", 13.).text_color(theme::muted()))
+                    })
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.popup = Popup::Option(id.clone());
-                        cx.notify();
+                        this.set_option(config.clone(), value.clone(), cx);
                     })),
             );
-            if on {
-                let mut choices = div().flex().flex_col().w(px(200.)).p(px(6.));
-                for (k, (value, label, chosen)) in m.choices.into_iter().enumerate() {
-                    let config = m.id.clone();
-                    choices = choices.child(
-                        ui::menu_row(SharedString::from(format!("more-{n}-{k}")), chosen)
-                            .child(ui::text(faces, label).flex_1().text_size(px(13.)))
-                            .when(chosen, |d| {
-                                d.child(ui::icon("check", 13.).text_color(theme::muted()))
-                            })
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.set_option(config.clone(), value.clone(), cx);
-                            })),
-                    );
-                }
-                beside = Some(
-                    div()
-                        .absolute()
-                        .left(px(286.))
-                        .bottom(px(0.))
-                        .child(ui::menu("more-choices").child(choices)),
-                );
-            }
         }
-        wrap = wrap.child(gpui::deferred(
-            div().absolute().bottom(px(LIFT)).left(px(0.)).child(
-                div()
-                    .relative()
-                    .child(ui::menu("more-menu").child(list))
-                    .children(beside),
-            ),
-        ));
-        wrap
+        list
     }
 }
 
-/// How far above the foot of the bar its menus open: clear of the line
-/// you write in (the bar, the gap, one line, the padding, and 8 more).
-const LIFT: f32 = 28. + 6. + 22. + 10. + 8.;
+/// How far above its mark a menu of the composer opens: clear of the line
+/// you write in (the gap, one line, the padding, and 8 more).
+const LIFT: f32 = 6. + 22. + 10. + 8.;
+
+/// A menu of the composer, opened upward from its mark over the line you
+/// write in.
+fn over_line(menu: Popover) -> Popover {
+    menu.anchor(gpui::Anchor::BottomLeft).offset(px(LIFT))
+}
 
 impl Desk {
     /// The mark that opens `popup`: its icon, and how many it holds when
     /// it holds any.
-    fn popup_chip(
-        &self,
-        faces: &Faces,
-        popup: Popup,
-        icon: &'static str,
-        count: usize,
-        tip: &'static str,
-        cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
-        div()
-            .id(SharedString::from(format!("chip-{icon}")))
-            .flex()
-            .items_center()
-            .gap(px(4.))
+    fn popup_chip(faces: &Faces, icon: &'static str, count: usize, tip: &'static str) -> Button {
+        ui::opener(SharedString::from(format!("chip-{icon}")))
             .h(px(26.))
             .px(px(7.))
-            .rounded(px(7.))
-            .cursor_pointer()
             .text_color(theme::faint())
-            .hover(|st| st.bg(theme::hover()))
-            .when(self.popup == popup, |d| d.bg(theme::hover()))
             .child(ui::icon(icon, 14.))
             .when(count > 0, |d| {
                 d.child(ui::text(faces, count.to_string()).text_size(px(12.)))
             })
-            .tooltip(ui::tip(tip))
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.toggle_popup(popup.clone(), window, cx);
-            }))
+            .tooltip(tip)
     }
 
     /// What you put aside (⌘S): a mark with how many, and under it each,
     /// the latest first, to take back into the line or let go.
-    fn stash_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let open = self.popup == Popup::Stash;
-        let mut wrap = div().relative().flex().flex_none().child(self.popup_chip(
+    fn stash_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> Popover {
+        let mark = Self::popup_chip(
             faces,
-            Popup::Stash,
             "archive",
             self.composer.stashed.len(),
             "Put aside (⌘S), to take back",
+        );
+        let faces = faces.clone();
+        over_line(self.menu(
+            Popup::Stash,
+            mark,
+            move |d, _, cx| d.stashed_list(&faces, cx),
             cx,
-        ));
-        if open {
-            let mut list = div().flex().flex_col().w(px(360.)).p(px(6.)).child(
-                ui::label(faces, "Put aside")
-                    .px(px(8.))
-                    .pt(px(6.))
-                    .pb(px(4.)),
-            );
-            for (n, text) in self.composer.stashed.iter().enumerate().rev() {
-                list = list.child(
-                    ui::menu_row(SharedString::from(format!("stash-{n}")), false)
-                        .child(
-                            ui::one_line(
-                                ui::text(faces, text.lines().next().unwrap_or_default().to_owned())
-                                    .text_size(px(13.)),
-                            )
-                            .flex_1()
-                            .min_w(px(0.)),
+        ))
+    }
+
+    /// What was put aside, the latest first: a click takes it back.
+    fn stashed_list(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+        let mut list = div().flex().flex_col().w(px(348.)).child(
+            ui::label(faces, "Put aside")
+                .px(px(8.))
+                .pt(px(6.))
+                .pb(px(4.)),
+        );
+        for (n, text) in self.composer.stashed.iter().enumerate().rev() {
+            list = list.child(
+                ui::menu_row(SharedString::from(format!("stash-{n}")), false)
+                    .child(
+                        ui::one_line(
+                            ui::text(faces, text.lines().next().unwrap_or_default().to_owned())
+                                .text_size(px(13.)),
                         )
-                        .child(
-                            ui::icon_button(
-                                SharedString::from(format!("stash-drop-{n}")),
-                                "x",
-                                "Let it go",
-                            )
-                            .size(px(22.))
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    cx.stop_propagation();
-                                    if n < this.composer.stashed.len() {
-                                        this.composer.stashed.remove(n);
-                                        this.save_stash();
-                                    }
-                                    cx.notify();
-                                },
-                            )),
+                        .flex_1()
+                        .min_w(px(0.)),
+                    )
+                    .child(
+                        ui::icon_button(
+                            SharedString::from(format!("stash-drop-{n}")),
+                            "x",
+                            "Let it go",
                         )
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.take_stashed(n, window, cx);
+                        .size(px(22.))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            if n < this.composer.stashed.len() {
+                                this.composer.stashed.remove(n);
+                                this.save_stash();
+                            }
+                            cx.notify();
                         })),
-                );
-            }
-            wrap = wrap.child(gpui::deferred(
-                div()
-                    .absolute()
-                    .bottom(px(LIFT))
-                    .left(px(0.))
-                    .child(ui::menu("stash-menu").child(list)),
-            ));
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.take_stashed(n, window, cx);
+                    })),
+            );
         }
-        wrap
+        list
     }
 
     /// The clock: what is in the composer said later, once or each day,
@@ -1141,119 +1134,116 @@ impl Desk {
         faces: &Faces,
         s: &crate::session::Session,
         cx: &mut Context<Self>,
-    ) -> Div {
-        use crate::desk::Later;
-        let open = self.popup == Popup::Later;
-        let waiting = s.meta.later.len();
-        let mut wrap = div().relative().flex().flex_none().child(self.popup_chip(
-            faces,
+    ) -> Popover {
+        let mark = Self::popup_chip(faces, "clock", s.meta.later.len(), "Say it later");
+        let (faces, key) = (faces.clone(), s.key);
+        over_line(self.menu(
             Popup::Later,
-            "clock",
-            waiting,
-            "Say it later",
+            mark,
+            move |d, _, cx| d.later_list(&faces, key, cx),
             cx,
-        ));
-        if open {
-            let written = !self.typed(cx).trim().is_empty();
-            let mut list = div().flex().flex_col().w(px(320.)).p(px(6.)).child(
-                ui::label(
-                    faces,
-                    if written {
-                        "Say what you wrote"
-                    } else {
-                        "Write it first, then say when"
-                    },
-                )
-                .px(px(8.))
-                .pt(px(6.))
-                .pb(px(4.)),
-            );
-            if written {
-                for (n, (label, when)) in [
-                    ("In 30 minutes", Later::In(30)),
-                    ("In an hour", Later::In(60)),
-                    ("In 3 hours", Later::In(180)),
-                    ("Tomorrow at 9:00", Later::Tomorrow),
-                    ("Each day at 9:00", Later::Daily),
-                ]
-                .into_iter()
-                .enumerate()
-                {
-                    list = list.child(
-                        ui::menu_row(SharedString::from(format!("later-{n}")), false)
-                            .child(ui::text(faces, label).flex_1().text_size(px(13.)))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.send_later(when, window, cx);
-                            })),
-                    );
-                }
-            }
-            if waiting > 0 {
-                let now = std::time::SystemTime::now();
+        ))
+    }
+
+    /// When to say what is written, and what waits to be said.
+    fn later_list(&self, faces: &Faces, key: u64, cx: &mut Context<Self>) -> Div {
+        use crate::desk::Later;
+        let written = !self.typed(cx).trim().is_empty();
+        let mut list = div().flex().flex_col().w(px(308.)).child(
+            ui::label(
+                faces,
+                if written {
+                    "Say what you wrote"
+                } else {
+                    "Write it first, then say when"
+                },
+            )
+            .px(px(8.))
+            .pt(px(6.))
+            .pb(px(4.)),
+        );
+        if written {
+            for (n, (label, when)) in [
+                ("In 30 minutes", Later::In(30)),
+                ("In an hour", Later::In(60)),
+                ("In 3 hours", Later::In(180)),
+                ("Tomorrow at 9:00", Later::Tomorrow),
+                ("Each day at 9:00", Later::Daily),
+            ]
+            .into_iter()
+            .enumerate()
+            {
                 list = list.child(
-                    ui::label(faces, "Waiting to be said")
-                        .px(px(8.))
-                        .pt(px(10.))
-                        .pb(px(4.)),
+                    ui::menu_row(SharedString::from(format!("later-{n}")), false)
+                        .child(ui::text(faces, label).flex_1().text_size(px(13.)))
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.send_later(when, window, cx);
+                        })),
                 );
-                let key = s.key;
-                for (n, l) in s.meta.later.iter().enumerate() {
-                    let at = crate::store::time(l.at);
-                    let when = if l.daily {
-                        format!("each day {}", crate::when::clock(at, self.settings.twelve))
-                    } else {
-                        crate::when::said_at(at, now, self.settings.twelve)
-                    };
-                    list = list.child(
-                        ui::menu_row(SharedString::from(format!("waiting-{n}")), false)
-                            .child(
-                                ui::text(faces, when)
-                                    .flex_none()
-                                    .text_size(px(12.))
-                                    .text_color(theme::faint()),
-                            )
-                            .child(
-                                ui::one_line(
-                                    ui::text(
-                                        faces,
-                                        l.text.lines().next().unwrap_or_default().to_owned(),
-                                    )
-                                    .text_size(px(13.)),
-                                )
-                                .flex_1()
-                                .min_w(px(0.)),
-                            )
-                            .child(
-                                ui::icon_button(
-                                    SharedString::from(format!("later-drop-{n}")),
-                                    "x",
-                                    "Let it go",
-                                )
-                                .size(px(22.))
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        if let Some(s) = this.sessions.at_mut(key)
-                                            && n < s.meta.later.len()
-                                        {
-                                            s.meta.later.remove(n);
-                                        }
-                                        this.save_index();
-                                        cx.notify();
-                                    },
-                                )),
-                            ),
-                    );
-                }
             }
-            wrap = wrap.child(gpui::deferred(
-                div()
-                    .absolute()
-                    .bottom(px(LIFT))
-                    .left(px(0.))
-                    .child(ui::menu("later-menu").child(list)),
-            ));
         }
-        wrap
+        let waiting = self
+            .sessions
+            .at(key)
+            .map(|s| s.meta.later.as_slice())
+            .unwrap_or_default();
+        if !waiting.is_empty() {
+            let now = std::time::SystemTime::now();
+            list = list.child(
+                ui::label(faces, "Waiting to be said")
+                    .px(px(8.))
+                    .pt(px(10.))
+                    .pb(px(4.)),
+            );
+            for (n, l) in waiting.iter().enumerate() {
+                let at = crate::store::time(l.at);
+                let when = if l.daily {
+                    format!("each day {}", crate::when::clock(at, self.settings.twelve))
+                } else {
+                    crate::when::said_at(at, now, self.settings.twelve)
+                };
+                list = list.child(
+                    ui::menu_row(SharedString::from(format!("waiting-{n}")), false)
+                        .child(
+                            ui::text(faces, when)
+                                .flex_none()
+                                .text_size(px(12.))
+                                .text_color(theme::faint()),
+                        )
+                        .child(
+                            ui::one_line(
+                                ui::text(
+                                    faces,
+                                    l.text.lines().next().unwrap_or_default().to_owned(),
+                                )
+                                .text_size(px(13.)),
+                            )
+                            .flex_1()
+                            .min_w(px(0.)),
+                        )
+                        .child(
+                            ui::icon_button(
+                                SharedString::from(format!("later-drop-{n}")),
+                                "x",
+                                "Let it go",
+                            )
+                            .size(px(22.))
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    if let Some(s) = this.sessions.at_mut(key)
+                                        && n < s.meta.later.len()
+                                    {
+                                        s.meta.later.remove(n);
+                                    }
+                                    this.save_index();
+                                    cx.notify();
+                                },
+                            )),
+                        ),
+                );
+            }
+        }
+        list
     }
 
     /// Take back what was put aside `n`th: into the line, after what is
@@ -1282,6 +1272,7 @@ impl Desk {
 
 /// An option kept behind the slider mark: its id, name, value now, and
 /// what it can be.
+#[derive(Clone)]
 struct More {
     id: String,
     name: String,

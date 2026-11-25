@@ -91,8 +91,10 @@ pub fn mark(faces: &Faces, mark: &Mark, size: f32) -> AnyElement {
     }
 }
 
-/// A menu that opens over the page: a raised panel with a soft edge.
-/// Every menu of the desk is drawn on it, so that they all look alike.
+/// A raised panel with a soft edge, over the page, for what floats but
+/// opens from no trigger: the palette, the settings, the composer's
+/// offers, what a terminal's chosen cells offer. A menu that opens from a
+/// trigger is a Popover (`Desk::menu`).
 pub fn menu(id: impl Into<gpui::ElementId>) -> gpui::Stateful<Div> {
     div()
         .id(id)
@@ -221,7 +223,8 @@ pub fn counts(faces: &Faces, added: usize, gone: usize, size: f32) -> Div {
 }
 
 /// A line of a menu: 30 high, corners of 7, lit on hover; the one chosen
-/// on the lifted ground.
+/// on the lifted ground. Drawn here, not taken from gpui-kit: its own menu
+/// item element is private to it.
 pub fn menu_row(id: impl Into<gpui::ElementId>, on: bool) -> gpui::Stateful<Div> {
     div()
         .id(id)
@@ -234,6 +237,12 @@ pub fn menu_row(id: impl Into<gpui::ElementId>, on: bool) -> gpui::Stateful<Div>
         .cursor_pointer()
         .when(on, |d| d.bg(theme::panel2()))
         .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
+}
+
+/// What opens a menu where it is not an icon (a chip, a line): gpui-kit's
+/// quiet button, small, holding what it says; lit while its menu is open.
+pub fn opener(id: impl Into<gpui::ElementId>) -> Button {
+    Button::new(id).ghost().small()
 }
 
 /// An icon button: gpui-kit's, quiet until hovered, its tip said on

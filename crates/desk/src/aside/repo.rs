@@ -4,7 +4,7 @@
 //! what can be done with them. Beside them the recent commits, and the
 //! branch's pull request with its checks.
 
-use gpui::component::{Sizable as _, input::Input};
+use gpui::component::{Sizable as _, input::Input, popover::Popover};
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use super::{empty, fine, frow, git_button, path_text, section};
@@ -97,82 +97,71 @@ impl Desk {
     }
 
     /// What the branch is compared with: the main branch, or one chosen.
-    fn compare_chip(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
-        let open = self.popup == crate::desk::Popup::Compare;
+    fn compare_chip(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Popover {
         let shown = s.git.compare_to.clone().unwrap_or_else(|| "main".into());
-        let key = s.key;
-        let mut wrap = div().relative().child(
-            div()
-                .id("compare")
-                .flex()
-                .items_center()
-                .gap(px(4.))
-                .h(px(22.))
-                .px(px(6.))
-                .rounded(px(6.))
-                .cursor_pointer()
-                .hover(|st| st.bg(theme::hover()))
-                .child(fine(faces, "against"))
-                .child(
-                    ui::mono(faces, ui::fit(&shown, 18))
-                        .text_size(px(12.))
-                        .text_color(theme::text2()),
-                )
-                .child(ui::icon("chevron-down", 10.).text_color(theme::faint()))
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.toggle_popup(crate::desk::Popup::Compare, window, cx);
-                })),
-        );
-        if open {
-            // The other branches: the one it is on compares with nothing.
-            let others: Vec<&String> = s
-                .git
+        let chip = ui::opener("compare")
+            .h(px(22.))
+            .px(px(6.))
+            .child(fine(faces, "against"))
+            .child(
+                ui::mono(faces, ui::fit(&shown, 18))
+                    .text_size(px(12.))
+                    .text_color(theme::text2()),
+            )
+            .child(ui::icon("chevron-down", 10.).text_color(theme::faint()));
+        let (faces, key) = (faces.clone(), s.key);
+        // Under the chip, its right edge on the chip's.
+        self.menu(
+            crate::desk::Popup::Compare,
+            chip,
+            move |d, _, cx| d.compare_menu(&faces, key, cx),
+            cx,
+        )
+        .anchor(gpui::Anchor::TopRight)
+    }
+
+    /// The other branches: the one it is on compares with nothing.
+    fn compare_menu(&self, faces: &Faces, key: u64, cx: &mut Context<Self>) -> Div {
+        let others: Vec<&String> = self.sessions.at(key).map_or_else(Vec::new, |s| {
+            s.git
                 .branches
                 .iter()
                 .filter(|b| Some(*b) != s.branch.as_ref())
-                .collect();
-            let mut list = div().flex().flex_col().w(px(220.)).p(px(6.));
-            if others.is_empty() {
-                list = list.child(
-                    div()
-                        .px(px(8.))
-                        .py(px(6.))
-                        .child(fine(faces, "No other branch here to compare with.")),
-                );
-            }
-            for (n, b) in others.into_iter().enumerate() {
-                let b = b.clone();
-                list = list.child(
-                    div()
-                        .id(SharedString::from(format!("compare-{n}")))
-                        .flex()
-                        .items_center()
-                        .h(px(28.))
-                        .px(px(8.))
-                        .rounded(px(7.))
-                        .cursor_pointer()
-                        .hover(|st| st.bg(theme::hover()))
-                        .child(ui::mono(faces, ui::fit(&b, 28)).text_size(px(12.)))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            if let Some(s) = this.sessions.at_mut(key) {
-                                s.git.compare_to = Some(b.clone());
-                            }
-                            this.popup = crate::desk::Popup::Closed;
-                            this.refresh_diffs(key);
-                            cx.notify();
-                        })),
-                );
-            }
-            // Under the chip, its right edge on the chip's.
-            wrap = wrap.child(gpui::deferred(
+                .collect()
+        });
+        let mut list = div().flex().flex_col().w(px(208.));
+        if others.is_empty() {
+            list = list.child(
                 div()
-                    .absolute()
-                    .top(px(26.))
-                    .right(px(0.))
-                    .child(ui::menu("compare-menu").child(list)),
-            ));
+                    .px(px(8.))
+                    .py(px(6.))
+                    .child(fine(faces, "No other branch here to compare with.")),
+            );
         }
-        wrap
+        for (n, b) in others.into_iter().enumerate() {
+            let b = b.clone();
+            list = list.child(
+                div()
+                    .id(SharedString::from(format!("compare-{n}")))
+                    .flex()
+                    .items_center()
+                    .h(px(28.))
+                    .px(px(8.))
+                    .rounded(px(7.))
+                    .cursor_pointer()
+                    .hover(|st| st.bg(theme::hover()))
+                    .child(ui::mono(faces, ui::fit(&b, 28)).text_size(px(12.)))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if let Some(s) = this.sessions.at_mut(key) {
+                            s.git.compare_to = Some(b.clone());
+                        }
+                        this.popup = crate::desk::Popup::Closed;
+                        this.refresh_diffs(key);
+                        cx.notify();
+                    })),
+            );
+        }
+        list
     }
 
     /// The changes as git reads them between the session's checkpoints:
