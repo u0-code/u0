@@ -159,9 +159,6 @@ impl Desk {
                     .child(title(name))
                     .child(meta(faces, state));
             }
-            Page::NewProject => {
-                bar = bar.child(title("Add a project".into()));
-            }
         }
         bar
     }

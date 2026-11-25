@@ -286,6 +286,10 @@ impl Server {
                 issues: git::open_on_github(&folder, "issue"),
                 folder,
             }),
+            Call::Folders { dir } => self.off(move || Event::Folders {
+                names: repo::folders(&dir),
+                dir,
+            }),
             Call::ListFiles { folder } => self.off(move || Event::Files {
                 files: git::files(&folder),
                 folder,

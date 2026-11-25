@@ -104,6 +104,21 @@ pub fn save_script(dir: PathBuf, at: Option<usize>, script: Option<Script>, key:
     }
 }
 
+/// The folders in `dir` that are not hidden, by name, in order; none
+/// where it cannot be read.
+pub fn folders(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|n| !n.starts_with('.'))
+        .collect();
+    names.sort_by_key(|n| n.to_lowercase());
+    names
+}
+
 /// What the project `folder` holds.
 pub fn read_project(folder: PathBuf) -> Event {
     Event::Held {

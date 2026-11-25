@@ -129,7 +129,9 @@ crates/desk/src/
   keys.rs       the window's actions and keys; ~/.ghost/keybindings.json
   desk.rs       the window's state, actions and layout
   desk/         by subject: kept, lists, projects, mention, gitview, runs,
-                palette, agents, send, turns, replies, notices
+                palette (its pages: a new session in, the look, adding a
+                project), rank (what is typed, found), agents, send, turns,
+                replies, notices
   sidebar.rs, thread.rs, aside.rs, pages.rs   what is drawn
   thread/       the thread as a list (lines), folds, cards, the composer and what
                 waits beside it (later), the model
@@ -137,7 +139,7 @@ crates/desk/src/
                 the drawer, the top bar; calls read (kinds);
                 drawing helpers: diffs and plans (drawn), command output
   aside/        the column's changes as git reads them (repo)
-  pages/        the settings dialog and its tabs (settings, prefs), adding a project
+  pages/        the settings dialog and its tabs (settings, prefs)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   ui.rs, theme.rs, style.rs
   fonts.rs, assets.rs   faces, icons

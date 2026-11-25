@@ -1,9 +1,8 @@
 //! The pages that take the middle in place of a thread, as the design has
-//! them: an agent's own, which gets it ready to run in three steps, and
-//! adding a project; and the settings (`settings`), a dialog over the
+//! them: an agent's own, which gets it ready to run in three steps; and
+//! the settings (`settings`), a dialog over the
 //! window, where agents are switched on and off.
 
-mod new_project;
 mod prefs;
 mod settings;
 

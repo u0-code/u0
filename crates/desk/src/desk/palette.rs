@@ -8,8 +8,9 @@
 use std::{collections::HashMap, ops::Range, path::PathBuf, time::SystemTime};
 
 use gpui::{
-    AnyElement, AppContext as _, Context, Entity, FontWeight, HighlightStyle, IntoElement as _,
-    Keystroke, ParentElement as _, SharedString, Styled as _, StyledText, Window, div,
+    AnyElement, AppContext as _, Context, Entity, FontWeight, HighlightStyle,
+    InteractiveElement as _, IntoElement as _, Keystroke, ParentElement as _, SharedString,
+    StatefulInteractiveElement as _, Styled as _, StyledText, Window, div,
     prelude::FluentBuilder as _, px,
 };
 
@@ -19,15 +20,31 @@ use gpui::component::{
     kbd::Kbd,
 };
 
-use super::{Desk, Page, lists, rank};
+use super::{Desk, lists, rank};
 use crate::{fonts::Faces, session::State, theme, ui, when};
+
+mod pages;
+use pages::Sub;
 
 /// What a row of the palette does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Act {
     /// One of the window's actions, by its name in `keys::ACTIONS`.
     Key(&'static str),
-    AddProject,
+    /// One of the palette's pages, opened over it.
+    Sub(Sub),
+    /// A folder to make a project, and begin a session in.
+    Adopt(PathBuf),
+    /// The system's folder picker, for a project.
+    Choose,
+    /// Where new and cloned projects go, chosen.
+    ChooseParent,
+    Clone(String),
+    CancelClone,
+    Make(String),
+    Remote(String),
+    /// What to type in the palette's line, put there.
+    Fill(String),
     CopyThread,
     Restart,
     Beside,
@@ -68,6 +85,10 @@ pub struct Palette {
     pub state: Entity<CommandState>,
     pub through: Through,
     pub grep: Vec<(String, String)>,
+    /// The pages open over its root, each with what was typed under it.
+    pub pages: Vec<(Sub, String)>,
+    /// The folders in each folder a path typed to add a project is in.
+    pub folders: HashMap<PathBuf, Vec<String>>,
 }
 
 impl Palette {
@@ -77,6 +98,8 @@ impl Palette {
             state: cx.new(|cx| CommandState::new(window, cx)),
             through: Through::Everything,
             grep: Vec::new(),
+            pages: Vec::new(),
+            folders: HashMap::new(),
         }
     }
 }
@@ -102,6 +125,10 @@ impl Desk {
     pub fn nth_session(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
         if self.choose_nth(n, window, cx) {
             return;
+        }
+        // In the palette's New session in…, the nth project.
+        if self.palette.open && self.palette.pages.last().is_some_and(|p| p.0 == Sub::NewIn) {
+            return self.run_row(IndexPath::new(n), window, cx);
         }
         if let Some(key) = self.ordered().get(n).copied() {
             self.show(key, window, cx);
@@ -240,6 +267,7 @@ const BESIDE_SESSIONS: usize = 3;
 const RECENT: usize = 12;
 const SAID: usize = 10;
 const SUGGESTED: usize = 3;
+const FILES: usize = 200;
 /// How tall the palette's list stands at most: t3code's 420, less its
 /// line to type in and its foot.
 const LIST: f32 = 344.;
@@ -295,6 +323,8 @@ impl Desk {
         }
         self.palette.through = through;
         self.palette.grep.clear();
+        self.palette.pages.clear();
+        self.palette.folders.clear();
         self.palette
             .state
             .update(cx, |s, cx| s.set_query("", window, cx));
@@ -343,7 +373,7 @@ impl Desk {
         }
     }
 
-    fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn close_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.palette.open {
             window.close_dialog(cx);
         }
@@ -372,6 +402,20 @@ impl Desk {
             .or_else(|| self.chosen_project())
     }
 
+    /// Open a file found: in the column beside where the session changed
+    /// it, else in your editor.
+    fn open_file(&mut self, name: &str, cx: &mut Context<Self>) {
+        let path = PathBuf::from(name.split(':').next().unwrap_or(name));
+        let changed = self
+            .session()
+            .is_some_and(|s| s.changed().iter().any(|c| c.path.ends_with(&path)));
+        if changed {
+            self.show_aside(super::Aside::File(path), cx);
+        } else {
+            self.open_named(name);
+        }
+    }
+
     /// What can be done now, in t3code's order, then Ghost's own.
     fn actions(&self, cx: &gpui::App) -> Vec<Row> {
         let key = |name: &'static str, title: &str| Row {
@@ -389,6 +433,11 @@ impl Desk {
                 ..Row::new("square-pen", title, Act::NewIn(project))
             });
         }
+        rows.push(Row::new(
+            "square-pen",
+            "New session in…",
+            Act::Sub(Sub::NewIn),
+        ));
         rows.push(key("new_scratch", "New session without a project"));
         let s = self.session();
         if let Some(s) = s {
@@ -413,7 +462,9 @@ impl Desk {
         }
         rows.push(key("go_to_file", "Go to file"));
         rows.push(key("search_words", "Search project contents"));
-        rows.push(Row::new("folder-plus", "Add project", Act::AddProject));
+        rows.push(Row::new("folder-plus", "New project", Act::Sub(Sub::Make)));
+        rows.push(Row::new("folder", "Add project", Act::Sub(Sub::Add)));
+        rows.push(Row::new("sun", "Change appearance", Act::Sub(Sub::Look)));
         rows.push(key("next_area", "Focus next area"));
         rows.push(key("settings", "Open settings"));
         if let Some(project) = self.chosen_project() {
@@ -492,16 +543,29 @@ impl Desk {
                     .as_deref()
                     .map_or_else(|| "Files".to_owned(), |f| self.project_name(f));
                 let files = folder.as_ref().and_then(|f| self.files.get(f));
-                let rows = super::mention::ranked(files, &typed.to_lowercase())
+                // As t3code's file picker: the letters typed in order, in
+                // the files' own order; "@", "./" and spaces dropped.
+                let typed: String = typed
+                    .trim_start_matches('@')
+                    .trim_start_matches("./")
+                    .chars()
+                    .filter(|c| !c.is_whitespace())
+                    .collect();
+                let rows = files
                     .into_iter()
-                    .take(200)
+                    .flatten()
+                    .filter(|f| letters_in(&typed, f).is_some())
+                    .take(FILES)
                     .map(|f| {
-                        let (dir, file) = f.rsplit_once('/').unwrap_or(("", f));
-                        Row::new("file", file, Act::File(f.clone())).sub(if dir.is_empty() {
-                            file
-                        } else {
-                            f.as_str()
-                        })
+                        let file = f.rsplit_once('/').map_or(f.as_str(), |(_, file)| file);
+                        Row {
+                            bold: letters_in(&typed, file)
+                                .unwrap_or_default()
+                                .into_iter()
+                                .map(|n| n..n + 1)
+                                .collect(),
+                            ..Row::new("file", file, Act::File(f.clone())).sub(f.as_str())
+                        }
                     })
                     .collect();
                 return vec![(name, rows)];
@@ -518,6 +582,11 @@ impl Desk {
                 return vec![("Found".to_owned(), rows)];
             }
             Through::Everything => {}
+        }
+        if let Some(&(sub, _)) = self.palette.pages.last()
+            && let Some(groups) = self.page_groups(sub, &typed)
+        {
+            return groups;
         }
         let sessions = self.sessions.all.iter().filter(|s| {
             s.parent.is_none()
@@ -701,14 +770,34 @@ impl Desk {
         else {
             return;
         };
+        // What leaves the palette open: a page, what is typed, a clone
+        // going on.
+        match &row.act {
+            Act::Sub(sub) => return self.palette_page(*sub, window, cx),
+            Act::Fill(text) => {
+                let text = text.clone();
+                return self
+                    .palette
+                    .state
+                    .update(cx, |s, cx| s.set_query(text, window, cx));
+            }
+            Act::ChooseParent => return Self::choose_parent(cx),
+            Act::Clone(url) => return self.start_clone(url, cx),
+            Act::CancelClone => return self.cancel_clone(cx),
+            _ => {}
+        }
         self.close_palette(window, cx);
         match row.act {
+            Act::Sub(_) | Act::Fill(_) | Act::ChooseParent | Act::Clone(_) | Act::CancelClone => {}
+            Act::Adopt(folder) => self.add_and_begin(&folder, window, cx),
+            Act::Choose => Self::add_project(cx),
+            Act::Make(name) => self.create_project(&name, cx),
+            Act::Remote(typed) => self.add_remote(&typed, cx),
             Act::Key(name) => {
                 if let Some(action) = crate::keys::action(name) {
                     window.dispatch_action(action, cx);
                 }
             }
-            Act::AddProject => self.open_page(Page::NewProject, window, cx),
             Act::CopyThread => {
                 if let Some(key) = self.current {
                     self.copy_thread(key, cx);
@@ -735,7 +824,7 @@ impl Desk {
                 self.save_settings();
             }
             Act::Tab(tab) => self.open_tab(tab, window, cx),
-            Act::File(name) => self.open_named(&name),
+            Act::File(name) => self.open_file(&name, cx),
             Act::Go(key) => self.show(key, window, cx),
             Act::Open(folder) => {
                 let latest = self
@@ -778,7 +867,9 @@ impl Desk {
     fn palette_view(&mut self, _: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let faces = crate::fonts::faces(cx).clone();
         let desk = cx.entity();
+        let page = self.palette.pages.last().map(|p| p.0);
         let (placeholder, empty) = match self.palette.through {
+            Through::Everything if let Some(sub) = page => (sub.placeholder(), "Nothing here."),
             Through::Everything => (
                 "Search commands, projects, and sessions…",
                 "No matching commands, projects, or sessions.",
@@ -795,15 +886,16 @@ impl Desk {
                 let desk = desk.clone();
                 move |query, _, cx| {
                     desk.update(cx, |d, cx| {
-                        if d.palette.through == Through::Words {
-                            d.search_words(query);
-                        }
+                        d.palette_typed(query);
                         cx.notify();
                     });
                 }
             })
-            .on_confirm(move |at, window, cx| {
-                desk.update(cx, |d, cx| d.run_row(at, window, cx));
+            .on_confirm({
+                let desk = desk.clone();
+                move |at, window, cx| {
+                    desk.update(cx, |d, cx| d.run_row(at, window, cx));
+                }
             })
             .empty(move |_, _, _| {
                 div()
@@ -816,8 +908,29 @@ impl Desk {
             })
             .footer({
                 let through = self.palette.through;
-                move |_, _, _| foot(through)
+                move |_, _, _| foot(through, page.is_some())
             });
+        // A page says at its head what it is, and goes back when clicked.
+        if let Some(sub) = page {
+            command = command.header(move |_, _, _| {
+                let desk = desk.clone();
+                div()
+                    .id("palette-back")
+                    .flex()
+                    .items_center()
+                    .gap(px(6.))
+                    .px(px(12.))
+                    .pt(px(10.))
+                    .text_size(px(12.))
+                    .text_color(theme::muted())
+                    .cursor_pointer()
+                    .child(ui::icon("chevron-left", 12.))
+                    .child(sub.title())
+                    .on_click(move |_, window, cx| {
+                        desk.update(cx, |d, cx| d.palette_pop(window, cx));
+                    })
+            });
+        }
         for (heading, rows) in self.palette_groups(cx) {
             let items = rows.into_iter().map(|row| {
                 let faces = faces.clone();
@@ -825,10 +938,28 @@ impl Desk {
                     .label(row.title.clone())
                     .child(move |_, _| row_view(&faces, &row))
             });
-            command = command.group(CommandGroup::new().label(heading).items(items));
+            // A page's rows go under its head, not a group's.
+            let group = CommandGroup::new().items(items);
+            command = command.group(if heading.is_empty() {
+                group
+            } else {
+                group.label(heading)
+            });
         }
         command.into_any_element()
     }
+}
+
+/// Where the letters of `typed` stand in `text`, in order, whatever their
+/// case: by character; none where they are not all there.
+fn letters_in(typed: &str, text: &str) -> Option<Vec<usize>> {
+    let mut at = Vec::new();
+    let mut letters = text.chars().enumerate();
+    for t in typed.chars().flat_map(char::to_lowercase) {
+        let (n, _) = letters.find(|(_, c)| c.to_lowercase().eq(std::iter::once(t)))?;
+        at.push(n);
+    }
+    Some(at)
 }
 
 /// Whether the action named `name` needs a session on screen to do
@@ -901,7 +1032,12 @@ fn row_view(faces: &Faces, row: &Row) -> gpui::Div {
                     div()
                         .text_size(px(14.))
                         .line_height(px(20.))
-                        .text_color(theme::text())
+                        // A file's letters typed stand out of the rest.
+                        .text_color(if matches!(row.act, Act::File(_)) && !row.bold.is_empty() {
+                            theme::muted()
+                        } else {
+                            theme::text()
+                        })
                         .truncate()
                         .child(StyledText::new(title).with_highlights(bold)),
                 )
@@ -926,6 +1062,16 @@ fn row_view(faces: &Faces, row: &Row) -> gpui::Div {
                 .text_color(color.opacity(0.85))
                 .child(end)
         }))
+        .when(matches!(row.act, Act::Sub(_)), |d| {
+            d.child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .h(px(20.))
+                    .items_center()
+                    .child(ui::icon("chevron-right", 14.)),
+            )
+        })
         .when(!row.keys.is_empty(), |d| {
             d.child(
                 div()
@@ -942,7 +1088,7 @@ fn row_view(faces: &Faces, row: &Row) -> gpui::Div {
 
 /// The palette's foot: the keys that move, choose and leave, as t3code
 /// says them.
-fn foot(through: Through) -> gpui::Div {
+fn foot(through: Through, page: bool) -> gpui::Div {
     let hint = |keys: &[&'static str], what: &'static str| {
         div()
             .flex()
@@ -969,4 +1115,5 @@ fn foot(through: Through) -> gpui::Div {
         .child(hint(&["↑", "↓"], "Navigate"))
         .child(hint(&["Enter"], enter))
         .child(hint(&["Esc"], esc))
+        .when(page, |d| d.child(hint(&["⌫"], "Back")))
 }

@@ -187,14 +187,15 @@ impl Desk {
                 self.adding.cloning = None;
                 match result {
                     Ok(()) => {
-                        self.adding
-                            .name
-                            .update(cx, |i, cx| i.set_value("", window, cx));
-                        self.adopt(&dir);
+                        self.close_palette(window, cx);
+                        self.add_and_begin(&dir, window, cx);
                     }
                     Err(why) if why == crate::registry::CANCELLED => {}
-                    Err(why) => self.adding.trouble = Some(why),
+                    Err(why) => self.trouble("Couldn't add the project", Some(why), None),
                 }
+            }
+            Event::Folders { dir, names } => {
+                self.palette.folders.insert(dir, names);
             }
             Event::Diffed { key, scope, result } => {
                 if let Some(s) = self.sessions.at_mut(key) {

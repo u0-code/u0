@@ -72,8 +72,6 @@ pub enum Page {
     Thread,
     /// An agent's page: what it is, what it needs, how to install it.
     Agent(String),
-    /// Adding a project: cloned from an address, or made new.
-    NewProject,
 }
 
 /// What the right column shows of the session on screen.
@@ -319,6 +317,7 @@ impl Desk {
                 .update(cx, |d, cx| {
                     d.record_key(&e.keystroke, cx)
                         || d.escape_closes(&e.keystroke, window, cx)
+                        || d.palette_keys(&e.keystroke, window, cx)
                         || d.offer_keys(&e.keystroke, window, cx)
                         || d.picker_keys(&e.keystroke, window, cx)
                 })
@@ -452,7 +451,7 @@ impl Desk {
             kept: HashMap::new(),
             notices: Vec::new(),
             pages,
-            adding: projects::Adding::new(window, cx),
+            adding: projects::Adding::default(),
             behind: false,
             awake: None,
             files: HashMap::new(),
@@ -1302,9 +1301,6 @@ impl Desk {
                 self.transport.send(Call::CliVersion { cli });
             }
         }
-        if page == Page::NewProject {
-            self.transport.send(Call::Hosts);
-        }
         self.page = page;
         self.popup = Popup::Closed;
         self.close_settings(window, cx);
@@ -1382,7 +1378,6 @@ impl Render for Desk {
                     .child(self.composer(&faces, column, window, cx))
             }
             Page::Agent(id) => middle.child(self.agent_page(&faces, &id, cx)),
-            Page::NewProject => middle.child(self.new_project_page(&faces, cx)),
         };
         let whole = self.panes.whole && self.page == Page::Thread && self.session().is_some();
         let right = match (&self.page, self.panes.right) {

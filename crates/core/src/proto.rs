@@ -261,6 +261,10 @@ pub enum Call {
     ListFiles {
         folder: PathBuf,
     },
+    /// The folders in `dir`, to add one as a project.
+    Folders {
+        dir: PathBuf,
+    },
     /// Where `words` are in the files of `folder` git sees.
     Grep {
         folder: PathBuf,
@@ -543,6 +547,11 @@ pub enum Event {
         folder: PathBuf,
         files: Vec<String>,
     },
+    /// The folders in `dir`, by name; none where it cannot be read.
+    Folders {
+        dir: PathBuf,
+        names: Vec<String>,
+    },
     /// What git grep found for `words`: each place as "path:line", and the
     /// line.
     Grepped {
@@ -742,6 +751,7 @@ mod tests {
             Call::ListFiles {
                 folder: dir.clone(),
             },
+            Call::Folders { dir: dir.clone() },
             Call::Grep {
                 folder: dir.clone(),
                 words: "fn main".into(),
@@ -877,6 +887,10 @@ mod tests {
             Event::Files {
                 folder: dir.clone(),
                 files: vec!["a.rs".into()],
+            },
+            Event::Folders {
+                dir: dir.clone(),
+                names: vec!["src".into()],
             },
             Event::Grepped {
                 words: "fn main".into(),

@@ -170,7 +170,7 @@ impl Desk {
                             .text_color(theme::muted()),
                     )
                     .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_page(Page::NewProject, window, cx);
+                        this.add_project_page(window, cx);
                     })),
             );
         }
@@ -280,7 +280,7 @@ impl Desk {
                                     .size(px(20.))
                                     .text_color(theme::faint())
                                     .on_click(cx.listener(|this, _, window, cx| {
-                                        this.open_page(Page::NewProject, window, cx);
+                                        this.add_project_page(window, cx);
                                     })),
                             ),
                     )
