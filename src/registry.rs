@@ -438,6 +438,14 @@ fn install_package(entry: &Entry, home: &Path, say: Say, stop: &AtomicBool) -> R
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| e.to_string())?;
+    // Read as it comes: an installer that says more than the pipe holds
+    // would otherwise wait on it, and never exit.
+    let mut err = child.stderr.take().expect("piped stderr");
+    let said = std::thread::spawn(move || {
+        let mut said = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut err, &mut said);
+        String::from_utf8_lossy(&said).into_owned()
+    });
     loop {
         if stop.load(Ordering::Relaxed) {
             let _ = child.kill();
@@ -447,10 +455,7 @@ fn install_package(entry: &Entry, home: &Path, say: Say, stop: &AtomicBool) -> R
         }
         if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
             if !status.success() {
-                let mut said = String::new();
-                if let Some(mut err) = child.stderr.take() {
-                    let _ = std::io::Read::read_to_string(&mut err, &mut said);
-                }
+                let said = said.join().unwrap_or_default();
                 let _ = std::fs::remove_dir_all(&staging);
                 return Err(format!("the install failed: {}", said.trim()));
             }
