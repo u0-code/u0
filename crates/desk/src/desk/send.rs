@@ -367,6 +367,14 @@ impl Desk {
             if self.stopping.is_none_or(|(k, _)| k != s.key) {
                 self.stopping = Some((s.key, std::time::Instant::now()));
             }
+            // Its subagents stop with it, as t3code's do.
+            let children: Vec<u64> = (self.sessions.all.iter())
+                .filter(|c| c.parent == Some(key) && matches!(c.state, State::Working))
+                .map(|c| c.key)
+                .collect();
+            for child in children {
+                self.stop_sub(child, cx);
+            }
         }
         cx.notify();
     }
