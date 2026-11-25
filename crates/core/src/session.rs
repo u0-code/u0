@@ -13,10 +13,11 @@ use std::{
 };
 
 use agent_client_protocol::v1::schema::{
-    CompactionStatus, ContentBlock, EmbeddedResourceResource, MessageId, PermissionOption,
-    PermissionOptionKind, Plan, RequestPermissionRequest, SessionConfigOption, SessionId,
-    SessionInfo, SessionModeState, SessionUpdate, StopReason, ToolCall, ToolCallContent,
-    ToolCallId, ToolCallStatus, ToolCallUpdate, ToolKind, UsageUpdate,
+    CompactionStatus, ContentBlock, CreateElicitationRequest, ElicitationMode, ElicitationSchema,
+    EmbeddedResourceResource, MessageId, PermissionOption, PermissionOptionKind, Plan,
+    RequestPermissionRequest, SessionConfigOption, SessionId, SessionInfo, SessionModeState,
+    SessionUpdate, StopReason, ToolCall, ToolCallContent, ToolCallId, ToolCallStatus,
+    ToolCallUpdate, ToolKind, UsageUpdate,
 };
 use base64::{
     Engine as _, alphabet,
@@ -59,6 +60,19 @@ pub struct Asked {
     /// The option chosen, by its name and kind, or `None` while it waits.
     /// A turn stopped first answers it as rejected, named "Cancelled".
     pub chosen: Option<(String, PermissionOptionKind)>,
+}
+
+/// What the agent asked a person for, beyond a permission (ACP's
+/// elicitation): a form to fill in, or a page to open (`url`). Once
+/// answered, what was said back, in words.
+#[derive(Debug, Clone)]
+pub struct Elicit {
+    /// The number the answer goes back under ([`crate::acp::Agent::respond`]).
+    pub id: u64,
+    pub message: String,
+    pub form: Option<ElicitationSchema>,
+    pub url: Option<String>,
+    pub answered: Option<String>,
 }
 
 /// A tool call, with when it started and how long it took, as the desk saw.
@@ -106,6 +120,7 @@ pub enum Item {
     },
     Tool(Box<Tool>),
     Asked(Asked),
+    Elicited(Elicit),
     /// The agent's plan as it stood at this point.
     Plan(Plan),
     /// Something the desk or the agent wants seen: a notice, a refusal.
@@ -1129,6 +1144,48 @@ impl Session {
         }));
     }
 
+    /// The agent asks for a form or a page under `id`.
+    pub fn elicited(&mut self, id: u64, request: CreateElicitationRequest) {
+        let (form, url) = match request.mode {
+            ElicitationMode::Form(f) => (Some(f.requested_schema), None),
+            ElicitationMode::Url(u) => (None, Some(u.url)),
+            _ => (None, None),
+        };
+        self.items.push(Item::Elicited(Elicit {
+            id,
+            message: request.message,
+            form,
+            url,
+            answered: None,
+        }));
+    }
+
+    /// What the agent asked for under `id`, while it waits for you.
+    pub fn eliciting(&self) -> Option<&Elicit> {
+        self.items.iter().rev().find_map(|i| match i {
+            Item::Elicited(e) if e.answered.is_none() => Some(e),
+            _ => None,
+        })
+    }
+
+    /// Note that what was asked for under `id` was answered: `said`, in
+    /// words.
+    pub fn elicit_answered(&mut self, id: u64, said: &str) {
+        for item in &mut self.items {
+            if let Item::Elicited(e) = item
+                && e.id == id
+            {
+                e.answered = Some(said.to_owned());
+            }
+        }
+    }
+
+    /// Whether something the agent asked waits on you: a permission, a
+    /// form, a page.
+    pub fn asks(&self) -> bool {
+        self.waiting().is_some() || self.eliciting().is_some()
+    }
+
     /// The question waiting on you, if one is.
     pub fn waiting(&self) -> Option<&Asked> {
         self.items.iter().rev().find_map(|i| match i {
@@ -1268,6 +1325,19 @@ mod tests {
 
     fn update(json: &str) -> SessionUpdate {
         serde_json::from_str(json).unwrap()
+    }
+
+    #[test]
+    fn a_form_asked_for_waits_on_you_until_answered() {
+        let mut s = Session::new(1, "claude-acp", PathBuf::from("/tmp"));
+        let request: CreateElicitationRequest = serde_json::from_str(
+            r#"{"mode":"form","sessionId":"s","message":"Which?","requestedSchema":{"type":"object","properties":{"db":{"type":"string","enum":["pg"]}}}}"#,
+        )
+        .unwrap();
+        s.elicited(3, request);
+        assert!(s.asks() && s.eliciting().is_some_and(|e| e.form.is_some()));
+        s.elicit_answered(3, "db: pg");
+        assert!(!s.asks());
     }
 
     #[test]

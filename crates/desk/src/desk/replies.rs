@@ -1,7 +1,7 @@
 //! What comes back to the window: signing in, and every message from the
 //! agents and the work done off the window's thread.
 
-use agent_client_protocol::v1::schema::{RequestPermissionOutcome, SessionId, SessionUpdate};
+use agent_client_protocol::v1::schema::{ElicitationScope, SessionId, SessionUpdate};
 use gpui::{Context, Window};
 
 use super::Desk;
@@ -85,7 +85,7 @@ impl Desk {
             .sessions
             .all
             .iter()
-            .filter(|s| s.parent.is_none() && (s.waiting().is_some() || s.state == State::SignIn))
+            .filter(|s| s.parent.is_none() && (s.asks() || s.state == State::SignIn))
             .count();
         if n != self.badge {
             self.badge = n;
@@ -463,7 +463,7 @@ impl Desk {
                     }
                 }
             }
-            Event::Said { agent, event } => self.said(&agent, *event),
+            Event::Said { agent, event } => self.said(&agent, *event, window, cx),
             Event::Appended { agent, id, events } => {
                 if let Some(slot) = self.slot_mut(&agent) {
                     slot.used = std::time::Instant::now();
@@ -701,7 +701,39 @@ impl Desk {
         }
     }
 
-    pub(super) fn said(&mut self, agent: &str, event: acp::Event) {
+    /// The agent `agent` asks you something in the session `key`: you are
+    /// told, unless you said not to be or have it on screen, and it is
+    /// marked unread.
+    fn asks_you(&mut self, agent: &str, key: u64) {
+        let Some(title) = self.sessions.at(key).map(|s| s.meta.title.clone()) else {
+            return;
+        };
+        let name = self.name_of(agent);
+        let title = crate::ui::fit(&title, 40);
+        if !self.settings.notify_on.asks {
+            // Not told, as you asked.
+        } else if self.behind {
+            self.tell(key, format!("{name} · {title}"), "Asks before it goes on");
+        } else if self.current != Some(key) {
+            self.done(
+                format!("{name} asks before it goes on in “{title}”"),
+                Some(super::notices::Way::Show(key)),
+            );
+        }
+        if self.current != Some(key)
+            && let Some(s) = self.sessions.at_mut(key)
+        {
+            s.meta.flags.unread = true;
+        }
+    }
+
+    pub(super) fn said(
+        &mut self,
+        agent: &str,
+        event: acp::Event,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(slot) = self.slot_mut(agent) {
             slot.used = std::time::Instant::now();
         }
@@ -722,31 +754,39 @@ impl Desk {
             }
             acp::Event::Permission { id, request } => {
                 if let Some(s) = self.sessions.by_id(agent, &request.session_id) {
-                    let (key, title) = (s.key, s.meta.title.clone());
+                    let key = s.key;
                     s.asked(id, request);
-                    let name = self.name_of(agent);
-                    let title = crate::ui::fit(&title, 40);
-                    if !self.settings.notify_on.asks {
-                        // Not told, as you asked.
-                    } else if self.behind {
-                        self.tell(key, format!("{name} · {title}"), "Asks before it goes on");
-                    } else if self.current != Some(key) {
-                        self.done(
-                            format!("{name} asks before it goes on in “{title}”"),
-                            Some(super::notices::Way::Show(key)),
-                        );
-                    }
-                    if self.current != Some(key)
-                        && let Some(s) = self.sessions.at_mut(key)
-                    {
-                        s.meta.flags.unread = true;
-                    }
+                    self.asks_you(agent, key);
                 } else if self.slot(agent).is_some_and(Slot::running) {
                     self.transport.send(Call::Answer {
                         agent: agent.to_owned(),
                         request: id,
-                        outcome: RequestPermissionOutcome::Cancelled,
+                        answer: acp::Answer::cancelled(false),
                     });
+                }
+            }
+            acp::Event::Elicit { id, request } => {
+                let session = match request.scope() {
+                    ElicitationScope::Session(s) => Some(s.session_id.clone()),
+                    _ => None,
+                };
+                let key = session
+                    .and_then(|sid| self.sessions.by_id(agent, &sid))
+                    .map(|s| {
+                        s.elicited(id, request);
+                        s.key
+                    });
+                match key {
+                    Some(key) => {
+                        self.form_asked(agent, key, id, window, cx);
+                        self.asks_you(agent, key);
+                    }
+                    // Asked of no session open here: no one to ask.
+                    None => self.transport.send(Call::Answer {
+                        agent: agent.to_owned(),
+                        request: id,
+                        answer: acp::Answer::cancelled(true),
+                    }),
                 }
             }
             acp::Event::Exited { pid, why } => {

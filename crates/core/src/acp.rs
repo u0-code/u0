@@ -29,7 +29,8 @@ use agent_client_protocol::{
     v1::{
         ConnectionTo,
         schema::{
-            CancelNotification, RequestPermissionRequest, RequestPermissionResponse,
+            CancelNotification, CreateElicitationRequest, CreateElicitationResponse,
+            RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
             SessionNotification,
         },
     },
@@ -78,6 +79,12 @@ pub enum Event {
     Permission {
         id: u64,
         request: RequestPermissionRequest,
+    },
+    /// It asks a person for what it needs, as a form to fill or a page to
+    /// open. Answer with [`Agent::respond`] under `id`.
+    Elicit {
+        id: u64,
+        request: CreateElicitationRequest,
     },
     /// The process `pid` stopped, with the last of what it wrote to its
     /// standard error.
@@ -132,9 +139,37 @@ struct TaskNote {
 /// stopped.
 const STDERR_KEPT: usize = 20;
 
+/// A person's answer to what an agent asked: a permission's option, or
+/// what was put in a form (or that it was turned down).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum Answer {
+    Permission(RequestPermissionOutcome),
+    Form(CreateElicitationResponse),
+}
+
+impl Answer {
+    /// The answer to a question let go of unanswered: a turn stopped, or
+    /// no one there to ask.
+    pub fn cancelled(form: bool) -> Self {
+        if form {
+            Self::Form(CreateElicitationResponse::new(
+                agent_client_protocol::v1::schema::ElicitationAction::Cancel,
+            ))
+        } else {
+            Self::Permission(RequestPermissionOutcome::Cancelled)
+        }
+    }
+}
+
+/// Where the answer to a question goes back.
+enum Waiting {
+    Permission(Responder<RequestPermissionResponse, V1>),
+    Form(Responder<CreateElicitationResponse, V1>),
+}
+
 /// Questions the agent asked that wait for a person, by the number the desk
 /// knows each by.
-type Asked = Arc<Mutex<HashMap<u64, Responder<RequestPermissionResponse, V1>>>>;
+type Asked = Arc<Mutex<HashMap<u64, Waiting>>>;
 
 /// A running agent.
 pub struct Agent {
@@ -208,8 +243,10 @@ impl Agent {
         let asked = Asked::default();
         let (connected, connection) = oneshot::channel();
         let (updates, questions, waiting) = (said.clone(), said.clone(), asked.clone());
+        let (forms, form_waiting) = (said.clone(), asked.clone());
         runtime().spawn(async move {
-            let ticket = AtomicU64::new(1);
+            let ticket = Arc::new(AtomicU64::new(1));
+            let form_ticket = ticket.clone();
             let _ = Client
                 .v1()
                 .name("ghost")
@@ -225,8 +262,17 @@ impl Agent {
                 .on_receive_request(
                     async move |request: RequestPermissionRequest, responder, _| {
                         let id = ticket.fetch_add(1, Ordering::Relaxed);
-                        waiting.lock().expect("asked").insert(id, responder);
+                        (waiting.lock().expect("asked")).insert(id, Waiting::Permission(responder));
                         questions(Event::Permission { id, request });
+                        Ok(())
+                    },
+                    on_receive_request!(),
+                )
+                .on_receive_request(
+                    async move |request: CreateElicitationRequest, responder, _| {
+                        let id = form_ticket.fetch_add(1, Ordering::Relaxed);
+                        (form_waiting.lock().expect("asked")).insert(id, Waiting::Form(responder));
+                        forms(Event::Elicit { id, request });
                         Ok(())
                     },
                     on_receive_request!(),
@@ -281,9 +327,27 @@ impl Agent {
     }
 
     /// Answer the question the agent asked under `id`.
-    pub fn respond(&self, id: u64, response: RequestPermissionResponse) {
-        if let Some(responder) = self.asked.lock().expect("asked").remove(&id) {
-            let _ = responder.respond(response);
+    pub fn respond(&self, id: u64, answer: Answer) {
+        let waiting = self.asked.lock().expect("asked").remove(&id);
+        match (waiting, answer) {
+            (Some(Waiting::Permission(r)), Answer::Permission(outcome)) => {
+                let _ = r.respond(RequestPermissionResponse::new(outcome));
+            }
+            (Some(Waiting::Form(r)), Answer::Form(response)) => {
+                let _ = r.respond(response);
+            }
+            // An answer of the other kind: turned down, not left waiting.
+            (Some(Waiting::Permission(r)), Answer::Form(_)) => {
+                let _ = r.respond(RequestPermissionResponse::new(
+                    RequestPermissionOutcome::Cancelled,
+                ));
+            }
+            (Some(Waiting::Form(r)), Answer::Permission(_)) => {
+                let _ = r.respond(CreateElicitationResponse::new(
+                    agent_client_protocol::v1::schema::ElicitationAction::Cancel,
+                ));
+            }
+            (None, _) => {}
         }
     }
 
@@ -420,17 +484,35 @@ echo "$line" >&2"#,
         let Event::Permission { id, .. } = runtime().block_on(rx.recv()).unwrap() else {
             panic!("expected a question");
         };
-        agent.respond(
-            id,
-            RequestPermissionResponse::new(
-                agent_client_protocol::v1::schema::RequestPermissionOutcome::Cancelled,
-            ),
-        );
+        agent.respond(id, Answer::cancelled(false));
         let Event::Exited { why, .. } = runtime().block_on(rx.recv()).unwrap() else {
             panic!("expected the agent to exit");
         };
         assert!(
             why.contains(r#""id":9"#) && why.contains("cancelled"),
+            "{why}"
+        );
+    }
+
+    #[test]
+    fn a_form_is_answered_with_what_was_put_in_it() {
+        let (agent, mut rx) = start(
+            r#"printf '%s\n' '{"jsonrpc":"2.0","id":4,"method":"elicitation/create","params":{"mode":"form","sessionId":"s1","message":"Which?","requestedSchema":{"type":"object","properties":{"db":{"type":"string","enum":["pg","sqlite"]}}}}}'
+read line
+echo "$line" >&2"#,
+        );
+        let Event::Elicit { id, request } = runtime().block_on(rx.recv()).unwrap() else {
+            panic!("expected a form");
+        };
+        assert_eq!(request.message, "Which?");
+        let answer: CreateElicitationResponse =
+            serde_json::from_value(json!({"action": "accept", "content": {"db": "pg"}})).unwrap();
+        agent.respond(id, Answer::Form(answer));
+        let Event::Exited { why, .. } = runtime().block_on(rx.recv()).unwrap() else {
+            panic!("expected the agent to exit");
+        };
+        assert!(
+            why.contains(r#""id":4"#) && why.contains(r#""db":"pg""#),
             "{why}"
         );
     }

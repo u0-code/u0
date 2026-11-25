@@ -326,17 +326,26 @@ impl Desk {
                 .items
                 .iter()
                 .filter_map(|i| match i {
-                    Item::Asked(a) if a.chosen.is_none() => Some(a.id),
+                    Item::Asked(a) if a.chosen.is_none() => Some((a.id, false)),
+                    Item::Elicited(e) if e.answered.is_none() => Some((e.id, true)),
                     _ => None,
                 })
                 .collect();
-            for request in open {
+            let key = s.key;
+            for (request, form) in open {
                 self.transport.send(Call::Answer {
                     agent: agent.clone(),
                     request,
-                    outcome: RequestPermissionOutcome::Cancelled,
+                    answer: crate::acp::Answer::cancelled(form),
                 });
+                if form {
+                    self.forms.remove(&request);
+                    if let Some(s) = self.sessions.at_mut(key) {
+                        s.elicit_answered(request, "Cancelled");
+                    }
+                }
             }
+            let Some(s) = self.session() else { return };
             self.transport.send(Call::Cancel { agent, session: id });
             if self.stopping.is_none_or(|(k, _)| k != s.key) {
                 self.stopping = Some((s.key, std::time::Instant::now()));
@@ -391,28 +400,52 @@ impl Desk {
         cx.notify();
     }
 
-    /// Answer the question asked under `request` with the option `option`.
+    /// Answer the question asked in the session `key` under `request`
+    /// with the option `option`.
     pub fn choose(
         &mut self,
+        key: u64,
         request: u64,
         option: &agent_client_protocol::v1::schema::PermissionOption,
         cx: &mut Context<Self>,
     ) {
-        let Some(key) = self.current else { return };
-        let Some(agent) = self.session().map(|s| s.meta.agent.clone()) else {
+        let Some(agent) = self.sessions.at(key).map(|s| s.meta.agent.clone()) else {
             return;
         };
         if self.slot(&agent).is_some_and(Slot::running) {
             self.transport.send(Call::Answer {
                 agent,
                 request,
-                outcome: RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
-                    option.option_id.clone(),
+                answer: crate::acp::Answer::Permission(RequestPermissionOutcome::Selected(
+                    SelectedPermissionOutcome::new(option.option_id.clone()),
                 )),
             });
         }
         if let Some(s) = self.sessions.at_mut(key) {
             s.answered(request, option);
+        }
+        cx.notify();
+    }
+
+    /// Answer what was asked under `id` in the session `key`, and say so
+    /// in its thread as `words`.
+    pub(crate) fn answer_form(
+        &mut self,
+        agent: &str,
+        key: u64,
+        id: u64,
+        answer: crate::acp::Answer,
+        words: &str,
+        cx: &mut Context<Self>,
+    ) {
+        self.transport.send(Call::Answer {
+            agent: agent.to_owned(),
+            request: id,
+            answer,
+        });
+        self.forms.remove(&id);
+        if let Some(s) = self.sessions.at_mut(key) {
+            s.elicit_answered(id, words);
         }
         cx.notify();
     }

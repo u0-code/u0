@@ -11,8 +11,7 @@ use std::{collections::HashMap, path::PathBuf};
 
 use agent_client_protocol::v1::schema::{
     ContentBlock, ForkSessionResponse, InitializeResponse, MessageId, NewSessionResponse,
-    RequestPermissionOutcome, SessionConfigOption, SessionId, SessionInfo, SessionModeState,
-    StopReason, ToolCallId,
+    SessionConfigOption, SessionId, SessionInfo, SessionModeState, StopReason, ToolCallId,
 };
 use serde::{Deserialize, Serialize};
 
@@ -127,7 +126,7 @@ pub enum Call {
     Answer {
         agent: String,
         request: u64,
-        outcome: RequestPermissionOutcome,
+        answer: acp::Answer,
     },
     SetMode {
         agent: String,
@@ -1121,7 +1120,9 @@ mod tests {
             Call::Answer {
                 agent: "a".into(),
                 request: 7,
-                outcome: of(json!({"outcome": "selected", "optionId": "allow"})),
+                answer: acp::Answer::Permission(of(
+                    json!({"outcome": "selected", "optionId": "allow"}),
+                )),
             },
             Call::SetMode {
                 agent: "a".into(),
@@ -1318,6 +1319,16 @@ mod tests {
                     "sessionId": "s1",
                     "toolCall": {"toolCallId": "c1", "title": "rm -rf build"},
                     "options": [{"optionId": "allow", "name": "Allow", "kind": "allow_once"}],
+                })),
+            },
+            acp::Event::Elicit {
+                id: 8,
+                request: of(json!({
+                    "mode": "url",
+                    "sessionId": "s1",
+                    "elicitationId": "e1",
+                    "url": "https://example.com/sign-in",
+                    "message": "Sign in",
                 })),
             },
             acp::Event::Exited {

@@ -65,6 +65,23 @@ fn modes_of(s: &Session) -> Option<(Option<String>, Vec<Mode>)> {
     Some((None, modes))
 }
 
+/// The icon a mode is drawn with, by what its id or name says it lets the
+/// agent do: plan only, edit without asking, anything at all, or ask
+/// first; agents name the same ways of working in their own words.
+fn mode_icon(id: &str, name: &str) -> &'static str {
+    let words = format!("{id} {name}").to_lowercase();
+    let has = |w: &[&str]| w.iter().any(|w| words.contains(w));
+    if has(&["plan", "read"]) {
+        "list"
+    } else if has(&["bypass", "full", "yolo", "danger", "never"]) {
+        "alert"
+    } else if has(&["edit", "auto", "accept"]) {
+        "pencil"
+    } else {
+        "user"
+    }
+}
+
 impl Desk {
     /// The composer's mode chip: the mode's name, its menu over it.
     pub(crate) fn mode_chip(
@@ -74,9 +91,13 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> Option<Popover> {
         let name = Self::mode_name(s)?;
+        let icon = modes_of(s)
+            .and_then(|(_, m)| m.into_iter().find(|m| m.on))
+            .map_or("user", |m| mode_icon(&m.id, &m.name));
         let chip = ui::opener("chip-mode")
             .h(px(28.))
             .px(px(7.))
+            .child(ui::icon(icon, 14.).text_color(theme::faint()))
             .child(
                 ui::text(faces, name)
                     .text_size(px(13.))
@@ -149,6 +170,7 @@ impl Desk {
             return menu;
         };
         for (n, m) in modes.into_iter().enumerate() {
+            let icon = mode_icon(&m.id, &m.name);
             let (config, id, on) = (config.clone(), m.id, m.on);
             menu = menu.child(
                 ListItem::new(SharedString::from(format!("mode-{n}")))
@@ -158,13 +180,19 @@ impl Desk {
                     .child(
                         div()
                             .flex()
-                            .flex_col()
-                            .child(ui::text(faces, m.name).text_size(px(14.)))
-                            .children(m.about.map(|a| {
-                                ui::text(faces, a)
-                                    .text_size(px(12.))
-                                    .text_color(theme::faint())
-                            })),
+                            .gap(px(8.))
+                            .child(ui::icon(icon, 15.).mt(px(2.)).text_color(theme::muted()))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .child(ui::text(faces, m.name).text_size(px(14.)))
+                                    .children(m.about.map(|a| {
+                                        ui::text(faces, a)
+                                            .text_size(px(12.))
+                                            .text_color(theme::faint())
+                                    })),
+                            ),
                     )
                     .suffix(move |_, _| {
                         div()

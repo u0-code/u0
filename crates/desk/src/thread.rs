@@ -12,6 +12,7 @@ mod composer;
 pub mod drawer;
 pub mod drawn;
 mod fold;
+mod form;
 pub mod kinds;
 mod later;
 mod lines;
@@ -963,6 +964,18 @@ impl Desk {
             }
             Item::Tool(tool) => self.tool(faces, s, i, tool, cx).into_any_element(),
             Item::Asked(asked) => self.asked(faces, s, &key, asked, cx).into_any_element(),
+            // What it asked for: answered, a quiet row with the answer;
+            // waiting, where to answer it.
+            Item::Elicited(e) => step()
+                .child(ui::icon("user", 16.).text_color(theme::faint()))
+                .child(verb(
+                    faces,
+                    match &e.answered {
+                        Some(said) => format!("{} · {said}", e.message),
+                        None => format!("{} · answer it below", e.message),
+                    },
+                ))
+                .into_any_element(),
             Item::Plan(plan) => {
                 let steps = plan_steps(plan);
                 let done = steps

@@ -151,7 +151,7 @@ impl Desk {
 
 /// What a session waits on you for, if it does.
 fn asks(s: &Session) -> Option<&'static str> {
-    if s.waiting().is_some() {
+    if s.asks() {
         Some("asks you")
     } else {
         match s.state {

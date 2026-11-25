@@ -74,13 +74,16 @@ impl Desk {
             .items_center()
             .pb(px(16.))
             .children(self.side_question(faces, s, column, cx))
+            .children(self.children_asking(faces, s, column, cx))
             .children(self.sign_in_banner(faces, s, &name, column, cx))
             .children(self.offers_menu(faces, column, cx))
             .children(Self::changes_row(faces, s, column, cx))
             .children(Self::queued_list(faces, s, column, cx))
             .children(self.held_banner(column, cx))
-            .child(
-                div()
+            .child(match s.eliciting() {
+                // What the agent asks for stands in its place till answered.
+                Some(e) => self.form_panel(faces, s, e, column, cx).into_any_element(),
+                None => div()
                     .id("composer")
                     .flex()
                     .flex_col()
@@ -118,8 +121,9 @@ impl Desk {
                             .child(dictate)
                             .children(self.send_button(s, window, cx)),
                     )
-                    .children(self.over_limit(faces, cx)),
-            )
+                    .children(self.over_limit(faces, cx))
+                    .into_any_element(),
+            })
             .child(self.chips(faces, s, column, cx))
     }
 
@@ -894,6 +898,39 @@ impl Desk {
             }
             list
         })
+    }
+
+    /// What a subagent of this session asks before it goes on, answered
+    /// here as in its own thread.
+    fn children_asking(
+        &self,
+        faces: &Faces,
+        s: &Session,
+        column: f32,
+        cx: &mut Context<Self>,
+    ) -> Vec<Div> {
+        (self.sessions.all.iter())
+            .filter(|c| c.parent == Some(s.key))
+            .filter_map(|c| {
+                let asked = c.waiting()?;
+                let key = format!("child-{}", c.key);
+                Some(
+                    div()
+                        .w(px(column))
+                        .mb(px(8.))
+                        .child(
+                            ui::text(
+                                faces,
+                                format!("Its subagent “{}” asks", ui::fit(&c.meta.title, 40)),
+                            )
+                            .pb(px(4.))
+                            .text_size(px(12.))
+                            .text_color(theme::faint()),
+                        )
+                        .child(self.asked(faces, c, &key, asked, cx)),
+                )
+            })
+            .collect()
     }
 
     /// A side question: what is asked here stays out of the session it

@@ -23,12 +23,13 @@ use agent_client_protocol::{
     v1::schema::{
         AuthenticateRequest, CancelNotification, ClientCapabilities, ClientSessionCapabilities,
         CloseSessionRequest, CompactionCapabilities, ContentBlock, ContentChunk,
-        DeleteSessionRequest, ForkSessionRequest, Implementation, InitializeRequest,
+        DeleteSessionRequest, ElicitationCapabilities, ElicitationFormCapabilities,
+        ElicitationUrlCapabilities, ForkSessionRequest, Implementation, InitializeRequest,
         ListSessionsRequest, LoadSessionRequest, LogoutRequest, MessageId, NewSessionRequest,
-        NoticeCapabilities, PromptRequest, RequestPermissionOutcome, RequestPermissionResponse,
-        ResumeSessionRequest, SessionConfigId, SessionConfigOptionCategory,
-        SessionConfigOptionValue, SessionConfigValueId, SessionId, SessionModeId, SessionUpdate,
-        SetSessionConfigOptionRequest, SetSessionModeRequest, SubagentCapabilities,
+        NoticeCapabilities, PromptRequest, ResumeSessionRequest, SessionConfigId,
+        SessionConfigOptionCategory, SessionConfigOptionValue, SessionConfigValueId, SessionId,
+        SessionModeId, SessionUpdate, SetSessionConfigOptionRequest, SetSessionModeRequest,
+        SubagentCapabilities,
     },
 };
 
@@ -159,8 +160,8 @@ impl Server {
             Call::Answer {
                 agent,
                 request,
-                outcome,
-            } => self.answer(&agent, request, outcome),
+                answer,
+            } => self.answer(&agent, request, answer),
             Call::SetMode {
                 agent,
                 key,
@@ -524,6 +525,13 @@ impl Server {
                                 .subagents(SubagentCapabilities::new())
                                 // Notices, and the context compacted, are
                                 // said in the thread.
+                                // What it asks for is a form filled in
+                                // over the composer, or a page opened.
+                                .elicitation(
+                                    ElicitationCapabilities::new()
+                                        .form(ElicitationFormCapabilities::new())
+                                        .url(ElicitationUrlCapabilities::new()),
+                                )
                                 .session(
                                     ClientSessionCapabilities::new()
                                         .notices(NoticeCapabilities::new())
@@ -887,9 +895,9 @@ impl Server {
     }
 
     /// Answer the question the agent `id` asked under `request`.
-    fn answer(&self, id: &str, request: u64, outcome: RequestPermissionOutcome) {
+    fn answer(&self, id: &str, request: u64, answer: acp::Answer) {
         if let Some(agent) = self.running(id) {
-            agent.respond(request, RequestPermissionResponse::new(outcome));
+            agent.respond(request, answer);
         }
     }
 
@@ -1050,10 +1058,7 @@ fn heard(
                 .contains_key(&request.session_id) =>
         {
             if let Some(a) = running.lock().expect("agents").get(agent) {
-                a.respond(
-                    id,
-                    RequestPermissionResponse::new(RequestPermissionOutcome::Cancelled),
-                );
+                a.respond(id, acp::Answer::cancelled(false));
             }
             return None;
         }

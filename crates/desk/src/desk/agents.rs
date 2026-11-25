@@ -136,7 +136,7 @@ impl Desk {
         self.sessions.all.iter().any(|s| {
             s.meta.agent == agent
                 && (matches!(s.state, State::Working | State::Opening | State::SignIn)
-                    || s.waiting().is_some()
+                    || s.asks()
                     || (s.state != State::Closed
                         && (s.sub.working() || s.tasks.iter().any(|t| t.ended.is_none()))))
         })

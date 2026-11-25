@@ -932,7 +932,7 @@ impl Status {
 /// Where the session `s` stands, when that is anything to say.
 pub fn status(s: &Session) -> Option<Status> {
     match &s.state {
-        State::Working | State::Opening if s.waiting().is_some() => Some(Status::Approval),
+        State::Working | State::Opening if s.asks() => Some(Status::Approval),
         State::Working | State::Opening => Some(Status::Working),
         State::SignIn => Some(Status::SignIn),
         State::Broken(_) => Some(Status::Failed),

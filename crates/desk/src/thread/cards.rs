@@ -98,18 +98,38 @@ impl Desk {
                 }
                 _ => Weight::Quiet,
             };
-            let (request, chosen) = (asked.id, option.clone());
+            let (at, request, chosen) = (s.key, asked.id, option.clone());
             let button = ui::button(
                 SharedString::from(format!("{key}-opt-{n}")),
                 option.name.clone(),
                 weight,
             )
-            .on_click(cx.listener(move |this, _, _, cx| this.choose(request, &chosen, cx)));
+            .on_click(cx.listener(move |this, _, _, cx| this.choose(at, request, &chosen, cx)));
             if allows(option.kind) {
                 allow = allow.child(button);
             } else {
                 reject = reject.child(button);
             }
+        }
+        // Turned down with a word: rejected, and the line is yours to say
+        // what to do instead, said once you send it.
+        if let Some(no) = (asked.options.iter())
+            .find(|o| o.kind == PermissionOptionKind::RejectOnce)
+            .cloned()
+        {
+            let (at, request, line) = (s.key, asked.id, self.composer.input.clone());
+            reject = reject.child(
+                ui::button(
+                    SharedString::from(format!("{key}-instead")),
+                    "No, and tell it…",
+                    Weight::Quiet,
+                )
+                .tooltip("Reject it, then write what it should do instead")
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.choose(at, request, &no, cx);
+                    window.focus(&gpui::Focusable::focus_handle(line.read(cx), cx), cx);
+                })),
+            );
         }
         // Revise: the plan quoted in your reply, the request left waiting.
         if let Some(plan) = plan.clone() {

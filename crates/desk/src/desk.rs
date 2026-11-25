@@ -163,6 +163,10 @@ pub struct Desk {
     /// The session asked to stop, and when: past a while, it can be
     /// stopped by force.
     pub stopping: Option<(u64, std::time::Instant)>,
+    /// The forms agents asked for, by the number each answer goes back
+    /// under, as questions to be answered over the composer.
+    pub forms:
+        std::collections::HashMap<u64, Entity<gpui::component::questionnaire::QuestionnaireState>>,
     /// When quitting was last asked while agents worked.
     pub quit_asked: Option<std::time::Instant>,
     /// Each running agent's process and the memory its group holds (kB),
@@ -473,6 +477,7 @@ impl Desk {
             ahead: Vec::new(),
             trailing: false,
             stopping: None,
+            forms: std::collections::HashMap::new(),
             quit_asked: None,
             badge: 0,
             weights: Vec::new(),
