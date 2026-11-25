@@ -1,0 +1,40 @@
+# Ghost.app, built with bundle.sh and published: each push to main replaces
+# the rolling `nightly` prerelease. Casks/ installs it with Homebrew.
+name: app
+
+on:
+  push:
+    branches: [main]
+
+# A newer push replaces a build still running for an older one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  app:
+    # Apple silicon, with Xcode 16, whose metal compiler builds GPUI's shaders.
+    runs-on: macos-15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: brew install librsvg
+      # The toolchain rust-toolchain.toml names.
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: ./bundle.sh
+
+      # Deleted and made again, so that the tag moves to this commit and the
+      # one asset is this build.
+      - name: nightly
+        if: github.ref == 'refs/heads/main'
+        run: |
+          ditto -c -k --keepParent target/release/Ghost.app Ghost-macos-arm64.zip
+          gh release delete nightly --cleanup-tag --yes || true
+          gh release create nightly Ghost-macos-arm64.zip --prerelease --target "$GITHUB_SHA" \
+            --title "Ghost nightly ${GITHUB_SHA::7}" \
+            --notes "Built from $GITHUB_SHA on main. Not a release: what main is now."

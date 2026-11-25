@@ -73,6 +73,21 @@ src/
   sidebar.rs, thread.rs, aside.rs, pages.rs    the three columns and the pages
 ```
 
+## Installing it
+
+Ghost.app for Apple silicon, macOS 13 or later, with Homebrew, from the
+casks in this repository. The latest build of `main`, replaced on each push:
+
+```bash
+brew tap u0-code/ghost https://github.com/u0-code/u0
+brew install --cask u0-code/ghost/ghost@nightly
+brew reinstall --cask u0-code/ghost/ghost@nightly   # the newest build
+```
+
+The app is signed ad hoc, not notarized, so macOS would refuse to open it;
+the cask removes its quarantine (`xattr -dr com.apple.quarantine`) when it
+installs it.
+
 ## Running it
 
 macOS, from a checkout, with [Rust](https://rustup.rs):

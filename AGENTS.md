@@ -132,7 +132,9 @@ test for the behaviour it proves.
 ## Commits
 
 Changes are committed straight to `main`, one change per commit, and pushed;
-there are no pull requests and no CI. `just check` before each commit is
-what stands in for both. The subject follows CONTRIBUTING.md and is checked
+there are no pull requests, and no CI checks a change. `just check` before
+each commit is what stands in for both. CI only builds: each push to `main`
+has `.github/workflows/app.yml` build Ghost.app with `bundle.sh` and replace
+the `nightly` prerelease with it, which `Casks/ghost@nightly.rb` installs. The subject follows CONTRIBUTING.md and is checked
 by `scripts/check-subject.sh` (`just hooks` installs it as a commit hook).
 The body states what changed and why, and the net line change.

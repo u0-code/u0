@@ -23,7 +23,8 @@ is not a test: see below.
 1. Make one change. A commit that does two things is two commits.
 2. `just check`.
 3. Commit to `main` with a subject that follows the rules below, and push.
-   There are no pull requests and no CI: `just check` is the gate.
+   There are no pull requests, and no CI checks a change: `just check` is
+   the gate. CI only builds the app (see AGENTS.md).
 
 ## Commit subjects
 
