@@ -12,6 +12,10 @@ use gpui::{
 };
 
 use gpui::component::input::{Input, InputEvent, InputState};
+use gpui::component::{
+    Sizable as _,
+    tab::{Tab, TabBar},
+};
 
 use super::{fold, step, verb};
 use crate::{
@@ -223,7 +227,7 @@ impl Desk {
             .flex_1()
             .min_h(px(0.))
             .w_full()
-            .children(self.family_tabs(&faces, cx))
+            .children(self.family_tabs(cx))
             .children(self.find.open.then(|| self.find_bar(&faces, cx)))
             // Words are chosen by pressing on them and dragging.
             .child(
@@ -280,13 +284,9 @@ impl Desk {
     /// Tabs over the thread: the session's, and one for each subagent at
     /// work or waiting on you, and the one on screen. A subagent's tab goes
     /// as it finishes; × hides it, its work going on (the right column
-    /// brings it back). The tabs shrink to the thread's width, then scroll
+    /// brings it back). Past the thread's width the tabs scroll
     /// sideways. None while no subagent has a tab.
-    fn family_tabs(
-        &self,
-        faces: &crate::fonts::Faces,
-        cx: &mut Context<Self>,
-    ) -> Option<gpui::Stateful<Div>> {
+    fn family_tabs(&self, cx: &mut Context<Self>) -> Option<Div> {
         let s = self.session()?;
         let family = s.parent.unwrap_or(s.key);
         let parent = self.sessions.at(family)?;
@@ -304,41 +304,17 @@ impl Desk {
             return None;
         }
         let tab = |key: u64, mark: Div, title: &str, closable: bool, cx: &mut Context<Self>| {
-            let on = key == s.key;
             let group = SharedString::from(format!("family-{key}"));
-            div()
-                .id(group.clone())
+            Tab::new()
                 .group(group.clone())
-                .flex()
-                .flex_shrink_1()
-                .min_w(px(96.))
-                .max_w(px(220.))
-                .items_center()
-                .gap(px(6.))
-                .h(px(26.))
-                .pl(px(8.))
-                .pr(px(if closable { 2. } else { 8. }))
-                .rounded(px(7.))
-                .cursor_pointer()
-                .when(on, |d| d.bg(theme::panel2()))
-                .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
-                .child(mark)
-                .child(
-                    ui::text(faces, title.to_owned())
-                        .flex_1()
-                        .min_w(px(0.))
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .text_size(px(12.5))
-                        .text_color(if on { theme::text() } else { theme::text2() }),
-                )
-                .when(closable, |d| {
-                    d.child(
+                .label(title.to_owned())
+                .prefix(mark)
+                .when(closable, |t| {
+                    t.suffix(
                         div()
                             .invisible()
-                            .group_hover(group.clone(), gpui::Styled::visible)
-                            .when(on, gpui::Styled::visible)
+                            .group_hover(group, gpui::Styled::visible)
+                            .when(key == s.key, gpui::Styled::visible)
                             .child(
                                 ui::icon_button(
                                     SharedString::from(format!("family-x-{key}")),
@@ -359,21 +335,16 @@ impl Desk {
                             ),
                     )
                 })
-                .on_click(cx.listener(move |this, _, window, cx| this.show(key, window, cx)))
         };
-        let mut bar = div()
-            .id("family-tabs")
-            .flex()
-            .flex_none()
-            .w_full()
-            .min_w(px(0.))
-            .items_center()
-            .gap(px(2.))
-            .px(px(12.))
-            .py(px(6.))
-            .overflow_x_scroll()
-            .border_b_1()
-            .border_color(theme::border())
+        let keys: Vec<u64> = std::iter::once(parent.key)
+            .chain(kids.iter().map(|c| c.key))
+            .collect();
+        let chosen = keys.iter().position(|k| *k == s.key);
+        let mut bar = TabBar::new("family-tabs")
+            .segmented()
+            .small()
+            .max_width(px(220.))
+            .when_some(chosen, TabBar::selected_index)
             .child(tab(
                 parent.key,
                 div().child(ui::icon("list", 13.).text_color(theme::faint())),
@@ -384,7 +355,23 @@ impl Desk {
         for c in kids {
             bar = bar.child(tab(c.key, super::sub_mark(&c.sub), &c.meta.title, true, cx));
         }
-        Some(bar)
+        Some(
+            div()
+                .flex_none()
+                .w_full()
+                .min_w(px(0.))
+                .px(px(12.))
+                .py(px(6.))
+                .border_b_1()
+                .border_color(theme::border())
+                .child(
+                    bar.on_click(cx.listener(move |this, ix: &usize, window, cx| {
+                        if let Some(key) = keys.get(*ix) {
+                            this.show(*key, window, cx);
+                        }
+                    })),
+                ),
+        )
     }
 
     /// The line `ix` of the list, in the reading column.
