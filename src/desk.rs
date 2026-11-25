@@ -155,6 +155,11 @@ pub struct Desk {
     pub reader: Entity<TextInput>,
     /// What is typed to narrow a long menu of choices (a model's).
     pub menu_search: Entity<TextInput>,
+    /// The sessions shown before the one on screen, and those gone back
+    /// from; going back or ahead is under way.
+    pub trail: Vec<u64>,
+    pub ahead: Vec<u64>,
+    pub trailing: bool,
     /// Ports brought here from another machine (ssh -L), each its tunnel.
     pub tunnels: Vec<(u16, std::process::Child)>,
     /// A terminal asked to close with something running in it, to close at
@@ -595,6 +600,9 @@ impl Desk {
             chosen: std::collections::BTreeSet::new(),
             closing: None,
             tunnels: Vec::new(),
+            trail: Vec::new(),
+            ahead: Vec::new(),
+            trailing: false,
             menu_search,
             reading: None,
             reader,
@@ -1044,6 +1052,13 @@ impl Desk {
     /// Put the session `key` on screen, opening it if it is closed.
     pub(crate) fn bring(&mut self, key: u64, cx: &mut Context<Self>) {
         if self.current != Some(key) {
+            // Where you were, to go back to; going back keeps the way ahead.
+            if !self.trailing {
+                if let Some(old) = self.current {
+                    self.trail.push(old);
+                }
+                self.ahead.clear();
+            }
             // What was being written stays with its session, and the
             // session shown brings back what was being written in it.
             let typed = self.input.read(cx).text();

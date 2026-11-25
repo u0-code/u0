@@ -98,18 +98,80 @@ impl Desk {
         self.show(order[at], window, cx);
     }
 
-    /// Open the model's menu in the composer (⌘⇧M).
-    pub fn open_model(&mut self, cx: &mut Context<Self>) {
-        let model = self.session().and_then(|s| {
-            s.options.iter().find(|o| {
-                o.category
-                    == Some(agent_client_protocol_schema::v1::SessionConfigOptionCategory::Model)
-            })
-        });
-        if let Some(o) = model {
-            self.popup = Popup::Option(o.id.0.to_string());
+    /// Copy what `of` reads from the session on screen, if it has it.
+    pub fn copy_of_session(
+        &mut self,
+        of: impl Fn(&crate::session::Session) -> Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(text) = self.session().and_then(of) {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
+            self.done("Copied", None);
             cx.notify();
         }
+    }
+
+    /// Back to the session shown before (or ahead again), as a browser
+    /// goes back.
+    pub fn step_trail(&mut self, ahead: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let (from, to) = if ahead {
+            (&mut self.ahead, &mut self.trail)
+        } else {
+            (&mut self.trail, &mut self.ahead)
+        };
+        let Some(key) = from.pop() else { return };
+        if let Some(now) = self.current {
+            to.push(now);
+        }
+        self.trailing = true;
+        self.show(key, window, cx);
+        self.trailing = false;
+    }
+
+    /// Keys to the next part of the window (F6): the line you write in,
+    /// the terminals when their drawer is open, and back.
+    pub fn next_area(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let in_line = gpui::Focusable::focus_handle(self.input.read(cx), cx).is_focused(window);
+        if in_line && self.drawer {
+            window.focus(&self.term_focus);
+        } else {
+            window.focus(&gpui::Focusable::focus_handle(self.input.read(cx), cx));
+        }
+        cx.notify();
+    }
+
+    /// Open the model's menu in the composer (⌘⇧M).
+    pub fn open_model(&mut self, cx: &mut Context<Self>) {
+        self.open_option(
+            &agent_client_protocol_schema::v1::SessionConfigOptionCategory::Model,
+            cx,
+        );
+    }
+
+    /// Open the menu of the session's option of the kind `which` (its
+    /// model, mode, or how hard it thinks); for a mode, its modes where it
+    /// has no such option.
+    pub fn open_option(
+        &mut self,
+        which: &agent_client_protocol_schema::v1::SessionConfigOptionCategory,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(s) = self.session() else { return };
+        let found = s
+            .options
+            .iter()
+            .find(|o| o.category.as_ref() == Some(which));
+        self.popup = match found {
+            Some(o) => Popup::Option(o.id.0.to_string()),
+            None if *which
+                == agent_client_protocol_schema::v1::SessionConfigOptionCategory::Mode
+                && s.modes.is_some() =>
+            {
+                Popup::Mode
+            }
+            None => return,
+        };
+        cx.notify();
     }
 
     /// Open the palette, or close it.
