@@ -517,11 +517,17 @@ impl Desk {
             .when(status == Some(lists::Status::Working), |d| d.opacity(0.7))
             .into_any_element()
         };
-        let end = match status {
-            Some(st) => ui::text(faces, st.word())
+        let number = self
+            .side_order
+            .iter()
+            .position(|k| *k == key)
+            .filter(|n| self.numbers_shown && *n < 9);
+        let end = match (number, status) {
+            (Some(n), _) => ui::fine(faces, crate::keys::written(&[crate::keys::numbered(n + 1)])),
+            (None, Some(st)) => ui::text(faces, st.word())
                 .text_size(px(12.))
                 .text_color(st.color()),
-            None => ui::fine(faces, compact(lists::used(s), now)),
+            (None, None) => ui::fine(faces, compact(lists::used(s), now)),
         };
         // On hover: put it away a while, or done; back, on a shelf.
         let snoozed = s.meta.flags.snoozed.is_some_and(|t| t > store::secs(now));
@@ -652,6 +658,77 @@ impl Desk {
             .on_click(move |e, window, cx| {
                 click.update(cx, |this, cx| this.side_click(key, e, window, cx));
             })
+    }
+
+    /// Keys in the list, past those the tree takes (↑ ↓ → ←): Return
+    /// opens the session chosen, F2 renames it or its project, Home and
+    /// End go to the first and last row. Whether one was taken.
+    pub(crate) fn side_key(
+        &mut self,
+        k: &gpui::Keystroke,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if k.modifiers.modified() {
+            return false;
+        }
+        let (row, len) = {
+            let tree = self.side.read(cx);
+            // The rows shown: at most every row the shape holds.
+            let len = (0..self.side_shape.len())
+                .take_while(|ix| tree.entry(*ix).is_some())
+                .count();
+            let row = tree.selected_entry().and_then(|e| Row::of(&e.item().id));
+            (row, len)
+        };
+        match (k.key.as_str(), row) {
+            ("enter", Some(Row::Session(key))) => self.show(key, window, cx),
+            ("f2", Some(Row::Session(key))) => {
+                self.begin_rename(Renaming::Session { key, here: false }, window, cx);
+            }
+            ("f2", Some(Row::Project(folder))) => {
+                self.begin_rename(Renaming::Project(folder), window, cx);
+            }
+            ("home" | "end", _) if len > 0 => {
+                let ix = if k.key == "home" { 0 } else { len - 1 };
+                self.side.update(cx, |tree, cx| {
+                    tree.set_selected_index(Some(ix), cx);
+                    tree.scroll_to_item(ix, gpui::ScrollStrategy::Nearest);
+                });
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// ⌘ held a moment shows each of the first nine sessions' number, to
+    /// go to it with ⌘ and that digit; let go, their times again.
+    pub(crate) fn command_held(&mut self, held: bool, cx: &mut Context<Self>) {
+        if !held {
+            if self.numbers_shown {
+                self.numbers_shown = false;
+                cx.notify();
+            }
+            self.command_down = None;
+            return;
+        }
+        if self.command_down.is_some() {
+            return;
+        }
+        let at = std::time::Instant::now();
+        self.command_down = Some(at);
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(200))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.command_down == Some(at) {
+                    this.numbers_shown = true;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
     }
 
     /// A session's row clicked: with ⌘ chosen among others (or no longer),

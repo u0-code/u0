@@ -137,15 +137,24 @@ impl Desk {
                 )
                 .flex_1()
         } else {
-            div().flex_1().min_h(px(0.)).px(px(8.)).child(
-                tree(&self.side, move |_, entry, _, _, cx| {
-                    desk.read(cx).side_row(entry, &desk, cx)
-                })
-                .context_menu(move |_, entry, menu, _, cx| {
-                    let id = entry.item().id.clone();
-                    menu_desk.read(cx).side_menu(&id, menu, &menu_desk)
-                }),
-            )
+            div()
+                .flex_1()
+                .min_h(px(0.))
+                .px(px(8.))
+                .on_key_down(cx.listener(|this, e: &gpui::KeyDownEvent, window, cx| {
+                    if this.side_key(&e.keystroke, window, cx) {
+                        cx.stop_propagation();
+                    }
+                }))
+                .child(
+                    tree(&self.side, move |_, entry, _, _, cx| {
+                        desk.read(cx).side_row(entry, &desk, cx)
+                    })
+                    .context_menu(move |_, entry, menu, _, cx| {
+                        let id = entry.item().id.clone();
+                        menu_desk.read(cx).side_menu(&id, menu, &menu_desk)
+                    }),
+                )
         };
 
         // t3code's foot: a row of icons, and at its end what the agents
@@ -206,6 +215,13 @@ impl Desk {
             .bg(theme::rail())
             .border_r_1()
             .border_color(theme::border())
+            // Folders dropped from the Finder are added as projects.
+            .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, _, cx| {
+                for dir in paths.paths().iter().filter(|p| p.is_dir()) {
+                    this.adopt(dir);
+                }
+                cx.notify();
+            }))
             .child(head)
             .child(controls)
             .child(list)

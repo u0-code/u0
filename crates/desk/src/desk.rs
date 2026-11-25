@@ -246,6 +246,10 @@ pub struct Desk {
     pub side_current: Option<u64>,
     pub side_order: Vec<u64>,
     pub settled_shown: usize,
+    /// When ⌘ went down alone, and whether it has been held long enough
+    /// for the sessions' numbers to show.
+    pub command_down: Option<std::time::Instant>,
+    pub numbers_shown: bool,
     /// What each project's folder holds, once read (see `read_projects`).
     pub held: HashMap<PathBuf, crate::repo::Held>,
     /// The thread as a list drawn where it is seen, its lines, and the
@@ -488,6 +492,8 @@ impl Desk {
             side_current: None,
             side_order: Vec::new(),
             settled_shown: 0,
+            command_down: None,
+            numbers_shown: false,
             held: HashMap::new(),
             list: gpui::ListState::new(0, gpui::ListAlignment::Top, px(800.)),
             lines: Vec::new(),
@@ -1417,6 +1423,10 @@ impl Render for Desk {
             ))
             .on_drop(cx.listener(|this, _: &crate::sidebar::LeftEdge, _, _| {
                 this.save_settings();
+            }))
+            .on_modifiers_changed(cx.listener(|this, e: &gpui::ModifiersChangedEvent, _, cx| {
+                let m = e.modifiers;
+                this.command_held(m.platform && !m.shift && !m.alt && !m.control, cx);
             }))
             // A swipe between pages, or a mouse's back and forward
             // buttons: back and ahead through the sessions seen.
