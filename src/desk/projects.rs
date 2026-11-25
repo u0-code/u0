@@ -231,11 +231,19 @@ impl Desk {
     /// listed as Scratch until you name it, which makes it a project where
     /// it is, as t3code does.
     pub fn new_scratch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(folder) = self.scratch() {
+            self.new_in(folder, window, cx);
+        }
+    }
+
+    /// Make a scratch folder, listed as Scratch: none when it could not be
+    /// made.
+    pub(crate) fn scratch(&mut self) -> Option<PathBuf> {
         let at = crate::when::stamp(std::time::SystemTime::now());
         let folder = self.scratch_dir().join(&at);
         if let Err(e) = std::fs::create_dir_all(&folder) {
             tracing::warn!("a scratch folder could not be made: {e}");
-            return;
+            return None;
         }
         self.settings.used(&folder);
         self.settings.prefs.insert(
@@ -247,6 +255,6 @@ impl Desk {
         );
         self.popup = Popup::Closed;
         self.save_settings();
-        self.new_in(folder, window, cx);
+        Some(folder)
     }
 }

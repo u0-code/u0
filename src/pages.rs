@@ -327,7 +327,9 @@ impl Desk {
                 actions = actions.child(
                     ui::button(faces, "start", "New session", Weight::Primary).on_click(
                         cx.listener(move |this, _, window, cx| {
-                            this.new_session(&start_id, this.project(), window, cx);
+                            if let Some(project) = this.project() {
+                                this.new_session(&start_id, project, window, cx);
+                            }
                         }),
                     ),
                 );

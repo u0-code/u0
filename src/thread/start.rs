@@ -42,7 +42,9 @@ impl Desk {
                 .h(px(34.))
                 .px(px(12.))
                 .on_click(cx.listener(move |this, _, window, cx| {
-                    this.new_session(&id, this.project(), window, cx);
+                    if let Some(project) = this.project() {
+                        this.new_session(&id, project, window, cx);
+                    }
                 })),
             );
         }
@@ -127,7 +129,10 @@ impl Desk {
     /// The project a session begun here starts in, and the others to
     /// choose from.
     fn start_in(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let here = self.project();
+        let here = self.chosen_project();
+        let named = here
+            .as_ref()
+            .map_or_else(|| "a scratch folder".into(), |p| self.project_name(p));
         let mut chip = div().relative().child(
             div()
                 .id("start-in")
@@ -143,7 +148,7 @@ impl Desk {
                 .hover(|st| st.bg(theme::hover()))
                 .child(ui::icon("folder", 13.).text_color(theme::faint()))
                 .child(
-                    ui::mono(faces, ui::fit(&self.project_name(&here), 28))
+                    ui::mono(faces, ui::fit(&named, 28))
                         .text_size(px(12.))
                         .text_color(theme::text2()),
                 )
@@ -153,7 +158,7 @@ impl Desk {
         if self.popup == Popup::StartIn {
             let mut menu = div().flex().flex_col().w(px(240.)).p(px(6.));
             for (n, p) in self.projects().into_iter().enumerate() {
-                let on = p == here;
+                let on = here.as_ref() == Some(&p);
                 menu = menu.child(
                     div()
                         .id(SharedString::from(format!("start-in-{n}")))
@@ -177,6 +182,25 @@ impl Desk {
                         })),
                 );
             }
+            // Or a folder not listed yet.
+            menu = menu.child(
+                div()
+                    .id("start-in-open")
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .px(px(8.))
+                    .h(px(30.))
+                    .rounded(px(7.))
+                    .cursor_pointer()
+                    .hover(|st| st.bg(theme::hover()))
+                    .child(ui::icon("plus", 13.).text_color(theme::faint()))
+                    .child(ui::text(faces, "Open a folder…").text_size(px(13.)))
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.popup = Popup::Closed;
+                        Self::add_project(cx);
+                    })),
+            );
             chip = chip.child(gpui::deferred(
                 gpui::anchored().child(
                     div()

@@ -1020,15 +1020,18 @@ impl Desk {
     }
 
     /// The project a new session starts in: that of the session on
-    /// screen, else the one chosen on the start, else the first, else home.
-    pub fn project(&self) -> PathBuf {
+    /// screen, else the one chosen on the start, else the first listed.
+    pub fn chosen_project(&self) -> Option<PathBuf> {
         self.session()
             .map(|s| s.project.clone())
             .or_else(|| self.start_in.clone())
-            .or_else(|| self.settings.folders.first().cloned())
-            .unwrap_or_else(|| {
-                std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from)
-            })
+            .or_else(|| self.projects().into_iter().next())
+    }
+
+    /// The project a new session starts in; with none yet, a scratch
+    /// folder of its own, never your home. None when that cannot be made.
+    pub fn project(&mut self) -> Option<PathBuf> {
+        self.chosen_project().or_else(|| self.scratch())
     }
 
     /// The projects down the left: those kept, then the folder of any
@@ -1208,8 +1211,9 @@ impl Desk {
 
     /// Begin a session in the project on screen.
     pub fn new_default(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let project = self.project();
-        self.new_in(project, window, cx);
+        if let Some(project) = self.project() {
+            self.new_in(project, window, cx);
+        }
     }
 
     /// Begin a session in `folder`, with the agent of the session on screen
@@ -1491,8 +1495,9 @@ impl Desk {
     /// in the same project, to write the next thing in (⌘Return).
     fn send_aside(&mut self, text: &str, window: &mut Window, cx: &mut Context<Self>) {
         self.send(text, cx);
-        let project = self.project();
-        self.new_in(project, window, cx);
+        if let Some(project) = self.project() {
+            self.new_in(project, window, cx);
+        }
     }
 
     /// Begin, beside the session `key`, a session with each other agent
