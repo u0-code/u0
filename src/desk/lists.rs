@@ -73,7 +73,7 @@ pub enum Undone {
 
 impl Desk {
     fn flags_mut(&mut self, key: u64) -> Option<&mut store::Flags> {
-        self.session_mut(key).map(|s| &mut s.meta.flags)
+        self.sessions.at_mut(key).map(|s| &mut s.meta.flags)
     }
 
     /// Change where the session `key` stands, and keep it.
@@ -95,6 +95,7 @@ impl Desk {
     pub fn toggle_pin(&mut self, key: u64, cx: &mut Context<Self>) {
         let last = self
             .sessions
+            .all
             .iter()
             .filter_map(|s| s.meta.flags.pinned)
             .max()
@@ -113,7 +114,7 @@ impl Desk {
         if moved == before {
             return;
         }
-        let Some(target) = self.session_at(before) else {
+        let Some(target) = self.sessions.at(before) else {
             return;
         };
         let pinned = target.meta.flags.pinned.is_some();
@@ -121,6 +122,7 @@ impl Desk {
         let whole = pinned && self.settings.by_status;
         let mut group: Vec<&Session> = self
             .sessions
+            .all
             .iter()
             .filter(|s| {
                 s.key != moved
@@ -132,14 +134,14 @@ impl Desk {
         group.sort_by_key(|s| (s.meta.flags.pinned, s.meta.flags.order, s.key));
         let mut keys: Vec<u64> = group.iter().map(|s| s.key).collect();
         let mut orders: Vec<i64> = group.iter().map(|s| s.meta.flags.order).collect();
-        if let Some(m) = self.session_at(moved) {
+        if let Some(m) = self.sessions.at(moved) {
             orders.push(m.meta.flags.order);
         }
         orders.sort_unstable();
         let at = keys.iter().position(|k| *k == before).unwrap_or(keys.len());
         keys.insert(at, moved);
         for (n, key) in keys.into_iter().enumerate() {
-            if let Some(s) = self.session_mut(key) {
+            if let Some(s) = self.sessions.at_mut(key) {
                 if pinned {
                     s.meta.flags.pinned = Some(i64::try_from(n).unwrap_or(0) + 1);
                 } else {
@@ -156,7 +158,7 @@ impl Desk {
     /// none.
     pub(crate) fn for_chosen(&mut self, cx: &mut Context<Self>, f: impl Fn(&mut store::Flags)) {
         for key in std::mem::take(&mut self.chosen) {
-            if let Some(s) = self.session_mut(key) {
+            if let Some(s) = self.sessions.at_mut(key) {
                 f(&mut s.meta.flags);
             }
         }
@@ -290,7 +292,7 @@ impl Desk {
     /// (started for it if need be); where it cannot, the agent keeps it and
     /// Ghost leaves it out of the list from now on.
     fn delete_now(&mut self, key: u64, cx: &mut Context<Self>) {
-        let Some(s) = self.session_at(key) else {
+        let Some(s) = self.sessions.at(key) else {
             return;
         };
         let (agent, id) = (s.meta.agent.clone(), s.meta.id.clone());
@@ -315,7 +317,7 @@ impl Desk {
     pub(crate) fn do_waiting(&mut self, waiting: Waiting) {
         match waiting {
             Waiting::Branch(key, upto) => {
-                if let Some(s) = self.session_at(key)
+                if let Some(s) = self.sessions.at(key)
                     && let (Some(id), Some(running)) = (
                         s.meta.id.clone(),
                         self.slot(&s.meta.agent).and_then(hub::Slot::running),
@@ -332,7 +334,7 @@ impl Desk {
                 }
             }
             Waiting::Delete(key) => {
-                if let Some(s) = self.session_at(key)
+                if let Some(s) = self.sessions.at(key)
                     && let (Some(id), Some(running)) = (
                         s.meta.id.clone(),
                         self.slot(&s.meta.agent).and_then(hub::Slot::running),
@@ -347,7 +349,8 @@ impl Desk {
     /// Begin renaming the session `key` in the sidebar.
     pub fn begin_rename(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
         let title = self
-            .session_at(key)
+            .sessions
+            .at(key)
             .map(|s| s.meta.title.clone())
             .unwrap_or_default();
         self.popup = super::Popup::Closed;
@@ -371,7 +374,7 @@ impl Desk {
         };
         let text = text.trim();
         if !text.is_empty()
-            && let Some(s) = self.session_mut(key)
+            && let Some(s) = self.sessions.at_mut(key)
         {
             text.clone_into(&mut s.meta.title);
             s.meta.renamed = true;
@@ -396,7 +399,8 @@ impl Desk {
     ) -> Option<gpui::Div> {
         let u = self.undo.as_ref()?;
         let title = self
-            .session_at(u.key)
+            .sessions
+            .at(u.key)
             .map(|s| crate::ui::fit(&s.meta.title, 32))
             .unwrap_or_default();
         let what = match u.what {
@@ -459,7 +463,7 @@ impl Desk {
     /// Take the last answer of the side question `key` back to the session
     /// it was asked of, quoted in what you are writing there.
     pub fn answer_back(&mut self, key: u64, window: &mut gpui::Window, cx: &mut Context<Self>) {
-        let Some(s) = self.session_at(key) else {
+        let Some(s) = self.sessions.at(key) else {
             return;
         };
         let Some(to) = s.beside else { return };
@@ -477,7 +481,7 @@ impl Desk {
     /// thread: a new session with what was said up to it, and the message
     /// in the composer to say another way.
     pub fn fork_at(&mut self, key: u64, item: usize, cx: &mut Context<Self>) {
-        let last = self.session_at(key).and_then(|s| s.fork_point(item));
+        let last = self.sessions.at(key).and_then(|s| s.fork_point(item));
         if let Some(last) = last {
             self.branch(key, Some((item, last)), cx);
         }
@@ -486,7 +490,7 @@ impl Desk {
     /// Branch the session `key` off after the agent's message at `item`:
     /// a new session with what was said through it.
     pub fn fork_after(&mut self, key: u64, item: usize, cx: &mut Context<Self>) {
-        let last = self.session_at(key).and_then(|s| s.through(item));
+        let last = self.sessions.at(key).and_then(|s| s.through(item));
         if let Some(last) = last {
             self.branch(key, Some((item + 1, last)), cx);
         }
@@ -498,7 +502,7 @@ impl Desk {
     /// files go back to how they were before that turn.
     pub fn rewind(&mut self, key: u64, item: usize, files: bool, cx: &mut Context<Self>) {
         self.popup = super::Popup::Closed;
-        let Some(s) = self.session_at(key) else {
+        let Some(s) = self.sessions.at(key) else {
             return;
         };
         let point = s.fork_point(item);
@@ -537,18 +541,18 @@ impl Desk {
         let Some(mut s) = self.beside(key) else {
             return;
         };
-        if let Some(Item::You(text)) = self.session_at(key).and_then(|o| o.items.get(item)) {
+        if let Some(Item::You(text)) = self.sessions.at(key).and_then(|o| o.items.get(item)) {
             s.meta.unsent.clone_from(text);
         }
         self.replace(key, &mut s);
         let new = s.key;
-        self.sessions.push(s);
+        self.sessions.all.push(s);
         self.save_index();
         self.bring(new, cx);
     }
 
     fn branch(&mut self, key: u64, upto: Option<(usize, MessageId)>, cx: &mut Context<Self>) {
-        let Some(agent) = self.session_at(key).map(|s| s.meta.agent.clone()) else {
+        let Some(agent) = self.sessions.at(key).map(|s| s.meta.agent.clone()) else {
             return;
         };
         if self.slot(&agent).and_then(hub::Slot::running).is_some() {
@@ -573,7 +577,7 @@ impl Desk {
         >,
         cx: &mut Context<Self>,
     ) {
-        let Some(origin) = self.session_at(from).cloned() else {
+        let Some(origin) = self.sessions.at(from).cloned() else {
             return;
         };
         let r = match result {
@@ -651,7 +655,7 @@ impl Desk {
                 s.recorded = true;
             }
         }
-        self.sessions.push(s);
+        self.sessions.all.push(s);
         self.save_index();
         self.bring(key, cx);
     }
@@ -660,7 +664,7 @@ impl Desk {
     /// plans (to its default, or the first that does not plan), then on.
     pub fn run_plan(&mut self, key: u64, cx: &mut Context<Self>) {
         let plan = |s: &str| s.to_lowercase().contains("plan");
-        let Some(s) = self.session_at(key) else {
+        let Some(s) = self.sessions.at(key) else {
             return;
         };
         let mode = s
@@ -727,7 +731,7 @@ impl Desk {
             return;
         }
         // What is open now is searched where it is.
-        for s in &self.sessions {
+        for s in &self.sessions.all {
             let said = s.items.iter().any(|i| match i {
                 crate::session::Item::You(t) | crate::session::Item::Agent(t) => {
                     t.to_lowercase().contains(&query)
@@ -740,6 +744,7 @@ impl Desk {
         }
         let paths: Vec<(u64, std::path::PathBuf)> = self
             .sessions
+            .all
             .iter()
             .filter_map(|s| {
                 let id = s.meta.id.as_ref()?;
@@ -772,7 +777,7 @@ impl Desk {
         let after = Duration::from_secs(u64::from(days) * 24 * 3600);
         let now = SystemTime::now();
         let mut changed = false;
-        for s in &mut self.sessions {
+        for s in &mut self.sessions.all {
             let idle = now.duration_since(s.meta.updated).unwrap_or_default() >= after;
             if idle
                 && !s.meta.flags.kept

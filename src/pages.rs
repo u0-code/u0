@@ -103,10 +103,12 @@ impl Desk {
         };
         let opened = self
             .sessions
+            .all
             .iter()
             .any(|s| s.meta.agent == id && s.meta.id.is_some());
         let signing = self
             .sessions
+            .all
             .iter()
             .any(|s| s.meta.agent == id && s.state == State::SignIn);
 
@@ -278,6 +280,7 @@ impl Desk {
         let (cancel_id, update_id, uninstall_id) = (id.to_owned(), id.to_owned(), id.to_owned());
         let busy = self
             .sessions
+            .all
             .iter()
             .any(|s| s.meta.agent == id && matches!(s.state, State::Working | State::Opening));
         let mut actions = div().flex().items_center().gap(px(8.));

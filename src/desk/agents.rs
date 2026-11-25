@@ -128,7 +128,7 @@ impl Desk {
     /// background (a dev server goes with the agent's process).
     pub(crate) fn agent_busy(&self, agent: &str) -> bool {
         use crate::session::State;
-        self.sessions.iter().any(|s| {
+        self.sessions.all.iter().any(|s| {
             s.meta.agent == agent
                 && (matches!(s.state, State::Working | State::Opening | State::SignIn)
                     || s.waiting().is_some()

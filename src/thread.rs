@@ -413,7 +413,7 @@ impl Desk {
         parts.push(Desk::shown(&s.meta.folder));
         // Branched off another: which, to go back to it.
         let origin = s.meta.from.as_ref().and_then(|id| {
-            self.sessions.iter().find(|o| {
+            self.sessions.all.iter().find(|o| {
                 o.meta.agent == s.meta.agent && o.meta.id.as_ref().is_some_and(|i| *i.0 == **id)
             })
         });
@@ -450,7 +450,7 @@ impl Desk {
                 .child(
                     ui::icon_button("setup-done", "x", "Put this away").on_click(cx.listener(
                         move |this, _, _, cx| {
-                            if let Some(s) = this.session_mut(key) {
+                            if let Some(s) = this.sessions.at_mut(key) {
                                 s.setup.clear();
                             }
                             cx.notify();
@@ -587,7 +587,7 @@ impl Desk {
                         )
                         .size(px(20.))
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            if let Some(s) = this.session_mut(key)
+                            if let Some(s) = this.sessions.at_mut(key)
                                 && n < s.meta.also.len()
                             {
                                 s.meta.also.remove(n);
@@ -667,7 +667,7 @@ impl Desk {
                     .hover(|st| st.bg(theme::hover()))
                     .child(ui::one_line(ui::mono(faces, label).text_size(px(12.5))))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        if let Some(s) = this.session_mut(key) {
+                        if let Some(s) = this.sessions.at_mut(key) {
                             s.begin = Some(begin.clone());
                         }
                         this.popup = crate::desk::Popup::Closed;
@@ -1082,6 +1082,7 @@ impl Desk {
             Item::Child { id, title } => {
                 let sub = self
                     .sessions
+                    .all
                     .iter()
                     .find(|c| c.meta.id.as_ref() == Some(id) && c.parent.is_some())
                     .map(|c| c.sub.clone())
@@ -1108,6 +1109,7 @@ impl Desk {
                     .on_click(cx.listener(move |this, _, window, cx| {
                         if let Some(key) = this
                             .sessions
+                            .all
                             .iter()
                             .find(|c| c.meta.id.as_ref() == Some(&id) && c.parent.is_some())
                             .map(|c| c.key)
@@ -1144,7 +1146,7 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> Option<gpui::AnyElement> {
         let (key, item) = self.zoom?;
-        let s = self.session_at(key)?;
+        let s = self.sessions.at(key)?;
         let images: Vec<usize> = s
             .items
             .iter()
@@ -1236,7 +1238,7 @@ impl Desk {
         window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(Item::Agent(text)) = self.session_at(key).and_then(|s| s.items.get(item)) else {
+        let Some(Item::Agent(text)) = self.sessions.at(key).and_then(|s| s.items.get(item)) else {
             return;
         };
         let text = text.clone();

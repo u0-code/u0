@@ -15,7 +15,7 @@ impl Desk {
     /// choice is remembered for the next.
     pub fn set_worktree(&mut self, on: bool, cx: &mut Context<Self>) {
         if let Some(key) = self.current
-            && let Some(s) = self.session_mut(key)
+            && let Some(s) = self.sessions.at_mut(key)
             && s.state == State::Draft
         {
             s.wants_worktree = on && s.repo;
@@ -64,7 +64,7 @@ impl Desk {
     /// files are checkpointed first, so the turn can be undone, and `text`
     /// goes once that is done.
     pub(super) fn begin_turn(&mut self, key: u64, text: String) {
-        let Some(s) = self.session_mut(key) else {
+        let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
         if s.repo {
@@ -87,12 +87,13 @@ impl Desk {
 
     /// Say `text` to the agent of the session `key`.
     pub(super) fn prompt(&mut self, key: u64, text: String) {
-        let Some(s) = self.session_at(key) else {
+        let Some(s) = self.sessions.at(key) else {
             return;
         };
         let (agent, id) = (s.meta.agent.clone(), s.meta.id.clone());
         let attached = self
-            .session_mut(key)
+            .sessions
+            .at_mut(key)
             .map(|s| std::mem::take(&mut s.attached))
             .unwrap_or_default();
         match (self.slot(&agent).and_then(Slot::running).cloned(), id) {
@@ -100,7 +101,7 @@ impl Desk {
                 hub::prompt(running, key, id, text, attached, self.tx.clone());
             }
             _ => {
-                if let Some(s) = self.session_mut(key) {
+                if let Some(s) = self.sessions.at_mut(key) {
                     s.ended(Err(
                         "The agent is not running; start a new session with it.".into(),
                     ));
@@ -114,7 +115,7 @@ impl Desk {
     pub(super) fn end_turn(&mut self, key: u64) {
         self.flush(key);
         self.save_index();
-        let Some(s) = self.session_mut(key) else {
+        let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
         if !s.repo || s.turns.is_empty() {
@@ -140,7 +141,7 @@ impl Desk {
         result: Result<(crate::git::Worktree, Vec<super::runs::Script>), String>,
         cx: &mut gpui::Context<Self>,
     ) {
-        let Some(s) = self.session_mut(key) else {
+        let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
         match result {
@@ -173,7 +174,7 @@ impl Desk {
         result: Result<hub::Snapshot, String>,
         then: Option<String>,
     ) {
-        let Some(s) = self.session_mut(key) else {
+        let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
         while s.turns.len() <= turn {
@@ -238,10 +239,11 @@ impl Desk {
         result: Result<(String, Option<Vec<crate::git::FileDiff>>), String>,
     ) {
         let name = self
-            .session_at(key)
+            .sessions
+            .at(key)
             .map(|s| self.name_of(&s.meta.agent))
             .unwrap_or_default();
-        let Some(s) = self.session_mut(key) else {
+        let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
         match result {
@@ -274,7 +276,7 @@ impl Desk {
         let Some(s) = self.session() else { return };
         let (dir, key) = (s.meta.folder.clone(), s.key);
         let left_out: Vec<String> = s.git.left_out.iter().cloned().collect();
-        if let Some(s) = self.session_mut(key) {
+        if let Some(s) = self.sessions.at_mut(key) {
             s.git.step = Some("Working".into());
             s.git.left_out.clear();
         }
@@ -296,7 +298,7 @@ impl Desk {
         result: Result<String, String>,
     ) {
         let tx = self.tx.clone();
-        let Some(s) = self.session_mut(key) else {
+        let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
         s.git.step = None;

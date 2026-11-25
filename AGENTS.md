@@ -63,6 +63,7 @@ src/remote.rs     projects on another machine; their agents over SSH
 src/terminal.rs   a terminal of yours: a shell in a pseudo-terminal, its screen
 src/hub.rs        the agents switched on; async work, back to the window as Msg
 src/session.rs    a session: its thread built from session/update; its turns' checkpoints
+src/sessions.rs   the sessions on the desk, by key and by the agent's id
 src/git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR
 src/settings.rs   ~/.ghost/settings.json and the home
 src/store.rs      sessions.json and each session's record; the one writer

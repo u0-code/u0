@@ -372,7 +372,7 @@ impl Desk {
         .collect();
         let mut sessions = Vec::new();
         for (n, key) in self.ordered().into_iter().enumerate() {
-            let Some(s) = self.session_at(key) else {
+            let Some(s) = self.sessions.at(key) else {
                 continue;
             };
             let project = self.project_name(&s.meta.project);
@@ -511,7 +511,7 @@ impl Desk {
             Act::FromPr(folder, n, title) => {
                 self.new_in(folder, window, cx);
                 if let Some(key) = self.current
-                    && let Some(s) = self.session_mut(key)
+                    && let Some(s) = self.sessions.at_mut(key)
                     && s.state == State::Draft
                 {
                     s.wants_worktree = true;

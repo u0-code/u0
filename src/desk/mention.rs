@@ -144,7 +144,7 @@ impl Desk {
                 }
             }
         }
-        for other in self.sessions.iter().filter(|o| {
+        for other in self.sessions.all.iter().filter(|o| {
             o.meta.project == s.meta.project
                 && o.key != s.key
                 && (o.recorded || !o.items.is_empty())
@@ -351,7 +351,7 @@ impl Desk {
                 ))
             })
             .collect();
-        let Some(s) = self.session_at(key) else {
+        let Some(s) = self.sessions.at(key) else {
             return blocks;
         };
         let folder = s.meta.folder.clone();
@@ -360,7 +360,7 @@ impl Desk {
             match &m.what {
                 Offer::File(f) => blocks.extend(link(&folder, f)),
                 Offer::Session { key, title } => {
-                    if let Some(other) = self.session_at(*key) {
+                    if let Some(other) = self.sessions.at(*key) {
                         blocks.push(text_resource(
                             &format!("ghost://session/{key}"),
                             &format!("The session “{title}”:\n\n{}", said_in(other)),
@@ -442,7 +442,7 @@ impl Desk {
     /// Copy all that was said in the session `key`.
     pub fn copy_thread(&mut self, key: u64, cx: &mut Context<Self>) {
         self.popup = crate::desk::Popup::Closed;
-        if let Some(s) = self.session_at(key) {
+        if let Some(s) = self.sessions.at(key) {
             let text = said(s, &self.name_of(&s.meta.agent)).join("\n\n");
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
             self.done("The conversation is copied", None);

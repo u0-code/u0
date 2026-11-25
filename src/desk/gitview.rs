@@ -22,7 +22,7 @@ impl Desk {
     /// Read again what git says where the session `key` works: its commits
     /// and branches, and its pull request.
     pub(crate) fn refresh_git(&self, key: u64) {
-        let Some(s) = self.session_at(key) else {
+        let Some(s) = self.sessions.at(key) else {
             return;
         };
         if !s.repo {
@@ -36,7 +36,7 @@ impl Desk {
     /// Ask git about the folder the session `key` works in: not on another
     /// machine, whose git the desk does not read.
     pub(crate) fn look(&self, key: u64) {
-        if let Some(s) = self.session_at(key)
+        if let Some(s) = self.sessions.at(key)
             && crate::remote::parse(&s.meta.project).is_none()
         {
             hub::look(s.meta.folder.clone(), key, self.tx.clone());
@@ -54,7 +54,11 @@ impl Desk {
         scripts: Vec<super::runs::Script>,
     ) {
         let under = self.home.join("worktrees");
-        let Some(s) = self.session_mut(key).filter(|s| s.meta.folder == folder) else {
+        let Some(s) = self
+            .sessions
+            .at_mut(key)
+            .filter(|s| s.meta.folder == folder)
+        else {
             return;
         };
         s.branch = branch;
@@ -88,7 +92,7 @@ impl Desk {
     /// files are not here.
     pub(crate) fn place(&mut self, key: u64) {
         let tx = self.tx.clone();
-        let Some(s) = self.session_mut(key) else {
+        let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
         let calls = std::mem::take(&mut s.placing);
@@ -99,7 +103,7 @@ impl Desk {
 
     /// Read again what the session `key` shows changed, as git says it now.
     pub(crate) fn refresh_diffs(&self, key: u64) {
-        let Some(s) = self.session_at(key) else {
+        let Some(s) = self.sessions.at(key) else {
             return;
         };
         if !s.repo {
@@ -127,6 +131,7 @@ impl Desk {
         }
         for s in self
             .sessions
+            .all
             .iter()
             .filter(|s| s.repo && (s.meta.worktree.is_some() || Some(s.key) == self.current))
         {
@@ -141,7 +146,7 @@ impl Desk {
         if !matches!(scope, Scope::Branch | Scope::Commit(_)) {
             return;
         }
-        if let Some(s) = self.session_mut(key) {
+        if let Some(s) = self.sessions.at_mut(key) {
             s.git.scoped = None;
             let (dir, base) = (s.meta.folder.clone(), s.git.compare_to.clone());
             hub::scope_diff(dir, key, scope.clone(), base, self.tx.clone());
@@ -168,10 +173,10 @@ impl Desk {
         self.popup = super::Popup::Closed;
         let Some(s) = self.session() else { return };
         let (key, dir) = (s.key, s.meta.folder.clone());
-        let busy = self
-            .sessions
-            .iter()
-            .any(|o| o.meta.folder == dir && matches!(o.state, State::Working | State::Opening));
+        let busy =
+            self.sessions.all.iter().any(|o| {
+                o.meta.folder == dir && matches!(o.state, State::Working | State::Opening)
+            });
         if busy {
             self.trouble(
                 "The branch is not switched",
@@ -195,7 +200,8 @@ impl Desk {
     /// Begin a session in the worktree the session `key` works in.
     pub fn new_in_worktree(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
         let Some(fresh) = self
-            .session_at(key)
+            .sessions
+            .at(key)
             .is_some_and(|s| s.meta.worktree.is_some())
             .then(|| self.beside(key))
             .flatten()
@@ -203,7 +209,7 @@ impl Desk {
             return;
         };
         let new = fresh.key;
-        self.sessions.push(fresh);
+        self.sessions.all.push(fresh);
         self.show(new, window, cx);
     }
 
@@ -211,7 +217,7 @@ impl Desk {
     /// answer goes in the commit form. It is a turn of its own, and spends
     /// what a turn spends.
     pub fn ask_message(&mut self, key: u64, cx: &mut Context<Self>) {
-        if let Some(s) = self.session_mut(key) {
+        if let Some(s) = self.sessions.at_mut(key) {
             s.git.writing_message = true;
         }
         self.send_in(key, WRITE_MESSAGE, cx);
@@ -220,7 +226,7 @@ impl Desk {
     /// A turn ended in the session `key`: a commit message it was asked for
     /// goes in the commit form.
     pub(crate) fn take_message(&mut self, key: u64, cx: &mut Context<Self>) {
-        let Some(s) = self.session_mut(key) else {
+        let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
         if !s.git.writing_message {
@@ -290,7 +296,7 @@ impl Desk {
     /// session has a title of its own (the agent's, or yours), the branch
     /// takes it, unless it is pushed already.
     pub(crate) fn name_branch(&self, key: u64) {
-        let Some(s) = self.session_at(key) else {
+        let Some(s) = self.sessions.at(key) else {
             return;
         };
         let Some(wt) = &s.meta.worktree else { return };

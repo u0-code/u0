@@ -24,6 +24,7 @@ mod path;
 mod registry;
 mod remote;
 mod session;
+mod sessions;
 mod settings;
 mod sidebar;
 mod store;

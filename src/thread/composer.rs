@@ -57,7 +57,8 @@ impl Desk {
         // A subagent's session answers to its parent, not to you.
         if let Some(up) = s.parent {
             let parent = self
-                .session_at(up)
+                .sessions
+                .at(up)
                 .map(|p| ui::fit(&p.meta.title, 40))
                 .unwrap_or_default();
             return div().flex().flex_none().justify_center().pb(px(18.)).child(
@@ -584,7 +585,8 @@ impl Desk {
         // was asked of; its answer can be taken back there.
         let beside = s.beside.map(|up| {
             let title = self
-                .session_at(up)
+                .sessions
+                .at(up)
                 .map(|p| ui::fit(&p.meta.title, 40))
                 .unwrap_or_default();
             let key = s.key;
@@ -1144,7 +1146,7 @@ impl Desk {
                                 .size(px(22.))
                                 .on_click(cx.listener(
                                     move |this, _, _, cx| {
-                                        if let Some(s) = this.session_mut(key)
+                                        if let Some(s) = this.sessions.at_mut(key)
                                             && n < s.meta.later.len()
                                         {
                                             s.meta.later.remove(n);

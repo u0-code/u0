@@ -57,7 +57,7 @@ impl Desk {
     fn tell_notice(&mut self, trouble: bool, text: String, why: Option<String>, way: Option<Way>) {
         // The same said again stands once, lowest.
         self.notices.retain(|n| n.text != text);
-        let id = self.take_key();
+        let id = self.sessions.take_key();
         self.notices.push(Notice {
             id,
             trouble,

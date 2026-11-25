@@ -492,6 +492,7 @@ impl Desk {
         let mut list = card().overflow_hidden();
         let archived: Vec<_> = self
             .sessions
+            .all
             .iter()
             .filter(|s| s.meta.flags.archived && !self.deleting(s.key))
             .collect();

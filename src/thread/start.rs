@@ -110,6 +110,7 @@ impl Desk {
     fn to_pick_up(&self) -> (Vec<&Session>, Vec<&Session>) {
         let shown: Vec<&Session> = self
             .sessions
+            .all
             .iter()
             .filter(|s| {
                 self.listed_now(s)

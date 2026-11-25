@@ -138,10 +138,11 @@ impl Desk {
         cx: &mut Context<Self>,
     ) {
         let host = self
-            .session_at(key)
+            .sessions
+            .at(key)
             .and_then(|s| crate::remote::parse(&s.meta.project))
             .map(|(host, _)| host);
-        let id = self.take_key();
+        let id = self.sessions.take_key();
         let size = self.terminals.last().map_or(FIRST_SIZE, Terminal::size);
         let first = first.map(str::to_owned);
         crate::hub::open_terminal(
@@ -318,7 +319,7 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> bool {
         let mut held = false;
-        let scripts = self.session_at(key).map(|s| s.scripts.clone());
+        let scripts = self.sessions.at(key).map(|s| s.scripts.clone());
         for script in scripts.into_iter().flatten().filter(|s| s.worktree) {
             let command = if script.wait {
                 format!("{}; exit", script.command)
@@ -327,7 +328,7 @@ impl Desk {
             };
             self.open_terminal_in(key, dir, Some(&command), cx);
             let term = self.term_on;
-            if let Some(s) = self.session_mut(key) {
+            if let Some(s) = self.sessions.at_mut(key) {
                 s.setup.push(script.name);
                 if script.wait {
                     s.holding.extend(term);
@@ -341,7 +342,12 @@ impl Desk {
     /// A terminal ended: a session whose first message waited for it, and
     /// for nothing else now, is opened.
     pub(crate) fn setup_ended(&mut self, id: u64) {
-        let Some(s) = self.sessions.iter_mut().find(|s| s.holding.contains(&id)) else {
+        let Some(s) = self
+            .sessions
+            .all
+            .iter_mut()
+            .find(|s| s.holding.contains(&id))
+        else {
             return;
         };
         s.holding.retain(|t| *t != id);

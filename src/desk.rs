@@ -293,10 +293,9 @@ pub struct Desk {
     pub registry_trouble: Option<String>,
     /// The agents switched on, in the order listed.
     pub slots: Vec<Slot>,
-    pub sessions: Vec<Session>,
+    pub sessions: crate::sessions::Sessions,
     /// The session on screen, by key.
     pub current: Option<u64>,
-    next_key: u64,
     pub page: Page,
     pub popup: Popup,
     /// The project chosen on the start, for a session begun there.
@@ -747,9 +746,8 @@ impl Desk {
             registry,
             registry_trouble: None,
             slots: Vec::new(),
-            sessions: Vec::new(),
+            sessions: crate::sessions::Sessions::default(),
             current: None,
-            next_key: 1,
             page: Page::Thread,
             popup: Popup::Closed,
             start_in: None,
@@ -790,6 +788,7 @@ impl Desk {
     /// Whether anything is going on that is drawn as it goes.
     fn busy(&self) -> bool {
         self.sessions
+            .all
             .iter()
             .any(|s| matches!(s.state, State::Working | State::Opening))
             || self
@@ -956,12 +955,6 @@ impl Desk {
         }
     }
 
-    /// A key no session has had.
-    pub(crate) fn take_key(&mut self) -> u64 {
-        self.next_key += 1;
-        self.next_key - 1
-    }
-
     pub fn entry(&self, id: &str) -> Option<&Entry> {
         self.registry
             .agents
@@ -996,26 +989,7 @@ impl Desk {
 
     pub fn session(&self) -> Option<&Session> {
         let key = self.current?;
-        self.session_at(key)
-    }
-
-    pub(crate) fn session_at(&self, key: u64) -> Option<&Session> {
-        self.sessions.iter().find(|s| s.key == key)
-    }
-
-    pub(crate) fn session_mut(&mut self, key: u64) -> Option<&mut Session> {
-        self.sessions.iter_mut().find(|s| s.key == key)
-    }
-
-    /// The session `agent` knows as `id`.
-    pub(crate) fn session_by_id(
-        &mut self,
-        agent: &str,
-        id: &agent_client_protocol::v1::schema::SessionId,
-    ) -> Option<&mut Session> {
-        self.sessions
-            .iter_mut()
-            .find(|s| s.meta.agent == agent && s.meta.id.as_ref() == Some(id))
+        self.sessions.at(key)
     }
 
     pub(crate) fn save_settings(&mut self) {
@@ -1044,7 +1018,7 @@ impl Desk {
     /// session in none of them.
     pub fn projects(&self) -> Vec<PathBuf> {
         let mut out = self.settings.folders.clone();
-        for s in &self.sessions {
+        for s in &self.sessions.all {
             if !out.contains(&s.meta.project) {
                 out.push(s.meta.project.clone());
             }
@@ -1113,17 +1087,17 @@ impl Desk {
             return;
         }
         // A session begun and not used yet is reused, not doubled.
-        let key =
-            if let Some(s) = self.sessions.iter().find(|s| {
+        let key = if let Some(s) =
+            self.sessions.all.iter().find(|s| {
                 s.meta.agent == agent && s.meta.project == folder && s.state == State::Draft
             }) {
-                s.key
-            } else {
-                let key = self.take_key();
-                let s = self.begun_in(key, agent, folder);
-                self.sessions.push(s);
-                key
-            };
+            s.key
+        } else {
+            let key = self.sessions.take_key();
+            let s = self.begun_in(key, agent, folder);
+            self.sessions.all.push(s);
+            key
+        };
         self.show(key, window, cx);
     }
 
@@ -1170,13 +1144,14 @@ impl Desk {
             // session shown brings back what was being written in it.
             let typed = self.input.read(cx).text();
             if let Some(old) = self.current
-                && let Some(s) = self.session_mut(old)
+                && let Some(s) = self.sessions.at_mut(old)
             {
                 s.meta.unsent = typed;
                 s.seen = Some(s.items.len());
             }
             let unsent = self
-                .session_at(key)
+                .sessions
+                .at(key)
                 .map(|s| s.meta.unsent.clone())
                 .unwrap_or_default();
             self.input.update(cx, |i, cx| i.set_text(&unsent, cx));
@@ -1187,7 +1162,7 @@ impl Desk {
         self.current = Some(key);
         self.page = Page::Thread;
         self.popup = Popup::Closed;
-        if let Some(s) = self.session_mut(key)
+        if let Some(s) = self.sessions.at_mut(key)
             && s.meta.flags.unread
         {
             s.meta.flags.unread = false;
@@ -1195,7 +1170,8 @@ impl Desk {
         }
         self.refresh_git(key);
         let closed = self
-            .session_at(key)
+            .sessions
+            .at(key)
             .is_some_and(|s| s.state == State::Closed && !s.recorded);
         if closed {
             self.look(key);
@@ -1260,7 +1236,7 @@ impl Desk {
     pub fn switch_agent(&mut self, agent: &str, cx: &mut Context<Self>) {
         self.popup = Popup::Closed;
         if let Some(key) = self.current
-            && let Some(s) = self.session_mut(key)
+            && let Some(s) = self.sessions.at_mut(key)
             && s.state == State::Draft
         {
             // Where it works stays, and what git said of it.
@@ -1273,7 +1249,7 @@ impl Desk {
         }
         if let Some(key) = self.current {
             let slot = self.slots.iter().find(|x| x.entry.id == agent);
-            if let (Some(slot), Some(s)) = (slot, self.sessions.iter_mut().find(|s| s.key == key)) {
+            if let (Some(slot), Some(s)) = (slot, self.sessions.at_mut(key)) {
                 slot.seed(s);
             }
         }
@@ -1330,6 +1306,7 @@ impl Desk {
         // Its subagents, and their records, go with it.
         let kids: Vec<u64> = self
             .sessions
+            .all
             .iter()
             .filter(|c| c.parent == Some(key))
             .map(|c| c.key)
@@ -1337,14 +1314,15 @@ impl Desk {
         for kid in kids {
             self.forget_session(kid, cx);
         }
-        let Some(at) = self.sessions.iter().position(|s| s.key == key) else {
+        let Some(at) = self.sessions.all.iter().position(|s| s.key == key) else {
             return;
         };
-        if let Some(id) = &self.sessions[at].meta.id {
-            let path = crate::store::record_path(&self.home, &self.sessions[at].meta.agent, &id.0);
+        if let Some(id) = &self.sessions.all[at].meta.id {
+            let path =
+                crate::store::record_path(&self.home, &self.sessions.all[at].meta.agent, &id.0);
             crate::store::queue(crate::store::Job::Remove(path));
         }
-        let s = self.sessions.remove(at);
+        let s = self.sessions.all.remove(at);
         self.save_index();
         // Its checkpoints go with it.
         if s.repo {
@@ -1362,6 +1340,7 @@ impl Desk {
         if let Some(wt) = s.meta.worktree
             && !self
                 .sessions
+                .all
                 .iter()
                 .any(|o| o.meta.worktree.as_ref().is_some_and(|w| w.path == wt.path))
         {
@@ -1384,7 +1363,7 @@ impl Desk {
     /// Whether the project `folder` can be taken off the list: no session
     /// of any kind is in it, or it would come back with that session.
     pub fn can_forget_project(&self, folder: &Path) -> bool {
-        !self.sessions.iter().any(|s| s.meta.project == folder)
+        !self.sessions.all.iter().any(|s| s.meta.project == folder)
     }
 
     pub fn forget_project(&mut self, folder: &Path, cx: &mut Context<Self>) {
@@ -1410,9 +1389,9 @@ impl Desk {
     pub fn restart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         let (agent, folder) = (s.meta.agent.clone(), s.meta.project.clone());
-        let key = self.take_key();
+        let key = self.sessions.take_key();
         let s = self.begun_in(key, &agent, folder);
-        self.sessions.push(s);
+        self.sessions.all.push(s);
         self.show(key, window, cx);
     }
 
@@ -1434,7 +1413,7 @@ impl Desk {
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = answer.await {
                 let _ = this.update(cx, |this, cx| {
-                    if let Some(s) = this.session_mut(key)
+                    if let Some(s) = this.sessions.at_mut(key)
                         && s.state == State::Draft
                     {
                         for p in paths {
@@ -1463,7 +1442,7 @@ impl Desk {
                 && let Some(folder) = paths.into_iter().next()
             {
                 let _ = this.update(cx, |this, cx| {
-                    if let Some(s) = this.session_mut(key)
+                    if let Some(s) = this.sessions.at_mut(key)
                         && s.state == State::Draft
                     {
                         let wants = s.wants_worktree;
@@ -1506,7 +1485,7 @@ impl Desk {
     /// Begin, beside the session `key`, a session with each other agent
     /// that can run, in the same project, and say `text` in each.
     fn fan_out(&mut self, key: u64, text: &str, cx: &mut Context<Self>) {
-        let Some(origin) = self.session_at(key) else {
+        let Some(origin) = self.sessions.at(key) else {
             return;
         };
         // Each goes as the first did: begun the same way (its worktree, the
@@ -1523,10 +1502,10 @@ impl Desk {
             .map(|s| s.entry.id.clone())
             .collect();
         for other in others {
-            let new = self.take_key();
+            let new = self.sessions.take_key();
             let mut s = self.begun_in(new, &other, folder.clone());
             s.attached.clone_from(&shared);
-            self.sessions.push(s);
+            self.sessions.all.push(s);
             self.send_in(new, text, cx);
         }
     }
@@ -1536,7 +1515,7 @@ impl Desk {
     fn send_due(&mut self, cx: &mut Context<Self>) {
         let now = crate::store::secs(std::time::SystemTime::now());
         let mut due = Vec::new();
-        for s in &mut self.sessions {
+        for s in &mut self.sessions.all {
             for l in &mut s.meta.later {
                 if l.at <= now {
                     due.push((s.key, l.text.clone()));
@@ -1551,7 +1530,7 @@ impl Desk {
             return;
         }
         for (key, text) in due {
-            match self.session_mut(key) {
+            match self.sessions.at_mut(key) {
                 // A turn going on: it waits its turn, as one queued.
                 Some(s) if matches!(s.state, State::Working | State::Opening) => {
                     s.meta.queued.push(text);
@@ -1574,7 +1553,7 @@ impl Desk {
         if text.is_empty() {
             return;
         }
-        if let Some(s) = self.session_mut(key) {
+        if let Some(s) = self.sessions.at_mut(key) {
             s.meta.later.push(crate::store::Later {
                 at: crate::store::secs(at),
                 text,
@@ -1599,7 +1578,7 @@ impl Desk {
             return;
         }
         let on_screen = self.current == Some(key);
-        let Some(session) = self.session_mut(key) else {
+        let Some(session) = self.sessions.at_mut(key) else {
             return;
         };
         if session.state == State::Working || session.state == State::Opening {
@@ -1611,7 +1590,7 @@ impl Desk {
             session.meta.queued.push(text.clone());
             let last = session.meta.queued.len() - 1;
             let attached = self.attach(key, &text);
-            if let Some(s) = self.session_mut(key) {
+            if let Some(s) = self.sessions.at_mut(key) {
                 s.attached.extend(attached);
             }
             self.save_index();
@@ -1641,7 +1620,7 @@ impl Desk {
             // What goes with it (images, files named) goes with it.
             if on_screen {
                 let attached = self.attach(key, &text);
-                if let Some(s) = self.session_mut(key) {
+                if let Some(s) = self.sessions.at_mut(key) {
                     s.attached.extend(attached);
                 }
             }
@@ -1654,7 +1633,7 @@ impl Desk {
         } else {
             Vec::new()
         };
-        let session = self.session_mut(key).expect("found above");
+        let session = self.sessions.at_mut(key).expect("found above");
         session.meta.unsent.clear();
         let pictures: Vec<_> = attached
             .iter()
@@ -1682,14 +1661,14 @@ impl Desk {
         if id.is_some() {
             self.begin_turn(key, text);
         } else {
-            let session = self.session_mut(key).expect("on screen");
+            let session = self.sessions.at_mut(key).expect("on screen");
             session.state = State::Opening;
             session.pending = Some(text.clone());
             let worktree = session.needs_worktree();
             self.settings.used(&folder);
             self.save_settings();
             if worktree {
-                let from = self.session_at(key).and_then(|s| s.begin.clone());
+                let from = self.sessions.at(key).and_then(|s| s.begin.clone());
                 hub::make_worktree(
                     folder,
                     text,
@@ -1719,7 +1698,8 @@ impl Desk {
         let home = self.home.clone();
         let tx = self.tx.clone();
         let (dirs, id, recorded) = self
-            .session_at(key)
+            .sessions
+            .at(key)
             .map(|s| {
                 (
                     (s.meta.folder.clone(), s.meta.also.clone()),
@@ -1747,7 +1727,7 @@ impl Desk {
                     hub::reopen(agent, key, id, dirs, false, tx);
                 }
                 Some(_) => {
-                    if let Some(s) = self.session_mut(key) {
+                    if let Some(s) = self.sessions.at_mut(key) {
                         s.state = State::Broken("The agent cannot open a session again".into());
                     }
                 }
@@ -1788,7 +1768,7 @@ impl Desk {
 
     /// Stop the task `task` the agent left going in the session `key`.
     pub fn stop_task(&mut self, key: u64, task: String, cx: &mut Context<Self>) {
-        let Some(s) = self.session_at(key) else {
+        let Some(s) = self.sessions.at(key) else {
             return;
         };
         if let (Some(running), Some(id)) = (
@@ -1802,7 +1782,7 @@ impl Desk {
 
     /// Stop the work of the subagent `key`, where its agent lets it be.
     pub fn stop_sub(&mut self, key: u64, cx: &mut Context<Self>) {
-        let Some(c) = self.session_at(key) else {
+        let Some(c) = self.sessions.at(key) else {
             return;
         };
         if let (Some(running), Some(id)) = (
@@ -1818,7 +1798,7 @@ impl Desk {
     /// its turn: its process is ended, and started again when wanted.
     pub fn force_stop(&mut self, key: u64, cx: &mut Context<Self>) {
         self.stopping = None;
-        let agent = self.session_at(key).map(|s| s.meta.agent.clone());
+        let agent = self.sessions.at(key).map(|s| s.meta.agent.clone());
         if let Some(running) = agent
             .as_deref()
             .and_then(|a| self.slot(a))
@@ -1834,6 +1814,7 @@ impl Desk {
     pub fn may_quit(&mut self) -> bool {
         let working = self
             .sessions
+            .all
             .iter()
             .any(|s| matches!(s.state, State::Working));
         let again = self
@@ -1865,7 +1846,7 @@ impl Desk {
         if let Some(running) = self.slot(&agent).and_then(Slot::running) {
             hub::answer(running, request, Some(option.option_id.0.to_string()));
         }
-        if let Some(s) = self.session_mut(key) {
+        if let Some(s) = self.sessions.at_mut(key) {
             s.answered(request, option);
         }
         cx.notify();
@@ -1873,7 +1854,7 @@ impl Desk {
 
     /// Say the next thing queued in the session `key`, if one is.
     pub(crate) fn say_queued(&mut self, key: u64, cx: &mut Context<Self>) {
-        let Some(s) = self.session_mut(key) else {
+        let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
         if s.state != State::Idle || s.meta.queued.is_empty() {
@@ -1889,7 +1870,7 @@ impl Desk {
     /// it is said at once.
     pub fn steer(&mut self, n: usize, cx: &mut Context<Self>) {
         let Some(key) = self.current else { return };
-        let Some(s) = self.session_mut(key) else {
+        let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
         if n >= s.meta.queued.len() {
@@ -1911,7 +1892,7 @@ impl Desk {
     /// Say the queued `n` one sooner.
     pub fn queue_earlier(&mut self, n: usize, cx: &mut Context<Self>) {
         let Some(key) = self.current else { return };
-        if let Some(s) = self.session_mut(key)
+        if let Some(s) = self.sessions.at_mut(key)
             && n > 0
             && n < s.meta.queued.len()
         {
@@ -1924,7 +1905,7 @@ impl Desk {
     /// Take the queued `n` back into the line.
     pub fn unqueue(&mut self, n: usize, cx: &mut Context<Self>) {
         let Some(key) = self.current else { return };
-        let Some(s) = self.session_mut(key) else {
+        let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
         if n >= s.meta.queued.len() {
@@ -1943,12 +1924,15 @@ impl Desk {
         let Some(s) = self.session() else { return };
         let (agent, id) = (s.meta.agent.clone(), s.meta.id.clone());
         if id.is_none() {
-            self.session_mut(key).expect("on screen").choose_mode(&mode);
+            self.sessions
+                .at_mut(key)
+                .expect("on screen")
+                .choose_mode(&mode);
         } else if let (Some(running), Some(id)) =
             (self.slot(&agent).and_then(Slot::running).cloned(), id)
         {
             hub::set_mode(running, key, id, mode.clone(), self.tx.clone());
-            if let Some(modes) = &mut self.session_mut(key).expect("on screen").modes {
+            if let Some(modes) = &mut self.sessions.at_mut(key).expect("on screen").modes {
                 modes.current_mode_id = agent_client_protocol::v1::schema::SessionModeId::new(mode);
             }
         }
@@ -1962,7 +1946,8 @@ impl Desk {
         let Some(s) = self.session() else { return };
         let (agent, id) = (s.meta.agent.clone(), s.meta.id.clone());
         if id.is_none() {
-            self.session_mut(key)
+            self.sessions
+                .at_mut(key)
                 .expect("on screen")
                 .choose(&config, &value);
         } else if let (Some(running), Some(id)) =

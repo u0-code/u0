@@ -18,8 +18,8 @@ impl Desk {
                 self.gone = index.gone;
                 self.stashed = index.stashed;
                 for meta in index.sessions {
-                    let key = self.take_key();
-                    self.sessions.push(Session::stored(key, meta));
+                    let key = self.sessions.take_key();
+                    self.sessions.all.push(Session::stored(key, meta));
                     self.subagents_back(key);
                 }
             }
@@ -33,7 +33,7 @@ impl Desk {
     /// The subagents the session `key` set to work that are not on the desk:
     /// closed, under it, read from their records when opened.
     fn subagents_back(&mut self, key: u64) {
-        let Some(s) = self.session_at(key) else {
+        let Some(s) = self.sessions.at(key) else {
             return;
         };
         let missing: Vec<(String, String)> = s
@@ -41,7 +41,7 @@ impl Desk {
             .subagents
             .iter()
             .filter(|(id, _)| {
-                !self.sessions.iter().any(|c| {
+                !self.sessions.all.iter().any(|c| {
                     c.meta.agent == s.meta.agent && c.meta.id.as_ref().is_some_and(|i| *i.0 == **id)
                 })
             })
@@ -49,40 +49,16 @@ impl Desk {
             .collect();
         for (id, title) in missing {
             let id = agent_client_protocol::v1::schema::SessionId::new(id);
-            self.add_subagent(key, id, title, crate::session::State::Closed);
+            self.sessions
+                .add_subagent(key, id, title, crate::session::State::Closed);
         }
-    }
-
-    /// The subagent `id` the session `parent` set to work: a session of
-    /// its own, under it.
-    pub(crate) fn add_subagent(
-        &mut self,
-        parent: u64,
-        id: agent_client_protocol::v1::schema::SessionId,
-        title: String,
-        state: crate::session::State,
-    ) {
-        let key = self.take_key();
-        let Some(p) = self.session_at(parent) else {
-            return;
-        };
-        let mut child = Session::new(key, &p.meta.agent, p.meta.folder.clone());
-        child.meta.project.clone_from(&p.meta.project);
-        (child.branch, child.repo) = (p.branch.clone(), p.repo);
-        child.scripts.clone_from(&p.scripts);
-        child.meta.id = Some(id);
-        child.parent = Some(parent);
-        child.meta.title = title;
-        child.meta.renamed = true;
-        child.state = state;
-        self.sessions.push(child);
     }
 
     /// A new session of the agent of the session `of`, in its project and
     /// worktree, not yet begun.
     pub(crate) fn beside(&mut self, of: u64) -> Option<Session> {
-        let key = self.take_key();
-        let o = self.session_at(of)?;
+        let key = self.sessions.take_key();
+        let o = self.sessions.at(of)?;
         let mut s = Session::new(key, &o.meta.agent, o.meta.folder.clone());
         s.meta.project.clone_from(&o.meta.project);
         s.meta.worktree.clone_from(&o.meta.worktree);
@@ -96,7 +72,7 @@ impl Desk {
 
     /// The session `old` put away, and `new` in its place in the lists.
     pub(crate) fn replace(&mut self, old: u64, new: &mut Session) {
-        if let Some(o) = self.session_mut(old) {
+        if let Some(o) = self.sessions.at_mut(old) {
             new.meta.title.clone_from(&o.meta.title);
             new.meta.flags.order = o.meta.flags.order;
             new.meta.flags.pinned = o.meta.flags.pinned.take();
@@ -113,6 +89,7 @@ impl Desk {
         let index = Index {
             sessions: self
                 .sessions
+                .all
                 .iter()
                 .filter_map(Session::kept)
                 .cloned()
@@ -130,7 +107,7 @@ impl Desk {
     /// written; a session its agent has not named yet keeps it until then.
     pub(crate) fn flush(&mut self, key: u64) {
         let home = self.home.clone();
-        let Some(s) = self.session_mut(key) else {
+        let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
         let Some(id) = s.meta.id.clone() else { return };
@@ -150,12 +127,12 @@ impl Desk {
     pub(crate) fn keep_all(&mut self) {
         // A turn going on as Ghost closes may go on in the agent; the
         // record says where Ghost lost sight of it.
-        for s in &mut self.sessions {
+        for s in &mut self.sessions.all {
             if matches!(s.state, crate::session::State::Working) {
                 s.note("Ghost closed while this turn was going on; the agent may have gone on with it.");
             }
         }
-        let keys: Vec<u64> = self.sessions.iter().map(|s| s.key).collect();
+        let keys: Vec<u64> = self.sessions.all.iter().map(|s| s.key).collect();
         for key in keys {
             self.flush(key);
         }
@@ -171,7 +148,7 @@ impl Desk {
     /// thread (see `record_read`).
     pub(crate) fn read_record(&mut self, key: u64) {
         let (home, tx) = (self.home.clone(), self.tx.clone());
-        let Some(s) = self.session_mut(key) else {
+        let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
         match &s.meta.id {
@@ -189,7 +166,7 @@ impl Desk {
     /// and the agent is asked only when you write. A session without one
     /// comes from its agent. One opened meanwhile is left as it is.
     pub(crate) fn record_read(&mut self, key: u64, events: Option<Vec<store::Event>>) {
-        let Some(s) = self.session_at(key).filter(|s| s.state == State::Closed) else {
+        let Some(s) = self.sessions.at(key).filter(|s| s.state == State::Closed) else {
             return;
         };
         let agent = s.meta.agent.clone();
@@ -205,11 +182,7 @@ impl Desk {
             return;
         }
         let slot = self.slots.iter().find(|x| x.entry.id == agent);
-        let s = self
-            .sessions
-            .iter_mut()
-            .find(|s| s.key == key)
-            .expect("found above");
+        let s = self.sessions.at_mut(key).expect("found above");
         s.forget();
         s.replay(events);
         s.recorded = true;
@@ -227,7 +200,7 @@ impl Desk {
     /// Open the session `key`, which has no record, from its agent. A
     /// subagent opens from its record only: its agent does not load it.
     fn open_unrecorded(&mut self, key: u64) {
-        let Some(s) = self.session_mut(key) else {
+        let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
         s.recorded = false;
@@ -248,7 +221,7 @@ impl Desk {
     /// again, and written afresh as it comes.
     pub(crate) fn drop_record(&mut self, key: u64) {
         let home = self.home.clone();
-        if let Some(s) = self.session_mut(key) {
+        if let Some(s) = self.sessions.at_mut(key) {
             if let Some(id) = &s.meta.id {
                 store::queue(Job::Remove(store::record_path(&home, &s.meta.agent, &id.0)));
             }
@@ -283,13 +256,14 @@ impl Desk {
     pub(crate) fn let_go(&mut self, agent: &str) {
         let keys: Vec<u64> = self
             .sessions
+            .all
             .iter()
             .filter(|s| s.meta.agent == agent && s.meta.id.is_some())
             .map(|s| s.key)
             .collect();
         for key in keys {
             self.flush(key);
-            if let Some(s) = self.session_mut(key)
+            if let Some(s) = self.sessions.at_mut(key)
                 && s.state == crate::session::State::Idle
             {
                 s.state = crate::session::State::Closed;
@@ -311,6 +285,7 @@ impl Desk {
         let kept = crate::tidy::Kept {
             records: self
                 .sessions
+                .all
                 .iter()
                 .filter_map(|s| {
                     Some(store::record_path(
@@ -322,12 +297,14 @@ impl Desk {
                 .collect(),
             worktrees: self
                 .sessions
+                .all
                 .iter()
                 .filter_map(|s| s.meta.worktree.as_ref().map(|w| w.path.clone()))
                 .collect(),
             projects: self.settings.folders.clone(),
             uids: self
                 .sessions
+                .all
                 .iter()
                 .filter(|s| !s.turns.is_empty())
                 .map(Session::uid)

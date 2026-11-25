@@ -87,6 +87,7 @@ impl Desk {
             let now = crate::store::secs(SystemTime::now());
             let snoozed = self
                 .sessions
+                .all
                 .iter()
                 .filter(|s| s.meta.project == folder && !s.meta.flags.archived)
                 .filter(|s| s.meta.flags.snoozed.is_some_and(|t| t > now))
@@ -96,6 +97,7 @@ impl Desk {
                 self.in_project(&folder).into_iter().filter(found).collect();
             let done: Vec<&Session> = self
                 .sessions
+                .all
                 .iter()
                 .filter(|s| {
                     s.meta.project == folder && self.listed_now(s) && s.meta.flags.settled.is_some()
@@ -146,7 +148,7 @@ impl Desk {
                 projects =
                     projects.child(Self::shelf_row(faces, key, "Snoozed", snoozed, shown, cx));
                 if shown {
-                    for s in self.sessions.iter().filter(|s| {
+                    for s in self.sessions.all.iter().filter(|s| {
                         s.meta.project == folder
                             && !s.meta.flags.archived
                             && s.meta.flags.snoozed.is_some_and(|t| t > now)
@@ -372,6 +374,7 @@ impl Desk {
         let usable = slot.usable();
         let running = self
             .sessions
+            .all
             .iter()
             .any(|s| s.meta.agent == id && matches!(s.state, State::Working | State::Opening));
         let word = match &slot.stage {
@@ -1077,6 +1080,7 @@ impl Desk {
     pub(crate) fn in_project(&self, folder: &Path) -> Vec<&Session> {
         let mut here: Vec<&Session> = self
             .sessions
+            .all
             .iter()
             .filter(|s| {
                 s.meta.project == folder && self.listed_now(s) && s.meta.flags.settled.is_none()
@@ -1105,7 +1109,7 @@ impl Desk {
         let mut pinned = Vec::new();
         let mut recent = Vec::new();
         let mut done = Vec::new();
-        for s in self.sessions.iter().filter(|s| {
+        for s in self.sessions.all.iter().filter(|s| {
             self.listed_now(s)
                 && query.is_none_or(|q| self.matches(s, q))
                 && self

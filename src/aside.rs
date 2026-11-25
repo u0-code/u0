@@ -211,11 +211,13 @@ impl Desk {
         let family = s.parent.unwrap_or(s.key);
         let kids: Vec<&Session> = self
             .sessions
+            .all
             .iter()
             .filter(|c| c.parent == Some(family))
             .collect();
         let tasks: Vec<(u64, &crate::session::Task)> = self
             .sessions
+            .all
             .iter()
             .filter(|c| c.key == family || c.parent == Some(family))
             .flat_map(|c| c.tasks.iter().map(move |t| (c.key, t)))
@@ -500,7 +502,7 @@ impl Desk {
                                 }))
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     cx.stop_propagation();
-                                    if let Some(s) = this.session_mut(key)
+                                    if let Some(s) = this.sessions.at_mut(key)
                                         && !s.git.left_out.remove(&named)
                                     {
                                         s.git.left_out.insert(named.clone());

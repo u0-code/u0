@@ -154,7 +154,7 @@ impl Desk {
                         .hover(|st| st.bg(theme::hover()))
                         .child(ui::mono(faces, ui::fit(&b, 28)).text_size(px(12.)))
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            if let Some(s) = this.session_mut(key) {
+                            if let Some(s) = this.sessions.at_mut(key) {
                                 s.git.compare_to = Some(b.clone());
                             }
                             this.popup = crate::desk::Popup::Closed;

@@ -533,6 +533,7 @@ impl Desk {
         let mut any = false;
         for (n, s) in self
             .sessions
+            .all
             .iter()
             .filter(|s| s.usage.is_some() && s.parent.is_none())
             .enumerate()
