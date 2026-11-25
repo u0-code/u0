@@ -201,6 +201,8 @@ pub struct Desk {
     pub asking_beside: Option<u64>,
     /// Words in the thread are being chosen with the mouse.
     pub choosing: bool,
+    /// The part of an open menu shown beside it: "snooze", "copy".
+    pub submenu: Option<&'static str>,
     /// What waits for an agent to start, by agent: a fork, a delete.
     pub waiting: Vec<(String, lists::Waiting)>,
     /// What you put aside from the composer (see `store::Index`).
@@ -684,6 +686,7 @@ impl Desk {
             rewinding: None,
             asking_beside: None,
             choosing: false,
+            submenu: None,
             gone: Vec::new(),
             stashed: Vec::new(),
             notices: Vec::new(),
@@ -1952,6 +1955,7 @@ impl Desk {
     }
 
     pub fn toggle_popup(&mut self, popup: Popup, cx: &mut Context<Self>) {
+        self.submenu = None;
         // The menu's line says what it takes there.
         let says = match popup {
             Popup::Branch => "A new branch: its name, then Return",

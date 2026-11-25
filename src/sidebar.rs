@@ -899,7 +899,13 @@ impl Desk {
         let key = s.key;
         let now = crate::store::secs(SystemTime::now());
         let busy = matches!(s.state, State::Working | State::Opening);
-        let item = |n: usize, icon: &'static str, label: String| {
+        // A line of the menu; hovering one closes a part shown beside,
+        // unless it is the line of that part.
+        let item = |n: usize,
+                    icon: &'static str,
+                    label: String,
+                    part: Option<&'static str>,
+                    cx: &mut Context<Self>| {
             div()
                 .id(SharedString::from(format!("smenu-{key}-{n}")))
                 .flex()
@@ -910,79 +916,86 @@ impl Desk {
                 .rounded(px(7.))
                 .cursor_pointer()
                 .hover(|st| st.bg(theme::hover()))
+                .when(part.is_some() && self.submenu == part, |d| {
+                    d.bg(theme::hover())
+                })
                 .child(ui::icon(icon, 14.).text_color(theme::faint()))
                 .child(ui::text(faces, label).flex_1().text_size(px(13.)))
+                .when(part.is_some(), |d| {
+                    d.child(ui::icon("chevron-right", 12.).text_color(theme::faint()))
+                })
+                .on_hover(cx.listener(move |this, over: &bool, _, cx| {
+                    if *over && this.submenu != part {
+                        this.submenu = part;
+                        cx.notify();
+                    }
+                }))
         };
+        // A part of the menu, beside the line that opens it.
+        let beside =
+            |line: gpui::Stateful<Div>, part: Div| {
+                div().relative().child(line).child(gpui::deferred(
+                    div().absolute().top(px(-6.)).left(px(212.)).child(
+                        ui::menu(SharedString::from(format!("session-sub-{key}"))).child(part),
+                    ),
+                ))
+            };
+        let part = || div().flex().flex_col().w(px(220.)).p(px(6.));
         let mut menu = div().flex().flex_col().w(px(220.)).p(px(6.));
         menu =
-            menu.child(item(0, "pencil", "Rename".into()).on_click(
+            menu.child(item(0, "pencil", "Rename".into(), None, cx).on_click(
                 cx.listener(move |this, _, window, cx| this.begin_rename(key, window, cx)),
             ));
+        let pin = if s.flags.pinned.is_some() {
+            "Unpin"
+        } else {
+            "Pin"
+        };
         menu = menu.child(
-            item(20, "copy", "Copy the conversation".into())
-                .on_click(cx.listener(move |this, _, _, cx| this.copy_thread(key, cx))),
-        );
-        menu = menu.child(
-            item(
-                1,
-                "pin",
-                if s.flags.pinned.is_some() {
-                    "Unpin"
-                } else {
-                    "Pin"
-                }
-                .into(),
-            )
-            .on_click(cx.listener(move |this, _, _, cx| this.toggle_pin(key, cx))),
+            item(1, "pin", pin.into(), None, cx)
+                .on_click(cx.listener(move |this, _, _, cx| this.toggle_pin(key, cx))),
         );
         if !s.flags.unread {
             menu = menu.child(
-                item(2, "bell", "Mark as unread".into())
+                item(2, "bell", "Mark as unread".into(), None, cx)
                     .on_click(cx.listener(move |this, _, _, cx| this.mark_unread(key, cx))),
             );
         }
+        let done = if s.flags.settled.is_some() {
+            "Not done"
+        } else {
+            "Mark as done"
+        };
         menu = menu.child(
-            item(
-                3,
-                "check",
-                if s.flags.settled.is_some() {
-                    "Not done"
-                } else {
-                    "Mark as done"
-                }
-                .into(),
-            )
-            .on_click(cx.listener(move |this, _, _, cx| this.toggle_settled(key, cx))),
+            item(3, "check", done.into(), None, cx)
+                .on_click(cx.listener(move |this, _, _, cx| this.toggle_settled(key, cx))),
         );
         if s.flags.snoozed.is_some_and(|t| t > now) {
             menu = menu.child(
-                item(4, "clock", "Bring back now".into())
+                item(4, "clock", "Bring back now".into(), None, cx)
                     .on_click(cx.listener(move |this, _, _, cx| this.wake(key, cx))),
             );
         } else {
-            for (n, (label, later)) in [
-                ("Snooze for an hour", Later::In(60)),
-                ("Snooze until tomorrow", Later::Tomorrow),
-                ("Snooze until next week", Later::NextWeek),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                menu = menu.child(
-                    item(5 + n, "clock", label.into())
-                        .on_click(cx.listener(move |this, _, _, cx| this.snooze(key, later, cx))),
-                );
-            }
-            // Or for as long as you say.
-            menu = menu.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .px(px(8.))
-                    .h(px(30.))
-                    .child(ui::icon("clock", 14.).text_color(theme::faint()))
-                    .child(
+            let line = item(5, "clock", "Snooze".into(), Some("snooze"), cx);
+            if self.submenu == Some("snooze") {
+                let mut snooze = part();
+                for (n, (label, later)) in [
+                    ("For an hour", Later::In(60)),
+                    ("Until tomorrow", Later::Tomorrow),
+                    ("Until next week", Later::NextWeek),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    snooze = snooze.child(
+                        item(30 + n, "clock", label.into(), Some("snooze"), cx).on_click(
+                            cx.listener(move |this, _, _, cx| this.snooze(key, later, cx)),
+                        ),
+                    );
+                }
+                // Or for as long as you say.
+                snooze = snooze.child(
+                    div().flex().items_center().px(px(8.)).h(px(32.)).child(
                         div()
                             .flex_1()
                             .px(px(6.))
@@ -992,11 +1005,43 @@ impl Desk {
                             .border_color(theme::border2())
                             .child(self.menu_search.clone()),
                     ),
+                );
+                menu = menu.child(beside(line, snooze));
+            } else {
+                menu = menu.child(line);
+            }
+        }
+        // What it said and what names it, copied.
+        let line = item(6, "copy", "Copy".into(), Some("copy"), cx);
+        if self.submenu == Some("copy") {
+            let mut copy = part().child(
+                item(40, "copy", "The conversation".into(), Some("copy"), cx)
+                    .on_click(cx.listener(move |this, _, _, cx| this.copy_thread(key, cx))),
             );
+            let copies = [
+                Some(("The folder's path", s.folder.display().to_string())),
+                s.branch.clone().map(|b| ("The branch's name", b)),
+                s.id.as_ref()
+                    .map(|id| ("The session's id", id.0.to_string())),
+            ];
+            for (n, (label, text)) in copies.into_iter().flatten().enumerate() {
+                copy = copy.child(
+                    item(41 + n, "copy", label.into(), Some("copy"), cx).on_click(cx.listener(
+                        move |this, _, _, cx| {
+                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
+                            this.popup = crate::desk::Popup::Closed;
+                            cx.notify();
+                        },
+                    )),
+                );
+            }
+            menu = menu.child(beside(line, copy));
+        } else {
+            menu = menu.child(line);
         }
         if self.can_fork(s) && !busy {
             menu = menu.child(
-                item(8, "branch", "Branch off a copy".into())
+                item(8, "branch", "Branch off a copy".into(), None, cx)
                     .on_click(cx.listener(move |this, _, _, cx| this.fork(key, cx))),
             );
         }
@@ -1008,54 +1053,36 @@ impl Desk {
                     24,
                     "plus",
                     format!("New session on {}", crate::ui::fit(&on, 22)),
+                    None,
+                    cx,
                 )
                 .on_click(
                     cx.listener(move |this, _, window, cx| this.new_in_worktree(key, window, cx)),
                 ),
             );
         }
-        menu = menu.child(
-            item(
-                25,
-                "pin",
-                if s.flags.kept {
-                    "Let it be done on its own".into()
-                } else {
-                    "Never done on its own".into()
-                },
-            )
-            .on_click(cx.listener(move |this, _, _, cx| {
+        let kept = if s.flags.kept {
+            "Let it be done on its own"
+        } else {
+            "Never done on its own"
+        };
+        menu = menu.child(item(25, "pin", kept.into(), None, cx).on_click(cx.listener(
+            move |this, _, _, cx| {
                 this.popup = crate::desk::Popup::Closed;
                 this.mark(key, cx, |f| f.kept = !f.kept);
-            })),
-        );
-        menu = menu.child(div().h(px(1.)).mx(px(2.)).my(px(4.)).bg(theme::border2()));
-        // What names it, copied.
-        let copies = [
-            Some(("Copy the folder's path", s.folder.display().to_string())),
-            s.branch.clone().map(|b| ("Copy the branch's name", b)),
-            s.id.as_ref()
-                .map(|id| ("Copy the session's id", id.0.to_string())),
-        ];
-        for (n, (label, text)) in copies.into_iter().flatten().enumerate() {
-            menu = menu.child(item(21 + n, "copy", label.into()).on_click(cx.listener(
-                move |this, _, _, cx| {
-                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
-                    this.popup = crate::desk::Popup::Closed;
-                    cx.notify();
-                },
-            )));
-        }
-        menu = menu.child(div().h(px(1.)).mx(px(2.)).my(px(4.)).bg(theme::border2()));
+            },
+        )));
         if !busy {
-            menu = menu.child(
-                item(9, "archive", "Archive".into())
-                    .on_click(cx.listener(move |this, _, _, cx| this.archive(key, cx))),
-            );
-            menu = menu.child(
-                item(10, "trash", "Delete".into())
-                    .on_click(cx.listener(move |this, _, _, cx| this.delete_later(key, cx))),
-            );
+            menu = menu
+                .child(div().h(px(1.)).mx(px(2.)).my(px(4.)).bg(theme::border2()))
+                .child(
+                    item(9, "archive", "Archive".into(), None, cx)
+                        .on_click(cx.listener(move |this, _, _, cx| this.archive(key, cx))),
+                )
+                .child(
+                    item(10, "trash", "Delete".into(), None, cx)
+                        .on_click(cx.listener(move |this, _, _, cx| this.delete_later(key, cx))),
+                );
         }
         div()
             .mt(px(4.))
