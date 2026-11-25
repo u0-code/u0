@@ -1491,11 +1491,8 @@ impl Desk {
         let failed = call.status == ToolCallStatus::Failed;
         let (added, gone) = call.content.iter().fold((0, 0), |(a, g), c| match c {
             ToolCallContent::Diff(d) => {
-                let (gone, added) = kinds::counted(&kinds::diff(
-                    d.old_text.as_deref().unwrap_or(""),
-                    &d.new_text,
-                ));
-                (a + added, g + gone)
+                let file = kinds::diff(d, None);
+                (a + file.added, g + file.gone)
             }
             _ => (a, g),
         });
@@ -1645,10 +1642,21 @@ impl Desk {
         for (j, c) in call.content.iter().enumerate() {
             match c {
                 ToolCallContent::Diff(d) => {
-                    let lines = kinds::diff(d.old_text.as_deref().unwrap_or(""), &d.new_text);
                     let start = tool.starts.get(diff_n).copied().flatten();
                     diff_n += 1;
-                    body = body.child(drawn::diff(faces, &lines, start, drawn::Fit::Thread));
+                    let (file, more) = kinds::cut(kinds::diff(d, start), kinds::LINES_SHOWN);
+                    body = body.child(drawn::hunks(faces, &file, drawn::Fit::Thread, None).when(
+                        more > 0,
+                        |d| {
+                            d.child(
+                                div()
+                                    .pl(px(60.))
+                                    .py(px(2.))
+                                    .text_color(theme::quiet())
+                                    .child(format!("… {more} more lines")),
+                            )
+                        },
+                    ));
                 }
                 ToolCallContent::Content(x) => {
                     let text = text_of(&x.content);

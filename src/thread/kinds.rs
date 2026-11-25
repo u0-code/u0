@@ -7,62 +7,84 @@
 
 use std::ops::Range;
 
-/// How many lines of a file written, or of a side of an edit, are shown
-/// before the rest is counted.
-pub const LINES_SHOWN: usize = 12;
+use agent_client_protocol::v1::schema::Diff;
+use similar::{ChangeTag, TextDiff};
 
-/// A line of a diff.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Line {
-    /// The same before and after: context around the change.
-    Same(String),
-    Gone(String),
-    Added(String),
-    /// Lines held back, so many of them.
-    More(usize),
-}
+use crate::git::{self, FileDiff, Hunk, Line};
 
-/// An edit, `old` replaced by `new`, as a diff: the lines both share at
-/// the head and the tail are kept as one line of context each, and what
-/// lies between is what went and what came. An edit replaces one stretch,
-/// so this is the whole of what changed.
-pub fn diff(old: &str, new: &str) -> Vec<Line> {
-    let old: Vec<&str> = old.lines().collect();
-    let new: Vec<&str> = new.lines().collect();
-    let head = old.iter().zip(&new).take_while(|(a, b)| a == b).count();
-    let tail = old[head..]
+/// How many lines of an edit the thread shows before the rest is counted.
+pub const LINES_SHOWN: usize = 24;
+
+/// An edit as git would show it: each stretch that changed, with a line of
+/// context either side, numbered from `start`, the line of the file its
+/// text begins on (one where that is not known).
+pub fn diff(d: &Diff, start: Option<usize>) -> FileDiff {
+    let old = d.old_text.as_deref().unwrap_or("");
+    let at = start.unwrap_or(1);
+    let text = TextDiff::from_lines(old, &d.new_text);
+    let (mut added, mut gone) = (0, 0);
+    let hunks = text
+        .grouped_ops(1)
         .iter()
-        .rev()
-        .zip(new[head..].iter().rev())
-        .take_while(|(a, b)| a == b)
-        .count();
-    let mut out = Vec::new();
-    if head > 0 {
-        out.push(Line::Same(old[head - 1].to_owned()));
+        .map(|group| {
+            let (first, last) = (&group[0], &group[group.len() - 1]);
+            let (o, n) = (first.old_range().start, first.new_range().start);
+            let (o_len, n_len) = (last.old_range().end - o, last.new_range().end - n);
+            let lines = group
+                .iter()
+                .flat_map(|op| text.iter_changes(op))
+                .map(|c| {
+                    let text = c.value().trim_end_matches(['\r', '\n']).to_owned();
+                    let (old, new) = (c.old_index().map(|i| i + at), c.new_index().map(|i| i + at));
+                    match (c.tag(), old, new) {
+                        (ChangeTag::Delete, Some(old), _) => {
+                            gone += 1;
+                            Line::Gone { old, text }
+                        }
+                        (ChangeTag::Insert, _, Some(new)) => {
+                            added += 1;
+                            Line::Added { new, text }
+                        }
+                        (_, old, new) => Line::Same {
+                            old: old.unwrap_or_default(),
+                            new: new.unwrap_or_default(),
+                            text,
+                        },
+                    }
+                })
+                .collect();
+            Hunk {
+                head: format!("@@ -{},{o_len} +{},{n_len} @@", o + at, n + at),
+                lines,
+            }
+        })
+        .collect();
+    FileDiff {
+        path: d.path.display().to_string(),
+        from: None,
+        status: if d.old_text.is_none() {
+            git::Status::Added
+        } else {
+            git::Status::Modified
+        },
+        added,
+        gone,
+        hunks,
+        binary: false,
     }
-    let side = |lines: &[&str], make: fn(String) -> Line, out: &mut Vec<Line>| {
-        for l in lines.iter().take(LINES_SHOWN) {
-            out.push(make((*l).to_owned()));
-        }
-        if lines.len() > LINES_SHOWN {
-            out.push(Line::More(lines.len() - LINES_SHOWN));
-        }
-    };
-    side(&old[head..old.len() - tail], Line::Gone, &mut out);
-    side(&new[head..new.len() - tail], Line::Added, &mut out);
-    if tail > 0 {
-        out.push(Line::Same(old[old.len() - tail].to_owned()));
-    }
-    out
 }
 
-/// How many lines an edit took away and put in.
-pub fn counted(lines: &[Line]) -> (usize, usize) {
-    lines.iter().fold((0, 0), |(gone, added), l| match l {
-        Line::Gone(_) => (gone + 1, added),
-        Line::Added(_) => (gone, added + 1),
-        Line::Same(_) | Line::More(_) => (gone, added),
-    })
+/// The first `n` lines of a diff's hunks, and how many were left out.
+pub fn cut(mut file: FileDiff, n: usize) -> (FileDiff, usize) {
+    let (mut left, mut out) = (n, 0);
+    for h in &mut file.hunks {
+        let keep = h.lines.len().min(left);
+        out += h.lines.len() - keep;
+        h.lines.truncate(keep);
+        left -= keep;
+    }
+    file.hunks.retain(|h| !h.lines.is_empty());
+    (file, out)
 }
 
 /// Where a step of a plan stands.
@@ -105,21 +127,70 @@ mod tests {
 
     use super::*;
 
+    fn edit(old: Option<&str>, new: &str) -> Diff {
+        Diff::new("a.rs", new).old_text(old.map(str::to_owned))
+    }
+
     #[test]
     fn an_edit_shows_what_went_and_what_came_with_a_line_either_side() {
-        let old = "fn a() {\n    1\n}\n";
-        let new = "fn a() {\n    2\n    3\n}\n";
+        let d = edit(Some("fn a() {\n    1\n}\n"), "fn a() {\n    2\n    3\n}\n");
+        let file = diff(&d, Some(10));
         assert_eq!(
-            diff(old, new),
+            file.hunks[0].lines,
             [
-                Line::Same("fn a() {".into()),
-                Line::Gone("    1".into()),
-                Line::Added("    2".into()),
-                Line::Added("    3".into()),
-                Line::Same("}".into()),
+                Line::Same {
+                    old: 10,
+                    new: 10,
+                    text: "fn a() {".into()
+                },
+                Line::Gone {
+                    old: 11,
+                    text: "    1".into()
+                },
+                Line::Added {
+                    new: 11,
+                    text: "    2".into()
+                },
+                Line::Added {
+                    new: 12,
+                    text: "    3".into()
+                },
+                Line::Same {
+                    old: 12,
+                    new: 13,
+                    text: "}".into()
+                },
             ]
         );
-        assert_eq!(counted(&diff(old, new)), (1, 2));
+        assert_eq!((file.gone, file.added), (1, 2));
+    }
+
+    #[test]
+    fn a_long_write_is_counted_whole_though_the_thread_shows_its_head() {
+        let new = (0..300)
+            .map(|i| format!("line {i}\n"))
+            .collect::<Vec<_>>()
+            .concat();
+        let file = diff(&edit(None, &new), None);
+        assert_eq!((file.gone, file.added), (0, 300));
+        let (shown, more) = cut(file, LINES_SHOWN);
+        assert_eq!(shown.hunks[0].lines.len(), LINES_SHOWN);
+        assert_eq!(more, 300 - LINES_SHOWN);
+    }
+
+    #[test]
+    fn two_changes_apart_are_two_hunks() {
+        let old = (0..20)
+            .map(|i| format!("line {i}\n"))
+            .collect::<Vec<_>>()
+            .concat();
+        let new = old
+            .replace("line 2\n", "two\n")
+            .replace("line 17\n", "seventeen\n");
+        let file = diff(&edit(Some(&old), &new), Some(1));
+        assert_eq!(file.hunks.len(), 2);
+        assert_eq!((file.gone, file.added), (2, 2));
+        assert_eq!(file.hunks[1].head, "@@ -17,3 +17,3 @@");
     }
 
     #[test]

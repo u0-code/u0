@@ -1181,9 +1181,7 @@ impl Session {
                 let ToolCallContent::Diff(d) = c else {
                     continue;
                 };
-                let lines =
-                    crate::thread::kinds::diff(d.old_text.as_deref().unwrap_or(""), &d.new_text);
-                let (gone, added) = crate::thread::kinds::counted(&lines);
+                let crate::git::FileDiff { added, gone, .. } = crate::thread::kinds::diff(d, None);
                 match files.iter_mut().find(|f| f.path == d.path) {
                     Some(f) => {
                         f.added += added;

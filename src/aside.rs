@@ -1294,10 +1294,10 @@ impl Desk {
             for c in &t.call.content {
                 if let ToolCallContent::Diff(d) = c {
                     if d.path == path {
-                        let lines = kinds::diff(d.old_text.as_deref().unwrap_or(""), &d.new_text);
                         let start = t.starts.get(n).copied().flatten();
                         body = body.child(
-                            drawn::diff(faces, &lines, start, drawn::Fit::Column).mb(px(8.)),
+                            drawn::hunks(faces, &kinds::diff(d, start), drawn::Fit::Column, None)
+                                .mb(px(8.)),
                         );
                     }
                     n += 1;
