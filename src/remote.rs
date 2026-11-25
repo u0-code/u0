@@ -87,7 +87,10 @@ pub fn command(entry: &Entry, host: &str) -> Option<String> {
 
 /// A shell line that runs `then` in `dir`, whatever `dir` is named.
 pub fn shell_in(dir: &Path, then: &str) -> String {
-    format!("cd {} && {then}", quoted(&dir.to_string_lossy()))
+    format!(
+        "cd {} && {then}",
+        shell_words::quote(&dir.to_string_lossy())
+    )
 }
 
 /// `command` run on `host` in a login shell, so that what is on the PATH
@@ -95,13 +98,8 @@ pub fn shell_in(dir: &Path, then: &str) -> String {
 fn over(host: &str, command: &str) -> String {
     format!(
         "ssh -T {host} {}",
-        quoted(&format!("bash -lc {}", quoted(command)))
+        shell_words::quote(&format!("bash -lc {}", shell_words::quote(command)))
     )
-}
-
-/// `text` as one word to a POSIX shell.
-fn quoted(text: &str) -> String {
-    format!("'{}'", text.replace('\'', r"'\''"))
 }
 
 #[cfg(test)]

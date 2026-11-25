@@ -320,7 +320,9 @@ pub fn launch_with(entry: &Entry, home: &Path, command: Option<&str>) -> Result<
     let Some(line) = command.map(str::trim).filter(|c| !c.is_empty()) else {
         return entry.launch(home);
     };
-    let mut words = words(line).into_iter();
+    let mut words = shell_words::split(line)
+        .map_err(|_| Missing::Command(line.to_owned()))?
+        .into_iter();
     let first = words.next().unwrap_or_default();
     let program = if first.contains('/') {
         Some(PathBuf::from(&first)).filter(|p| p.is_file())
@@ -334,41 +336,6 @@ pub fn launch_with(entry: &Entry, home: &Path, command: Option<&str>) -> Result<
         env: Vec::new(),
         dir: None,
     })
-}
-
-/// A command line split into words as a shell splits it: on spaces, but
-/// not within quotes, nor after a backslash outside them.
-fn words(line: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut word = String::new();
-    let mut quote: Option<char> = None;
-    let mut any = false;
-    let mut chars = line.chars();
-    while let Some(c) = chars.next() {
-        match (quote, c) {
-            (None, '\\') => {
-                word.extend(chars.next());
-                any = true;
-            }
-            (Some(q), c) if c == q => quote = None,
-            (Some(_), c) => word.push(c),
-            (None, '"' | '\'') => {
-                quote = Some(c);
-                any = true;
-            }
-            (None, c) if c.is_whitespace() => {
-                if any || !word.is_empty() {
-                    out.push(std::mem::take(&mut word));
-                }
-                any = false;
-            }
-            (None, c) => word.push(c),
-        }
-    }
-    if any || !word.is_empty() {
-        out.push(word);
-    }
-    out
 }
 
 /// A program by name on the PATH.
@@ -804,16 +771,15 @@ mod tests {
 
     #[test]
     fn a_command_of_yours_is_split_as_a_shell_splits_it_and_must_be_here() {
-        assert_eq!(
-            words(r#"agent --flag "two words" 'x y'"#),
-            ["agent", "--flag", "two words", "x y"]
-        );
-        assert_eq!(words(r"a\ b 'c'\''d'"), ["a b", "c'd"]);
         let e = entry(r#"{"id":"a","name":"A","version":"1","distribution":{}}"#);
         let home = Path::new("/nowhere");
         assert_eq!(
             launch_with(&e, home, Some("no-such-program-here --acp")),
             Err(Missing::Command("no-such-program-here".into()))
+        );
+        assert_eq!(
+            launch_with(&e, home, Some("agent 'unclosed")),
+            Err(Missing::Command("agent 'unclosed".into()))
         );
         let l = launch_with(&e, home, Some("sh -c 'exit 0'")).unwrap();
         assert!(l.program.ends_with("sh"));

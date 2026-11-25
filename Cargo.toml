@@ -25,6 +25,9 @@ unicode-segmentation = "1"
 portable-pty = "0.9"
 vt100 = "0.18"
 vte = "0.15"
+base64 = "0.22"
+unicode-width = "0.2"
+shell-words = "1.1"
 similar = { version = "2.7", default-features = false, features = ["text"] }
 
 # To give the running app its icon in the Dock, and begin dictation: AppKit,

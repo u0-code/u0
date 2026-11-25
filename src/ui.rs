@@ -8,6 +8,7 @@ use gpui::{
     prelude::*, px, svg,
 };
 use unicode_segmentation::UnicodeSegmentation as _;
+use unicode_width::UnicodeWidthStr as _;
 
 use crate::fonts::Weighted as _;
 use crate::{
@@ -385,47 +386,23 @@ pub fn cols(points: f32) -> usize {
 /// cut Chinese inside a character and panic.
 pub fn fit(text: &str, cols: usize) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if width(&flat) <= cols {
+    if flat.width() <= cols {
         return flat;
     }
     let mut out = String::new();
     // The ellipsis takes a column of its own.
     let mut used = 1;
     for g in flat.graphemes(true) {
-        if used + width(g) > cols {
+        if used + g.width() > cols {
             break;
         }
-        used += width(g);
+        used += g.width();
         out.push_str(g);
     }
     // Not a space and then the ellipsis.
     let mut out = out.trim_end().to_owned();
     out.push('…');
     out
-}
-
-/// How many columns `text` takes on one line, a wide character two.
-pub fn width(text: &str) -> usize {
-    text.graphemes(true)
-        .map(|g| if g.chars().any(wide) { 2 } else { 1 })
-        .sum()
-}
-
-/// Whether `c` takes two columns: the East Asian scripts and their
-/// full-width forms, and the emoji.
-fn wide(c: char) -> bool {
-    matches!(
-        c,
-        '\u{1100}'..='\u{115F}'
-            | '\u{2E80}'..='\u{A4CF}'
-            | '\u{AC00}'..='\u{D7A3}'
-            | '\u{F900}'..='\u{FAFF}'
-            | '\u{FE30}'..='\u{FE4F}'
-            | '\u{FF00}'..='\u{FF60}'
-            | '\u{FFE0}'..='\u{FFE6}'
-            | '\u{1F300}'..='\u{1FAFF}'
-            | '\u{20000}'..='\u{3FFFD}'
-    )
 }
 
 /// A box that scrolls sideways, for what is wider than the column it sits
@@ -526,13 +503,6 @@ pub fn ring(share: f32, size: f32) -> impl IntoElement {
 mod tests {
     use super::*;
 
-    /// How many columns `s` takes, as `fit` counts them.
-    fn width(s: &str) -> usize {
-        s.graphemes(true)
-            .map(|g| if g.chars().any(wide) { 2 } else { 1 })
-            .sum()
-    }
-
     #[test]
     fn a_line_too_long_is_cut_with_an_ellipsis_counting_chinese_as_two() {
         assert_eq!(fit("short", 10), "short");
@@ -553,7 +523,7 @@ mod tests {
             "e\u{301}e\u{301}e\u{301}一二",
         ];
         for line in lines {
-            for cols in 0..=width(line) + 2 {
+            for cols in 0..=line.width() + 2 {
                 let cut = fit(line, cols);
                 // Every grapheme of what is kept is one of the line's:
                 // nothing is split, an accent stays on its letter and a
@@ -565,9 +535,9 @@ mod tests {
                     "{line:?} at {cols}: {cut:?}"
                 );
                 assert!(
-                    width(&cut) <= cols.max(1),
+                    cut.width() <= cols.max(1),
                     "{line:?} at {cols}: {cut:?} is {} wide",
-                    width(&cut)
+                    cut.width()
                 );
             }
         }

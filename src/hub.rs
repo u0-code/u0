@@ -1082,13 +1082,12 @@ pub fn in_terminal(
     args: &[String],
     env: &[(String, String)],
 ) -> std::io::Result<()> {
-    let quote = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
     let mut parts: Vec<String> = env
         .iter()
-        .map(|(k, v)| format!("{k}={}", quote(v)))
+        .map(|(k, v)| format!("{k}={}", shell_words::quote(v)))
         .collect();
-    parts.push(quote(&program.to_string_lossy()));
-    parts.extend(args.iter().map(|a| quote(a)));
+    parts.push(shell_words::quote(&program.to_string_lossy()).into_owned());
+    parts.extend(args.iter().map(|a| shell_words::quote(a).into_owned()));
     let line = parts.join(" ");
     let script = format!(
         "tell application \"Terminal\" to do script \"{}\"\ntell application \"Terminal\" to activate",

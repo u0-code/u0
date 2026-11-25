@@ -74,7 +74,7 @@ src/desk/         by subject: kept, lists, projects, mention, gitview, runs,
 src/sidebar.rs, src/thread.rs, src/aside.rs, src/pages.rs   what is drawn
 src/thread/       the thread as a list (lines), folds, cards, the composer, the start,
                   the drawer; drawing helpers: diffs, plans, command output
-src/markdown.rs, src/syntax.rs, src/input.rs, src/ui.rs, src/theme.rs, src/style.rs, src/base64.rs
+src/markdown.rs, src/syntax.rs, src/input.rs, src/ui.rs, src/theme.rs, src/style.rs
 assets/           fonts and the desk's own icons, built into the binary
 ```
 

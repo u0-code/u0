@@ -369,7 +369,10 @@ impl Desk {
             .pictures
             .drain(..)
             .map(|p| {
-                ContentBlock::Image(ImageContent::new(crate::base64::encode(&p.bytes), p.mime))
+                ContentBlock::Image(ImageContent::new(
+                    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &p.bytes),
+                    p.mime,
+                ))
             })
             .collect();
         let Some(s) = self.sessions.iter().find(|s| s.key == key) else {

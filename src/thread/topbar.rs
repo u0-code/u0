@@ -73,7 +73,12 @@ impl Desk {
                     // left: beside them the mark, the state and the buttons.
                     let room = ui::cols(pane - 240.);
                     let shown = ui::fit(&shown, 48.min(room * 3 / 5));
-                    let place = ui::fit(&place, room.saturating_sub(ui::width(&shown) + 2));
+                    let place = ui::fit(
+                        &place,
+                        room.saturating_sub(
+                            unicode_width::UnicodeWidthStr::width(shown.as_str()) + 2,
+                        ),
+                    );
                     // A double click on the title renames it where it is.
                     let key = s.key;
                     let named: gpui::AnyElement = if self.renaming == Some(key)

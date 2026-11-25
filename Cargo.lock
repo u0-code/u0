@@ -1868,6 +1868,7 @@ version = "0.1.0-pre.1"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
+ "base64 0.22.1",
  "cocoa",
  "gpui",
  "libc",
@@ -1875,12 +1876,14 @@ dependencies = [
  "portable-pty",
  "serde",
  "serde_json",
+ "shell-words",
  "similar",
  "tokio",
  "tokio-util",
  "tracing",
  "tracing-subscriber",
  "unicode-segmentation",
+ "unicode-width",
  "vt100",
  "vte",
 ]

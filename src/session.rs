@@ -17,6 +17,10 @@ use agent_client_protocol::v1::schema::{
     SessionUpdate, StopReason, ToolCall, ToolCallContent, ToolCallId, ToolCallStatus,
     ToolCallUpdate, ToolKind, UsageUpdate,
 };
+use base64::{
+    Engine as _, alphabet,
+    engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig},
+};
 use serde_json::Value;
 
 use crate::{git, store};
@@ -418,7 +422,16 @@ fn image_of(block: &ContentBlock) -> Option<std::sync::Arc<gpui::Image>> {
         return None;
     };
     let format = image_format(&image.mime_type)?;
-    let bytes = crate::base64::decode(&image.data)?;
+    // Space is passed over and padding may be left off; an agent that
+    // writes the URL-safe alphabet is read too.
+    let data: String = image.data.split_whitespace().collect();
+    let loose = GeneralPurposeConfig::new()
+        .with_decode_padding_mode(DecodePaddingMode::Indifferent)
+        .with_decode_allow_trailing_bits(true);
+    let bytes = GeneralPurpose::new(&alphabet::STANDARD, loose)
+        .decode(&data)
+        .or_else(|_| GeneralPurpose::new(&alphabet::URL_SAFE, loose).decode(&data))
+        .ok()?;
     Some(std::sync::Arc::new(gpui::Image::from_bytes(format, bytes)))
 }
 
