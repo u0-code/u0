@@ -239,6 +239,10 @@ pub struct Desk {
     pub commenting: Option<(PathBuf, usize)>,
     pub comment: Entity<TextInput>,
     pub comments: Vec<(PathBuf, usize, String)>,
+    /// The folders folded in the review's list of files.
+    pub folded: std::collections::HashSet<String>,
+    /// Test files are left out of the review's list.
+    pub no_tests: bool,
     /// On an agent's page: the command of yours that starts it, a model id
     /// to add.
     pub agent_command: Entity<TextInput>,
@@ -699,6 +703,8 @@ impl Desk {
             commenting: None,
             comment,
             comments: Vec::new(),
+            folded: std::collections::HashSet::new(),
+            no_tests: false,
             drawer: false,
             term_focus: cx.focus_handle(),
             term_on: None,

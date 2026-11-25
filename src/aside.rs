@@ -242,7 +242,67 @@ impl Desk {
             .py(px(8.))
             .border_r_1()
             .border_color(theme::border());
-        for (n, f) in files.iter().enumerate() {
+        // By folder, as git names them, each folder once above its files.
+        let mut shown: Vec<&crate::git::FileDiff> = files
+            .iter()
+            .filter(|f| !(self.no_tests && is_test(&f.path)))
+            .collect();
+        shown.sort_by(|a, b| {
+            folder_of(&a.path)
+                .cmp(folder_of(&b.path))
+                .then(a.path.cmp(&b.path))
+        });
+        let folders: Vec<&str> = {
+            let mut all: Vec<&str> = shown.iter().map(|f| folder_of(&f.path)).collect();
+            all.dedup();
+            all
+        };
+        let mut last = None;
+        for (n, f) in shown.iter().enumerate() {
+            let dir = folder_of(&f.path);
+            if !dir.is_empty() && last != Some(dir) {
+                let folded = self.folded.contains(dir);
+                let named = dir.to_owned();
+                rail = rail.child(
+                    div()
+                        .id(SharedString::from(format!("dir-{n}")))
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .h(px(24.))
+                        .px(px(6.))
+                        .rounded(px(6.))
+                        .cursor_pointer()
+                        .hover(|st| st.bg(theme::hover()))
+                        .tooltip(ui::tip(dir.to_owned()))
+                        .child(
+                            ui::icon(
+                                if folded {
+                                    "chevron-right"
+                                } else {
+                                    "chevron-down"
+                                },
+                                12.,
+                            )
+                            .text_color(theme::faint()),
+                        )
+                        .child(ui::one_line(
+                            ui::mono(faces, ui::fit(dir, 20))
+                                .text_size(px(11.5))
+                                .text_color(theme::faint()),
+                        ))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if !this.folded.remove(&named) {
+                                this.folded.insert(named.clone());
+                            }
+                            cx.notify();
+                        })),
+                );
+            }
+            last = Some(dir);
+            if self.folded.contains(dir) {
+                continue;
+            }
             let at = std::path::PathBuf::from(&f.path);
             let on = same_file(&f.path, path, &s.folder);
             let name = at
@@ -256,6 +316,7 @@ impl Desk {
                     .gap(px(8.))
                     .h(px(28.))
                     .px(px(10.))
+                    .when(!dir.is_empty(), |d| d.pl(px(18.)))
                     .rounded(px(7.))
                     .cursor_pointer()
                     .when(on, |d| d.bg(theme::hover()))
@@ -320,7 +381,57 @@ impl Desk {
             );
         }
         let said = self.comments.len();
-        rail = rail.child(div().px(px(10.)).pt(px(10.)).child(fine(
+        let tests = files.iter().filter(|f| is_test(&f.path)).count();
+        let all_folded = folders
+            .iter()
+            .all(|d| d.is_empty() || self.folded.contains(*d));
+        let mut ways = div().flex().flex_wrap().gap(px(2.)).px(px(4.)).pt(px(8.));
+        if folders.iter().any(|d| !d.is_empty()) {
+            let dirs: Vec<String> = folders
+                .iter()
+                .filter(|d| !d.is_empty())
+                .map(|d| (*d).to_owned())
+                .collect();
+            ways = ways.child(
+                ui::button(
+                    faces,
+                    "fold-all",
+                    if all_folded { "Unfold all" } else { "Fold all" },
+                    Weight::Quiet,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if all_folded {
+                        this.folded.clear();
+                    } else {
+                        this.folded.extend(dirs.iter().cloned());
+                    }
+                    cx.notify();
+                })),
+            );
+        }
+        if tests > 0 {
+            ways = ways.child(
+                ui::button(
+                    faces,
+                    "no-tests",
+                    if self.no_tests {
+                        format!(
+                            "Show {tests} test file{}",
+                            if tests == 1 { "" } else { "s" }
+                        )
+                    } else {
+                        "Hide test files".to_owned()
+                    },
+                    Weight::Quiet,
+                )
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.no_tests = !this.no_tests;
+                    cx.notify();
+                })),
+            );
+        }
+        rail = rail.child(ways);
+        rail = rail.child(div().px(px(10.)).pt(px(6.)).child(fine(
             faces,
             format!(
                 "{} file{}{}{}",
@@ -1189,6 +1300,27 @@ fn git_button(
 /// Whether git's `named` (from the repository's top) is the file at
 /// `path`, which the agent often gives whole, in a session working in
 /// `folder`.
+/// The folder git names a file in, with its slash; none at the top.
+fn folder_of(path: &str) -> &str {
+    path.rfind('/').map_or("", |at| &path[..=at])
+}
+
+/// Whether a file is a test's, by the names the common languages give
+/// them: in a folder of tests, or named for one.
+fn is_test(path: &str) -> bool {
+    let mut parts = path.split('/').rev();
+    let name = parts.next().unwrap_or_default();
+    let stem = name.split('.').next().unwrap_or_default();
+    parts.any(|d| matches!(d, "test" | "tests" | "__tests__" | "spec" | "fixtures"))
+        || name.contains(".test.")
+        || name.contains(".spec.")
+        || stem.starts_with("test_")
+        || stem.ends_with("_test")
+        || stem.ends_with("_spec")
+        || stem.ends_with("Test")
+        || stem.ends_with("Tests")
+}
+
 fn same_file(named: &str, path: &std::path::Path, folder: &std::path::Path) -> bool {
     std::path::Path::new(named) == path || (path.starts_with(folder) && path.ends_with(named))
 }
@@ -1197,7 +1329,27 @@ fn same_file(named: &str, path: &std::path::Path, folder: &std::path::Path) -> b
 mod tests {
     use std::path::Path;
 
-    use super::same_file;
+    use super::{folder_of, is_test, same_file};
+
+    #[test]
+    fn test_files_are_known_by_their_folder_or_name() {
+        for named in [
+            "tests/hub.rs",
+            "src/__tests__/a.tsx",
+            "web/a.test.ts",
+            "web/a.spec.js",
+            "py/test_store.py",
+            "go/store_test.go",
+            "App/StoreTests.swift",
+        ] {
+            assert!(is_test(named), "{named}");
+        }
+        for named in ["src/hub.rs", "src/testing.md", "contest/a.rs", "README.md"] {
+            assert!(!is_test(named), "{named}");
+        }
+        assert_eq!(folder_of("src/desk/lists.rs"), "src/desk/");
+        assert_eq!(folder_of("Cargo.toml"), "");
+    }
 
     #[test]
     fn a_file_git_names_from_the_top_is_the_one_the_agent_names_whole() {
