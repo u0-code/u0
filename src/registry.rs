@@ -7,16 +7,16 @@
 //! `npx` or `uvx` runs. The desk keeps the last copy it read in its home,
 //! and reads a new one when asked or when it has none.
 //!
-//! An archive is downloaded, checked against the digest the registry gives,
-//! and unpacked under `<home>/agents/<id>/<version>/`; a newer version goes
+//! An archive is downloaded and unpacked under `<home>/agents/<id>/<version>/`; a newer version goes
 //! beside it, so an agent is never half replaced, and the one before runs
 //! until the newer is in place, which then removes it. A package is
 //! installed there the same way, with npm or uv, so that what it depends on
 //! (an agent's own CLI, such as Codex's) is the newest it allows as it is
-//! installed, not what a runner's cache once fetched. The desk keeps each
-//! one current (`Desk::keep_current`). The downloading, checking and
-//! unpacking is done by `curl`, `shasum`, `unzip` and `tar`, which macOS
-//! and Linux have.
+//! installed, not what a runner's cache once fetched. What is installed
+//! runs; the registry's newest is installed only when an agent is not
+//! here, or fails as an older version (`Desk::install_due`). The
+//! downloading and unpacking is done by `curl`, `unzip` and `tar`, which
+//! macOS and Linux have.
 
 use std::{
     collections::BTreeMap,
@@ -74,8 +74,6 @@ pub struct Binary {
     pub args: Vec<String>,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
-    #[serde(default)]
-    pub sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -236,12 +234,6 @@ impl Entry {
                 p.metadata()
                     .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
             })
-    }
-
-    /// When what is installed here was installed.
-    pub fn installed_at(&self, home: &Path) -> Option<std::time::SystemTime> {
-        let dir = self.dir_of(home, &self.installed(home)?);
-        std::fs::metadata(dir).and_then(|m| m.modified()).ok()
     }
 
     /// Take its archives off this machine.
@@ -537,19 +529,6 @@ pub fn install(entry: &Entry, home: &Path, say: Say, stop: &AtomicBool) -> Resul
     if let Err(e) = download(&b.archive, &archive, say, stop) {
         let _ = std::fs::remove_dir_all(&staging);
         return Err(e);
-    }
-
-    if let Some(want) = &b.sha256 {
-        say("Checking the download", None);
-        let out = run(Command::new("shasum").args(["-a", "256"]).arg(&archive))?;
-        let got = String::from_utf8_lossy(&out);
-        let got = got.split_whitespace().next().unwrap_or_default();
-        if !got.eq_ignore_ascii_case(want) {
-            let _ = std::fs::remove_dir_all(&staging);
-            return Err(format!(
-                "the download does not match the registry's digest (got {got}); nothing was installed"
-            ));
-        }
     }
 
     say("Unpacking", None);

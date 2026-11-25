@@ -646,7 +646,7 @@ impl Desk {
                         this.release_idle(cx);
                         this.send_due(cx);
                         this.poll_prs();
-                        this.check_agents();
+                        this.check_agents(cx);
                     })
                     .is_err()
                 {

@@ -28,7 +28,7 @@ folder and a task, and follow it the way you would in its own app.
 |---|---|
 | **Projects down the left** | Each project is a folder, with its sessions under it, whichever agent each one is with. Start a session in a project with the agent you choose. |
 | **Your agents beside them** | Switch on the ones you use. Each shows its logo and whether it is ready. |
-| **Installs what is missing** | Click an agent that is not on this machine and install it there: its release is downloaded, checked against the published digest, and kept in Ghost's home; one published as an npm or Python package is installed there with npm or uv. Each is kept at the registry's newest, updated while it is idle. |
+| **Installs what is missing** | Click an agent that is not on this machine and install it there: its release is downloaded and kept in Ghost's home; one published as an npm or Python package is installed there with npm or uv. What is installed runs as it is; the registry's newest is installed when an agent is missing, or fails as an older version. |
 | **One thread for every agent** | What you said, what the agent said, each tool call as a row that opens to its diff or its output, the questions it asks before it acts, its plan. The same rendering whichever agent it is. |
 | **Their own harness, untouched** | Each agent runs as its own program, with its own tools, its own sign-in and its own sessions. Ghost offers it no file system or terminal of its own, so it works exactly as it would in its CLI. |
 | **Their own choices under your hand** | The agent's modes (read-only, ask first, auto), its models and how hard it thinks, as the agent itself lists them. |

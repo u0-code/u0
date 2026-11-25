@@ -77,11 +77,12 @@ impl Desk {
 
     /// Every five minutes, look again at the agents not running: one now
     /// installed (or its command now here) is started; one that stopped is
-    /// tried again. Every hour, read the registry again, and keep each
-    /// agent current with it.
-    pub(crate) fn check_agents(&mut self) {
+    /// tried again, updated first if it is behind. Every hour, read the
+    /// registry again.
+    pub(crate) fn check_agents(&mut self, cx: &mut Context<Self>) {
         self.health_tick += 1;
         if self.health_tick.is_multiple_of(5) {
+            self.install_due(cx);
             let home = self.home.clone();
             for slot in &mut self.slots {
                 if matches!(slot.stage, Stage::Missing(_) | Stage::Failed(_)) {
@@ -96,37 +97,29 @@ impl Desk {
         }
     }
 
-    /// Install each agent switched on that is not installed yet, or not at
-    /// the registry's version, and (a package) one installed a day ago or
-    /// more, so that what it depends on, its own CLI, is the newest it
-    /// allows: as the registry is read, while nothing goes on in its
-    /// sessions. One running is let go first and starts again installed;
-    /// its sessions resume when written in.
-    pub(crate) fn keep_current(&mut self, cx: &mut Context<Self>) {
-        const DAY: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
+    /// Install the registry's newest of each agent switched on that is not
+    /// here, or that failed as an older version: what is here runs as it
+    /// is, and is updated only when it does not work. One you start with a
+    /// command of yours, or on another machine, is left as it is.
+    pub(crate) fn install_due(&mut self, cx: &mut Context<Self>) {
         let due: Vec<String> = self
             .slots
             .iter()
             .filter(|s| crate::remote::split(&s.entry.id).1.is_none() && s.command.is_none())
-            .filter(|s| !matches!(s.stage, Stage::Installing(_) | Stage::Starting))
             .filter(|s| {
                 let e = &s.entry;
-                let installed = e.installed(&self.home);
-                match e.way() {
-                    crate::registry::Way::None => false,
-                    _ if installed.as_deref() != Some(e.version.as_str()) => true,
-                    crate::registry::Way::Archive => false,
-                    crate::registry::Way::Runner { .. } => e
-                        .installed_at(&self.home)
-                        .and_then(|t| t.elapsed().ok())
-                        .is_none_or(|age| age >= DAY),
+                match (&s.stage, e.installed(&self.home)) {
+                    _ if e.way() == crate::registry::Way::None => false,
+                    (Stage::Missing(crate::registry::Missing::Download), None) => true,
+                    (Stage::Failed(_), Some(v)) => v != e.version,
+                    _ => false,
                 }
             })
             .filter(|slot| !self.agent_busy(&slot.entry.id))
             .map(|s| s.entry.id.clone())
             .collect();
         for id in due {
-            tracing::info!("{id} is installed again, to be current");
+            tracing::info!("{id} is installed at the registry's newest");
             self.install(&id, cx);
         }
     }

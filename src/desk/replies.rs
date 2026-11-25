@@ -167,7 +167,7 @@ impl Desk {
                     }
                 }
                 self.fill_slots();
-                self.keep_current(cx);
+                self.install_due(cx);
             }
             Msg::Registry(Err(why)) => self.registry_trouble = Some(why),
             Msg::Installing { agent, what, share } => {
@@ -204,7 +204,10 @@ impl Desk {
                 }
                 self.start_ready();
             }
-            Msg::Started { agent, result } => self.started(&agent, result),
+            Msg::Started { agent, result } => {
+                self.started(&agent, result);
+                self.install_due(cx);
+            }
             Msg::Opened { key, result } => self.opened(key, result),
             Msg::Listed { agent, result } => self.listed(&agent, result),
             Msg::Probed { agent, result } => self.probed(&agent, result),
