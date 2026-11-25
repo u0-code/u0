@@ -345,9 +345,11 @@ impl Desk {
         } else if s.turns.is_empty() && s.repo && !removed {
             hub::uncommitted(s.meta.folder.clone(), key, no_spacing, tx);
         }
+        // Its worktree removed, it is not kept from now on.
+        let unkept =
+            (removed.then(|| s.meta.id.take()).flatten()).map(|id| (s.meta.agent.clone(), id));
         if removed {
             s.meta.worktree = None;
-            s.meta.id = None;
             s.state =
                 State::Broken("Its worktree was removed. Start a new session to go on.".into());
         }
@@ -355,6 +357,9 @@ impl Desk {
         if matches!(action, hub::GitAction::Init) {
             let project = s.meta.project.clone();
             self.held.remove(&project);
+        }
+        if let Some((agent, id)) = unkept {
+            self.unkeep(agent, id, false);
         }
         match result {
             Ok(text) if text.starts_with("https://") => {

@@ -48,7 +48,7 @@ impl Composer {
             .detach();
         cx.subscribe(&input, |this, _, Stashed(text), cx| {
             this.composer.stashed.push(text.clone());
-            this.save_index();
+            this.save_stash();
             this.done(
                 "Put aside: take it back from the stack under the line",
                 None,

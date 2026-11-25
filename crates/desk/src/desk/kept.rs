@@ -1,14 +1,16 @@
-//! What the desk keeps of its sessions between runs: the index read as the
-//! window opens, each session's record written as it goes and read back
-//! when it is opened. See `store`.
+//! What the desk keeps of its sessions between runs, through the server,
+//! which writes it: the index sent as the window opens, each session's
+//! record sent as it goes and read back when it is opened. See `store`.
 
+use agent_client_protocol::v1::schema::SessionId;
 use gpui::Context;
 
 use super::Desk;
 use crate::{
+    proto::Call,
     session::{Session, State},
     sessions::Read,
-    store::{self, Index, Job},
+    store::{self, Index},
 };
 
 impl Desk {
@@ -20,14 +22,16 @@ impl Desk {
                 self.composer.stashed = index.stashed;
                 for meta in index.sessions {
                     let key = self.sessions.take_key();
+                    if let Some(id) = &meta.id {
+                        self.kept
+                            .insert((meta.agent.clone(), id.clone()), meta.clone());
+                    }
                     self.sessions.all.push(Session::stored(key, meta));
                     self.subagents_back(key);
                 }
+                self.settle_idle();
             }
-            Err(why) => {
-                tracing::warn!("{why}");
-                self.store_refused = Some(why);
-            }
+            Err(why) => self.store_refused = Some(why),
         }
     }
 
@@ -81,33 +85,47 @@ impl Desk {
         }
     }
 
-    /// Write the index of the sessions the agents have, off the window's
-    /// thread.
-    pub(crate) fn save_index(&self) {
+    /// Send the server each session's meta that is not as it has it.
+    pub(crate) fn save_index(&mut self) {
         if self.store_refused.is_some() {
             return;
         }
-        let index = Index {
-            sessions: self
-                .sessions
-                .all
-                .iter()
-                .filter_map(Session::kept)
-                .cloned()
-                .collect(),
-            gone: self.gone.clone(),
-            stashed: self.composer.stashed.clone(),
-        };
-        store::queue(Job::Write(
-            store::index_path(&self.home),
-            store::bytes(&index),
-        ));
+        let mut changed = Vec::new();
+        for meta in self.sessions.all.iter().filter_map(Session::kept) {
+            let id = meta.id.clone().expect("a kept session has an id");
+            let at = (meta.agent.clone(), id);
+            if self.kept.get(&at) != Some(meta) {
+                self.kept.insert(at, meta.clone());
+                changed.push(meta.clone());
+            }
+        }
+        if !changed.is_empty() {
+            self.transport.send(Call::Keep(changed));
+        }
     }
 
-    /// Write what happened in the session `key` since its record was last
-    /// written; a session its agent has not named yet keeps it until then.
+    /// Have the server forget the session `id` of `agent`, and its record;
+    /// `keep_out`: its agent keeps it, and its list is not to bring it back.
+    pub(crate) fn unkeep(&mut self, agent: String, id: SessionId, keep_out: bool) {
+        self.kept.remove(&(agent.clone(), id.clone()));
+        self.transport.send(Call::Forget {
+            agent,
+            id,
+            keep_out,
+        });
+    }
+
+    /// Send the server what you put aside from the composer.
+    pub(crate) fn save_stash(&self) {
+        if self.store_refused.is_none() {
+            self.transport
+                .send(Call::Stash(self.composer.stashed.clone()));
+        }
+    }
+
+    /// Send what happened in the session `key` since its record was last
+    /// sent; a session its agent has not named yet keeps it until then.
     pub(crate) fn flush(&mut self, key: u64) {
-        let home = self.home.clone();
         let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
@@ -117,10 +135,8 @@ impl Desk {
         }
         let events = std::mem::take(&mut s.log);
         s.recorded = true;
-        store::queue(Job::Append(
-            store::record_path(&home, &s.meta.agent, &id.0),
-            events,
-        ));
+        let agent = s.meta.agent.clone();
+        self.transport.send(Call::Append { agent, id, events });
     }
 
     /// Write every record and the index, and wait until they are written:
@@ -142,22 +158,21 @@ impl Desk {
             let _ = tunnel.kill();
         }
         self.save_index();
-        store::settle();
+        crate::hub::Transport::settle();
     }
 
-    /// Read back the record of the closed session `key`, off the window's
-    /// thread (see `record_read`).
+    /// Ask the server for the record of the closed session `key` (see
+    /// `record_read`).
     pub(crate) fn read_record(&mut self, key: u64) {
-        let (home, tx) = (self.home.clone(), self.tx.clone());
         let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
-        match &s.meta.id {
+        match s.meta.id.clone() {
             Some(id) => {
-                let path = store::record_path(&home, &s.meta.agent, &id.0);
                 // Taken to have one until it is read, so it is read once.
                 s.recorded = true;
-                crate::hub::read_record(path, key, tx);
+                let agent = s.meta.agent.clone();
+                self.transport.send(Call::Read { key, agent, id });
             }
             None => self.open_unrecorded(key),
         }
@@ -171,14 +186,26 @@ impl Desk {
         let probe = (self.slots.iter())
             .find(|slot| Some(&slot.entry.id) == agent)
             .and_then(|slot| slot.probe.as_ref());
-        match self.sessions.read_back(key, events, probe, &self.home) {
+        match self.sessions.read_back(key, events, probe) {
             Read::Replayed => {
                 self.place(key);
                 // A record from before its index named its subagents names them.
                 self.subagents_back(key);
             }
-            Read::Unrecorded => self.open_unrecorded(key),
+            // One cut short is dropped: the agent has the rest.
+            Read::Unrecorded => {
+                self.drop_record(key);
+                self.open_unrecorded(key);
+            }
             Read::Left => {}
+        }
+    }
+
+    /// Drop the record of the session `key`: it is loaded from its agent
+    /// again, and written afresh as it comes.
+    pub(crate) fn drop_record(&mut self, key: u64) {
+        if let Some(call) = self.sessions.drop_record(key) {
+            self.transport.send(call);
         }
     }
 

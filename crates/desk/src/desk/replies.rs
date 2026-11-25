@@ -233,11 +233,6 @@ impl Desk {
             }
             Msg::Sizes(sizes) => self.pages.sizes = sizes,
             Msg::Tidied(said) => self.pages.tidied = Some(said),
-            Msg::Found { query, keys } => {
-                if self.search.open && self.search.input.read(cx).text().to_lowercase() == query {
-                    self.search.found = keys.into_iter().collect();
-                }
-            }
             Msg::Looked {
                 key,
                 folder,
@@ -264,7 +259,6 @@ impl Desk {
                     }
                 }
             }
-            Msg::Record { key, events } => self.record_read(key, events),
             Msg::Uncommitted { key, result } => {
                 if let Some(s) = self.sessions.at_mut(key)
                     && s.turns.is_empty()
@@ -381,7 +375,7 @@ impl Desk {
             }
             Event::Here(here) => self.here = here,
             Event::Deleted { key, result } => match result {
-                Ok(()) => self.forget_session(key, cx),
+                Ok(()) => self.forget_session(key, false, cx),
                 Err(why) => {
                     let title = self
                         .sessions
@@ -454,6 +448,13 @@ impl Desk {
             Event::Options { key, options } => {
                 if let Some(s) = self.sessions.at_mut(key) {
                     s.options = options;
+                }
+            }
+            Event::Index(index) => self.keep_from(index),
+            Event::Record { key, events } => self.record_read(key, events),
+            Event::Found { query, keys } => {
+                if self.search.open && self.search.input.read(cx).text().to_lowercase() == query {
+                    self.search.found = keys.into_iter().collect();
                 }
             }
             Event::Refused { key, why } => {
@@ -651,7 +652,7 @@ impl Desk {
         resumed: bool,
         result: Result<crate::proto::Opened, crate::acp::Error>,
     ) {
-        match self.sessions.loaded(key, resumed, result, &self.home) {
+        match self.sessions.loaded(key, resumed, result) {
             Loaded::Open(said) => {
                 if let Some(text) = said {
                     self.begin_turn(key, text);
@@ -661,6 +662,7 @@ impl Desk {
                 self.save_index();
             }
             Loaded::Refused => {
+                self.drop_record(key);
                 if let Some(agent) = self.sessions.at(key).map(|s| s.meta.agent.clone()) {
                     self.open_when_running(&agent, key);
                 }

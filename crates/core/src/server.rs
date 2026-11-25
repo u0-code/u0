@@ -5,6 +5,10 @@
 //! [`Event`]. What an agent says on its own is sent the same way, in order
 //! with the answers. The desk names an agent by its id and never holds its
 //! connection: what it asks comes in as a [`Call`], to [`Server::handle`].
+//!
+//! The server is also the one writer of what Ghost keeps of sessions
+//! (`store`): the index, changed by the metas the desk sends, and each
+//! session's record.
 
 use std::{
     collections::{BTreeMap, HashMap},
@@ -30,6 +34,8 @@ use crate::{
     git,
     proto::{Call, Event, Here, Opened},
     registry::{self, Entry},
+    session::Session,
+    store::{self, Index, Job, Meta},
 };
 
 /// Where what the server says goes.
@@ -44,6 +50,9 @@ pub struct Server {
     agents: Running,
     /// The switch that stops each agent's install going on.
     installs: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    /// The index of the sessions kept, or why it does not read: then
+    /// nothing is saved over it.
+    index: Mutex<Result<Index, String>>,
 }
 
 /// How many pages of a project's sessions are read from an agent at most:
@@ -54,12 +63,22 @@ impl Server {
     /// A server for Ghost's home `home`, saying what it has to say to
     /// `send`.
     pub fn new(home: PathBuf, send: impl Fn(Event) + std::marker::Send + Sync + 'static) -> Self {
+        let index = store::load(&home);
+        if let Err(why) = &index {
+            tracing::warn!("{why}");
+        }
         Self {
             home,
             send: Arc::new(send),
             agents: Running::default(),
             installs: Mutex::default(),
+            index: Mutex::new(index),
         }
+    }
+
+    /// Wait until what was asked to be written is written: as Ghost quits.
+    pub fn settle() {
+        store::settle();
     }
 
     /// Do what `call` asks.
@@ -139,6 +158,94 @@ impl Server {
             Call::Weigh => self.weigh(),
             Call::Here { agents } => self.here(agents),
             Call::CliVersion { cli } => self.cli_version(cli),
+            Call::Watch => {
+                let index = self.index.lock().expect("index").clone();
+                (self.send)(Event::Index(index));
+            }
+            Call::Keep(metas) => self.change_index(|index| {
+                for meta in metas {
+                    match index.sessions.iter_mut().find(|m| same(m, &meta)) {
+                        Some(m) => *m = meta,
+                        None => index.sessions.push(meta),
+                    }
+                }
+            }),
+            Call::Forget {
+                agent,
+                id,
+                keep_out,
+            } => {
+                self.change_index(|index| {
+                    index
+                        .sessions
+                        .retain(|m| m.agent != agent || m.id.as_ref() != Some(&id));
+                    if keep_out {
+                        index.gone.push((agent.clone(), id.0.to_string()));
+                    }
+                });
+                store::queue(Job::Remove(self.record(&agent, &id)));
+            }
+            Call::Stash(stashed) => self.change_index(|index| index.stashed = stashed),
+            Call::Append { agent, id, events } => {
+                store::queue(Job::Append(self.record(&agent, &id), events));
+            }
+            Call::DropRecord { agent, id } => store::queue(Job::Remove(self.record(&agent, &id))),
+            Call::Read { key, agent, id } => {
+                let (path, send) = (self.record(&agent, &id), self.send.clone());
+                store::queue(Job::Then(Box::new(move || {
+                    send(Event::Record {
+                        key,
+                        events: store::read(&path),
+                    });
+                })));
+            }
+            Call::CopyRecord {
+                agent,
+                from,
+                to,
+                yours,
+            } => {
+                let (from, to) = (self.record(&agent, &from), self.record(&agent, &to));
+                // After what is being written to it; and before anything
+                // else is written to the branch.
+                store::queue(Job::Then(Box::new(move || {
+                    let events =
+                        Session::record_before(store::read(&from).unwrap_or_default(), yours);
+                    if let Err(e) = store::append(&to, &events) {
+                        tracing::warn!("a branch's record could not be written: {e}");
+                    }
+                })));
+            }
+            Call::Search { query, records } => {
+                let home = self.home.clone();
+                self.off(move || Event::Found {
+                    keys: (records.into_iter())
+                        .filter(|(_, agent, id)| {
+                            std::fs::read_to_string(store::record_path(&home, agent, &id.0))
+                                .is_ok_and(|t| t.to_lowercase().contains(&query))
+                        })
+                        .map(|(key, ..)| key)
+                        .collect(),
+                    query,
+                });
+            }
+        }
+    }
+
+    /// Where the record of the session `id` of `agent` is.
+    fn record(&self, agent: &str, id: &SessionId) -> PathBuf {
+        store::record_path(&self.home, agent, &id.0)
+    }
+
+    /// Change the index by `change` and write it, unless it did not read.
+    fn change_index(&self, change: impl FnOnce(&mut Index)) {
+        let mut index = self.index.lock().expect("index");
+        if let Ok(index) = &mut *index {
+            change(index);
+            store::queue(Job::Write(
+                store::index_path(&self.home),
+                store::bytes(index),
+            ));
         }
     }
 
@@ -630,5 +737,109 @@ impl Server {
                 .unwrap_or_default();
             Event::CliVersion { cli, version }
         });
+    }
+}
+
+/// Whether `a` and `b` are the same session: of one agent, by one id.
+fn same(a: &Meta, b: &Meta) -> bool {
+    a.agent == b.agent && a.id == b.id
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+
+    use agent_client_protocol::v1::schema::StopReason;
+
+    use super::*;
+
+    /// A server for `home`, and what it says.
+    fn server(home: &std::path::Path) -> (Server, mpsc::Receiver<Event>) {
+        let (tx, rx) = mpsc::channel();
+        let server = Server::new(home.to_path_buf(), move |e| {
+            let _ = tx.send(e);
+        });
+        (server, rx)
+    }
+
+    fn meta(id: &str, title: &str) -> Meta {
+        serde_json::from_value(serde_json::json!({
+            "agent": "a", "id": id, "project": "/p", "folder": "/p",
+            "title": title, "begun": 5, "updated": 7,
+        }))
+        .unwrap()
+    }
+
+    /// The record of the session `id` of `a`, as the server reads it back.
+    fn read(server: &Server, rx: &mpsc::Receiver<Event>, id: &str) -> Option<Vec<store::Event>> {
+        server.handle(Call::Read {
+            key: 9,
+            agent: "a".into(),
+            id: SessionId::new(id),
+        });
+        match rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap() {
+            Event::Record { key: 9, events } => events,
+            other => panic!("not a record: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_server_writes_the_index_by_the_metas_sent_and_each_record() {
+        let home = tempfile::tempdir().unwrap();
+        let (server, rx) = server(home.path());
+        server.handle(Call::Watch);
+        assert!(matches!(rx.recv().unwrap(), Event::Index(Ok(i)) if i.sessions.is_empty()));
+        server.handle(Call::Keep(vec![meta("s1", "first"), meta("s2", "other")]));
+        server.handle(Call::Keep(vec![meta("s1", "renamed")]));
+        server.handle(Call::Stash(vec!["later".into()]));
+        let ended = store::Event::Ended {
+            reason: StopReason::EndTurn,
+            secs: 1,
+        };
+        server.handle(Call::Append {
+            agent: "a".into(),
+            id: SessionId::new("s1"),
+            events: vec![store::Event::You("go".into()), ended],
+        });
+        server.handle(Call::Append {
+            agent: "a".into(),
+            id: SessionId::new("s1"),
+            events: vec![store::Event::You("again".into())],
+        });
+        // A branch before the second message has only the first.
+        server.handle(Call::CopyRecord {
+            agent: "a".into(),
+            from: SessionId::new("s1"),
+            to: SessionId::new("s3"),
+            yours: 1,
+        });
+        assert_eq!(read(&server, &rx, "s1").unwrap().len(), 3);
+        let branch = read(&server, &rx, "s3").unwrap();
+        assert!(matches!(&branch[..], [store::Event::You(t), _] if t == "go"));
+        server.handle(Call::Forget {
+            agent: "a".into(),
+            id: SessionId::new("s1"),
+            keep_out: true,
+        });
+        assert!(read(&server, &rx, "s1").is_none());
+        let index = store::load(home.path()).unwrap();
+        let titles: Vec<&str> = index.sessions.iter().map(|m| m.title.as_str()).collect();
+        assert_eq!(titles, ["other"]);
+        assert_eq!(index.gone, [("a".to_owned(), "s1".to_owned())]);
+        assert_eq!(index.stashed, ["later"]);
+    }
+
+    #[test]
+    fn an_index_that_does_not_read_is_said_so_and_never_written_over() {
+        let home = tempfile::tempdir().unwrap();
+        let path = store::index_path(home.path());
+        std::fs::write(&path, r#"{"threads":[]}"#).unwrap();
+        let (server, rx) = server(home.path());
+        server.handle(Call::Watch);
+        let said = rx.recv().unwrap();
+        assert!(matches!(said, Event::Index(Err(why)) if why.contains("Move it away")));
+        server.handle(Call::Keep(vec![meta("s1", "first")]));
+        Server::settle();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), r#"{"threads":[]}"#);
     }
 }

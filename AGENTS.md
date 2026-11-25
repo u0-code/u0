@@ -67,14 +67,15 @@ core's `git` there too.
 crates/core/src/
   acp.rs        one agent process and its SDK connection; the ACP runtime
   registry.rs   the ACP registry, installing an agent, starting one
-  server.rs     the agents running, held by id; each Call handled, answered as Events
+  server.rs     the agents running, held by id; the store's one writer; each Call
+                handled, answered as Events
   proto.rs      the Ghost protocol: Call (desk to server), Event (server to desk)
   remote.rs     projects on another machine; their agents over SSH
   pty.rs        a shell in a pseudo-terminal: its process, input and size
   session.rs    a session: its thread built from session/update; its turns' checkpoints
   git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR
   settings.rs   ~/.ghost/settings.json and the home
-  store.rs      sessions.json and each session's record; the one writer
+  store.rs      sessions.json and each session's record; the writer thread
   whole.rs      a file written whole; a JSON file read back
   tidy.rs       what Ghost keeps here, measured and tidied
   path.rs       the PATH your shell sets up, for an app opened from the Dock
@@ -130,6 +131,10 @@ assets/         fonts and the desk's own icons, built into the app
   (`transcripts/<agent>/<id>.jsonl`), so the list and a thread show at
   once. A session with a record is resumed (`session/resume`); one
   without is loaded (`session/load`), and recorded as it comes.
+- The server writes `sessions.json` and the records, and nothing else
+  does: the desk reads the index once (`Call::Watch`), sends each meta
+  that changed (`Call::Keep`) and each record's new lines
+  (`Call::Append`), and asks for a record back (`Call::Read`).
 - In a repository Ghost writes commits no branch points at, under
   `refs/ghost/checkpoints/<session>/`, and worktrees under
   `~/.ghost/worktrees/`. It never changes your index or branch except when

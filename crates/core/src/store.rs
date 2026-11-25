@@ -12,6 +12,8 @@
 //! agent sent, where each turn ended. Read back in order it builds the
 //! same thread. With a record, the agent's session is resumed, not loaded,
 //! so nothing comes twice.
+//!
+//! The server (`server`) is what writes both, through [`queue`].
 
 use std::{
     io::{Read as _, Seek as _, Write as _},

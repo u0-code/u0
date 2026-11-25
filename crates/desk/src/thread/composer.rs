@@ -1062,7 +1062,7 @@ impl Desk {
                                     cx.stop_propagation();
                                     if n < this.composer.stashed.len() {
                                         this.composer.stashed.remove(n);
-                                        this.save_index();
+                                        this.save_stash();
                                     }
                                     cx.notify();
                                 },
@@ -1211,7 +1211,7 @@ impl Desk {
             return;
         }
         let text = self.composer.stashed.remove(n);
-        self.save_index();
+        self.save_stash();
         self.popup = Popup::Closed;
         let typed = self.composer.input.read(cx).text();
         let line = if typed.is_empty() {

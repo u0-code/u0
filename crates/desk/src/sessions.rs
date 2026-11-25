@@ -1,7 +1,7 @@
 //! The sessions on the desk, each by the desk's key for it and found by
 //! the id its agent gave it. Nothing here needs a window.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use agent_client_protocol::{
     schema::MaybeUndefined,
@@ -11,9 +11,9 @@ use agent_client_protocol::{
 use crate::{
     acp,
     hub::Probe,
-    proto::Opened,
+    proto::{Call, Opened},
     session::{Session, State},
-    store::{self, Job},
+    store,
 };
 
 #[derive(Default)]
@@ -193,14 +193,12 @@ impl Sessions {
         closed
     }
 
-    /// The session `key` loaded or resumed (`resumed`), or not; its record
-    /// is in `home`.
+    /// The session `key` loaded or resumed (`resumed`), or not.
     pub fn loaded(
         &mut self,
         key: u64,
         resumed: bool,
         result: Result<Opened, acp::Error>,
-        home: &Path,
     ) -> Loaded {
         let Some(s) = self.at_mut(key) else {
             return Loaded::Stays;
@@ -221,10 +219,7 @@ impl Sessions {
                 Loaded::Stays
             }
             // The agent would not resume it: it is loaded, said again.
-            Err(_) if resumed => {
-                self.drop_record(key, home);
-                Loaded::Refused
-            }
+            Err(_) if resumed => Loaded::Refused,
             Err(f) => {
                 s.state = State::Broken(f.message);
                 Loaded::Stays
@@ -234,13 +229,12 @@ impl Sessions {
 
     /// The record of the closed session `key`, read back (`None`: it has
     /// none); `probe`, what a session of its agent offers. One cut short
-    /// is dropped from `home`: the agent has the rest.
+    /// is not read: the agent has the rest.
     pub fn read_back(
         &mut self,
         key: u64,
         events: Option<Vec<store::Event>>,
         probe: Option<&Probe>,
-        home: &Path,
     ) -> Read {
         let Some(s) = self.at(key).filter(|s| s.state == State::Closed) else {
             return Read::Left;
@@ -251,7 +245,6 @@ impl Sessions {
             return Read::Unrecorded;
         };
         if cut(&events) {
-            self.drop_record(key, home);
             return Read::Unrecorded;
         }
         let s = self.at_mut(key).expect("found above");
@@ -267,17 +260,18 @@ impl Sessions {
         Read::Replayed
     }
 
-    /// Drop the record of the session `key` from `home`: it is loaded from
-    /// its agent again, and written afresh as it comes.
-    pub fn drop_record(&mut self, key: u64, home: &Path) {
-        if let Some(s) = self.at_mut(key) {
-            if let Some(id) = &s.meta.id {
-                store::queue(Job::Remove(store::record_path(home, &s.meta.agent, &id.0)));
-            }
-            s.forget();
-            s.log.clear();
-            s.recorded = false;
-        }
+    /// Forget the record of the session `key`: it is loaded from its agent
+    /// again, and written afresh as it comes. What asks the server to drop
+    /// it.
+    pub fn drop_record(&mut self, key: u64) -> Option<Call> {
+        let s = self.at_mut(key)?;
+        s.forget();
+        s.log.clear();
+        s.recorded = false;
+        Some(Call::DropRecord {
+            agent: s.meta.agent.clone(),
+            id: s.meta.id.clone()?,
+        })
     }
 }
 
@@ -286,8 +280,8 @@ impl Sessions {
 pub enum Loaded {
     /// It is open: say what you said while it opened, if anything.
     Open(Option<String>),
-    /// Its agent would not resume it: its record is dropped, and it is to
-    /// be opened again, which loads it.
+    /// Its agent would not resume it: its record is to be dropped, and it
+    /// opened again, which loads it.
     Refused,
     /// Nothing more: it waits to be signed in, or is broken.
     Stays,
@@ -298,7 +292,8 @@ pub enum Loaded {
 pub enum Read {
     /// Its thread is built from the record.
     Replayed,
-    /// It has no record to go by: it is opened from its agent.
+    /// It has no record to go by (or one cut short, to be dropped): it is
+    /// opened from its agent.
     Unrecorded,
     /// It was opened meanwhile, or is gone: left as it is.
     Left,
@@ -417,32 +412,22 @@ mod tests {
 
     #[test]
     fn a_session_its_agent_will_not_resume_is_loaded_without_its_record() {
-        let home = tempfile::tempdir().unwrap();
         let mut sessions = two();
-        let record = store::record_path(home.path(), "a", "s1");
-        store::queue(Job::Append(
-            record.clone(),
-            vec![store::Event::You("go".into())],
-        ));
         let s = sessions.at_mut(1).unwrap();
         s.recorded = true;
         s.said("go");
         let refused = Err(acp::Error::internal_error());
-        assert_eq!(
-            sessions.loaded(1, true, refused, home.path()),
-            Loaded::Refused
+        assert_eq!(sessions.loaded(1, true, refused), Loaded::Refused);
+        let drop = sessions.drop_record(1);
+        assert!(
+            matches!(drop, Some(Call::DropRecord { agent, id }) if agent == "a" && *id.0 == *"s1")
         );
-        store::settle();
         let s = sessions.at(1).unwrap();
         // Opened again, it is loaded, not resumed, and written afresh.
         assert!(!s.recorded && s.log.is_empty() && s.items.is_empty());
-        assert!(!record.exists());
         // A load refused is the end of it.
         let refused = Err(acp::Error::internal_error());
-        assert_eq!(
-            sessions.loaded(2, false, refused, home.path()),
-            Loaded::Stays
-        );
+        assert_eq!(sessions.loaded(2, false, refused), Loaded::Stays);
         assert!(matches!(sessions.at(2).unwrap().state, State::Broken(_)));
     }
 
@@ -469,14 +454,13 @@ mod tests {
 
     #[test]
     fn a_record_cut_short_is_loaded_from_its_agent_not_resumed() {
-        let home = tempfile::tempdir().unwrap();
         let mut sessions = two();
         let update = || store::Event::Update(Box::new(serde_json::from_str(&chunk("Do")).unwrap()));
         let cut = || vec![store::Event::You("go".into()), update()];
         for key in [1, 2] {
             sessions.at_mut(key).unwrap().state = State::Closed;
         }
-        let read = sessions.read_back(1, Some(cut()), None, home.path());
+        let read = sessions.read_back(1, Some(cut()), None);
         assert_eq!(read, Read::Unrecorded);
         assert!(!sessions.at(1).unwrap().recorded);
         let whole = vec![
@@ -487,17 +471,17 @@ mod tests {
                 secs: 1,
             },
         ];
-        let read = sessions.read_back(2, Some(whole), None, home.path());
+        let read = sessions.read_back(2, Some(whole), None);
         assert_eq!(read, Read::Replayed);
         let s = sessions.at(2).unwrap();
         assert!(s.recorded && s.items.len() == 3);
         // A subagent has no other copy: what there is of it is read.
         sessions.at_mut(2).unwrap().parent = Some(1);
-        let read = sessions.read_back(2, Some(cut()), None, home.path());
+        let read = sessions.read_back(2, Some(cut()), None);
         assert_eq!(read, Read::Replayed);
         // One opened meanwhile is left as it is.
         sessions.at_mut(1).unwrap().state = State::Idle;
-        let read = sessions.read_back(1, Some(cut()), None, home.path());
+        let read = sessions.read_back(1, Some(cut()), None);
         assert_eq!(read, Read::Left);
     }
 }

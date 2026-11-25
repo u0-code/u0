@@ -289,7 +289,7 @@ impl Desk {
                 }
                 Some(id) if load => {
                     if recorded {
-                        self.sessions.drop_record(key, &self.home);
+                        self.drop_record(key);
                     }
                     self.transport.send(Call::Reopen {
                         agent: agent.to_owned(),

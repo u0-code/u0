@@ -19,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     acp::{self, Error},
     registry::{self, Entry},
+    store,
 };
 
 /// What the desk asks of the server. An agent is named by its registry id
@@ -156,6 +157,51 @@ pub enum Call {
     CliVersion {
         cli: PathBuf,
     },
+    /// The index of the sessions kept: answered with [`Event::Index`].
+    Watch,
+    /// These sessions' metas are now as given (each by its agent and id).
+    Keep(Vec<store::Meta>),
+    /// Take the session `id` of `agent` out of the index, its record with
+    /// it; `keep_out`: its agent cannot delete it, so that its list does not
+    /// bring it back.
+    Forget {
+        agent: String,
+        id: SessionId,
+        keep_out: bool,
+    },
+    /// What you put aside from the composer, the latest last.
+    Stash(Vec<String>),
+    /// Add `events` to the end of the record of the session `id`.
+    Append {
+        agent: String,
+        id: SessionId,
+        events: Vec<store::Event>,
+    },
+    /// Drop the record of the session `id`: its agent loads it again.
+    DropRecord {
+        agent: String,
+        id: SessionId,
+    },
+    /// Read back the record of the session `id`, after all that is being
+    /// written to it, for the session `key`.
+    Read {
+        key: u64,
+        agent: String,
+        id: SessionId,
+    },
+    /// Begin the record of the session `to`, branched off `from`, with
+    /// `from`'s up to its message after the first `yours`.
+    CopyRecord {
+        agent: String,
+        from: SessionId,
+        to: SessionId,
+        yours: usize,
+    },
+    /// The sessions among `records` whose records hold `query` (lower case).
+    Search {
+        query: String,
+        records: Vec<(u64, String, SessionId)>,
+    },
 }
 
 /// What the server sends back.
@@ -257,6 +303,19 @@ pub enum Event {
         cli: PathBuf,
         version: String,
     },
+    /// The index of the sessions kept, or why it does not read: then
+    /// nothing is saved over it.
+    Index(Result<store::Index, String>),
+    /// The record of the session `key`, read back: none where there is none.
+    Record {
+        key: u64,
+        events: Option<Vec<store::Event>>,
+    },
+    /// The sessions whose records hold `query`.
+    Found {
+        query: String,
+        keys: Vec<u64>,
+    },
 }
 
 /// What a session loaded or resumed starts with.
@@ -326,6 +385,21 @@ mod tests {
         let opened: NewSessionResponse =
             serde_json::from_str(include_str!("fixtures/codex-session-new.json")).unwrap();
         let (dir, cli) = (PathBuf::from("/p"), PathBuf::from("/bin/a"));
+        let index: store::Index = of(json!({
+            "sessions": [{"agent": "a", "id": "s1", "project": "/p", "folder": "/p",
+                          "title": "t", "begun": 5, "updated": 7}],
+            "gone": [["a", "s0"]],
+            "stashed": ["later"],
+        }));
+        let meta = index.sessions[0].clone();
+        let said = vec![
+            store::Event::At(5),
+            store::Event::You("go".into()),
+            store::Event::Ended {
+                reason: StopReason::EndTurn,
+                secs: 3,
+            },
+        ];
         let calls = vec![
             Call::Fetch,
             Call::Install {
@@ -403,7 +477,7 @@ mod tests {
             Call::SetOption {
                 agent: "a".into(),
                 key: 1,
-                session,
+                session: session.clone(),
                 config: "model".into(),
                 value: "fast".into(),
             },
@@ -417,6 +491,38 @@ mod tests {
                 agents: vec![entry.clone()],
             },
             Call::CliVersion { cli: cli.clone() },
+            Call::Watch,
+            Call::Keep(vec![meta]),
+            Call::Forget {
+                agent: "a".into(),
+                id: session.clone(),
+                keep_out: true,
+            },
+            Call::Stash(vec!["later".into()]),
+            Call::Append {
+                agent: "a".into(),
+                id: session.clone(),
+                events: said.clone(),
+            },
+            Call::DropRecord {
+                agent: "a".into(),
+                id: session.clone(),
+            },
+            Call::Read {
+                key: 1,
+                agent: "a".into(),
+                id: session.clone(),
+            },
+            Call::CopyRecord {
+                agent: "a".into(),
+                from: session.clone(),
+                to: SessionId::new("s2"),
+                yours: 1,
+            },
+            Call::Search {
+                query: "go".into(),
+                records: vec![(1, "a".into(), session)],
+            },
         ];
         let events = vec![
             Event::Registry(Ok(registry::Registry {
@@ -514,6 +620,15 @@ mod tests {
             Event::CliVersion {
                 cli,
                 version: "a 1.0".into(),
+            },
+            Event::Index(Ok(index)),
+            Event::Record {
+                key: 1,
+                events: Some(said),
+            },
+            Event::Found {
+                query: "go".into(),
+                keys: vec![1],
             },
         ];
         let called: BTreeSet<String> = calls.iter().map(round_trip).collect();

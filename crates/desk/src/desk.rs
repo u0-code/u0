@@ -194,6 +194,9 @@ pub struct Desk {
     pub waiting: Vec<(String, lists::Waiting)>,
     /// Sessions deleted whose agent cannot delete them (see `store::Index`).
     pub gone: Vec<(String, String)>,
+    /// Each session's meta as the server keeps it, by agent and id: what
+    /// is sent is what differs.
+    pub kept: HashMap<(String, agent_client_protocol::v1::schema::SessionId), crate::store::Meta>,
     /// What Ghost tells you at the foot of the window, the oldest first.
     pub notices: Vec<notices::Notice>,
     pub pages: crate::pages::Pages,
@@ -430,6 +433,7 @@ impl Desk {
             submenu: None,
             closed_tabs: HashSet::new(),
             gone: Vec::new(),
+            kept: HashMap::new(),
             notices: Vec::new(),
             pages,
             adding: projects::Adding::new(cx),
@@ -474,8 +478,7 @@ impl Desk {
             tx,
             transport,
         };
-        desk.keep_from(crate::store::load(&desk.home));
-        desk.settle_idle();
+        desk.transport.send(Call::Watch);
         Self::keep_on_quit(cx);
         desk.fill_slots();
         desk.look_here();
@@ -799,8 +802,9 @@ impl Desk {
         .detach();
     }
 
-    /// Take the session `key` off the desk, and the worktree made for it.
-    pub(crate) fn forget_session(&mut self, key: u64, cx: &mut Context<Self>) {
+    /// Take the session `key` off the desk, and the worktree made for it;
+    /// `keep_out`: its agent keeps it, and its list is not to bring it back.
+    pub(crate) fn forget_session(&mut self, key: u64, keep_out: bool, cx: &mut Context<Self>) {
         // Its subagents, and their records, go with it.
         let kids: Vec<u64> = self
             .sessions
@@ -810,18 +814,15 @@ impl Desk {
             .map(|c| c.key)
             .collect();
         for kid in kids {
-            self.forget_session(kid, cx);
+            self.forget_session(kid, false, cx);
         }
         let Some(at) = self.sessions.all.iter().position(|s| s.key == key) else {
             return;
         };
-        if let Some(id) = &self.sessions.all[at].meta.id {
-            let path =
-                crate::store::record_path(&self.home, &self.sessions.all[at].meta.agent, &id.0);
-            crate::store::queue(crate::store::Job::Remove(path));
-        }
         let s = self.sessions.all.remove(at);
-        self.save_index();
+        if let Some(id) = s.meta.id.clone() {
+            self.unkeep(s.meta.agent.clone(), id, keep_out);
+        }
         // Its checkpoints go with it.
         if s.repo {
             let (dir, uid) = (

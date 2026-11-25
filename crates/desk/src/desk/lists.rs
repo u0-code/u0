@@ -342,12 +342,12 @@ impl Desk {
         };
         let (agent, id) = (s.meta.agent.clone(), s.meta.id.clone());
         let Some(id) = id else {
-            self.forget_session(key, cx);
+            self.forget_session(key, false, cx);
             return;
         };
         if !self.can_delete(&agent) {
             self.gone.push((agent, id.0.to_string()));
-            self.forget_session(key, cx);
+            self.forget_session(key, true, cx);
             return;
         }
         if self.slot(&agent).is_some_and(hub::Slot::running) {
@@ -696,17 +696,15 @@ impl Desk {
         s.state = State::Idle;
         // Its record: the origin's, with what is not yet written, up to
         // where it was branched off.
-        if let Some(id) = &origin.meta.id {
-            let mut events =
-                store::read(&store::record_path(&self.home, &origin.meta.agent, &id.0))
-                    .unwrap_or_default();
-            events.extend(origin.log);
-            let events = Session::record_before(events, yours);
-            if !events.is_empty() {
-                let to = store::record_path(&self.home, &origin.meta.agent, &r.session_id.0);
-                store::queue(store::Job::Append(to, events));
-                s.recorded = true;
-            }
+        if let Some(id) = origin.meta.id {
+            self.flush(from);
+            self.transport.send(Call::CopyRecord {
+                agent: origin.meta.agent,
+                from: id,
+                to: r.session_id.clone(),
+                yours,
+            });
+            s.recorded = true;
         }
         self.sessions.all.push(s);
         self.save_index();
@@ -806,28 +804,18 @@ impl Desk {
                 self.search.found.insert(s.key);
             }
         }
-        let paths: Vec<(u64, std::path::PathBuf)> = self
-            .sessions
-            .all
-            .iter()
-            .filter_map(|s| {
-                let id = s.meta.id.as_ref()?;
-                Some((s.key, store::record_path(&self.home, &s.meta.agent, &id.0)))
-            })
+        let records: Vec<_> = (self.sessions.all.iter())
+            .filter_map(|s| Some((s.key, s.meta.agent.clone(), s.meta.id.clone()?)))
             .collect();
-        let tx = self.tx.clone();
         cx.spawn(async move |this, cx| {
             cx.background_executor()
                 .timer(Duration::from_millis(250))
                 .await;
-            let still = this
-                .update(cx, |this, cx| {
-                    this.search.input.read(cx).text().trim().to_lowercase() == query
-                })
-                .unwrap_or(false);
-            if still {
-                hub::search(query, paths, tx);
-            }
+            let _ = this.update(cx, |this, cx| {
+                if this.search.input.read(cx).text().trim().to_lowercase() == query {
+                    this.transport.send(Call::Search { query, records });
+                }
+            });
         })
         .detach();
     }

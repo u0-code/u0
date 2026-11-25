@@ -65,11 +65,6 @@ pub enum Msg {
         key: u64,
         starts: Vec<(ToolCallId, Vec<Option<usize>>)>,
     },
-    /// The record of the session `key`, read back: none where there is none.
-    Record {
-        key: u64,
-        events: Option<Vec<crate::store::Event>>,
-    },
     /// What is not committed where a session works, as git reads it.
     Uncommitted {
         key: u64,
@@ -144,11 +139,6 @@ pub enum Msg {
     /// How much each part of Ghost's home takes, and what a tidying did.
     Sizes(Vec<(&'static str, u64)>),
     Tidied(String),
-    /// The sessions whose records hold `query`.
-    Found {
-        query: String,
-        keys: Vec<u64>,
-    },
     /// A worktree was made for the session, with the scripts its
     /// `ghost.json` names, or could not be.
     Worktree {
@@ -183,28 +173,28 @@ pub enum Msg {
 pub type Sender = mpsc::UnboundedSender<Msg>;
 
 /// The way to the server: each [`Call`] goes to it in order, and what it
-/// says comes back as [`Msg::Event`]. The server runs in this process, on
-/// the ACP runtime, and the calls reach it as they are, not written out.
-pub struct Transport(mpsc::UnboundedSender<Call>);
+/// says comes back as [`Msg::Event`]. The server runs in this process: a
+/// call reaches it as it is, not written out, and is handed on at once
+/// (what it waits for, it waits for on the ACP runtime).
+pub struct Transport(Server);
 
 impl Transport {
     /// A server for Ghost's home `home` in this process, saying what it
     /// has to say to `tx`.
     pub fn local(home: PathBuf, tx: Sender) -> Self {
-        let (calls, mut rx) = mpsc::unbounded_channel();
-        let server = Server::new(home, move |event| {
+        Self(Server::new(home, move |event| {
             let _ = tx.send(Msg::Event(event));
-        });
-        acp::runtime().spawn(async move {
-            while let Some(call) = rx.recv().await {
-                server.handle(call);
-            }
-        });
-        Self(calls)
+        }))
     }
 
     pub fn send(&self, call: Call) {
-        let _ = self.0.send(call);
+        self.0.handle(call);
+    }
+
+    /// Wait until what the server in this process was asked to write is
+    /// written: as Ghost quits.
+    pub fn settle() {
+        Server::settle();
     }
 }
 
@@ -372,20 +362,6 @@ pub fn tidy(home: PathBuf, what: crate::tidy::Tidy, kept: crate::tidy::Kept, tx:
     });
 }
 
-/// Look for `query` (lower case) in the records at `paths`.
-pub fn search(query: String, paths: Vec<(u64, PathBuf)>, tx: Sender) {
-    off(tx, move || {
-        let keys = paths
-            .into_iter()
-            .filter(|(_, p)| {
-                std::fs::read_to_string(p).is_ok_and(|t| t.to_lowercase().contains(&query))
-            })
-            .map(|(k, _)| k)
-            .collect();
-        Msg::Found { query, keys }
-    });
-}
-
 /// Find the line each diff of the calls `calls` of the session `key` starts
 /// on in its file.
 pub fn place(key: u64, calls: Vec<(ToolCallId, Vec<(PathBuf, String)>)>, tx: Sender) {
@@ -406,15 +382,6 @@ fn line_of(file: &std::path::Path, text: &str) -> Option<usize> {
     let whole = std::fs::read_to_string(file).ok()?;
     let at = whole.find(text)?;
     Some(whole[..at].matches('\n').count() + 1)
-}
-
-/// Read back the record of the session `key` at `path`, after what is being
-/// written to it.
-pub fn read_record(path: PathBuf, key: u64, tx: Sender) {
-    crate::store::queue(crate::store::Job::Then(Box::new(move || {
-        let events = crate::store::read(&path);
-        let _ = tx.send(Msg::Record { key, events });
-    })));
 }
 
 #[cfg(test)]
