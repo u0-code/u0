@@ -2380,6 +2380,19 @@ impl Render for Desk {
             })
             .when(!whole, |d| d.child(middle))
             .children(right)
+            // Under a menu or the palette, the rest of the window: a click
+            // there closes it and does nothing else.
+            .when(self.popup != Popup::Closed || self.palette, |d| {
+                d.child(div().absolute().inset_0().occlude().on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, window, cx| {
+                        this.close_popup(window, cx);
+                        if this.palette {
+                            this.toggle_palette(window, cx);
+                        }
+                    }),
+                ))
+            })
             .children(self.notices_view(&faces, cx))
             .children(self.palette_view(&faces, cx))
             .children(self.zoomed(&faces, window, cx))
