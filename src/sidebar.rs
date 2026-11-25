@@ -10,7 +10,7 @@ use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 
 use crate::fonts::Weighted as _;
 use crate::{
-    desk::{Desk, LEFT, Later, Page, Popup, TOPBAR, draggable},
+    desk::{Desk, Later, Page, Popup, TOPBAR, draggable},
     fonts::Faces,
     hub::{Slot, Stage},
     session::{Session, State},
@@ -378,14 +378,34 @@ impl Desk {
             );
 
         div()
+            .relative()
             .flex()
             .flex_col()
             .flex_none()
-            .w(px(LEFT))
+            .w(px(self.left_width()))
             .h_full()
             .bg(theme::rail())
             .border_r_1()
             .border_color(theme::border())
+            // Its edge, to drag it wider or narrower.
+            .child(
+                div()
+                    .id("left-edge")
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .right(px(-3.))
+                    .w(px(6.))
+                    .cursor_col_resize()
+                    .on_mouse_down(
+                        gpui::MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.resizing_left = true;
+                            cx.stop_propagation();
+                            cx.notify();
+                        }),
+                    ),
+            )
             .child(head)
             .child(new)
             .child(list)
@@ -680,7 +700,7 @@ impl Desk {
         // The title has the room the row's other marks leave it: the time
         // or state, the unread dot, the pin, the pull request's number.
         #[allow(clippy::cast_precision_loss, reason = "a width in points")]
-        let room = LEFT
+        let room = self.left_width()
             - 108.
             - (ui::fit(&when, 40).chars().count() as f32 * 7.5).max(30.)
             - if s.flags.unread && !on { 12. } else { 0. }
@@ -702,9 +722,25 @@ impl Desk {
             )
             .into_any_element()
         };
+        // On hover, a card: its whole title, where it works, and the last
+        // thing the agent said.
+        let last = s.items.iter().rev().find_map(|i| match i {
+            crate::session::Item::Agent(t) => Some(ui::fit(t.trim(), 160)),
+            _ => None,
+        });
+        let mut card = format!("{}\n{} · {}", s.title, agent, Desk::shown(&s.folder));
+        if let Some(b) = &s.branch {
+            card.push_str(" · ");
+            card.push_str(b);
+        }
+        if let Some(l) = last {
+            card.push_str("\n\n");
+            card.push_str(&l);
+        }
         let row = session_shell(group.clone(), on)
             .group(group.clone())
             .cursor_pointer()
+            .when(!menu_open, |d| d.tooltip(ui::tip(card)))
             .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
             .child(div().when(done, |d| d.opacity(0.55)).child(ui::mark(
                 faces,

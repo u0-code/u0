@@ -52,8 +52,8 @@ use crate::{
     theme,
 };
 
-/// The side columns' widths, the top bar's height.
-pub const LEFT: f32 = 264.;
+/// How narrow and how wide the sidebar can be dragged.
+const LEFT_MOST: (f32, f32) = (220., 440.);
 pub const RIGHT: f32 = 320.;
 pub const TOPBAR: f32 = 44.;
 /// Room the window's lights take at the left of the top row.
@@ -153,6 +153,8 @@ pub struct Desk {
     pub reader: Entity<TextInput>,
     /// What is typed to narrow a long menu of choices (a model's).
     pub menu_search: Entity<TextInput>,
+    /// The sidebar's edge is being dragged.
+    pub resizing_left: bool,
     /// The composer opened tall, to write at length.
     pub tall: bool,
     /// The image looked at large: the session's key and its item.
@@ -575,6 +577,7 @@ impl Desk {
             renaming_here: false,
             zoom: None,
             tall: false,
+            resizing_left: false,
             menu_search,
             reading: None,
             reader,
@@ -1835,6 +1838,12 @@ impl Desk {
 
     /// How wide the right column stands: wider for a file read in it, and
     /// wider again for its diff side by side.
+    /// How wide the sidebar is now.
+    #[allow(clippy::cast_precision_loss, reason = "a width in points")]
+    pub fn left_width(&self) -> f32 {
+        (self.settings.left as f32).clamp(LEFT_MOST.0, LEFT_MOST.1)
+    }
+
     pub fn right_width(&self) -> f32 {
         match self.aside {
             Aside::File(_) if self.settings.side_by_side => 720.,
@@ -1859,7 +1868,11 @@ impl Render for Desk {
         let faces = fonts::faces(cx).clone();
         let lights = lights_room(window);
         let pane = f32::from(window.viewport_size().width)
-            - if self.panes.left { LEFT } else { 0. }
+            - if self.panes.left {
+                self.left_width()
+            } else {
+                0.
+            }
             - if self.panes.right && self.page == Page::Thread {
                 self.right_width()
             } else {
@@ -1903,6 +1916,30 @@ impl Render for Desk {
             .relative()
             .flex()
             .size_full()
+            // The sidebar's edge dragged: its width follows, and is kept.
+            .when(self.resizing_left, gpui::Styled::cursor_col_resize)
+            .on_mouse_move(cx.listener(|this, e: &gpui::MouseMoveEvent, _, cx| {
+                if this.resizing_left && e.pressed_button == Some(MouseButton::Left) {
+                    #[allow(
+                        clippy::cast_possible_truncation,
+                        clippy::cast_sign_loss,
+                        reason = "a width in points"
+                    )]
+                    let w = f32::from(e.position.x).clamp(LEFT_MOST.0, LEFT_MOST.1) as u32;
+                    this.settings.left = w;
+                    cx.notify();
+                }
+            }))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| {
+                    if this.resizing_left {
+                        this.resizing_left = false;
+                        this.save_settings();
+                        cx.notify();
+                    }
+                }),
+            )
             .bg(theme::bg())
             .font_family(faces.ui.clone())
             .text_size(px(BODY))

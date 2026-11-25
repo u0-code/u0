@@ -80,6 +80,9 @@ pub struct Settings {
     /// for it to end.
     #[serde(default)]
     pub steer: bool,
+    /// How wide the sidebar is, in points, as you dragged it.
+    #[serde(default = "left")]
+    pub left: u32,
     /// ⌘Return sends what you write, and Return breaks the line.
     #[serde(default)]
     pub cmd_sends: bool,
@@ -147,6 +150,10 @@ fn week() -> Option<u32> {
     Some(7)
 }
 
+fn left() -> u32 {
+    264
+}
+
 fn prefix() -> String {
     "ghost/".into()
 }
@@ -191,6 +198,7 @@ impl Default for Settings {
             branch_prefix: prefix(),
             calls: Calls::default(),
             cmd_sends: false,
+            left: left(),
         }
     }
 }
