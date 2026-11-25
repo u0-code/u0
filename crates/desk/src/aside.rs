@@ -9,7 +9,13 @@ mod repo;
 use std::time::SystemTime;
 
 use agent_client_protocol::v1::schema::{ToolCallContent, ToolCallStatus};
-use gpui::component::{Sizable as _, button::Button, input::Input, popover::Popover};
+use gpui::component::{
+    Sizable as _,
+    button::Button,
+    input::Input,
+    popover::Popover,
+    tab::{Tab, TabBar},
+};
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use crate::{
@@ -123,37 +129,23 @@ impl Desk {
         if let Aside::File(path) = &self.aside {
             return self.file_view(faces, s, path, cx);
         }
-        let tab = |id: &'static str, label: &'static str, on: bool, to: Aside| {
-            div()
-                .id(id)
-                .flex()
-                .items_center()
-                .h(px(26.))
-                .px(px(8.))
-                .rounded(px(7.))
-                .cursor_pointer()
-                .when(on, |d| d.bg(theme::hover()))
-                .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
-                .child(
-                    ui::text(faces, label)
-                        .text_size(px(12.5))
-                        .text_color(if on { theme::text() } else { theme::text2() }),
-                )
-                .on_click(cx.listener(move |this, _, _, cx| this.show_aside(to.clone(), cx)))
-        };
         let head = top()
-            .child(tab(
-                "tab-session",
-                "Session",
-                self.aside == Aside::Session,
-                Aside::Session,
-            ))
-            .child(tab(
-                "tab-files",
-                "Files",
-                self.aside == Aside::Files,
-                Aside::Files,
-            ))
+            .child(
+                TabBar::new("aside-tabs")
+                    .segmented()
+                    .small()
+                    .selected_index(usize::from(self.aside == Aside::Files))
+                    .child(Tab::new().label("Session"))
+                    .child(Tab::new().label("Files"))
+                    .on_click(cx.listener(|this, ix: &usize, _, cx| {
+                        let to = if *ix == 0 {
+                            Aside::Session
+                        } else {
+                            Aside::Files
+                        };
+                        this.show_aside(to, cx);
+                    })),
+            )
             .child(div().flex_1())
             .children(
                 s.branch

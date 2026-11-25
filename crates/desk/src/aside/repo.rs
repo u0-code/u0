@@ -4,7 +4,12 @@
 //! what can be done with them. Beside them the recent commits, and the
 //! branch's pull request with its checks.
 
-use gpui::component::{Sizable as _, input::Input, popover::Popover};
+use gpui::component::{
+    Sizable as _,
+    input::Input,
+    popover::Popover,
+    tab::{Tab, TabBar},
+};
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use super::{empty, fine, frow, git_button, path_text, section};
@@ -37,60 +42,42 @@ impl Desk {
     /// commit's.
     pub(super) fn scope_tabs(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
         let last = s.turns.iter().rposition(|t| t.diff.is_some());
-        let scope_tab = |id: &'static str, label: String, on: bool, to: Scope| {
-            div()
-                .id(id)
-                .flex()
-                .items_center()
-                .h(px(22.))
-                .px(px(7.))
-                .rounded(px(6.))
-                .cursor_pointer()
-                .when(on, |d| d.bg(theme::hover()))
-                .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
-                .child(ui::text(faces, label).text_size(px(12.)).text_color(if on {
-                    theme::text()
-                } else {
-                    theme::muted()
-                }))
-                .on_click(cx.listener(move |this, _, _, cx| this.show_changes(to.clone(), cx)))
-        };
         let turn = match self.review.scope {
             Scope::Turn(n) => Some(n),
             _ => last,
         };
+        let all = if last.is_some() { "All" } else { "Uncommitted" };
+        let mut tabs = vec![(all.to_owned(), Scope::All)];
+        tabs.extend(turn.map(|n| (format!("Turn {}", n + 1), Scope::Turn(n))));
+        tabs.push(("Branch".to_owned(), Scope::Branch));
+        if let Scope::Commit(id) = &self.review.scope {
+            tabs.push((id.clone(), Scope::Commit(id.clone())));
+        }
+        let chosen = tabs
+            .iter()
+            .position(|(_, to)| match (to, &self.review.scope) {
+                (Scope::Turn(_), Scope::Turn(_)) => true,
+                (to, scope) => to == scope,
+            });
         div()
             .flex()
-            .gap(px(2.))
-            .child(scope_tab(
-                "scope-all",
-                if last.is_some() { "All" } else { "Uncommitted" }.into(),
-                self.review.scope == Scope::All,
-                Scope::All,
-            ))
-            .children(turn.map(|turn| {
-                scope_tab(
-                    "scope-turn",
-                    format!("Turn {}", turn + 1),
-                    matches!(self.review.scope, Scope::Turn(_)),
-                    Scope::Turn(turn),
-                )
-            }))
-            .child(scope_tab(
-                "scope-branch",
-                "Branch".into(),
-                self.review.scope == Scope::Branch,
-                Scope::Branch,
-            ))
-            .children(match &self.review.scope {
-                Scope::Commit(id) => Some(scope_tab(
-                    "scope-commit",
-                    id.clone(),
-                    true,
-                    Scope::Commit(id.clone()),
-                )),
-                _ => None,
-            })
+            .items_center()
+            .gap(px(6.))
+            .child(
+                TabBar::new("scope-tabs")
+                    .segmented()
+                    .xsmall()
+                    .when_some(chosen, TabBar::selected_index)
+                    .children(
+                        tabs.iter()
+                            .map(|(label, _)| Tab::new().label(label.clone())),
+                    )
+                    .on_click(cx.listener(move |this, ix: &usize, _, cx| {
+                        if let Some((_, to)) = tabs.get(*ix) {
+                            this.show_changes(to.clone(), cx);
+                        }
+                    })),
+            )
             .when(self.review.scope == Scope::Branch, |d| {
                 d.child(self.compare_chip(faces, s, cx))
             })
@@ -193,7 +180,7 @@ impl Desk {
             "Changes",
             (!files.is_empty()).then(|| ui::counts(faces, added, gone, 11.5)),
         )
-        .child(self.scope_tabs(faces, s, cx).ml(px(-7.)));
+        .child(self.scope_tabs(faces, s, cx));
         if reading {
             sec = sec.child(empty(faces, "Reading git…"));
         } else if files.is_empty() {

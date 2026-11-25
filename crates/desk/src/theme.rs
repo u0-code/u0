@@ -256,6 +256,14 @@ pub fn kit(cx: &mut App) {
         c.button_primary_hover = text2();
         c.button_primary_active = text2();
         c.button_primary_foreground = bg();
+        c.sidebar = rail();
+        c.sidebar_foreground = text();
+        c.sidebar_border = border();
+        c.sidebar_accent = panel2();
+        c.sidebar_accent_foreground = text();
+        c.tab_bar_segmented = panel2();
+        c.tab_foreground = text2();
+        c.tab_active_foreground = text();
         c.switch = ghost_line();
         c.switch_thumb = bg();
         c.danger = coral();

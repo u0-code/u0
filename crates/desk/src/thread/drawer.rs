@@ -7,6 +7,7 @@ use gpui::component::{
     Sizable as _,
     input::{Input, InputState},
     switch::Switch,
+    tab::{Tab, TabBar},
 };
 use gpui::{
     Context, Div, Entity, FontWeight, InteractiveElement as _, KeyDownEvent, MouseButton,
@@ -80,9 +81,20 @@ impl Desk {
             .pr(px(8.))
             .border_b_1()
             .border_color(theme::border());
-        for t in &terms {
-            bar = bar.child(Self::tab(faces, t, Some(t.id) == on, cx));
-        }
+        let ids: Vec<u64> = terms.iter().map(|t| t.id).collect();
+        let chosen = on.and_then(|id| ids.iter().position(|i| *i == id));
+        bar = bar.child(
+            TabBar::new("terminal-tabs")
+                .segmented()
+                .small()
+                .when_some(chosen, TabBar::selected_index)
+                .children(terms.iter().map(|t| Self::tab(faces, t, cx)))
+                .on_click(cx.listener(move |this, ix: &usize, window, cx| {
+                    this.drawer.on = ids.get(*ix).copied();
+                    window.focus(&this.drawer.focus, cx);
+                    cx.notify();
+                })),
+        );
         bar = bar
             .child(
                 ui::icon_button("new-terminal", "plus", "New terminal")
@@ -292,63 +304,49 @@ impl Desk {
         ))
     }
 
-    fn tab(faces: &Faces, t: &Terminal, on: bool, cx: &mut Context<Self>) -> impl IntoElement {
+    /// A terminal's tab: its title, how it ended, and a button to close it
+    /// that shows while the pointer is over the tab.
+    fn tab(faces: &Faces, t: &Terminal, cx: &mut Context<Self>) -> Tab {
         let id = t.id;
         let group = SharedString::from(format!("term-tab-{id}"));
-        div()
-            .id(group.clone())
+        Tab::new()
             .group(group.clone())
-            .flex()
-            .items_center()
-            .gap(px(6.))
-            .h(px(26.))
-            .pl(px(10.))
-            .pr(px(4.))
-            .rounded(px(7.))
-            .cursor_pointer()
-            .when(on, |d| d.bg(theme::hover()))
-            .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
-            .child(
-                ui::icon("terminal", 12.)
-                    .flex_none()
-                    .text_color(if t.ended.is_some() {
-                        theme::quiet()
-                    } else {
-                        theme::muted()
-                    }),
-            )
-            .child(
-                ui::text(faces, ui::fit(&t.title, 22))
-                    .text_size(px(12.5))
-                    .text_color(if on { theme::text() } else { theme::muted() }),
-            )
-            .children(t.ended.clone().map(|how| {
-                ui::text(faces, how)
-                    .text_size(px(11.))
-                    .text_color(theme::faint())
+            .label(ui::fit(&t.title, 22))
+            .prefix(ui::icon("terminal", 12.).text_color(if t.ended.is_some() {
+                theme::quiet()
+            } else {
+                theme::muted()
             }))
-            .child(
+            .suffix(
                 div()
-                    .invisible()
-                    .group_hover(group, gpui::Styled::visible)
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .children(t.ended.clone().map(|how| {
+                        ui::text(faces, how)
+                            .text_size(px(11.))
+                            .text_color(theme::faint())
+                    }))
                     .child(
-                        ui::icon_button(
-                            SharedString::from(format!("close-term-{id}")),
-                            "x",
-                            "Close",
-                        )
-                        .size(px(18.))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.close_terminal(id, cx);
-                            cx.stop_propagation();
-                        })),
+                        div()
+                            .invisible()
+                            .group_hover(group, gpui::Styled::visible)
+                            .child(
+                                ui::icon_button(
+                                    SharedString::from(format!("close-term-{id}")),
+                                    "x",
+                                    "Close",
+                                )
+                                .size(px(18.))
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.close_terminal(id, cx);
+                                        cx.stop_propagation();
+                                    },
+                                )),
+                            ),
                     ),
             )
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.drawer.on = Some(id);
-                window.focus(&this.drawer.focus, cx);
-                cx.notify();
-            }))
     }
 
     /// A terminal's screen, its cursor where keys go; the cells chosen

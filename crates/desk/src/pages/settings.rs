@@ -5,7 +5,13 @@
 
 use std::time::SystemTime;
 
-use gpui::component::{Sizable as _, input::Input, kbd::Kbd, switch::Switch};
+use gpui::component::{
+    Icon, Sizable as _,
+    input::Input,
+    kbd::Kbd,
+    sidebar::{Sidebar, SidebarGroup, SidebarMenu, SidebarMenuItem},
+    switch::Switch,
+};
 use gpui::{Context, Entity, SharedString, Window, div, prelude::*, px};
 
 use super::card;
@@ -131,47 +137,33 @@ impl Desk {
         faces: &Faces,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
-        let mut nav = div()
-            .id("settings-nav")
-            .flex()
-            .flex_col()
-            .flex_none()
-            .w(px(232.))
-            .gap(px(2.))
-            .p(px(10.))
-            .bg(theme::rail())
-            .border_r_1()
-            .border_color(theme::border())
-            .overflow_y_scroll()
-            .child(
-                div().mb(px(8.)).child(
-                    Input::new(&self.pages.search)
-                        .small()
-                        .prefix(ui::icon("search", 13.).text_color(theme::faint())),
-                ),
-            );
         let q = self.pages.search.read(cx).value().trim().to_lowercase();
-        let mut heading = "";
+        // The tabs under their headings, a heading where the group changes.
+        let mut groups: Vec<(&str, Vec<SidebarMenuItem>)> = Vec::new();
         for tab in Tab::ALL {
-            if tab.group() != heading {
-                heading = tab.group();
-                nav = nav.child(ui::label(faces, heading).px(px(8.)).pt(px(14.)).pb(px(4.)));
-            }
             let on = q.is_empty() && self.pages.tab == tab;
-            nav = nav.child(
-                ui::menu_row(SharedString::from(format!("tab-{tab:?}")), on)
-                    .h(px(32.))
-                    .child(ui::icon(tab.icon(), 15.).flex_none().text_color(if on {
-                        theme::text()
-                    } else {
-                        theme::muted()
-                    }))
-                    .child(ui::text(faces, tab.title()).text_size(px(13.5)))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_tab(tab, window, cx);
-                    })),
-            );
+            let item = SidebarMenuItem::new(tab.title())
+                .icon(Icon::empty().path(format!("icons/{}.svg", tab.icon())))
+                .active(on)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.open_tab(tab, window, cx);
+                }));
+            match groups.last_mut() {
+                Some((heading, items)) if *heading == tab.group() => items.push(item),
+                _ => groups.push((tab.group(), vec![item])),
+            }
         }
+        let nav = Sidebar::new("settings-nav")
+            .collapsible(false)
+            .w(px(232.))
+            .header(
+                Input::new(&self.pages.search)
+                    .small()
+                    .prefix(ui::icon("search", 13.).text_color(theme::faint())),
+            )
+            .children(groups.into_iter().map(|(heading, items)| {
+                SidebarGroup::new(heading).child(SidebarMenu::new().children(items))
+            }));
         let shown = if !q.is_empty() {
             self.found(faces, &q, cx)
         } else if let Some(own) = self.own_tab(faces, self.pages.tab, "", cx) {
