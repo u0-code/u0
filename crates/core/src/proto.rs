@@ -267,10 +267,16 @@ pub enum Call {
     Folders {
         dir: PathBuf,
     },
-    /// Where `words` are in the files of `folder` git sees.
+    /// What the file at `path` holds, for the column's viewer.
+    ReadFile {
+        path: PathBuf,
+    },
+    /// Where `words` are in the files of `folder` git sees, looked for
+    /// `how`.
     Grep {
         folder: PathBuf,
         words: String,
+        how: git::Match,
     },
     /// Make the new project `name` in `dir`: a folder, a repository.
     Create {
@@ -560,6 +566,11 @@ pub enum Event {
         dir: PathBuf,
         names: Vec<String>,
     },
+    /// What the file at `path` holds.
+    FileRead {
+        path: PathBuf,
+        body: Result<crate::repo::Body, String>,
+    },
     /// What git grep found for `words`: each place as "path:line", and the
     /// line.
     Grepped {
@@ -759,6 +770,14 @@ mod tests {
             Call::Grep {
                 folder: dir.clone(),
                 words: "fn main".into(),
+                how: git::Match {
+                    case: true,
+                    word: true,
+                    regex: false,
+                },
+            },
+            Call::ReadFile {
+                path: dir.join("a.rs"),
             },
             Call::Create {
                 dir: dir.clone(),
@@ -895,6 +914,13 @@ mod tests {
             Event::Folders {
                 dir: dir.clone(),
                 names: vec!["src".into()],
+            },
+            Event::FileRead {
+                path: dir.join("a.pdf"),
+                body: Ok(crate::repo::Body::Pdf {
+                    pages: vec![vec![0x89, b'P']],
+                    of: 3,
+                }),
             },
             Event::Grepped {
                 words: "fn main".into(),

@@ -302,8 +302,9 @@ impl Server {
                 files: git::files(&folder),
                 folder,
             }),
-            Call::Grep { folder, words } => self.off(move || Event::Grepped {
-                found: git::grep(&folder, &words),
+            Call::ReadFile { path } => self.off(move || repo::read_file(path)),
+            Call::Grep { folder, words, how } => self.off(move || Event::Grepped {
+                found: git::grep(&folder, &words, how),
                 words,
             }),
             Call::Create { dir, name } => self.off(move || Event::Cloned {

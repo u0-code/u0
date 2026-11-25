@@ -1,7 +1,8 @@
 //! What the server is asked of a project's folder and its git, off the
 //! window's thread: where a session works and what its folder holds, its
 //! diffs, commits and pull request, its worktree and checkpoints, what you
-//! ask of git from the desk, and finding things in it. Each is one
+//! ask of git from the desk, finding things in it, and one of its files
+//! read for the column's viewer. Each is one
 //! [`Call`](crate::proto::Call), answered as one [`Event`].
 
 use std::{
@@ -338,6 +339,91 @@ pub fn clone(url: &str, dir: PathBuf, stop: &AtomicBool, say: &dyn Fn(Event)) ->
     Event::Cloned { dir, result }
 }
 
+/// What a file holds, as the column's viewer shows it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Body {
+    /// Text, cut at `TEXT_MOST` bytes.
+    Text(String),
+    /// A PDF's first pages, each a PNG, and how many it has.
+    Pdf { pages: Vec<Vec<u8>>, of: usize },
+    /// A picture the window draws from the file itself.
+    Image,
+    /// Anything else, by its size.
+    Binary(u64),
+}
+
+/// The most of a text file the viewer reads.
+const TEXT_MOST: usize = 2 << 20;
+/// The pages of a PDF drawn, and how large (points to pixels).
+const PDF_PAGES: usize = 24;
+const PDF_SCALE: f32 = 1.5;
+
+/// Read `path` for the viewer: text, a PDF's pages, a picture, or what
+/// is none of those.
+pub fn read_file(path: PathBuf) -> Event {
+    let body = std::fs::read(&path)
+        .map_err(|e| e.to_string())
+        .and_then(|bytes| body_of(&path, bytes));
+    Event::FileRead { path, body }
+}
+
+fn body_of(path: &Path, mut bytes: Vec<u8>) -> Result<Body, String> {
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    if matches!(
+        ext.as_str(),
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "ico" | "tiff"
+    ) {
+        return Ok(Body::Image);
+    }
+    if ext == "pdf" || bytes.starts_with(b"%PDF-") {
+        return pdf_pages(bytes);
+    }
+    if bytes.iter().take(8192).any(|b| *b == 0) {
+        return Ok(Body::Binary(bytes.len() as u64));
+    }
+    if bytes.len() > TEXT_MOST {
+        bytes.truncate(TEXT_MOST);
+    }
+    Ok(Body::Text(String::from_utf8_lossy(&bytes).into_owned()))
+}
+
+/// A PDF's first pages drawn, as hayro draws them: in Rust, with no library
+/// of the system's or a web view.
+fn pdf_pages(bytes: Vec<u8>) -> Result<Body, String> {
+    use hayro::{
+        PixmapSettings, RenderCache, RenderSettings, hayro_interpret::InterpreterSettings,
+        hayro_syntax::Pdf, render, vello_cpu::color::palette::css::WHITE,
+    };
+    let pdf = Pdf::new(bytes).map_err(|e| format!("not a PDF that can be read: {e:?}"))?;
+    let (cache, interpret, settings) = (
+        RenderCache::new(),
+        InterpreterSettings::default(),
+        RenderSettings::default(),
+    );
+    let pixmap = PixmapSettings {
+        x_scale: PDF_SCALE,
+        y_scale: PDF_SCALE,
+        bg_color: WHITE,
+    };
+    let all = pdf.pages();
+    let pages = all
+        .iter()
+        .take(PDF_PAGES)
+        .filter_map(|page| {
+            render(page, &cache, &interpret, &settings, &pixmap)
+                .into_png()
+                .ok()
+        })
+        .collect();
+    Ok(Body::Pdf {
+        pages,
+        of: all.len(),
+    })
+}
+
 /// Find the line each diff of the calls `calls` of the session `key` starts
 /// on in its file.
 pub fn place(key: u64, calls: Vec<(ToolCallId, Vec<(PathBuf, String)>)>) -> Event {
@@ -364,6 +450,38 @@ fn line_of(file: &Path, text: &str) -> Option<usize> {
 mod tests {
     use super::*;
     use crate::session::Session;
+
+    #[test]
+    fn a_file_reads_as_text_a_picture_or_bytes_by_what_it_holds() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = dir.path().join("a.rs");
+        std::fs::write(&text, "fn a() {}\n").unwrap();
+        let bin = dir.path().join("a.bin");
+        std::fs::write(&bin, [1u8, 0, 2]).unwrap();
+        let read = |p: &Path| match read_file(p.to_path_buf()) {
+            Event::FileRead { body, .. } => body,
+            _ => unreachable!(),
+        };
+        assert_eq!(read(&text), Ok(Body::Text("fn a() {}\n".into())));
+        assert_eq!(read(&bin), Ok(Body::Binary(3)));
+        assert!(read(&dir.path().join("a.png")).is_err());
+        std::fs::write(dir.path().join("b.png"), [0u8]).unwrap();
+        assert_eq!(read(&dir.path().join("b.png")), Ok(Body::Image));
+        assert!(read(&dir.path().join("broken.pdf")).is_err());
+        std::fs::write(dir.path().join("broken.pdf"), b"%PDF-1.4 no more").unwrap();
+        assert!(read(&dir.path().join("broken.pdf")).is_err());
+    }
+
+    #[test]
+    fn a_pdf_reads_as_its_pages_drawn() {
+        let pdf = "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 50]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n";
+        let Ok(Body::Pdf { pages, of }) = body_of(Path::new("a.pdf"), pdf.as_bytes().to_vec())
+        else {
+            panic!("the PDF was not read");
+        };
+        assert_eq!((pages.len(), of), (1, 1));
+        assert!(pages[0].starts_with(b"\x89PNG"));
+    }
 
     #[test]
     fn a_diffs_place_is_found_in_its_file_once_the_call_is_done() {

@@ -105,7 +105,8 @@ crates/core/src/
                 handled, answered as Events
   proto.rs      the Ghost protocol: Call (desk to server), Event (server to desk)
   records.rs    the record of each session open with its agent, written as it comes
-  repo.rs       what is asked of a project's folder and its git: each a Call, one Event
+  repo.rs       what is asked of a project's folder and its git: each a Call, one Event;
+                a file read for the viewer (a PDF's pages drawn by hayro)
   remote.rs     projects on another machine; their agents over SSH
   pty.rs        a shell in a pseudo-terminal: its process, input and size
   terminals.rs  your terminals by id, each a pty and the last 256 KiB it printed
@@ -141,8 +142,9 @@ crates/desk/src/
                 the drawer, the top bar; calls read (kinds);
                 drawing helpers: plans (drawn), command output
   aside/        the column's tabs (tabs), the Diff tab as gpui-kit's diff view
-                reads the patches (diff), git's scopes, commits and pull
-                request (repo), a side chat in it (side)
+                reads the patches (diff), the Files tab and a file read
+                (files), git's scopes, commits and pull request (repo), a
+                side chat in it (side)
   pages/        the settings dialog and its tabs (settings, prefs, projects, writing)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   ui.rs, theme.rs, style.rs

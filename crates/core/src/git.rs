@@ -964,21 +964,35 @@ pub fn pull_request_text(dir: &Path, number: u64) -> Option<String> {
 
 /// Where `words` are in the files git sees in `dir`: "path:line" and the
 /// line, fifty at most.
-pub fn grep(dir: &Path, words: &str) -> Vec<(String, String)> {
-    git(
-        dir,
-        &["grep", "-n", "-I", "-i", "-F", "--max-count=5", "-e", words],
-        None,
-    )
-    .unwrap_or_default()
-    .lines()
-    .take(50)
-    .filter_map(|l| {
-        let (path, rest) = l.split_once(':')?;
-        let (n, text) = rest.split_once(':')?;
-        Some((format!("{path}:{n}"), text.to_owned()))
-    })
-    .collect()
+pub fn grep(dir: &Path, words: &str, how: Match) -> Vec<(String, String)> {
+    let mut args = vec!["grep", "-n", "-I", "--max-count=5"];
+    args.push(if how.regex { "-E" } else { "-F" });
+    if !how.case {
+        args.push("-i");
+    }
+    if how.word {
+        args.push("-w");
+    }
+    args.extend(["-e", words]);
+    git(dir, &args, None)
+        .unwrap_or_default()
+        .lines()
+        .take(50)
+        .filter_map(|l| {
+            let (path, rest) = l.split_once(':')?;
+            let (n, text) = rest.split_once(':')?;
+            Some((format!("{path}:{n}"), text.to_owned()))
+        })
+        .collect()
+}
+
+/// How words are looked for in a project's files: in their case, as whole
+/// words, as a regular expression.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Match {
+    pub case: bool,
+    pub word: bool,
+    pub regex: bool,
 }
 
 /// Merge the pull request of the branch `dir` is on, squashed, as gh does.
@@ -1078,13 +1092,20 @@ mod tests {
     }
 
     #[test]
-    fn words_are_found_with_their_file_and_line() {
+    fn words_are_found_with_their_file_and_line_in_case_whole_or_as_a_pattern() {
         let dir = repo("grep");
+        let any = Match::default();
         assert_eq!(
-            grep(&dir, "TWO"),
+            grep(&dir, "TWO", any),
             vec![("a.txt:2".to_owned(), "two".to_owned())]
         );
-        assert!(grep(&dir, "nowhere").is_empty());
+        assert!(grep(&dir, "nowhere", any).is_empty());
+        let case = Match { case: true, ..any };
+        assert!(grep(&dir, "TWO", case).is_empty());
+        let word = Match { word: true, ..any };
+        assert!(grep(&dir, "tw", word).is_empty());
+        let regex = Match { regex: true, ..any };
+        assert_eq!(grep(&dir, "^t[wh]", regex).len(), 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

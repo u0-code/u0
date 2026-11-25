@@ -90,6 +90,8 @@ pub struct Palette {
     pub pages: Vec<(Sub, String)>,
     /// The folders in each folder a path typed to add a project is in.
     pub folders: HashMap<PathBuf, Vec<String>>,
+    /// How words are looked for (⇧⌘F): case, whole words, a pattern.
+    pub how: crate::git::Match,
 }
 
 impl Palette {
@@ -101,6 +103,7 @@ impl Palette {
             grep: Vec::new(),
             pages: Vec::new(),
             folders: HashMap::new(),
+            how: crate::git::Match::default(),
         }
     }
 }
@@ -200,6 +203,7 @@ impl Desk {
         self.transport.send(crate::proto::Call::Grep {
             folder,
             words: words.trim().to_owned(),
+            how: self.palette.how,
         });
     }
 }
@@ -394,15 +398,12 @@ impl Desk {
             .or_else(|| self.chosen_project())
     }
 
-    /// Open a file found: in the column beside where the session changed
-    /// it, else in your editor.
+    /// Open a file found in its tab in the column beside the session, as
+    /// t3code opens it; with no session, in your editor.
     fn open_file(&mut self, name: &str, cx: &mut Context<Self>) {
         let path = PathBuf::from(name.split(':').next().unwrap_or(name));
-        let changed = self
-            .session()
-            .is_some_and(|s| s.changed().iter().any(|c| c.path.ends_with(&path)));
-        if changed {
-            self.reveal_in_diff(&path, cx);
+        if self.session().is_some() {
+            self.open_surface(super::Surface::File(path), cx);
         } else {
             self.open_named(name);
         }
@@ -915,6 +916,11 @@ impl Desk {
                     })
             });
         }
+        // Words are looked for in their case, whole, or as a pattern.
+        if self.palette.through == Through::Words && page.is_none() {
+            let (desk, how) = (cx.entity(), self.palette.how);
+            command = command.header(move |_, _, _| match_toggles(&desk, how));
+        }
         for (heading, rows) in self.palette_groups(cx) {
             let items = rows.into_iter().map(|row| {
                 let faces = faces.clone();
@@ -932,6 +938,57 @@ impl Desk {
         }
         command.into_any_element()
     }
+}
+
+/// How words are looked for (⇧⌘F): in their case, whole, as a pattern;
+/// each a toggle that looks again.
+fn match_toggles(desk: &Entity<Desk>, how: crate::git::Match) -> gpui::Div {
+    let toggle = |id: &'static str,
+                  label: &'static str,
+                  tip: &'static str,
+                  on: bool,
+                  flip: fn(&mut crate::git::Match)| {
+        let desk = desk.clone();
+        ui::button(
+            id,
+            label,
+            if on {
+                ui::Weight::Secondary
+            } else {
+                ui::Weight::Quiet
+            },
+        )
+        .h(px(24.))
+        .px(px(6.))
+        .tooltip(tip)
+        .on_click(move |_, _, cx| {
+            desk.update(cx, |d, cx| {
+                flip(&mut d.palette.how);
+                let words = d.palette.state.read(cx).query(cx).to_string();
+                d.search_words(&words);
+                cx.notify();
+            });
+        })
+    };
+    div()
+        .flex()
+        .justify_end()
+        .gap(px(2.))
+        .px(px(12.))
+        .pt(px(8.))
+        .child(toggle("match-case", "Aa", "Match case", how.case, |h| {
+            h.case = !h.case;
+        }))
+        .child(toggle("match-word", "ab", "Whole words", how.word, |h| {
+            h.word = !h.word;
+        }))
+        .child(toggle(
+            "match-regex",
+            ".*",
+            "A regular expression",
+            how.regex,
+            |h| h.regex = !h.regex,
+        ))
 }
 
 /// Where the letters of `typed` stand in `text`, in order, whatever their

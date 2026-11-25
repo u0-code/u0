@@ -39,6 +39,8 @@ url = "2.5"
 similar = { version = "2.7", default-features = false, features = ["text"] }
 jiff = "1.0.2"
 tempfile = "3.27"
+# A PDF's pages, drawn in Rust: the Files tab's viewer.
+hayro = "0.9"
 cocoa = "0.26"
 objc = "0.2"
 

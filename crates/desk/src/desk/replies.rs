@@ -152,6 +152,7 @@ impl Desk {
             Event::Files { folder, files } => {
                 self.files.insert(folder, files);
             }
+            Event::FileRead { path, body } => self.file_read(&path, body, window, cx),
             Event::Prs {
                 folder,
                 prs,

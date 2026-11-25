@@ -29,8 +29,10 @@ pub enum Surface {
     Details,
     /// Its changes as git reads them, and the commits.
     Diff,
-    /// Every file it touched.
+    /// The project's files.
     Files,
+    /// One file, read.
+    File(std::path::PathBuf),
     /// Your terminals beside it.
     Terminal,
     /// Its branch's pull request.
@@ -314,6 +316,14 @@ impl Desk {
                     })
                 };
                 let mut menu = menu;
+                if let Some(Surface::File(path)) = &shown {
+                    let copied = path.display().to_string();
+                    menu = menu
+                        .item(PopupMenuItem::new("Copy path").on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(copied.clone()));
+                        }))
+                        .separator();
+                }
                 if let Some(Surface::Side(key)) = shown {
                     let desk = desk.clone();
                     menu = menu
@@ -397,6 +407,13 @@ impl Desk {
             Surface::Details => ("Details".into(), "list"),
             Surface::Diff => ("Diff".into(), "diff"),
             Surface::Files => ("Files".into(), "folder"),
+            Surface::File(path) => (
+                path.file_name().map_or_else(
+                    || path.display().to_string(),
+                    |n| n.to_string_lossy().into_owned(),
+                ),
+                "file",
+            ),
             Surface::Terminal => ("Terminal".into(), "terminal"),
             Surface::PullRequest => (
                 s.git

@@ -77,7 +77,7 @@ pub enum Page {
     Agent(String),
 }
 
-pub use crate::aside::{Column, Surface};
+pub use crate::aside::{Column, Surface, Viewer};
 
 /// A small menu open over the desk.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -267,6 +267,8 @@ pub struct Desk {
     pub columns: HashMap<u64, Column>,
     /// The line a side chat in the column is asked in.
     pub side_line: Entity<InputState>,
+    /// The Files tab and the file read in the column.
+    pub viewer: Viewer,
     /// How far the column's tabs are scrolled, to bring one opened into view.
     pub tab_scroll: gpui::ScrollHandle,
     /// gpui-kit's view of each edit opened in the thread, by its card.
@@ -525,6 +527,7 @@ impl Desk {
             signing: None,
             columns: HashMap::new(),
             side_line,
+            viewer: Viewer::new(window, cx),
             tab_scroll: gpui::ScrollHandle::new(),
             edits: std::cell::RefCell::default(),
             search: lists::Search::new(window, cx),
@@ -1362,7 +1365,7 @@ impl Desk {
     pub fn right_width(&self) -> f32 {
         match self.surface() {
             Some(Surface::Diff) if self.settings.side_by_side => 720.,
-            Some(Surface::Diff | Surface::Terminal) => 560.,
+            Some(Surface::Diff | Surface::Terminal | Surface::File(_)) => 560.,
             _ => RIGHT,
         }
     }
@@ -1393,6 +1396,7 @@ impl Render for Desk {
         );
         self.sync_lines();
         self.sync_diff(cx);
+        self.sync_files(cx);
         self.read_projects();
         self.sync_side(cx);
         // ⌘ let go where the desk did not hear it (over a dialog): the

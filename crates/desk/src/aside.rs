@@ -5,10 +5,12 @@
 //! Ghost runs it.
 
 mod diff;
+mod files;
 mod repo;
 mod side;
 mod tabs;
 
+pub use files::Viewer;
 pub use tabs::{Column, Surface};
 
 use std::time::SystemTime;
@@ -24,7 +26,7 @@ use crate::{
     desk::{Desk, RIGHT, TOPBAR, draggable},
     fonts::Faces,
     registry::{self, Way},
-    session::{Change, Session, State},
+    session::{Session, State},
     settings::Detail,
     theme,
     thread::{self, drawn, kinds},
@@ -96,15 +98,6 @@ fn frow() -> Div {
         .text_size(px(13.))
 }
 
-fn path_text(faces: &Faces, text: &str) -> Div {
-    ui::one_line(
-        ui::mono(faces, ui::fit(text, 34))
-            .text_size(px(12.5))
-            .text_color(theme::text2()),
-    )
-    .flex_1()
-}
-
 fn empty(faces: &Faces, text: impl Into<SharedString>) -> Div {
     ui::text(faces, text)
         .text_size(px(12.5))
@@ -153,7 +146,8 @@ impl Desk {
             None => self.no_tabs(faces, cx).into_any_element(),
             Some(Surface::Details) => scrolled(self.details(faces, s, cx)).into_any_element(),
             Some(Surface::Diff) => self.diff_tab(faces, s, cx).into_any_element(),
-            Some(Surface::Files) => scrolled(Self::files(faces, s, cx)).into_any_element(),
+            Some(Surface::Files) => self.files_tab(faces, s, cx).into_any_element(),
+            Some(Surface::File(path)) => self.file_tab(faces, s, &path, cx).into_any_element(),
             Some(Surface::Terminal) => self.terminal_view(faces, cell, cx).into_any_element(),
             Some(Surface::PullRequest) => {
                 scrolled(Self::pull_request(faces, s, cx).unwrap_or_else(|| {
@@ -795,57 +789,6 @@ impl Desk {
                 if turns == 1 { "turn" } else { "turns" }
             );
             sec = sec.child(key_value(faces, "Started", fine(faces, words)));
-        }
-        sec
-    }
-
-    /// Every file the session touched.
-    fn files(faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
-        let files = s.files();
-        let changed = s.changed();
-        let mut sec = section(
-            faces,
-            "Files",
-            Some(fine(faces, format!("{} touched", files.len()))),
-        )
-        .border_b_0();
-        if files.is_empty() {
-            return sec.child(empty(faces, "Files the agent reads or changes show here."));
-        }
-        for (n, path) in files.into_iter().enumerate() {
-            let name = path
-                .strip_prefix(&s.meta.folder)
-                .unwrap_or(&path)
-                .display()
-                .to_string();
-            let change = changed.iter().find(|c| c.path == path);
-            let tail = change.map_or_else(
-                || fine(faces, "read"),
-                |c| match c.change {
-                    Change::New => fine(faces, "new"),
-                    Change::Deleted => fine(faces, "deleted").text_color(theme::coral()),
-                    Change::Edited => ui::counts(faces, c.added, c.gone, 11.5),
-                },
-            );
-            let openable = change.is_some();
-            sec = sec.child(
-                frow()
-                    .id(SharedString::from(format!("file-{n}")))
-                    .px(px(6.))
-                    .mx(px(-6.))
-                    .rounded(px(6.))
-                    .when(openable, |d| {
-                        d.cursor_pointer().hover(|st| st.bg(theme::hover()))
-                    })
-                    .child(ui::icon("file", 14.).text_color(theme::faint()))
-                    .child(path_text(faces, &name))
-                    .child(tail)
-                    .when(openable, |d| {
-                        d.on_click(cx.listener(move |this, _, _, cx| {
-                            this.reveal_in_diff(&path, cx);
-                        }))
-                    }),
-            );
         }
         sec
     }

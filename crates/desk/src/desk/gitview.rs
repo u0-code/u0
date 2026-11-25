@@ -230,6 +230,17 @@ impl Desk {
         }
     }
 
+    /// Ask for the files of `folder` git sees, for the column's Files tab.
+    pub(crate) fn list_files(&self, folder: PathBuf) {
+        self.transport
+            .send(crate::proto::Call::ListFiles { folder });
+    }
+
+    /// Ask for what the file at `path` holds, for its tab in the column.
+    pub(crate) fn read_file(&self, path: PathBuf) {
+        self.transport.send(crate::proto::Call::ReadFile { path });
+    }
+
     /// Show the changes of `scope`; the branch's and a commit's are read
     /// from git first.
     pub(crate) fn ask_scope(&mut self, scope: &Scope) {
