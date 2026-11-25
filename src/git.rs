@@ -119,9 +119,9 @@ pub fn slug(text: &str) -> String {
 }
 
 /// Make a worktree of the repository at `dir` for a session about `about`,
-/// under `home/worktrees/<repo>/`, on a new branch `ghost/<slug>` from the
-/// commit `dir` is on. A name already taken gets a number.
-pub fn worktree(dir: &Path, about: &str, home: &Path) -> Result<Worktree, String> {
+/// under `home/worktrees/<repo>/`, on a new branch `<prefix><slug>` from
+/// the commit `dir` is on. A name already taken gets a number.
+pub fn worktree(dir: &Path, about: &str, home: &Path, prefix: &str) -> Result<Worktree, String> {
     let repo = root(dir).ok_or("the folder is not in a git repository")?;
     let name = repo
         .file_name()
@@ -134,7 +134,7 @@ pub fn worktree(dir: &Path, about: &str, home: &Path) -> Result<Worktree, String
             format!("{base}-{n}")
         };
         let path = home.join("worktrees").join(&name).join(&slug);
-        let branch = format!("ghost/{slug}");
+        let branch = format!("{prefix}{slug}");
         let taken = path.exists()
             || git(
                 &repo,
@@ -889,8 +889,8 @@ mod tests {
     fn a_worktree_gets_a_branch_of_its_own_and_a_second_one_a_number() {
         let dir = repo("worktree");
         let home = dir.join(".home");
-        let a = worktree(&dir, "Retry S3 uploads!", &home).unwrap();
-        let b = worktree(&dir, "Retry S3 uploads!", &home).unwrap();
+        let a = worktree(&dir, "Retry S3 uploads!", &home, "ghost/").unwrap();
+        let b = worktree(&dir, "Retry S3 uploads!", &home, "ghost/").unwrap();
         assert_eq!(a.branch, "ghost/retry-s3-uploads");
         assert_eq!(b.branch, "ghost/retry-s3-uploads-2");
         assert!(a.path.join("a.txt").is_file());

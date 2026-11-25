@@ -215,6 +215,43 @@ pub fn switch(id: impl Into<gpui::ElementId>, on: bool) -> gpui::Stateful<Div> {
         )
 }
 
+/// What a choice of a [`segmented`] control does when clicked.
+pub type Pick = Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
+
+/// A few choices side by side in one frame, each a word, the one chosen
+/// lit.
+pub fn segmented(faces: &Faces, id: &str, choices: Vec<(&'static str, bool, Pick)>) -> Div {
+    let mut row = div()
+        .flex()
+        .flex_none()
+        .gap(px(2.))
+        .p(px(2.))
+        .rounded(px(8.))
+        .border_1()
+        .border_color(theme::tag_line());
+    for (n, (label, on, pick)) in choices.into_iter().enumerate() {
+        row = row.child(
+            div()
+                .id(SharedString::from(format!("{id}-{n}")))
+                .flex()
+                .items_center()
+                .h(px(24.))
+                .px(px(10.))
+                .rounded(px(6.))
+                .cursor_pointer()
+                .when(on, |d| d.bg(theme::panel2()))
+                .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
+                .child(text(faces, label).text_size(px(12.5)).text_color(if on {
+                    theme::text()
+                } else {
+                    theme::muted()
+                }))
+                .on_click(move |e, w, cx| pick(e, w, cx)),
+        );
+    }
+    row
+}
+
 /// An icon button: a 28-point square that lights on hover.
 pub fn icon_button(
     id: impl Into<gpui::ElementId>,

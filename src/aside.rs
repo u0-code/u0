@@ -801,14 +801,15 @@ impl Desk {
                     ui::icon_button(
                         "side-by-side",
                         "panel-right",
-                        if self.side_by_side {
+                        if self.settings.side_by_side {
                             "One above the other"
                         } else {
                             "Side by side"
                         },
                     )
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.side_by_side = !this.side_by_side;
+                        this.settings.side_by_side = !this.settings.side_by_side;
+                        this.save_settings();
                         cx.notify();
                     })),
                 )
@@ -827,7 +828,7 @@ impl Desk {
             .py(px(6.));
         body = body.children(self.comment_box(faces, s, path, cx));
         if let Some(file) = from_git {
-            let hunks = if self.side_by_side {
+            let hunks = if self.settings.side_by_side {
                 drawn::hunks_split(faces, file)
             } else {
                 // A line clicked is one to say something of, to the agent.

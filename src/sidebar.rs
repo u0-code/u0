@@ -247,7 +247,7 @@ impl Desk {
                         .text_color(theme::muted()),
                 )
                 .when(rest > 0, |d| d.child(fine(faces, rest.to_string())))
-                .on_click(cx.listener(|this, _, _, cx| this.open_page(Page::Settings, cx))),
+                .on_click(cx.listener(|this, _, _, cx| this.open_agents(cx))),
         );
 
         let list = div()

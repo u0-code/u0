@@ -103,6 +103,40 @@ impl Desk {
         }
     }
 
+    /// Say through macOS what a session did, as you asked it to.
+    fn tell(&self, title: &str, body: &str) {
+        match self.settings.notify {
+            crate::settings::Notify::Off => {}
+            crate::settings::Notify::Banner => hub::notify(title, body, false),
+            crate::settings::Notify::BannerAndSound => hub::notify(title, body, true),
+        }
+    }
+
+    /// While an agent works, and you asked for it, the Mac does not sleep
+    /// (`caffeinate`, for as long as Ghost runs); otherwise it may.
+    pub(crate) fn stay_awake(&mut self) {
+        let working = self.settings.awake
+            && self
+                .sessions
+                .iter()
+                .any(|s| matches!(s.state, State::Working | State::Opening));
+        match (&mut self.awake, working) {
+            (None, true) => {
+                self.awake = std::process::Command::new("caffeinate")
+                    .args(["-i", "-w", &std::process::id().to_string()])
+                    .spawn()
+                    .map_err(|e| tracing::warn!("caffeinate could not be started: {e}"))
+                    .ok();
+            }
+            (Some(child), false) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                self.awake = None;
+            }
+            _ => {}
+        }
+    }
+
     // What comes back.
 
     pub(super) fn take(&mut self, msg: Msg, cx: &mut Context<Self>) {
@@ -290,7 +324,7 @@ impl Desk {
                 // With Ghost behind other windows, macOS says so.
                 if behind && let Some(s) = self.sessions.iter().find(|s| s.key == key) {
                     let name = self.name_of(&s.agent);
-                    hub::notify(
+                    self.tell(
                         &format!("{name} · {}", crate::ui::fit(&s.title, 40)),
                         if ok { "Finished its turn" } else { "Stopped" },
                     );
@@ -637,7 +671,7 @@ impl Desk {
                     if self.behind {
                         let title = s.title.clone();
                         let name = self.name_of(agent);
-                        hub::notify(
+                        self.tell(
                             &format!("{name} · {}", crate::ui::fit(&title, 40)),
                             "Asks before it goes on",
                         );

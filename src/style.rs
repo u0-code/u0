@@ -13,9 +13,6 @@ use gpui::{Div, prelude::*, px};
 
 use crate::{fonts::Faces, theme, ui};
 
-/// The reading column, and the composer under it.
-pub const COLUMN: f32 = 680.;
-
 // The sizes are measured from 2x captures of Claude's desktop app, the
 // standard the desk is held to. Its prose sets a Chinese character 28 px
 // wide on lines 42 px apart: 14 on 21, a line and a half, which is what

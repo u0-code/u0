@@ -29,6 +29,10 @@ pub fn home() -> PathBuf {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is a choice of its own, not a state among several"
+)]
 pub struct Settings {
     /// The agents shown down the left, by registry id, in order.
     pub enabled: Vec<String>,
@@ -56,6 +60,77 @@ pub struct Settings {
     /// Model ids of your own, by agent, offered beside those it lists.
     #[serde(default)]
     pub models: std::collections::BTreeMap<String, Vec<String>>,
+    /// What macOS says when a session ends a turn or needs you, while
+    /// Ghost is not in front.
+    #[serde(default)]
+    pub notify: Notify,
+    /// Keep the Mac from sleeping while an agent works.
+    #[serde(default = "yes")]
+    pub awake: bool,
+    /// The days a session is left before it is done; none, never.
+    #[serde(default = "week")]
+    pub settle_days: Option<u32>,
+    /// How wide the thread and the composer read.
+    #[serde(default)]
+    pub width: Width,
+    /// A file's diff opens side by side, the column beside widened.
+    #[serde(default)]
+    pub side_by_side: bool,
+    /// What you write while a turn goes on steers it, rather than waiting
+    /// for it to end.
+    #[serde(default)]
+    pub steer: bool,
+    /// What a worktree's branch begins with, before the session's title.
+    #[serde(default = "prefix")]
+    pub branch_prefix: String,
+}
+
+/// What macOS says when a session ends a turn or needs you.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Notify {
+    Off,
+    #[default]
+    Banner,
+    BannerAndSound,
+}
+
+/// How wide the thread reads.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Width {
+    #[default]
+    Comfortable,
+    Wide,
+    Full,
+}
+
+impl Width {
+    /// The reading column in a pane `pane` wide.
+    pub fn column(self, pane: f32) -> f32 {
+        let most = match self {
+            Self::Comfortable => 680.,
+            Self::Wide => 880.,
+            Self::Full => f32::MAX,
+        };
+        (pane - 64.).clamp(240., most)
+    }
+}
+
+fn yes() -> bool {
+    true
+}
+
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "serde's default for an Option field"
+)]
+fn week() -> Option<u32> {
+    Some(7)
+}
+
+fn prefix() -> String {
+    "ghost/".into()
 }
 
 /// What you set for one project.
@@ -89,6 +164,13 @@ impl Default for Settings {
             prefs: std::collections::BTreeMap::new(),
             commands: std::collections::BTreeMap::new(),
             models: std::collections::BTreeMap::new(),
+            notify: Notify::default(),
+            awake: yes(),
+            settle_days: week(),
+            width: Width::default(),
+            side_by_side: false,
+            steer: false,
+            branch_prefix: prefix(),
         }
     }
 }

@@ -162,6 +162,8 @@ pub struct Desk {
     pub fanout: bool,
     /// No window of Ghost's is in front.
     pub behind: bool,
+    /// What keeps the Mac awake while an agent works, when it is kept so.
+    pub awake: Option<std::process::Child>,
     /// Your terminals in the drawer under the thread, whether it is open,
     /// where keys go in it, the one they go to, and whether two show side
     /// by side.
@@ -174,10 +176,8 @@ pub struct Desk {
     /// five.
     pub pr_tick: u32,
     pub health_tick: u32,
-    /// A file's diff side by side (the column widens), and what you say of
-    /// its lines: the line being commented on, the line to write it in, and
-    /// those said, waiting to go to the agent.
-    pub side_by_side: bool,
+    /// What you say of a file's lines: the line being commented on, the
+    /// line to write it in, and those said, waiting to go to the agent.
     pub commenting: Option<(PathBuf, usize)>,
     pub comment: Entity<TextInput>,
     pub comments: Vec<(PathBuf, usize, String)>,
@@ -196,6 +196,8 @@ pub struct Desk {
     pub tidied: Option<String>,
     /// The search over the registry's agents, in the settings.
     pub agent_search: Entity<TextInput>,
+    /// What worktree branches begin with, as you write it in settings.
+    pub prefix_input: Entity<TextInput>,
     /// The folders each agent has sessions in that are not projects.
     pub elsewhere: std::collections::BTreeMap<String, Vec<(PathBuf, usize)>>,
     /// What `@` can name: each folder's files, each project's open pull
@@ -316,6 +318,16 @@ impl Desk {
         })
         .detach();
         let search = cx.new(|cx| TextInput::new(cx, "Search sessions").padded(4.));
+        let prefix = cx.new(|cx| {
+            let mut i = TextInput::new(cx, "ghost/").padded(4.);
+            i.set_text(&settings.branch_prefix, cx);
+            i
+        });
+        cx.subscribe(&prefix, |this, input, _: &crate::input::Changed, cx| {
+            this.settings.branch_prefix = input.read(cx).text();
+            this.save_settings();
+        })
+        .detach();
         let message = cx.new(|cx| TextInput::new(cx, "Commit message").padded(4.));
         let rename = cx.new(|cx| TextInput::new(cx, "Name").padded(2.));
         let comment = cx.new(|cx| TextInput::new(cx, "What of this line?").padded(3.));
@@ -429,7 +441,13 @@ impl Desk {
         let (tx, mut rx) = mpsc::unbounded_channel();
         cx.spawn(async move |this, cx| {
             while let Some(msg) = rx.recv().await {
-                if this.update(cx, |this, cx| this.take(msg, cx)).is_err() {
+                if this
+                    .update(cx, |this, cx| {
+                        this.take(msg, cx);
+                        this.stay_awake();
+                    })
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -485,7 +503,7 @@ impl Desk {
             rename,
             undo: None,
             found: HashSet::new(),
-            settings_tab: crate::pages::Tab::Agents,
+            settings_tab: crate::pages::Tab::General,
             clone_url,
             new_name,
             remote_at,
@@ -497,18 +515,19 @@ impl Desk {
             adding_trouble: None,
             fanout: false,
             behind: false,
+            awake: None,
             files: HashMap::new(),
             elsewhere: std::collections::BTreeMap::new(),
             terminals: Vec::new(),
             agent_command,
             agent_model,
             agent_search,
+            prefix_input: prefix,
             sizes: Vec::new(),
             palette: false,
             palette_input,
             palette_at: 0,
             tidied: None,
-            side_by_side: false,
             pr_tick: 0,
             health_tick: 0,
             commenting: None,
@@ -773,7 +792,7 @@ impl Desk {
         self.sessions.iter_mut().find(|s| s.key == key)
     }
 
-    fn save_settings(&mut self) {
+    pub(crate) fn save_settings(&mut self) {
         if self.settings_refused.is_some() {
             return;
         }
@@ -968,7 +987,7 @@ impl Desk {
                 });
             match base.and_then(|a| self.remote_slot(&a, &host)) {
                 Some(id) => self.new_session(&id, folder, window, cx),
-                None => self.open_page(Page::Settings, cx),
+                None => self.open_agents(cx),
             }
             return;
         }
@@ -986,7 +1005,7 @@ impl Desk {
             .map(|s| s.entry.id.clone());
         match agent {
             Some(agent) => self.new_session(&agent, folder, window, cx),
-            None => self.open_page(Page::Settings, cx),
+            None => self.open_agents(cx),
         }
     }
 
@@ -1080,6 +1099,7 @@ impl Desk {
             hub::git_action(
                 wt.repo.clone(),
                 hub::GitAction::RemoveWorktree(wt),
+                self.settings.branch_prefix.clone(),
                 key,
                 self.tx.clone(),
             );
@@ -1223,7 +1243,12 @@ impl Desk {
             // Said while a turn goes on: it waits its turn, and is said as
             // the one going on ends.
             session.queued.push(text);
+            let last = session.queued.len() - 1;
             self.save_index();
+            // Or it goes in now, the turn stopped for it, as you asked.
+            if self.settings.steer {
+                self.steer(last, cx);
+            }
             cx.notify();
             return;
         }
@@ -1267,7 +1292,14 @@ impl Desk {
             self.settings.used(&folder);
             self.save_settings();
             if worktree {
-                hub::make_worktree(folder, text, self.home.clone(), key, self.tx.clone());
+                hub::make_worktree(
+                    folder,
+                    text,
+                    self.home.clone(),
+                    self.settings.branch_prefix.clone(),
+                    key,
+                    self.tx.clone(),
+                );
             } else {
                 self.open_when_running(&agent, key);
             }
@@ -1482,6 +1514,12 @@ impl Desk {
         cx.notify();
     }
 
+    /// Settings, at the agents: to switch one on, or install one.
+    pub fn open_agents(&mut self, cx: &mut Context<Self>) {
+        self.settings_tab = crate::pages::Tab::Agents;
+        self.open_page(Page::Settings, cx);
+    }
+
     pub fn open_page(&mut self, page: Page, cx: &mut Context<Self>) {
         // An agent's page shows the command of yours that starts it.
         if let Page::Agent(id) = &page {
@@ -1592,7 +1630,7 @@ impl Desk {
     /// wider again for its diff side by side.
     pub fn right_width(&self) -> f32 {
         match self.aside {
-            Aside::File(_) if self.side_by_side => 720.,
+            Aside::File(_) if self.settings.side_by_side => 720.,
             Aside::File(_) => 560.,
             _ => RIGHT,
         }
@@ -1637,7 +1675,7 @@ impl Render for Desk {
         }
         let middle = match self.page.clone() {
             Page::Thread => {
-                let column = (pane - 64.).clamp(240., crate::style::COLUMN);
+                let column = self.settings.width.column(pane);
                 middle
                     .child(self.thread(&faces, column, cx))
                     .children(self.drawer(&faces, cell, cx))

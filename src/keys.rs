@@ -7,13 +7,13 @@
 //!   { "key": "cmd-shift-n", "action": "new_session" } ]
 //! ```
 //!
-//! The actions are named as in `NAMES`. A binding of yours comes after the
+//! The actions are named as in `ACTIONS`. A binding of yours comes after the
 //! window's own, so it wins; a file that does not read is said so in the
 //! log and left out.
 
 use std::path::Path;
 
-use gpui::{App, KeyBinding, WindowHandle, actions};
+use gpui::{Action, App, KeyBinding, WindowHandle, actions};
 use serde::Deserialize;
 
 use crate::{desk::Desk, input};
@@ -45,20 +45,26 @@ actions!(
     ]
 );
 
-/// The actions a binding of yours can name.
-pub const NAMES: [&str; 12] = [
-    "quit",
-    "new_session",
-    "toggle_sidebar",
-    "stop",
-    "minimize",
-    "find",
-    "drawer",
-    "palette",
-    "settings",
-    "next_session",
-    "previous_session",
-    "model",
+/// Each action a binding of yours can name: its name, what it does, and
+/// the action. The keys page lists them in this order.
+type Make = fn() -> Box<dyn Action>;
+pub const ACTIONS: [(&str, &str, Make); 12] = [
+    ("palette", "Go to anything", || Box::new(Palette)),
+    ("new_session", "New session", || Box::new(NewSession)),
+    ("find", "Find in the session", || Box::new(Find)),
+    ("drawer", "Terminal", || Box::new(Drawer)),
+    ("model", "Choose the model", || Box::new(Model)),
+    ("stop", "Stop the turn", || Box::new(Stop)),
+    ("next_session", "Next session", || Box::new(NextSession)),
+    ("previous_session", "Previous session", || {
+        Box::new(PreviousSession)
+    }),
+    ("toggle_sidebar", "Show or hide the sidebar", || {
+        Box::new(ToggleSidebar)
+    }),
+    ("settings", "Settings", || Box::new(OpenSettings)),
+    ("minimize", "Minimize the window", || Box::new(Minimize)),
+    ("quit", "Quit Ghost", || Box::new(Quit)),
 ];
 
 /// A binding of yours.
@@ -71,21 +77,53 @@ struct Binding {
 
 /// A binding of `key` to the action named `name`.
 fn binding(key: &str, name: &str) -> Option<KeyBinding> {
-    Some(match name {
-        "quit" => KeyBinding::new(key, Quit, None),
-        "new_session" => KeyBinding::new(key, NewSession, None),
-        "toggle_sidebar" => KeyBinding::new(key, ToggleSidebar, None),
-        "stop" => KeyBinding::new(key, Stop, None),
-        "minimize" => KeyBinding::new(key, Minimize, None),
-        "find" => KeyBinding::new(key, Find, None),
-        "drawer" => KeyBinding::new(key, Drawer, None),
-        "palette" => KeyBinding::new(key, Palette, None),
-        "settings" => KeyBinding::new(key, OpenSettings, None),
-        "next_session" => KeyBinding::new(key, NextSession, None),
-        "previous_session" => KeyBinding::new(key, PreviousSession, None),
-        "model" => KeyBinding::new(key, Model, None),
-        _ => return None,
-    })
+    let (_, _, make) = ACTIONS.iter().find(|(n, _, _)| *n == name)?;
+    KeyBinding::load(key, make(), None, false, None, &gpui::DummyKeyboardMapper).ok()
+}
+
+/// The keys the action named `name` is bound to now, yours over the
+/// window's, as a Mac writes them ("⌘⇧M"); none when it has none.
+pub fn keys_of(cx: &App, name: &str) -> Option<String> {
+    let (_, _, make) = ACTIONS.iter().find(|(n, _, _)| *n == name)?;
+    let keymap = cx.key_bindings();
+    let keymap = keymap.borrow();
+    let action = make();
+    let binding = keymap.bindings_for_action(action.as_ref()).last()?;
+    Some(
+        binding
+            .keystrokes()
+            .iter()
+            .map(|k| shown(*k.modifiers(), k.key()))
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
+
+/// One keystroke as a Mac writes it.
+fn shown(m: gpui::Modifiers, key: &str) -> String {
+    let mut out = String::new();
+    for (on, mark) in [
+        (m.control, "⌃"),
+        (m.alt, "⌥"),
+        (m.shift, "⇧"),
+        (m.platform, "⌘"),
+    ] {
+        if on {
+            out.push_str(mark);
+        }
+    }
+    out.push_str(&match key {
+        "enter" => "↩".to_owned(),
+        "backspace" => "⌫".to_owned(),
+        "escape" => "esc".to_owned(),
+        "space" => "Space".to_owned(),
+        "up" => "↑".to_owned(),
+        "down" => "↓".to_owned(),
+        "left" => "←".to_owned(),
+        "right" => "→".to_owned(),
+        k => k.to_uppercase(),
+    });
+    out
 }
 
 /// The bindings in `home`'s `keybindings.json`; none where there is none.
@@ -101,9 +139,10 @@ fn yours(home: &Path) -> Vec<KeyBinding> {
                 let found = binding(&b.key, &b.action);
                 if found.is_none() {
                     tracing::warn!(
-                        "{}: no action is named {:?}; the names are {NAMES:?}",
+                        "{}: no action is named {:?}; the names are {:?}",
                         path.display(),
-                        b.action
+                        b.action,
+                        ACTIONS.map(|(n, _, _)| n)
                     );
                 }
                 found
@@ -219,9 +258,10 @@ mod tests {
 
     #[test]
     fn each_name_a_binding_can_take_is_an_action() {
-        for name in NAMES {
+        for (name, _, _) in ACTIONS {
             assert!(binding("cmd-k", name).is_some(), "{name}");
         }
+        assert_eq!(shown(gpui::Modifiers::command_shift(), "m"), "⇧⌘M");
         assert!(binding("cmd-k", "no_such_action").is_none());
     }
 }

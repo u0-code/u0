@@ -277,7 +277,13 @@ impl Desk {
                 url: None,
             });
         }
-        hub::git_action(dir, action, key, self.tx.clone());
+        hub::git_action(
+            dir,
+            action,
+            self.settings.branch_prefix.clone(),
+            key,
+            self.tx.clone(),
+        );
         cx.notify();
     }
 

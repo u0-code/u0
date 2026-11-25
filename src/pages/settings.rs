@@ -1,6 +1,6 @@
-//! The settings page: a column of tabs, and the tab chosen. Agents, which
-//! are switched on and off and installed; sessions archived, and what Ghost
-//! keeps on this machine.
+//! The settings page: a column of tabs, and the tab chosen. Ghost's own
+//! settings (`prefs`); agents, which are switched on and off and installed;
+//! sessions archived, and what Ghost keeps on this machine.
 
 use std::time::SystemTime;
 
@@ -21,8 +21,14 @@ use crate::{
 /// A tab of the settings page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
+    General,
+    Appearance,
+    Chat,
+    NewSessions,
     Agents,
     Sessions,
+    Keyboard,
+    About,
 }
 
 impl Desk {
@@ -36,7 +42,16 @@ impl Desk {
             .p(px(8.))
             .border_r_1()
             .border_color(theme::border());
-        for (tab, label) in [(Tab::Agents, "Agents"), (Tab::Sessions, "Sessions")] {
+        for (tab, label) in [
+            (Tab::General, "General"),
+            (Tab::Appearance, "Appearance"),
+            (Tab::Chat, "Chat"),
+            (Tab::NewSessions, "New sessions"),
+            (Tab::Agents, "Agents"),
+            (Tab::Sessions, "Sessions"),
+            (Tab::Keyboard, "Keyboard"),
+            (Tab::About, "About"),
+        ] {
             let on = self.settings_tab == tab;
             nav = nav.child(
                 div()
@@ -59,7 +74,12 @@ impl Desk {
                     })),
             );
         }
-        if self.settings_tab == Tab::Sessions {
+        let own = self.own_tab(faces, self.settings_tab, cx);
+        if self.settings_tab == Tab::Sessions || own.is_some() {
+            let tab = match own {
+                Some(page) => page,
+                None => self.sessions_tab(faces, cx),
+            };
             return div()
                 .flex()
                 .flex_1()
@@ -73,7 +93,7 @@ impl Desk {
                         .flex_1()
                         .min_w(px(0.))
                         .overflow_y_scroll()
-                        .child(self.sessions_tab(faces, cx)),
+                        .child(tab),
                 )
                 .into_any_element();
         }

@@ -3,6 +3,7 @@
 //! settings (`settings`), where agents are switched on and off.
 
 mod new_project;
+mod prefs;
 mod settings;
 
 pub use settings::Tab;

@@ -949,15 +949,18 @@ pub fn logout(agent: Arc<Agent>, name: String, tx: Sender) {
     });
 }
 
-/// Show a notification from macOS: a turn ended, or a question is asked,
-/// while Ghost is not in front.
-pub fn notify(title: &str, body: &str) {
+/// Show a notification from macOS, with its sound if `sound`: a turn
+/// ended, or a question is asked, while Ghost is not in front.
+pub fn notify(title: &str, body: &str, sound: bool) {
     let quote = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
-    let script = format!(
+    let mut script = format!(
         "display notification \"{}\" with title \"Ghost\" subtitle \"{}\"",
         quote(body),
         quote(title)
     );
+    if sound {
+        script.push_str(" sound name \"Glass\"");
+    }
     let _ = std::process::Command::new("osascript")
         .arg("-e")
         .arg(script)
@@ -992,10 +995,18 @@ pub fn in_terminal(
         .map(|_| ())
 }
 
-/// Make a worktree for the session `key`, about `about`.
-pub fn make_worktree(dir: PathBuf, about: String, home: PathBuf, key: u64, tx: Sender) {
+/// Make a worktree for the session `key`, about `about`, on a branch
+/// beginning with `prefix`.
+pub fn make_worktree(
+    dir: PathBuf,
+    about: String,
+    home: PathBuf,
+    prefix: String,
+    key: u64,
+    tx: Sender,
+) {
     acp::runtime().spawn_blocking(move || {
-        let result = git::worktree(&dir, &about, &home);
+        let result = git::worktree(&dir, &about, &home, &prefix);
         let _ = tx.send(Msg::Worktree { key, result });
     });
 }
@@ -1068,7 +1079,7 @@ pub fn restore(
 }
 
 /// Do `action` in `dir`.
-pub fn git_action(dir: PathBuf, action: GitAction, key: u64, tx: Sender) {
+pub fn git_action(dir: PathBuf, action: GitAction, prefix: String, key: u64, tx: Sender) {
     acp::runtime().spawn_blocking(move || {
         let step = |text: &str| {
             let _ = tx.send(Msg::GitStep {
@@ -1085,7 +1096,7 @@ pub fn git_action(dir: PathBuf, action: GitAction, key: u64, tx: Sender) {
                 && main.as_deref().map(|b| b.trim_start_matches("origin/")) == now.as_deref()
             {
                 step("Making a branch");
-                git::branch_off(&dir, &format!("ghost/{}", git::slug(m)))?;
+                git::branch_off(&dir, &format!("{prefix}{}", git::slug(m)))?;
             }
             Ok(())
         };

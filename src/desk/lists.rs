@@ -18,9 +18,6 @@ use crate::{
     store, when,
 };
 
-/// A session idle this long is settled on its own, unless it is pinned.
-const SETTLE_AFTER: Duration = Duration::from_secs(7 * 24 * 3600);
-
 /// How long a deleted or archived session can be taken back.
 pub const UNDO_FOR: Duration = Duration::from_secs(5);
 
@@ -511,18 +508,23 @@ impl Desk {
         .detach();
     }
 
-    /// Settle what has been idle a week, unless it is pinned or settled.
+    /// Settle what has been left as many days as you said, unless it is
+    /// pinned or settled.
     pub(crate) fn settle_idle(&mut self) {
+        let Some(days) = self.settings.settle_days else {
+            return;
+        };
+        let after = Duration::from_secs(u64::from(days) * 24 * 3600);
         let now = SystemTime::now();
         let mut changed = false;
         for s in &mut self.sessions {
-            let idle = now.duration_since(s.updated).unwrap_or_default() >= SETTLE_AFTER;
+            let idle = now.duration_since(s.updated).unwrap_or_default() >= after;
             if idle
                 && s.flags.pinned.is_none()
                 && s.flags.settled.is_none()
                 && matches!(s.state, State::Closed | State::Idle)
             {
-                s.flags.settled = Some(store::secs(s.updated + SETTLE_AFTER));
+                s.flags.settled = Some(store::secs(s.updated + after));
                 changed = true;
             }
         }

@@ -84,7 +84,13 @@ impl Desk {
             cx.notify();
             return;
         }
-        hub::git_action(dir, hub::GitAction::Switch(branch), key, self.tx.clone());
+        hub::git_action(
+            dir,
+            hub::GitAction::Switch(branch),
+            self.settings.branch_prefix.clone(),
+            key,
+            self.tx.clone(),
+        );
         cx.notify();
     }
 
@@ -195,11 +201,13 @@ impl Desk {
             return;
         };
         let Some(wt) = &s.worktree else { return };
-        let name = format!("ghost/{}", crate::git::slug(&s.title));
-        if s.turns.len() <= 1 && wt.branch.starts_with("ghost/") && wt.branch != name {
+        let prefix = &self.settings.branch_prefix;
+        let name = format!("{prefix}{}", crate::git::slug(&s.title));
+        if s.turns.len() <= 1 && wt.branch.starts_with(prefix.as_str()) && wt.branch != name {
             hub::git_action(
                 wt.path.clone(),
                 hub::GitAction::RenameBranch(name),
+                prefix.clone(),
                 key,
                 self.tx.clone(),
             );
