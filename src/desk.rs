@@ -2254,6 +2254,16 @@ impl Render for Desk {
                     }
                 }),
             )
+            // A swipe between pages, or a mouse's back and forward
+            // buttons: back and ahead through the sessions seen.
+            .on_mouse_down(
+                MouseButton::Navigate(gpui::NavigationDirection::Back),
+                cx.listener(|this, _, window, cx| this.step_trail(false, window, cx)),
+            )
+            .on_mouse_down(
+                MouseButton::Navigate(gpui::NavigationDirection::Forward),
+                cx.listener(|this, _, window, cx| this.step_trail(true, window, cx)),
+            )
             .bg(theme::bg())
             .font_family(faces.ui.clone())
             .text_size(px(BODY))
