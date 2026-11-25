@@ -286,7 +286,9 @@ impl Desk {
 
     /// Measure what Ghost keeps on this machine.
     pub fn measure(&self) {
-        self.transport.send(Call::Sizes);
+        self.transport.send(Call::Sizes {
+            worktrees: self.settings.worktree_folders(&self.home),
+        });
     }
 
     /// Tidy `what` around the sessions kept.
@@ -304,6 +306,7 @@ impl Desk {
                 .iter()
                 .filter_map(|s| s.meta.worktree.as_ref().map(|w| w.path.clone()))
                 .collect(),
+            under: self.settings.worktree_folders(&self.home),
             projects: self.settings.folders.clone(),
             uids: self
                 .sessions

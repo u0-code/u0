@@ -78,9 +78,9 @@ pub struct Worktree {
     pub branch: String,
 }
 
-/// The worktrees of the repository at `repo` that live under `under`
+/// The worktrees of the repository at `repo` that live in one of `under`
 /// (Ghost's own), with the branch each is on.
-pub fn worktrees(repo: &Path, under: &Path) -> Vec<Worktree> {
+pub fn worktrees(repo: &Path, under: &[PathBuf]) -> Vec<Worktree> {
     let Ok(out) = git(repo, &["worktree", "list", "--porcelain"], None) else {
         return Vec::new();
     };
@@ -90,7 +90,10 @@ pub fn worktrees(repo: &Path, under: &Path) -> Vec<Worktree> {
         if let Some(p) = line.strip_prefix("worktree ") {
             path = Some(PathBuf::from(p));
         } else if let Some(b) = line.strip_prefix("branch refs/heads/") {
-            if let Some(p) = path.take().filter(|p| p.starts_with(under)) {
+            if let Some(p) = path
+                .take()
+                .filter(|p| under.iter().any(|u| p.starts_with(u)))
+            {
                 found.push(Worktree {
                     repo: repo.to_path_buf(),
                     path: p,
@@ -151,12 +154,12 @@ pub fn slug(text: &str) -> String {
 }
 
 /// Make a worktree of the repository at `dir` for a session about `about`,
-/// under `home/worktrees/<repo>/`, on a new branch `<prefix><slug>` from
+/// under `under/<repo>/`, on a new branch `<prefix><slug>` from
 /// the commit `dir` is on. A name already taken gets a number.
 pub fn worktree(
     dir: &Path,
     about: &str,
-    home: &Path,
+    under: &Path,
     prefix: &str,
     from: &str,
 ) -> Result<Worktree, String> {
@@ -171,7 +174,7 @@ pub fn worktree(
         } else {
             format!("{base}-{n}")
         };
-        let path = home.join("worktrees").join(&name).join(&slug);
+        let path = under.join(&name).join(&slug);
         let branch = format!("{prefix}{slug}");
         let taken = path.exists()
             || git(
@@ -198,8 +201,8 @@ pub fn worktree(
 /// Make a worktree of the repository at `dir` on the branch of the pull
 /// request `number`, as `gh pr checkout` sets it up (a fork's included,
 /// so that a push goes to the pull request), under
-/// `home/worktrees/<repo>/pr-<number>`.
-pub fn pr_worktree(dir: &Path, number: u64, home: &Path) -> Result<Worktree, String> {
+/// `under/<repo>/pr-<number>`.
+pub fn pr_worktree(dir: &Path, number: u64, under: &Path) -> Result<Worktree, String> {
     let repo = root(dir).ok_or("the folder is not in a git repository")?;
     let name = repo
         .file_name()
@@ -211,7 +214,7 @@ pub fn pr_worktree(dir: &Path, number: u64, home: &Path) -> Result<Worktree, Str
             } else {
                 format!("pr-{number}-{n}")
             };
-            home.join("worktrees").join(&name).join(slug)
+            under.join(&name).join(slug)
         })
         .find(|p| !p.exists())
         .ok_or("no free name for a worktree")?;

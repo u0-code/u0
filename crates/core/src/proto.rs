@@ -64,10 +64,12 @@ pub enum Call {
         also: Vec<PathBuf>,
     },
     /// The sessions `agent` keeps in each of `places` (where it works, and
-    /// the project that is) and in Ghost's worktrees of them.
+    /// the project that is) and in Ghost's worktrees of them, those in
+    /// `under`.
     List {
         agent: String,
         places: Vec<(PathBuf, PathBuf)>,
+        under: Vec<PathBuf>,
     },
     /// Open again a session the agent keeps: resumed, without what was
     /// said in it, or loaded, with all that was said in it again.
@@ -305,12 +307,13 @@ pub enum Call {
     Refresh {
         projects: Vec<(PathBuf, bool)>,
     },
-    /// Make a worktree of `dir` for the session `key`, about `about`, on a
-    /// branch beginning with `prefix`, from `from` (where `dir` is, if
-    /// nothing).
+    /// Make a worktree of `dir` in `under` for the session `key`, about
+    /// `about`, on a branch beginning with `prefix`, from `from` (where
+    /// `dir` is, if nothing).
     MakeWorktree {
         dir: PathBuf,
         about: String,
+        under: PathBuf,
         prefix: String,
         from: Option<Begin>,
         key: u64,
@@ -358,8 +361,11 @@ pub enum Call {
         key: u64,
         calls: Vec<(ToolCallId, Vec<(PathBuf, String)>)>,
     },
-    /// How much each part of Ghost's home takes.
-    Sizes,
+    /// How much each part of Ghost's home takes, its worktrees those in
+    /// `worktrees`.
+    Sizes {
+        worktrees: Vec<PathBuf>,
+    },
     /// Tidy `what` around what is `kept`, then measure again.
     Tidy {
         what: tidy::Tidy,
@@ -831,6 +837,7 @@ mod tests {
             Call::MakeWorktree {
                 dir: dir.clone(),
                 about: "fix it".into(),
+                under: dir.join("w"),
                 prefix: "ghost/".into(),
                 from: Some(Begin::Pr(7, "Fix".into())),
                 key: 1,
@@ -871,11 +878,13 @@ mod tests {
                 key: 1,
                 calls: vec![(call.clone(), vec![(dir.join("a.rs"), "b\n".into())])],
             },
-            Call::Sizes,
+            Call::Sizes {
+                worktrees: vec![dir.join("w")],
+            },
             Call::Tidy {
                 what: tidy::Tidy::Records,
                 kept: of(json!({
-                    "records": [["a", "s1"]], "worktrees": ["/w"], "projects": ["/p"], "uids": ["u"],
+                    "records": [["a", "s1"]], "worktrees": ["/w"], "under": ["/u"], "projects": ["/p"], "uids": ["u"],
                 })),
             },
             Call::Hosts,
@@ -1081,6 +1090,7 @@ mod tests {
             Call::List {
                 agent: "a".into(),
                 places: vec![(dir.clone(), dir.clone())],
+                under: vec![dir.join("w")],
             },
             Call::Reopen {
                 agent: "a".into(),

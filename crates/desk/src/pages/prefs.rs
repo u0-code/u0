@@ -596,6 +596,16 @@ impl Desk {
                                 cx,
                             ),
                         ),
+                        row(
+                            faces,
+                            q,
+                            "Worktree location",
+                            &format!(
+                                "New worktrees are made in {}, on this Mac. Those made before stay where they are.",
+                                Desk::shown(&self.settings.worktree_folders(&self.home)[0])
+                            ),
+                            self.worktree_location(cx),
+                        ),
                     ],
                 )],
             ),
@@ -690,6 +700,34 @@ impl Desk {
             })
             .collect();
         ui::segmented(id, choices)
+    }
+
+    /// Where new worktrees go: a folder chosen, or Ghost's own again.
+    fn worktree_location(&self, cx: &mut Context<Self>) -> Div {
+        fn keep(d: &mut Desk, at: Option<std::path::PathBuf>) {
+            d.settings.worktrees = at;
+            d.save_settings();
+        }
+        div()
+            .flex()
+            .gap(px(6.))
+            .when(self.settings.worktrees.is_some(), |d| {
+                d.child(
+                    ui::button("worktrees-own", "Ghost's own", Weight::Quiet).on_click(
+                        cx.listener(move |this, _, _, cx| {
+                            keep(this, None);
+                            cx.notify();
+                        }),
+                    ),
+                )
+            })
+            .child(
+                ui::button("worktrees-choose", "Choose…", Weight::Secondary).on_click(cx.listener(
+                    move |_, _, _, cx| {
+                        Desk::ask_folder("Make worktrees here", |d, f| keep(d, Some(f)), cx);
+                    },
+                )),
+            )
     }
 
     /// The editors here to open files in, and macOS's own choice.

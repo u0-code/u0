@@ -227,6 +227,7 @@ impl Desk {
                 self.transport.send(Call::MakeWorktree {
                     dir: folder,
                     about: text,
+                    under: self.settings.worktree_folders(&self.home).remove(0),
                     prefix: self.settings.branch_prefix.clone(),
                     from,
                     key,

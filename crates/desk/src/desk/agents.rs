@@ -262,6 +262,7 @@ impl Desk {
         self.transport.send(Call::List {
             agent: agent.to_owned(),
             places,
+            under: self.settings.worktree_folders(&self.home),
         });
     }
 

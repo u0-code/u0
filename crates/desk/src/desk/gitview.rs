@@ -137,7 +137,7 @@ impl Desk {
         repo: bool,
         scripts: Vec<crate::scripts::Script>,
     ) {
-        let under = self.home.join("worktrees");
+        let under = self.settings.worktree_folders(&self.home);
         let Some(s) = self
             .sessions
             .at_mut(key)
@@ -153,7 +153,7 @@ impl Desk {
         }
         // A session in one of Ghost's worktrees works there again.
         if s.meta.worktree.is_none()
-            && s.meta.folder.starts_with(&under)
+            && under.iter().any(|u| s.meta.folder.starts_with(u))
             && let Some(branch) = s.branch.clone()
         {
             s.meta.worktree = Some(crate::git::Worktree {

@@ -195,18 +195,24 @@ impl Desk {
 
     /// Ask for the folder new and cloned projects go in.
     pub fn choose_parent(cx: &mut Context<Self>) {
+        Self::ask_folder("Put it here", |d, folder| d.adding.parent = folder, cx);
+    }
+
+    /// Ask for a folder, the button saying `prompt`, and hand the one
+    /// chosen to `then`.
+    pub fn ask_folder(prompt: &str, then: fn(&mut Self, PathBuf), cx: &mut Context<Self>) {
         let answer = cx.prompt_for_paths(gpui::PathPromptOptions {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("Put it here".into()),
+            prompt: Some(prompt.to_owned().into()),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = answer.await
                 && let Some(folder) = paths.into_iter().next()
             {
                 let _ = this.update(cx, |this, cx| {
-                    this.adding.parent = folder;
+                    then(this, folder);
                     cx.notify();
                 });
             }

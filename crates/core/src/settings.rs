@@ -174,6 +174,9 @@ pub struct Settings {
     /// What Ghost asks before it does it.
     #[serde(default)]
     pub confirm: Confirm,
+    /// Where new worktrees are made; none, the home's `worktrees`.
+    #[serde(default)]
+    pub worktrees: Option<PathBuf>,
 }
 
 /// What Ghost asks before it does it, as t3code's confirmations: each
@@ -662,6 +665,7 @@ impl Default for Settings {
             log_days: fortnight(),
             check_updates: yes(),
             frame: None,
+            worktrees: None,
         }
     }
 }
@@ -703,6 +707,18 @@ impl Settings {
         if !self.folders.iter().any(|f| f == folder) {
             self.folders.insert(0, folder.to_path_buf());
         }
+    }
+
+    /// The folders Ghost's worktrees are in, in the home `home`: where new
+    /// ones are made first, then the home's own, where those made before
+    /// another was chosen stay.
+    pub fn worktree_folders(&self, home: &Path) -> Vec<PathBuf> {
+        let own = home.join("worktrees");
+        let mut all: Vec<PathBuf> = self.worktrees.iter().cloned().collect();
+        if !all.contains(&own) {
+            all.push(own);
+        }
+        all
     }
 
     /// Take `folder` off the projects.

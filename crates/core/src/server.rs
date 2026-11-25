@@ -117,7 +117,11 @@ impl Server {
                 folder,
                 also,
             } => self.open(&agent, key, folder, also),
-            Call::List { agent, places } => self.list(&agent, places),
+            Call::List {
+                agent,
+                places,
+                under,
+            } => self.list(&agent, places, under),
             Call::Reopen {
                 agent,
                 key,
@@ -354,13 +358,11 @@ impl Server {
             Call::MakeWorktree {
                 dir,
                 about,
+                under,
                 prefix,
                 from,
                 key,
-            } => {
-                let home = self.home.clone();
-                self.off(move || repo::make_worktree(&dir, &about, &home, &prefix, from, key));
-            }
+            } => self.off(move || repo::make_worktree(&dir, &about, &under, &prefix, from, key)),
             Call::Checkpoint {
                 dir,
                 name,
@@ -409,15 +411,15 @@ impl Server {
                 acp::runtime().spawn_blocking(move || git::drop_checkpoints(&dir, &uid));
             }
             Call::Place { key, calls } => self.off(move || repo::place(key, calls)),
-            Call::Sizes => {
+            Call::Sizes { worktrees } => {
                 let home = self.home.clone();
-                self.off(move || Event::Sizes(tidy::sizes(&home)));
+                self.off(move || Event::Sizes(tidy::sizes(&home, &worktrees)));
             }
             Call::Tidy { what, kept } => {
                 let (home, send) = (self.home.clone(), self.send.clone());
                 self.off(move || {
                     send(Event::Tidied(tidy::tidy(&home, what, &kept)));
-                    Event::Sizes(tidy::sizes(&home))
+                    Event::Sizes(tidy::sizes(&home, &kept.under))
                 });
             }
             Call::Hosts => self.off(|| Event::Hosts(crate::remote::hosts())),
@@ -615,14 +617,13 @@ impl Server {
 
     /// The sessions the agent `id` keeps in each of `places` (where it
     /// works, and the project that is) and in Ghost's worktrees of them,
-    /// each with the project it belongs to.
-    fn list(&self, id: &str, places: Vec<(PathBuf, PathBuf)>) {
+    /// those in `under`, each with the project it belongs to.
+    fn list(&self, id: &str, places: Vec<(PathBuf, PathBuf)>, under: Vec<PathBuf>) {
         let Some(agent) = self.running(id) else {
             return;
         };
         let (name, home, send) = (id.to_owned(), self.home.clone(), self.send.clone());
         acp::runtime().spawn(async move {
-            let under = home.join("worktrees");
             let mut all: Vec<(PathBuf, PathBuf)> = Vec::new();
             // Each project's folder (on another machine, its path there), and
             // here, Ghost's worktrees of it.
@@ -672,7 +673,9 @@ impl Server {
                     break;
                 };
                 for s in page.sessions {
-                    if !known.contains(&s.cwd) && !s.cwd.starts_with(&home) {
+                    let ours =
+                        s.cwd.starts_with(&home) || under.iter().any(|u| s.cwd.starts_with(u));
+                    if !known.contains(&s.cwd) && !ours {
                         *elsewhere.entry(s.cwd).or_default() += 1;
                     }
                 }

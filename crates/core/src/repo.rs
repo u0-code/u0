@@ -172,20 +172,20 @@ pub fn scope_diff(
     Event::Diffed { key, scope, result }
 }
 
-/// Make a worktree in Ghost's `home` for the session `key`, about `about`,
+/// Make a worktree in `under` for the session `key`, about `about`,
 /// on a branch beginning with `prefix`.
 pub fn make_worktree(
     dir: &Path,
     about: &str,
-    home: &Path,
+    under: &Path,
     prefix: &str,
     from: Option<Begin>,
     key: u64,
 ) -> Event {
     let result = match from {
-        Some(Begin::Pr(number, _)) => git::pr_worktree(dir, number, home),
-        Some(Begin::Branch(b)) => git::worktree(dir, about, home, prefix, &b),
-        None => git::worktree(dir, about, home, prefix, &git::fresh_base(dir)),
+        Some(Begin::Pr(number, _)) => git::pr_worktree(dir, number, under),
+        Some(Begin::Branch(b)) => git::worktree(dir, about, under, prefix, &b),
+        None => git::worktree(dir, about, under, prefix, &git::fresh_base(dir)),
     };
     let result = result.map(|wt| {
         let scripts = scripts::config(&wt.path).scripts;

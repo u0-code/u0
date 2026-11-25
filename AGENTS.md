@@ -201,8 +201,10 @@ assets/         fonts and the desk's own icons, built into the app
   (`Session::replay`), so a record read back is the thread you saw.
 - In a repository Ghost writes commits no branch points at, under
   `refs/ghost/checkpoints/<session>/`, and worktrees under
-  `~/.ghost/worktrees/`. It never changes your index or branch except when
-  you press Commit.
+  `~/.ghost/worktrees/`, or the folder `settings.worktrees` names
+  (`Settings::worktree_folders`, sent with each call that makes, lists or
+  tidies them). It never changes your index or branch except when you
+  press Commit.
 
 ## Local environment
 

@@ -25,23 +25,27 @@ pub struct Kept {
     pub records: Vec<(String, String)>,
     /// The worktrees sessions work in.
     pub worktrees: Vec<PathBuf>,
+    /// The folders Ghost's worktrees are in.
+    pub under: Vec<PathBuf>,
     /// The projects (those in a repository are tidied), and the checkpoint
     /// names of the sessions kept.
     pub projects: Vec<PathBuf>,
     pub uids: Vec<String>,
 }
 
-/// How much each part of the home takes, in bytes.
-pub fn sizes(home: &Path) -> Vec<(String, u64)> {
-    [
-        ("Session records", "transcripts"),
-        ("Worktrees", "worktrees"),
-        ("Agents installed", "agents"),
-        ("Scratch sessions", "scratch"),
+/// How much each part of the home takes, in bytes; the worktrees, those
+/// in `worktrees`.
+pub fn sizes(home: &Path, worktrees: &[PathBuf]) -> Vec<(String, u64)> {
+    let dir = |d: &str| size(&home.join(d));
+    vec![
+        ("Session records".to_owned(), dir("transcripts")),
+        (
+            "Worktrees".to_owned(),
+            worktrees.iter().map(|w| size(w)).sum(),
+        ),
+        ("Agents installed".to_owned(), dir("agents")),
+        ("Scratch sessions".to_owned(), dir("scratch")),
     ]
-    .into_iter()
-    .map(|(label, dir)| (label.to_owned(), size(&home.join(dir))))
-    .collect()
 }
 
 fn size(path: &Path) -> u64 {
@@ -87,10 +91,9 @@ pub fn tidy(home: &Path, what: Tidy, kept: &Kept) -> String {
             format!("{n} record{} removed", if n == 1 { "" } else { "s" })
         }
         Tidy::Worktrees => {
-            let under = home.join("worktrees");
             let (mut gone, mut left) = (0, 0);
             for repo in &repos {
-                for wt in git::worktrees(repo, &under) {
+                for wt in git::worktrees(repo, &kept.under) {
                     if kept.worktrees.contains(&wt.path) {
                         continue;
                     }
@@ -152,10 +155,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("kept.jsonl"), "x").unwrap();
         std::fs::write(dir.join("gone.jsonl"), "yy").unwrap();
-        assert_eq!(sizes(home)[0], ("Session records".to_owned(), 3));
+        assert_eq!(sizes(home, &[])[0], ("Session records".to_owned(), 3));
         let kept = Kept {
             records: vec![("a".into(), "kept".into())],
             worktrees: Vec::new(),
+            under: Vec::new(),
             projects: Vec::new(),
             uids: Vec::new(),
         };
