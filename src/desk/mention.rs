@@ -233,7 +233,11 @@ impl Desk {
                 Some("jpg" | "jpeg") => "image/jpeg",
                 Some("gif") => "image/gif",
                 Some("webp") => "image/webp",
-                _ => continue,
+                // Any other file, or a folder, is named, as @ names one.
+                _ => {
+                    self.name_dropped(p, cx);
+                    continue;
+                }
             };
             if let Ok(bytes) = std::fs::read(p) {
                 self.add_picture(
@@ -245,6 +249,35 @@ impl Desk {
                 );
             }
         }
+    }
+
+    /// Let you choose a window to capture and go with what you write.
+    pub fn capture(&mut self, cx: &mut Context<Self>) {
+        hub::capture_window(self.tx.clone());
+        cx.notify();
+    }
+
+    /// Name the file or folder `p` in what you are writing, as `@` would:
+    /// from the session's folder where it is in it, else whole.
+    fn name_dropped(&mut self, p: &Path, cx: &mut Context<Self>) {
+        let named = self
+            .session()
+            .and_then(|s| p.strip_prefix(&s.folder).ok())
+            .map_or_else(|| p.display().to_string(), |r| r.display().to_string());
+        let token = format!("@{named}");
+        let typed = self.input.read(cx).text();
+        let line = if typed.is_empty() {
+            format!("{token} ")
+        } else {
+            format!("{typed} {token} ")
+        };
+        self.input.update(cx, |i, cx| i.set_text(&line, cx));
+        self.mentions.push(Mention {
+            token,
+            what: Offer::File(named),
+            text: None,
+        });
+        cx.notify();
     }
 
     /// What goes with `text` said in the session `key`: the images waiting,

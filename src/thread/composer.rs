@@ -240,6 +240,32 @@ impl Desk {
                     ))),
             );
         }
+        // A window of yours, captured to go with it; the line opened tall.
+        let tall = self.tall;
+        bar = bar
+            .child(
+                ui::icon_button("capture", "camera", "Attach a window")
+                    .text_color(theme::faint())
+                    .on_click(cx.listener(|this, _, _, cx| this.capture(cx))),
+            )
+            .child(
+                ui::icon_button(
+                    "tall",
+                    "expand",
+                    if tall {
+                        "Make it small"
+                    } else {
+                        "Write at length"
+                    },
+                )
+                .text_color(if tall { theme::text2() } else { theme::faint() })
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.tall = !this.tall;
+                    let most = if this.tall { 30 } else { 8 };
+                    this.input.update(cx, |i, cx| i.set_most(most, cx));
+                    cx.notify();
+                })),
+            );
         // macOS dictation, typed into the line as you speak.
         let input = self.input.clone();
         bar = bar.child(
@@ -457,6 +483,19 @@ impl Desk {
                             )
                             .flex_1(),
                         )
+                        .when(n > 0, |d| {
+                            d.child(
+                                ui::icon_button(
+                                    SharedString::from(format!("queue-up-{n}")),
+                                    "arrow-up",
+                                    "Earlier",
+                                )
+                                .size(px(22.))
+                                .on_click(
+                                    cx.listener(move |this, _, _, cx| this.queue_earlier(n, cx)),
+                                ),
+                            )
+                        })
                         .child(
                             ui::button(
                                 faces,
@@ -595,7 +634,12 @@ impl Desk {
                     })
                     .children(queued)
                     .children(pictures)
-                    .child(div().min_h(px(22.)).pr(px(6.)).child(self.input.clone()))
+                    .child(
+                        div()
+                            .min_h(px(if self.tall { 300. } else { 22. }))
+                            .pr(px(6.))
+                            .child(self.input.clone()),
+                    )
                     .child(bar),
             )
     }

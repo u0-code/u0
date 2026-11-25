@@ -149,6 +149,8 @@ pub struct Desk {
     /// item, and the line it is in.
     pub reading: Option<(u64, usize)>,
     pub reader: Entity<TextInput>,
+    /// The composer opened tall, to write at length.
+    pub tall: bool,
     /// The image looked at large: the session's key and its item.
     pub zoom: Option<(u64, usize)>,
     /// The session is renamed in the top bar, not in the sidebar.
@@ -546,6 +548,7 @@ impl Desk {
             renaming_project: None,
             renaming_here: false,
             zoom: None,
+            tall: false,
             reading: None,
             reader,
             rename,
@@ -1567,6 +1570,19 @@ impl Desk {
         } else {
             self.send_in(key, &text, cx);
         }
+    }
+
+    /// Say the queued `n` one sooner.
+    pub fn queue_earlier(&mut self, n: usize, cx: &mut Context<Self>) {
+        let Some(key) = self.current else { return };
+        if let Some(s) = self.session_mut(key)
+            && n > 0
+            && n < s.queued.len()
+        {
+            s.queued.swap(n, n - 1);
+            self.save_index();
+        }
+        cx.notify();
     }
 
     /// Take the queued `n` back into the line.

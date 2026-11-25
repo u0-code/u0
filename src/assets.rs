@@ -27,6 +27,8 @@ const FILES: &[(&str, &[u8])] = icons![
     "sliders",
     "reply",
     "arrow-down",
+    "expand",
+    "camera",
     "sidebar",
     "chevron-left",
     "chevron-right",

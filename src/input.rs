@@ -196,6 +196,12 @@ impl TextInput {
         self
     }
 
+    /// Let it grow to `most` lines before it scrolls.
+    pub fn set_most(&mut self, most: usize, cx: &mut Context<Self>) {
+        self.most = most.max(1);
+        cx.notify();
+    }
+
     /// Text `size` on lines `line` tall, in pixels.
     #[must_use]
     pub fn sized(mut self, size: f32, line: f32) -> Self {

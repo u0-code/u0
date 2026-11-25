@@ -97,6 +97,9 @@ pub enum Msg {
         at: Option<usize>,
         result: Result<Box<ForkSessionResponse>, Failure>,
     },
+    /// A window you chose was captured, to go with what you write: the
+    /// picture's bytes, or nothing if you let it be.
+    Captured(Option<Vec<u8>>),
     /// The files of a project, for `@` to name.
     Files {
         folder: PathBuf,
@@ -670,6 +673,24 @@ pub fn fork(
             .map(Box::new);
         let at = upto.map(|(at, _)| at);
         let _ = tx.send(Msg::Forked { from, at, result });
+    });
+}
+
+/// Let you choose a window and capture it (macOS's screencapture), for
+/// what you write.
+pub fn capture_window(tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        let path = std::env::temp_dir().join(format!("ghost-capture-{}.png", std::process::id()));
+        let shot = std::process::Command::new("screencapture")
+            .args(["-i", "-W", "-x"])
+            .arg(&path)
+            .status();
+        let bytes = shot
+            .ok()
+            .filter(std::process::ExitStatus::success)
+            .and_then(|_| std::fs::read(&path).ok());
+        let _ = std::fs::remove_file(&path);
+        let _ = tx.send(Msg::Captured(bytes));
     });
 }
 
