@@ -16,14 +16,15 @@ pub struct Pty {
 }
 
 impl Pty {
-    /// Open your login shell in `dir`, or over SSH on `host` in `dir`
-    /// there, `rows` by `cols`; `first`, if given, is typed into it once it
+    /// Open `shell` (your login shell when none) in `dir`, or over SSH on
+    /// `host` in `dir` there, `rows` by `cols`; `first`, if given, is typed into it once it
     /// starts (a script's command). Blocking: it starts a process. Handed
     /// back with it, what it is called in a tab (the shell, or `first`) and
     /// what reads what it prints.
     pub fn open(
         dir: &Path,
         host: Option<&str>,
+        shell: Option<&str>,
         first: Option<&str>,
         (rows, cols): (u16, u16),
     ) -> Result<(Self, String, Box<dyn std::io::Read + Send>), String> {
@@ -35,7 +36,10 @@ impl Pty {
                 pixel_height: 0,
             })
             .map_err(|e| format!("no terminal could be opened: {e}"))?;
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+        let shell = shell.map_or_else(
+            || std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into()),
+            str::to_owned,
+        );
         let (mut command, title) = if let Some(host) = host {
             let mut c = CommandBuilder::new("ssh");
             let there = crate::remote::shell_in(dir, "exec \"$SHELL\" -l");
@@ -143,6 +147,7 @@ mod tests {
     fn what_is_sent_to_a_program_that_does_not_read_does_not_wait() {
         let (pty, _, mut from) = Pty::open(
             &std::env::temp_dir(),
+            None,
             None,
             // Raw, so that its input fills rather than being dropped.
             Some("stty raw -echo; sleep 5"),

@@ -400,9 +400,10 @@ impl Server {
                 id,
                 dir,
                 host,
+                shell,
                 first,
                 size,
-            } => (self.terminals).open(id, (dir, host), first, size, self.send.clone()),
+            } => (self.terminals).open(id, (dir, host, shell), first, size, self.send.clone()),
             Call::TermInput { id, bytes } => self.terminals.input(id, &bytes),
             Call::TermResize { id, size } => self.terminals.resize(id, size),
             Call::TermClose { id, force } => {

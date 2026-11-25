@@ -49,12 +49,21 @@ pub fn address(text: &str) -> Option<String> {
 /// the tab the pointer is over, which shows its close button; one asked
 /// to close with something running in it, to close at the second
 /// asking; a script being written, and its name and command.
+/// How the drawer's terminals stand: one at a time, side by side, or one
+/// above another (several at most `SIDE_BY_SIDE`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Layout {
+    One,
+    Side,
+    Stacked,
+}
+
 pub struct Drawer {
     pub terminals: Vec<Terminal>,
     pub open: bool,
     pub focus: FocusHandle,
     pub on: Option<u64>,
-    pub split: bool,
+    pub layout: Layout,
     pub hovered: Option<u64>,
     pub closing: Option<u64>,
     pub writing: Option<Writing>,
@@ -69,7 +78,7 @@ impl Drawer {
             open: false,
             focus: cx.focus_handle(),
             on: None,
-            split: false,
+            layout: Layout::One,
             hovered: None,
             closing: None,
             writing: None,
@@ -113,6 +122,7 @@ impl Desk {
             id,
             dir: dir.to_path_buf(),
             host,
+            shell: self.settings.shell.program().map(str::to_owned),
             first: first.map(str::to_owned),
             size,
         });
@@ -269,6 +279,26 @@ impl Desk {
         let text = format!("{typed}\n\nFrom my terminal:\n```\n{chosen}\n```\n");
         self.put_line(text.trim_start(), window, cx);
         window.focus(&self.composer.input.focus_handle(cx), cx);
+        cx.notify();
+    }
+
+    /// Paste what is copied into the terminal `id`, as a terminal pastes.
+    pub(crate) fn paste_terminal(&mut self, id: u64, cx: &mut Context<Self>) {
+        if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text())
+            && let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id)
+        {
+            self.transport.send(t.paste(&text));
+        }
+    }
+
+    /// Clear the terminal keys go to: what it printed forgotten, its shell
+    /// asked (⌃L) to draw its prompt again.
+    pub fn clear_terminal(&mut self, cx: &mut Context<Self>) {
+        let Some(id) = self.drawer.on else { return };
+        if let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id) {
+            t.clear();
+            self.transport.send(t.send(vec![0x0c]));
+        }
         cx.notify();
     }
 

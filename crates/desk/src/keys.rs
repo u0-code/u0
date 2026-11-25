@@ -75,14 +75,15 @@ actions!(
         ReopenSurface,
         CloseSurface,
         PullRequests,
-        Issues
+        Issues,
+        ClearTerminal
     ]
 );
 
 /// Each action a binding of yours can name: its name, what it does, and
 /// the action. The keys page lists them in this order.
 type Make = fn() -> Box<dyn Action>;
-pub const ACTIONS: [(&str, &str, Make); 39] = [
+pub const ACTIONS: [(&str, &str, Make); 40] = [
     ("palette", "Go to anything", || Box::new(Palette)),
     ("new_session", "New session", || Box::new(NewSession)),
     ("new_here", "New session in this project", || {
@@ -155,6 +156,9 @@ pub const ACTIONS: [(&str, &str, Make); 39] = [
     }),
     ("pull_requests", "Pull requests", || Box::new(PullRequests)),
     ("issues", "Issues", || Box::new(Issues)),
+    ("clear_terminal", "Clear the terminal", || {
+        Box::new(ClearTerminal)
+    }),
     (
         "transcript_view",
         "Transcript view: normal, thinking, verbose",
@@ -410,6 +414,7 @@ pub fn handle(cx: &mut App, shown: &Shown) {
     on::<OpenSurface>(cx, shown, |d, _, cx| d.toggle_surfaces(cx));
     on::<ReopenSurface>(cx, shown, |d, _, cx| d.reopen_tab(cx));
     on::<CloseSurface>(cx, shown, |d, _, cx| d.close_shown(cx));
+    on::<ClearTerminal>(cx, shown, |d, _, cx| d.clear_terminal(cx));
     on::<PullRequests>(cx, shown, |d, window, cx| {
         d.open_forge(crate::github::Kind::Pr, window, cx);
     });

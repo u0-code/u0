@@ -117,7 +117,12 @@ fn key_value(faces: &Faces, key: &str, value: impl IntoElement) -> Div {
 }
 
 impl Desk {
-    pub(crate) fn aside(&self, faces: &Faces, cell: f32, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn aside(
+        &self,
+        faces: &Faces,
+        cell: thread::drawer::Grid,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let Some(s) = self.session() else {
             return frame(top());
         };

@@ -1436,7 +1436,7 @@ impl Render for Desk {
             .min_w(px(0.))
             .h_full()
             .child(self.topbar(&faces, lights, pane, cx));
-        let cell = crate::thread::drawer::cell_width(window, &faces);
+        let cell = crate::thread::drawer::grid(window, &faces, self.settings.terminal_size);
         let middle = match self.page.clone() {
             Page::Thread => {
                 let column = self.settings.width.column(pane);

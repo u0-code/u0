@@ -102,6 +102,12 @@ pub struct Settings {
     /// A diff's files show folded, each opened as wanted.
     #[serde(default)]
     pub diff_folded: bool,
+    /// The shell a terminal of yours runs.
+    #[serde(default)]
+    pub shell: Shell,
+    /// How large a terminal's text is set.
+    #[serde(default)]
+    pub terminal_size: TermSize,
     /// How wide the sidebar is, in points, as you dragged it.
     #[serde(default = "left")]
     pub left: u32,
@@ -152,6 +158,49 @@ pub struct Writer {
     /// taken with Tab.
     #[serde(default)]
     pub suggest: bool,
+}
+
+/// The shell a terminal runs: your login shell ($SHELL), or one named.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Shell {
+    #[default]
+    Login,
+    Zsh,
+    Bash,
+    Fish,
+}
+
+impl Shell {
+    /// Its program; none for your login shell.
+    pub fn program(self) -> Option<&'static str> {
+        match self {
+            Self::Login => None,
+            Self::Zsh => Some("zsh"),
+            Self::Bash => Some("bash"),
+            Self::Fish => Some("fish"),
+        }
+    }
+}
+
+/// How large a terminal's text is: its points, and its line's height.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TermSize {
+    Small,
+    #[default]
+    Medium,
+    Large,
+}
+
+impl TermSize {
+    pub fn points(self) -> (f32, f32) {
+        match self {
+            Self::Small => (11.5, 17.),
+            Self::Medium => (12.5, 19.),
+            Self::Large => (14., 21.),
+        }
+    }
 }
 
 /// A section of a session's details in the column beside it.
@@ -378,6 +427,8 @@ impl Default for Settings {
             branch_kind: false,
             hidden_details: Vec::new(),
             diff_folded: false,
+            shell: Shell::default(),
+            terminal_size: TermSize::default(),
             view: View::default(),
             cmd_sends: false,
             left: left(),

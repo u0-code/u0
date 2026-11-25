@@ -6,6 +6,7 @@
 use gpui::component::{
     Sizable as _,
     input::{Input, InputState},
+    menu::{ContextMenuExt as _, PopupMenuItem},
     separator::Separator,
     switch::Switch,
     tab::{Tab, TabBar},
@@ -17,7 +18,10 @@ use gpui::{
 };
 
 use crate::{
-    desk::{Desk, runs},
+    desk::{
+        Desk,
+        runs::{self, Layout},
+    },
     fonts::Faces,
     terminal::Terminal,
     theme,
@@ -29,39 +33,47 @@ pub const HEIGHT: f32 = 340.;
 /// How many terminals stand side by side at most.
 pub const SIDE_BY_SIDE: usize = 4;
 const BAR: f32 = 38.;
-const LINE: f32 = 19.;
-/// The size terminal text is set in, and the room around it: beside and
-/// above.
-const SIZE: f32 = 12.5;
+/// The room around a terminal's text: beside and above.
 const PAD: f32 = 14.;
 const TOP: f32 = 10.;
 
-/// How wide a terminal's cell is in the desk's mono face.
-pub fn cell_width(window: &Window, faces: &Faces) -> f32 {
+/// A terminal's grid: the size its text is set in, a line's height, a
+/// cell's width in the desk's mono face.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Grid {
+    pub size: f32,
+    pub line: f32,
+    pub cell: f32,
+}
+
+/// The grid of a terminal's text set as `size` says.
+pub fn grid(window: &Window, faces: &Faces, size: crate::settings::TermSize) -> Grid {
+    let (size, line) = size.points();
     let font = gpui::font(faces.mono.clone());
     let id = window.text_system().resolve_font(&font);
-    window
+    let cell = window
         .text_system()
-        .advance(id, px(SIZE), 'm')
-        .map_or(7.5, |s| f32::from(s.width))
+        .advance(id, px(size), 'm')
+        .map_or(size * 0.6, |s| f32::from(s.width));
+    Grid { size, line, cell }
 }
 
 /// The rows and columns a terminal pane `width` by `height` holds, as it
 /// was laid out, inside its padding.
-fn fits(width: f32, height: f32, cell: f32) -> (u16, u16) {
+fn fits(width: f32, height: f32, Grid { line, cell, .. }: Grid) -> (u16, u16) {
     let count = |room: f32, each: f32| (room / each).floor().clamp(2., 500.) as u16;
     (
-        count(height - 2. * TOP, LINE),
+        count(height - 2. * TOP, line),
         count(width - 2. * PAD, cell),
     )
 }
 
 impl Desk {
     /// The drawer, under the thread when the column does not show your
-    /// terminals; `cell` is a terminal cell's width.
-    pub(crate) fn drawer(&self, faces: &Faces, cell: f32, cx: &mut Context<Self>) -> Option<Div> {
+    /// terminals; `grid` is a terminal's grid.
+    pub(crate) fn drawer(&self, faces: &Faces, grid: Grid, cx: &mut Context<Self>) -> Option<Div> {
         (self.drawer.open && !self.terminals_beside()).then(|| {
-            self.terminal_view(faces, cell, cx)
+            self.terminal_view(faces, grid, cx)
                 .flex_none()
                 .h(px(HEIGHT))
                 .border_t_1()
@@ -72,7 +84,7 @@ impl Desk {
 
     /// Your terminals beside the session: their tabs, the scripts, the
     /// terminal shown (or those side by side), in the drawer or the column.
-    pub(crate) fn terminal_view(&self, faces: &Faces, cell: f32, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn terminal_view(&self, faces: &Faces, grid: Grid, cx: &mut Context<Self>) -> Div {
         let terms = self.session_terminals();
         let on = self
             .drawer
@@ -180,22 +192,20 @@ impl Desk {
                         .color(theme::tag_line()),
                 )
             })
-            .child(
-                ui::icon_button(
-                    "split-terminals",
-                    "panel-right",
-                    if self.drawer.split {
-                        "One terminal"
-                    } else {
-                        "Two side by side"
-                    },
-                )
-                .size(px(26.))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.drawer.split = !this.drawer.split;
-                    cx.notify();
-                })),
-            )
+            .child(self.layout_button(
+                "split-side",
+                "panel-right",
+                "Side by side",
+                Layout::Side,
+                cx,
+            ))
+            .child(self.layout_button(
+                "split-stacked",
+                "list",
+                "One above another",
+                Layout::Stacked,
+                cx,
+            ))
             .when(!self.terminals_beside(), |d| {
                 d.child(
                     ui::icon_button(
@@ -208,25 +218,31 @@ impl Desk {
                 )
             });
 
-        // The one keys go to; side by side, all of them, four at most.
-        let panes: Vec<&Terminal> = if self.drawer.split {
-            terms.iter().copied().take(SIDE_BY_SIDE).collect()
-        } else {
+        // The one keys go to; split, all of them, four at most.
+        let stacked = self.drawer.layout == Layout::Stacked;
+        let panes: Vec<&Terminal> = if self.drawer.layout == Layout::One {
             shown.into_iter().collect()
+        } else {
+            terms.iter().copied().take(SIDE_BY_SIDE).collect()
         };
         let mut body = div()
             .id("terminals")
             .track_focus(&self.drawer.focus)
             .flex()
+            .when(stacked, gpui::Styled::flex_col)
             .flex_1()
             .min_h(px(0.))
             .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, cx| this.terminal_key(e, cx)));
         for (n, t) in panes.iter().enumerate() {
             if n > 0 {
-                body = body.child(Separator::vertical().color(theme::border()));
+                body = body.child(if stacked {
+                    Separator::horizontal().color(theme::border())
+                } else {
+                    Separator::vertical().color(theme::border())
+                });
             }
             let focused = Some(t.id) == on;
-            body = body.child(self.pane(faces, t, cell, focused, cx));
+            body = body.child(self.pane(faces, t, grid, focused, cx));
         }
         div()
             .flex()
@@ -236,6 +252,37 @@ impl Desk {
             .child(bar)
             .children(self.script_form(faces, cx))
             .child(body)
+    }
+
+    /// Split the drawer `layout`'s way (a second terminal opened when it
+    /// holds one), or, split so already, back to one.
+    fn layout_button(
+        &self,
+        id: &'static str,
+        icon: &'static str,
+        what: &'static str,
+        layout: Layout,
+        cx: &mut Context<Self>,
+    ) -> gpui::component::button::Button {
+        let on = self.drawer.layout == layout;
+        ui::icon_button(id, icon, if on { "One terminal" } else { what })
+            .size(px(26.))
+            .when(on, |b| b.text_color(theme::text()))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.drawer.layout = if on { Layout::One } else { layout };
+                if !on && this.session_terminals().len() < 2 {
+                    this.open_terminal(None, window, cx);
+                }
+                cx.notify();
+            }))
+    }
+
+    /// Do `what` to the terminal `id`.
+    fn with_terminal(&mut self, id: u64, what: impl FnOnce(&mut Terminal), cx: &mut Context<Self>) {
+        if let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id) {
+            what(t);
+        }
+        cx.notify();
     }
 
     /// The script being written: its name and command, where it runs, and
@@ -379,7 +426,7 @@ impl Desk {
         &self,
         faces: &Faces,
         t: &Terminal,
-        cell: f32,
+        grid: Grid,
         focused: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
@@ -424,7 +471,12 @@ impl Desk {
         runs.retain(|r| r.len > 0);
         let id = t.id;
         let (_, cols) = t.size();
-        let at = |(row, col): (u16, u16)| (f32::from(col) * cell, f32::from(row) * LINE);
+        let Grid {
+            size: points,
+            line,
+            cell,
+        } = grid;
+        let at = |(row, col): (u16, u16)| (f32::from(col) * cell, f32::from(row) * line);
 
         // The screen's cells, with where its first one is kept for the
         // mouse to be read against.
@@ -432,8 +484,8 @@ impl Desk {
         let mut screen = div()
             .relative()
             .font_family(faces.mono.clone())
-            .text_size(px(SIZE))
-            .line_height(px(LINE))
+            .text_size(px(points))
+            .line_height(px(line))
             .whitespace_nowrap()
             .child(
                 gpui::canvas(
@@ -460,7 +512,7 @@ impl Desk {
                         .left(px(x))
                         .top(px(y))
                         .w(px(f32::from(to.saturating_sub(from)) * cell))
-                        .h(px(LINE))
+                        .h(px(line))
                         .bg(tint),
                 );
             }
@@ -474,12 +526,15 @@ impl Desk {
                     .left(px(x))
                     .top(px(y))
                     .w(px(cell))
-                    .h(px(LINE))
+                    .h(px(line))
                     .bg(theme::text2())
                     .opacity(0.7),
             );
         }
         let (desk, size) = (cx.entity().downgrade(), t.size());
+        let owner = cx.entity();
+        let agent = self.session().map(|s| s.meta.agent.clone());
+        let name = agent.as_deref().map(|a| self.name_of(a));
         let pop = t
             .chosen()
             .map(|chosen| self.chosen_pop(faces, id, at, chosen, cols, cell, cx));
@@ -492,7 +547,7 @@ impl Desk {
                 let fit = fits(
                     f32::from(bounds.size.width),
                     f32::from(bounds.size.height),
-                    cell,
+                    grid,
                 );
                 if fit != size {
                     cx.defer(move |cx| {
@@ -518,8 +573,8 @@ impl Desk {
             .child(screen)
             .children(pop)
             .on_scroll(cx.listener(move |this, e: &ScrollEvent, _, cx| {
-                let dy = f32::from(e.delta.pixel_delta(px(LINE)).y);
-                let lines = (dy / LINE).round() as isize;
+                let dy = f32::from(e.delta.pixel_delta(px(line)).y);
+                let lines = (dy / line).round() as isize;
                 if lines != 0
                     && let Some(t) = this.drawer.terminals.iter_mut().find(|t| t.id == id)
                 {
@@ -533,7 +588,7 @@ impl Desk {
                     this.drawer.on = Some(id);
                     window.focus(&this.drawer.focus, cx);
                     if let Some(t) = this.drawer.terminals.iter_mut().find(|t| t.id == id) {
-                        let at = Self::cell_at(t, e.position, cell);
+                        let at = Self::cell_at(t, e.position, grid);
                         // ⌘ and a click opens an address; two clicks choose
                         // a word, three its line.
                         if e.modifiers.platform
@@ -565,14 +620,36 @@ impl Desk {
                 if let Some(t) = this.drawer.terminals.iter_mut().find(|t| t.id == id)
                     && let Some((from, _)) = t.selection
                 {
-                    t.selection = Some((from, Self::cell_at(t, e.position, cell)));
+                    t.selection = Some((from, Self::cell_at(t, e.position, grid)));
                     cx.notify();
                 }
             }))
+            .context_menu(move |menu, _, _| {
+                let item = |label: String, act: fn(&mut Desk, u64, &mut gpui::Window, &mut Context<Desk>)| {
+                    let desk = owner.clone();
+                    PopupMenuItem::new(label)
+                        .on_click(move |_, window, cx| desk.update(cx, |d, cx| act(d, id, window, cx)))
+                };
+                let menu = menu
+                    .item(item("Copy".into(), |d, id, _, cx| d.copy_chosen(id, cx)))
+                    .item(item("Paste".into(), |d, id, _, cx| d.paste_terminal(id, cx)))
+                    .item(item("Select all".into(), |d, id, _, cx| d.with_terminal(id, Terminal::choose_all, cx)))
+                    .item(item("Jump to latest".into(), |d, id, _, cx| d.with_terminal(id, Terminal::latest, cx)))
+                    .item(item("Clear".into(), |d, id, _, cx| {
+                        d.drawer.on = Some(id);
+                        d.clear_terminal(cx);
+                    }));
+                match &name {
+                    Some(name) => menu.separator().item(item(format!("Ask {name} about it"), |d, id, window, cx| {
+                        d.ask_about_terminal(id, window, cx);
+                    })),
+                    None => menu,
+                }
+            })
     }
 
     /// The cell of `t` under the mouse at `position` on the window.
-    fn cell_at(t: &Terminal, position: gpui::Point<gpui::Pixels>, cell: f32) -> (u16, u16) {
+    fn cell_at(t: &Terminal, position: gpui::Point<gpui::Pixels>, grid: Grid) -> (u16, u16) {
         let (rows, cols) = t.size();
         let from = position
             - *t.origin
@@ -582,8 +659,8 @@ impl Desk {
             (by / each).floor().clamp(0., f32::from(most - 1)) as u16
         };
         (
-            count(f32::from(from.y), LINE, rows),
-            count(f32::from(from.x), cell, cols),
+            count(f32::from(from.y), grid.line, rows),
+            count(f32::from(from.x), grid.cell, cols),
         )
     }
 
@@ -648,7 +725,12 @@ mod tests {
 
     #[test]
     fn a_pane_holds_the_cells_its_room_allows() {
-        assert_eq!(fits(800., 302., 7.5), (14, 102));
-        assert_eq!(fits(10., 302., 7.5), (14, 2));
+        let grid = Grid {
+            size: 12.5,
+            line: 19.,
+            cell: 7.5,
+        };
+        assert_eq!(fits(800., 302., grid), (14, 102));
+        assert_eq!(fits(10., 302., grid), (14, 2));
     }
 }

@@ -113,6 +113,29 @@ impl Terminal {
         })
     }
 
+    /// Every cell of the screen chosen.
+    pub fn choose_all(&mut self) {
+        let (rows, cols) = self.size;
+        self.selection = Some(((0, 0), (rows.saturating_sub(1), cols.saturating_sub(1))));
+    }
+
+    /// What it printed forgotten, the screen and what went off its top;
+    /// what its shell prints next begins it again.
+    pub fn clear(&mut self) {
+        let (rows, cols) = self.size;
+        self.screen = vt100::Parser::new(
+            NonZeroU16::new(rows).unwrap_or(NonZeroU16::MIN),
+            NonZeroU16::new(cols).unwrap_or(NonZeroU16::MIN),
+            SCROLLBACK,
+        );
+        self.selection = None;
+    }
+
+    /// Back to its newest line, from scrolling back.
+    pub fn latest(&mut self) {
+        self.screen.screen_mut().set_scrollback(0);
+    }
+
     /// Scroll back through what went off the top (`by` above zero) or
     /// down again.
     pub fn scroll(&mut self, by: isize) {
@@ -363,6 +386,18 @@ mod tests {
     }
 
     #[test]
+    fn a_cleared_terminal_forgets_what_it_printed_and_all_can_be_chosen() {
+        let mut t = Terminal::new(1, 1, (3, 10));
+        t.printed(b"hello\r\nworld");
+        t.choose_all();
+        assert_eq!(t.chosen(), Some(((0, 0), (2, 9))));
+        assert!(t.text().contains("hello"));
+        t.clear();
+        assert!(!t.text().contains("hello"));
+        assert_eq!(t.chosen(), None);
+    }
+
+    #[test]
     fn keys_are_sent_as_a_terminal_sends_them() {
         assert_eq!(key_bytes(&key("enter"), false), Some(b"\r".to_vec()));
         assert_eq!(key_bytes(&key("backspace"), false), Some(vec![0x7f]));
@@ -421,7 +456,7 @@ mod tests {
             let _ = tx.send(e);
         });
         let shells = ghost_core::terminals::Terminals::default();
-        let at = (std::env::temp_dir(), None);
+        let at = (std::env::temp_dir(), None, None);
         let first = Some("echo ghost-$((40+2))".to_owned());
         shells.open(1, at.clone(), first.clone(), (6, 40), send.clone());
         let mut t = Terminal::new(1, 1, (6, 40));

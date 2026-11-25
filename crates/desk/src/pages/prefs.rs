@@ -188,6 +188,41 @@ impl Desk {
                         row(
                             faces,
                             q,
+                            "Terminal text",
+                            "How large your terminals' text is, in the code font.",
+                            Self::pick(
+                                "terminal-size",
+                                [
+                                    ("Small", crate::settings::TermSize::Small),
+                                    ("Medium", crate::settings::TermSize::Medium),
+                                    ("Large", crate::settings::TermSize::Large),
+                                ],
+                                self.settings.terminal_size,
+                                |s, v| s.terminal_size = v,
+                                cx,
+                            ),
+                        ),
+                        row(
+                            faces,
+                            q,
+                            "Terminal shell",
+                            "What a new terminal runs: your login shell, or one named.",
+                            Self::pick(
+                                "shell",
+                                [
+                                    ("Login shell", crate::settings::Shell::Login),
+                                    ("zsh", crate::settings::Shell::Zsh),
+                                    ("bash", crate::settings::Shell::Bash),
+                                    ("fish", crate::settings::Shell::Fish),
+                                ],
+                                self.settings.shell,
+                                |s, v| s.shell = v,
+                                cx,
+                            ),
+                        ),
+                        row(
+                            faces,
+                            q,
                             "Reading width",
                             "How wide the thread and the composer are.",
                             Self::pick(

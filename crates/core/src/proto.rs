@@ -357,12 +357,14 @@ pub enum Call {
     },
     /// The hosts your SSH config names.
     Hosts,
-    /// Open the terminal `id` in `dir` (on `host`, over SSH), `size` rows
-    /// by columns, `first` typed into it; one open already is said again.
+    /// Open the terminal `id` in `dir` (on `host`, over SSH), running
+    /// `shell` (your login shell when none), `size` rows by columns, `first`
+    /// typed into it; one open already is said again.
     TermOpen {
         id: u64,
         dir: PathBuf,
         host: Option<String>,
+        shell: Option<String>,
         first: Option<String>,
         size: (u16, u16),
     },
@@ -866,6 +868,7 @@ mod tests {
                 id: 2,
                 dir: dir.clone(),
                 host: Some("box".into()),
+                shell: Some("fish".into()),
                 first: Some("make dev".into()),
                 size: (24, 80),
             },

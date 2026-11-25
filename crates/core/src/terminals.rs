@@ -36,7 +36,7 @@ impl Terminals {
     pub fn open(
         &self,
         id: u64,
-        (dir, host): (PathBuf, Option<String>),
+        (dir, host, shell): (PathBuf, Option<String>, Option<String>),
         first: Option<String>,
         size: (u16, u16),
         send: Arc<dyn Fn(Event) + Send + Sync>,
@@ -61,17 +61,22 @@ impl Terminals {
         let all = self.0.clone();
         // Opening starts a process, and reading waits: a thread of its own.
         std::thread::spawn(move || {
-            let (pty, title, mut from) =
-                match Pty::open(&dir, host.as_deref(), first.as_deref(), size) {
-                    Ok(opened) => opened,
-                    Err(why) => {
-                        send(Event::TermOpened {
-                            id,
-                            result: Err(why),
-                        });
-                        return;
-                    }
-                };
+            let (pty, title, mut from) = match Pty::open(
+                &dir,
+                host.as_deref(),
+                shell.as_deref(),
+                first.as_deref(),
+                size,
+            ) {
+                Ok(opened) => opened,
+                Err(why) => {
+                    send(Event::TermOpened {
+                        id,
+                        result: Err(why),
+                    });
+                    return;
+                }
+            };
             let term = Term {
                 pty,
                 title: title.clone(),
