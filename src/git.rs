@@ -276,25 +276,30 @@ fn snapshot(dir: &Path, name: &str) -> Result<String, String> {
 /// checkpoint first, and its id is returned, so that this can be undone.
 pub fn restore(dir: &Path, commit: &str, name: &str) -> Result<String, String> {
     let now = checkpoint(dir, name)?;
+    // Only `dir` is put back: a checkpoint holds the rest of the
+    // repository as it was committed, not as it is on disk.
     let added = git(
         dir,
         &[
             "diff",
             "--name-only",
+            "-z",
+            "--relative",
             "--no-renames",
             "--diff-filter=A",
             commit,
             &now,
+            "--",
+            ".",
         ],
         None,
     )?;
-    let top = root(dir).ok_or("the folder is not in a git repository")?;
-    for path in added.lines().filter(|l| !l.is_empty()) {
-        let _ = std::fs::remove_file(top.join(path));
+    for path in added.split('\0').filter(|l| !l.is_empty()) {
+        let _ = std::fs::remove_file(dir.join(path));
     }
     let index = scratch_index(dir)?;
     let result = git(dir, &["read-tree", commit], Some(&index))
-        .and_then(|_| git(&top, &["checkout-index", "-a", "-f"], Some(&index)));
+        .and_then(|_| git(dir, &["checkout-index", "-a", "-f"], Some(&index)));
     let _ = std::fs::remove_file(&index);
     result.map(|_| now)
 }
@@ -1110,6 +1115,34 @@ mod tests {
         );
         assert!(dir.join("b.txt").exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn undo_in_a_subfolder_leaves_the_rest_of_the_repository_alone() {
+        let top = repo("subfolder");
+        std::fs::create_dir_all(top.join("app")).unwrap();
+        std::fs::create_dir_all(top.join("lib")).unwrap();
+        std::fs::write(top.join("app/x"), "x\n").unwrap();
+        std::fs::write(top.join("lib/o"), "o\n").unwrap();
+        git(&top, &["add", "-A"], None).unwrap();
+        git(&top, &["commit", "-q", "-m", "second"], None).unwrap();
+        let app = top.join("app");
+        let start = checkpoint(&app, "s1/1-before").unwrap();
+        std::fs::write(top.join("lib/o"), "mine\n").unwrap();
+        std::fs::write(top.join("lib/new"), "new\n").unwrap();
+        git(&top, &["add", "lib/new"], None).unwrap();
+        git(&top, &["commit", "-q", "-m", "third"], None).unwrap();
+        std::fs::write(app.join("x"), "changed\n").unwrap();
+        std::fs::write(app.join("tab\there"), "new\n").unwrap();
+        restore(&app, &start, "s1/undo").unwrap();
+        assert_eq!(std::fs::read_to_string(app.join("x")).unwrap(), "x\n");
+        assert!(!app.join("tab\there").exists());
+        assert_eq!(
+            std::fs::read_to_string(top.join("lib/o")).unwrap(),
+            "mine\n"
+        );
+        assert!(top.join("lib/new").exists());
+        let _ = std::fs::remove_dir_all(&top);
     }
 
     #[test]
