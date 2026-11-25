@@ -266,7 +266,8 @@ Changes are committed straight to `main`, one change per commit, and pushed;
 there are no pull requests, and no CI checks a change. `just check` before
 each commit is what stands in for both. CI only builds: each push to `main`
 has `.github/workflows/app.yml` build Ghost.app with `bundle.sh` and replace
-the `nightly` prerelease with it, which `Casks/ghost@nightly.rb` installs.
+the `nightly` prerelease with it, which `Casks/ghost@nightly.rb` installs;
+then it builds `ghost-server` on Linux and puts it beside the app.
 A tag `v<version>` (the version in Cargo.toml) is released the same way, and
 the workflow commits `Casks/ghost.rb` at that version to `main`. The subject follows CONTRIBUTING.md and is checked
 by `scripts/check-subject.sh` (`just hooks` installs it as a commit hook).

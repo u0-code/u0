@@ -59,3 +59,23 @@ jobs:
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -qam "build: the cask installs Ghost $version"
           git push origin main
+
+  # ghost-server, the server with no window, for a Linux machine a desk
+  # links to; put beside the app once its release is made. The cask stays
+  # macOS's.
+  server:
+    needs: app
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release -p ghost-core --bin ghost-server
+      - run: |
+          tar -czf ghost-server-linux-x86_64.tar.gz -C target/release ghost-server
+          case $GITHUB_REF in
+            refs/heads/main) gh release upload nightly ghost-server-linux-x86_64.tar.gz --clobber ;;
+            refs/tags/v*) gh release upload "$GITHUB_REF_NAME" ghost-server-linux-x86_64.tar.gz --clobber ;;
+          esac
