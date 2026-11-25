@@ -66,6 +66,21 @@ pub struct Meta {
     /// The id of the session it was branched off, if it was.
     #[serde(default)]
     pub from: Option<String>,
+    /// What you wrote to be said in it later.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub later: Vec<Later>,
+}
+
+/// A message to be said in a session at a time; each day at that time
+/// again, if `daily`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Later {
+    /// Seconds since the epoch.
+    pub at: u64,
+    pub text: String,
+    #[serde(default)]
+    pub daily: bool,
 }
 
 /// Where a session stands in your lists.

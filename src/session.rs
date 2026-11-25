@@ -257,6 +257,8 @@ pub struct Session {
     pub trusted: Vec<ToolKind>,
     /// What you said while a turn went on, said in order as each ends.
     pub queued: Vec<String>,
+    /// What you wrote to be said in it later, kept with its index.
+    pub later: Vec<store::Later>,
     /// What you were writing in it and had not sent, kept while another
     /// session is on screen.
     pub unsent: String,
@@ -395,6 +397,7 @@ impl Session {
         s.queued = meta.queued;
         s.unsent = meta.unsent;
         s.from = meta.from;
+        s.later = meta.later;
         s.state = State::Closed;
         s
     }
@@ -418,6 +421,7 @@ impl Session {
             queued: self.queued.clone(),
             unsent: self.unsent.clone(),
             from: self.from.clone(),
+            later: self.later.clone(),
         })
     }
 
@@ -638,6 +642,7 @@ impl Session {
             recorded: false,
             trusted: Vec::new(),
             queued: Vec::new(),
+            later: Vec::new(),
             unsent: String::new(),
             commands: Vec::new(),
             attached: Vec::new(),

@@ -1000,7 +1000,7 @@ impl Desk {
             );
         } else {
             for (n, (label, later)) in [
-                ("Snooze for an hour", Later::Hour),
+                ("Snooze for an hour", Later::In(60)),
                 ("Snooze until tomorrow", Later::Tomorrow),
                 ("Snooze until next week", Later::NextWeek),
             ]

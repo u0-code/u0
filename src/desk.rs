@@ -113,6 +113,8 @@ pub enum Popup {
     More,
     /// What you put aside from the composer, to take back.
     Stash,
+    /// What is to be said later in the session, and when to say it.
+    Later,
     /// The branch a new worktree begins from.
     Base,
     /// The branch the session's branch is compared with.
@@ -633,6 +635,7 @@ impl Desk {
                 if this
                     .update(cx, |this, cx| {
                         this.release_idle(cx);
+                        this.send_due(cx);
                         this.poll_prs();
                         this.check_agents();
                     })
@@ -1465,6 +1468,67 @@ impl Desk {
             self.sessions.push(s);
             self.send_in(new, text, cx);
         }
+    }
+
+    /// Say what was written for later and is due now, in its session;
+    /// one said each day is kept for the next.
+    fn send_due(&mut self, cx: &mut Context<Self>) {
+        let now = crate::store::secs(std::time::SystemTime::now());
+        let mut due = Vec::new();
+        for s in &mut self.sessions {
+            for l in &mut s.later {
+                if l.at <= now {
+                    due.push((s.key, l.text.clone()));
+                    while l.daily && l.at <= now {
+                        l.at += 86_400;
+                    }
+                }
+            }
+            s.later.retain(|l| l.at > now);
+        }
+        if due.is_empty() {
+            return;
+        }
+        for (key, text) in due {
+            match self.sessions.iter_mut().find(|s| s.key == key) {
+                // A turn going on: it waits its turn, as one queued.
+                Some(s) if matches!(s.state, State::Working | State::Opening) => {
+                    s.queued.push(text);
+                }
+                Some(_) => self.send_in(key, &text, cx),
+                None => {}
+            }
+        }
+        self.save_index();
+        cx.notify();
+    }
+
+    /// Say what is in the composer later in the session on screen, when
+    /// `when` says.
+    pub fn send_later(&mut self, when: Later, cx: &mut Context<Self>) {
+        let text = self.input.read(cx).text().trim().to_owned();
+        let now = std::time::SystemTime::now();
+        let at = when.at(now);
+        let Some(key) = self.current else { return };
+        if text.is_empty() {
+            return;
+        }
+        if let Some(s) = self.session_mut(key) {
+            s.later.push(crate::store::Later {
+                at: crate::store::secs(at),
+                text,
+                daily: when == Later::Daily,
+            });
+            s.later.sort_by_key(|l| l.at);
+        }
+        self.input.update(cx, |i, cx| i.set_text("", cx));
+        self.popup = Popup::Closed;
+        self.save_index();
+        self.done(
+            format!("To be said at {}", crate::when::said_at(at, now)),
+            None,
+        );
+        cx.notify();
     }
 
     /// Say `text` in the session `key`.

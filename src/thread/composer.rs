@@ -193,6 +193,9 @@ impl Desk {
         if !self.stashed.is_empty() {
             words = words.child(self.stash_menu(faces, cx));
         }
+        if s.id.is_some() && s.parent.is_none() {
+            words = words.child(self.later_menu(faces, s, cx));
+        }
         let mut bar = div()
             .flex()
             .items_center()
@@ -993,6 +996,138 @@ impl Desk {
                     .bottom(px(LIFT))
                     .left(px(0.))
                     .child(ui::menu("stash-menu").child(list)),
+            ));
+        }
+        wrap
+    }
+
+    /// The clock: what is in the composer said later, once or each day,
+    /// and what is waiting to be said, each can be let go.
+    fn later_menu(
+        &self,
+        faces: &Faces,
+        s: &crate::session::Session,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        use crate::desk::Later;
+        let open = self.popup == Popup::Later;
+        let waiting = s.later.len();
+        let mut wrap = div().relative().flex().flex_none().child(
+            div()
+                .id("chip-later")
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .h(px(26.))
+                .px(px(7.))
+                .rounded(px(7.))
+                .cursor_pointer()
+                .text_color(theme::faint())
+                .hover(|st| st.bg(theme::hover()))
+                .when(open, |d| d.bg(theme::hover()))
+                .child(ui::icon("clock", 14.))
+                .when(waiting > 0, |d| {
+                    d.child(ui::text(faces, waiting.to_string()).text_size(px(12.)))
+                })
+                .tooltip(ui::tip("Say it later"))
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_popup(Popup::Later, cx))),
+        );
+        if open {
+            let written = !self.input.read(cx).text().trim().is_empty();
+            let mut list = div().flex().flex_col().w(px(320.)).p(px(6.)).child(
+                ui::label(
+                    faces,
+                    if written {
+                        "Say what you wrote"
+                    } else {
+                        "Write it first, then say when"
+                    },
+                )
+                .px(px(10.))
+                .pt(px(6.))
+                .pb(px(4.)),
+            );
+            if written {
+                for (n, (label, when)) in [
+                    ("In 30 minutes", Later::In(30)),
+                    ("In an hour", Later::In(60)),
+                    ("In 3 hours", Later::In(180)),
+                    ("Tomorrow at 9:00", Later::Tomorrow),
+                    ("Each day at 9:00", Later::Daily),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    list = list.child(
+                        row(SharedString::from(format!("later-{n}")), false)
+                            .child(ui::text(faces, label).flex_1().text_size(px(13.)))
+                            .on_click(cx.listener(move |this, _, _, cx| this.send_later(when, cx))),
+                    );
+                }
+            }
+            if waiting > 0 {
+                let now = std::time::SystemTime::now();
+                list = list.child(
+                    ui::label(faces, "Waiting to be said")
+                        .px(px(10.))
+                        .pt(px(10.))
+                        .pb(px(4.)),
+                );
+                let key = s.key;
+                for (n, l) in s.later.iter().enumerate() {
+                    let at = crate::store::time(l.at);
+                    let when = if l.daily {
+                        format!("each day {}", crate::when::clock(at))
+                    } else {
+                        crate::when::said_at(at, now)
+                    };
+                    list = list.child(
+                        row(SharedString::from(format!("waiting-{n}")), false)
+                            .child(
+                                ui::text(faces, when)
+                                    .flex_none()
+                                    .text_size(px(12.))
+                                    .text_color(theme::faint()),
+                            )
+                            .child(
+                                ui::one_line(
+                                    ui::text(
+                                        faces,
+                                        l.text.lines().next().unwrap_or_default().to_owned(),
+                                    )
+                                    .text_size(px(13.)),
+                                )
+                                .flex_1()
+                                .min_w(px(0.)),
+                            )
+                            .child(
+                                ui::icon_button(
+                                    SharedString::from(format!("later-drop-{n}")),
+                                    "x",
+                                    "Let it go",
+                                )
+                                .size(px(22.))
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        if let Some(s) = this.session_mut(key)
+                                            && n < s.later.len()
+                                        {
+                                            s.later.remove(n);
+                                        }
+                                        this.save_index();
+                                        cx.notify();
+                                    },
+                                )),
+                            ),
+                    );
+                }
+            }
+            wrap = wrap.child(gpui::deferred(
+                div()
+                    .absolute()
+                    .bottom(px(LIFT))
+                    .left(px(0.))
+                    .child(ui::menu("later-menu").child(list)),
             ));
         }
         wrap

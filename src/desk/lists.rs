@@ -21,12 +21,32 @@ use crate::{
 /// How long a deleted or archived session can be taken back.
 pub const UNDO_FOR: Duration = Duration::from_secs(5);
 
-/// When a snoozed session comes back.
+/// When a snoozed session comes back, or what you wrote is said.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Later {
-    Hour,
+    /// In so many minutes.
+    In(u64),
+    /// Tomorrow at nine.
     Tomorrow,
+    /// Next Monday at nine.
     NextWeek,
+    /// At the next nine o'clock, and each day after.
+    Daily,
+}
+
+impl Later {
+    /// The time it says, from `now`.
+    pub fn at(self, now: SystemTime) -> SystemTime {
+        match self {
+            Self::In(minutes) => now + Duration::from_secs(minutes * 60),
+            Self::Tomorrow => when::at_hour(now, 1, 9),
+            Self::NextWeek => when::at_hour(now, when::to_monday(now), 9),
+            Self::Daily => match when::at_hour(now, 0, 9) {
+                today if today > now => today,
+                _ => when::at_hour(now, 1, 9),
+            },
+        }
+    }
 }
 
 /// Something asked of an agent that is not running: done once it starts.
@@ -161,12 +181,7 @@ impl Desk {
     }
 
     pub fn snooze(&mut self, key: u64, until: Later, cx: &mut Context<Self>) {
-        let now = SystemTime::now();
-        let at = match until {
-            Later::Hour => now + Duration::from_secs(3600),
-            Later::Tomorrow => when::at_hour(now, 1, 9),
-            Later::NextWeek => when::at_hour(now, when::to_monday(now), 9),
-        };
+        let at = until.at(SystemTime::now());
         self.mark(key, cx, |f| f.snoozed = Some(store::secs(at)));
     }
 
@@ -749,5 +764,26 @@ impl Desk {
             && !self.deleting(s.key)
             && s.flags.snoozed.is_none_or(|t| t <= now)
             && !self.prefs(&s.project).archived
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_later_is_ahead_and_each_day_is_within_a_day() {
+        let now = SystemTime::now();
+        for later in [
+            Later::In(30),
+            Later::Tomorrow,
+            Later::NextWeek,
+            Later::Daily,
+        ] {
+            assert!(later.at(now) > now, "{later:?}");
+        }
+        let day = Duration::from_secs(86_400 + 3600);
+        assert!(Later::Daily.at(now) <= now + day);
+        assert_eq!(Later::In(30).at(now), now + Duration::from_secs(1800));
     }
 }
