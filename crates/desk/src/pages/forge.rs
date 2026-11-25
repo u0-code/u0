@@ -112,11 +112,12 @@ impl Desk {
                     .child(Input::new(&f.search).small()),
             )
             .when(f.kind == Kind::Issue, |d| {
-                d.child(
-                    ui::button("new-issue", "New issue", Weight::Secondary).on_click(
-                        cx.listener(|this, _, window, cx| this.edit_forge(true, window, cx)),
-                    ),
-                )
+                d.child(div().w(px(110.)).child(Input::new(&f.team).small()))
+                    .child(
+                        ui::button("new-issue", "New issue", Weight::Secondary).on_click(
+                            cx.listener(|this, _, window, cx| this.edit_forge(true, window, cx)),
+                        ),
+                    )
             })
             .child(
                 ui::icon_button("forge-refresh", "retry", "Read again")
@@ -127,7 +128,7 @@ impl Desk {
             None => div().p(px(16.)).child(ui::fine(faces, "Reading…")),
             Some(Err(e)) => div()
                 .p(px(16.))
-                .child(ui::fine(faces, format!("gh couldn't list them: {e}"))),
+                .child(ui::fine(faces, format!("Couldn't list them: {e}"))),
             Some(Ok(items)) if items.is_empty() => {
                 div().p(px(16.)).child(ui::fine(faces, "None here."))
             }
@@ -182,11 +183,12 @@ impl Desk {
             menu = menu.child(
                 ui::menu_row(SharedString::from(format!("forge-project-{n}")), on)
                     .child(ui::text(faces, name).text_size(px(13.)))
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    .on_click(cx.listener(move |this, _, window, cx| {
                         this.forge.folder = Some(folder.clone());
                         this.forge.chosen = None;
                         this.forge.detail = None;
                         this.popup = Popup::Closed;
+                        this.show_team(window, cx);
                         this.list_forge(cx);
                     })),
             );
@@ -284,7 +286,7 @@ impl Desk {
             Some(Err(e)) => {
                 return shell
                     .p(px(16.))
-                    .child(ui::fine(faces, format!("gh couldn't read it: {e}")));
+                    .child(ui::fine(faces, format!("Couldn't read it: {e}")));
             }
             Some(Ok(d)) => d,
         };
@@ -312,7 +314,7 @@ impl Desk {
                             .text_color(theme::text()),
                     )
                     .child(
-                        ui::button("forge-open", "Open on GitHub", Weight::Quiet)
+                        ui::button("forge-open", "Open on its host", Weight::Quiet)
                             .h(px(26.))
                             .on_click(move |_, _, cx| cx.open_url(&url)),
                     )

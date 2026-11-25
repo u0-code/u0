@@ -60,6 +60,8 @@ pub struct Forge {
     pub editing: bool,
     pub creating: bool,
     pub doing: Option<String>,
+    /// The Linear team the project's issues are read from, as typed.
+    pub team: Entity<InputState>,
 }
 
 impl Forge {
@@ -70,6 +72,13 @@ impl Forge {
         cx.subscribe(&search, |this: &mut Desk, _, e: &InputEvent, cx| {
             if matches!(e, InputEvent::PressEnter { .. }) {
                 this.list_forge(cx);
+            }
+        })
+        .detach();
+        let team = cx.new(|cx| InputState::new(window, cx).placeholder("Linear team"));
+        cx.subscribe(&team, |this: &mut Desk, _, e: &InputEvent, cx| {
+            if matches!(e, InputEvent::PressEnter { .. }) {
+                this.bind_linear(cx);
             }
         })
         .detach();
@@ -101,6 +110,7 @@ impl Forge {
             editing: false,
             creating: false,
             doing: None,
+            team,
         }
     }
 }
@@ -114,61 +124,85 @@ impl Desk {
             self.forge.state = "open";
             self.forge.chosen = None;
             self.forge.detail = None;
+            self.show_team(window, cx);
             self.list_forge(cx);
         }
         self.open_page(Page::Forge(kind), window, cx);
     }
 
-    /// Ask for the list the page's choices pick.
-    pub(crate) fn list_forge(&mut self, cx: &mut Context<Self>) {
+    /// Ask `ask` of the page's project's pull requests or issues (`kind`),
+    /// of its Linear team where it is bound to one.
+    fn ask_forge(&self, kind: Kind, ask: Ask) {
         let Some(folder) = self.forge.folder.clone() else {
             return;
         };
+        let linear = self
+            .settings
+            .prefs
+            .get(&folder)
+            .and_then(|p| p.linear.clone());
+        self.transport.send(Call::Forge {
+            folder,
+            kind,
+            ask,
+            linear,
+        });
+    }
+
+    /// Ask for the list the page's choices pick.
+    pub(crate) fn list_forge(&mut self, cx: &mut Context<Self>) {
         let words = self.forge.search.read(cx).value().trim().to_owned();
         let search = format!("{} {words}", PARTS[self.forge.part].1)
             .trim()
             .to_owned();
         self.forge.list = None;
-        self.transport.send(Call::Forge {
-            folder,
-            kind: self.forge.kind,
-            ask: Ask::List {
-                state: self.forge.state.to_owned(),
-                search,
-            },
-        });
+        let state = self.forge.state.to_owned();
+        self.ask_forge(self.forge.kind, Ask::List { state, search });
         cx.notify();
+    }
+
+    /// Bind the page's project's issues to the Linear team typed (its key),
+    /// or, with none, to its repository's host; and list them again.
+    pub(crate) fn bind_linear(&mut self, cx: &mut Context<Self>) {
+        let Some(folder) = self.forge.folder.clone() else {
+            return;
+        };
+        let team = self.forge.team.read(cx).value().trim().to_uppercase();
+        self.settings.prefs.entry(folder).or_default().linear = (!team.is_empty()).then_some(team);
+        self.save_settings();
+        self.list_forge(cx);
+    }
+
+    /// Show the Linear team the page's project is bound to in its field.
+    pub(crate) fn show_team(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let team = self
+            .forge
+            .folder
+            .as_ref()
+            .and_then(|f| self.settings.prefs.get(f)?.linear.clone());
+        self.forge.team.update(cx, |i, cx| {
+            i.set_value(team.unwrap_or_default(), window, cx);
+        });
     }
 
     /// Read the one numbered `n` whole, and a pull request's changes.
     pub fn read_forge(&mut self, n: u64, cx: &mut Context<Self>) {
-        let Some(folder) = self.forge.folder.clone() else {
-            return;
-        };
         self.forge.chosen = Some(n);
         self.forge.detail = None;
         self.forge.editing = false;
         self.forge.creating = false;
         self.forge.diff.update(cx, |d, cx| d.set_files([], cx));
         let kind = self.forge.kind;
-        self.transport.send(Call::Forge {
-            folder: folder.clone(),
-            kind,
-            ask: Ask::View(n),
-        });
+        self.ask_forge(kind, Ask::View(n));
         if kind == Kind::Pr {
-            self.transport.send(Call::Forge {
-                folder,
-                kind,
-                ask: Ask::Diff(n),
-            });
+            self.ask_forge(kind, Ask::Diff(n));
         }
         cx.notify();
     }
 
     /// Do `act` to the one read.
     pub fn act_forge(&mut self, act: Act, cx: &mut Context<Self>) {
-        let (Some(folder), Some(n)) = (self.forge.folder.clone(), self.forge.chosen) else {
+        let Some(n) = self.forge.chosen else {
             return;
         };
         self.forge.doing = Some(
@@ -178,11 +212,7 @@ impl Desk {
                 .unwrap_or("")
                 .to_owned(),
         );
-        self.transport.send(Call::Forge {
-            folder,
-            kind: self.forge.kind,
-            ask: Ask::Act(n, act),
-        });
+        self.ask_forge(self.forge.kind, Ask::Act(n, act));
         cx.notify();
     }
 
@@ -236,16 +266,9 @@ impl Desk {
             return;
         }
         if self.forge.creating {
-            let Some(folder) = self.forge.folder.clone() else {
-                return;
-            };
             self.forge.creating = false;
             self.forge.doing = Some("Create".into());
-            self.transport.send(Call::Forge {
-                folder,
-                kind: Kind::Issue,
-                ask: Ask::Create { title, body },
-            });
+            self.ask_forge(Kind::Issue, Ask::Create { title, body });
         } else {
             self.forge.editing = false;
             self.act_forge(Act::Edit { title, body }, cx);

@@ -359,12 +359,12 @@ impl RawCheck {
 }
 
 /// Where a check's word puts it: passed, failed, or still going.
-fn standing(word: &str) -> usize {
+pub(crate) fn standing(word: &str) -> usize {
     match word {
         "success" | "neutral" | "skipped" | "completed" => 0,
-        "failure" | "error" | "cancelled" | "timed_out" | "action_required" | "startup_failure" => {
-            1
-        }
+        "failure" | "failed" | "error" | "cancelled" | "canceled" | "timed_out"
+        | "action_required" | "startup_failure" => 1,
+
         _ => 2,
     }
 }

@@ -652,6 +652,10 @@ pub struct Prefs {
     /// Its icon as you chose it; none, its own icon file where it has one.
     #[serde(default)]
     pub icon: Option<Icon>,
+    /// The Linear team (its key) its issues are read from, rather than its
+    /// repository's host.
+    #[serde(default)]
+    pub linear: Option<String>,
 }
 
 /// A project's icon as you chose it, as t3code's: a picture, or a mark

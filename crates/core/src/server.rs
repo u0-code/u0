@@ -334,8 +334,14 @@ impl Server {
                 folder,
             }),
             Call::ReadFile { path } => self.off(move || repo::read_file(path)),
-            Call::Forge { folder, kind, ask } => self.off(move || Event::Forge {
-                answer: crate::github::answer(&folder, kind, ask),
+            Call::Forge {
+                folder,
+                kind,
+                ask,
+                linear,
+            } => self.off(move || Event::Forge {
+                answer: crate::forge::answer(&folder, kind, ask, linear.as_deref()),
+
                 folder,
                 kind,
             }),

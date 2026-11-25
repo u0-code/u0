@@ -281,11 +281,14 @@ pub enum Call {
     Folders {
         dir: PathBuf,
     },
-    /// Ask the pull requests or issues of the project in `folder`.
+    /// Ask the pull requests or issues of the project in `folder`, from
+    /// the host of its remote; its issues from the Linear team keyed
+    /// `linear`, where it is bound to one.
     Forge {
         folder: PathBuf,
         kind: crate::github::Kind,
         ask: crate::github::Ask,
+        linear: Option<String>,
     },
     /// What the file at `path` holds, for the column's viewer.
     ReadFile {
@@ -836,6 +839,7 @@ mod tests {
                         body: "fine".into(),
                     },
                 ),
+                linear: Some("ENG".into()),
             },
             Call::Create {
                 dir: dir.clone(),

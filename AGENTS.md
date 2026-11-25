@@ -114,6 +114,7 @@ crates/core/src/
   git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR
   github.rs     a project's pull requests and issues as gh lists, reads and changes them
   forge.rs      the hosts of code and issues: their CLIs, your tokens for them, credits on merge
+  forge/        GitLab, Bitbucket and Azure DevOps over their APIs; Linear's issues
   settings.rs   ~/.ghost/settings.json and the home
   secrets.rs    what is kept secret: in the macOS Keychain, or a 1Password reference
   store.rs      sessions.json and each session's record; the writer thread

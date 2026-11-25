@@ -3,7 +3,19 @@
 //! token you gave for it, kept in the Keychain (`secrets`) and handed to
 //! that CLI in the variable it reads.
 
+use std::path::Path;
+
+use serde_json::Value;
+
+use crate::github::{Answer, Ask, Item, Kind, Said};
+
+mod azure;
+mod bitbucket;
+mod gitlab;
+mod linear;
+
 /// A host of code or of issues.
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Host {
     GitHub,
@@ -71,6 +83,184 @@ impl Host {
         let host = Self::ALL.into_iter().find(|h| h.cli() == Some(program))?;
         Some((host.token_var()?, host.token()?))
     }
+}
+
+/// Answer `ask` of the pull requests or issues of the project in `dir`,
+/// from the host its remote is on: GitHub through gh, GitLab, Bitbucket
+/// and Azure DevOps over their APIs; its issues from the Linear team
+/// `linear` where the project is bound to one.
+pub fn answer(dir: &Path, kind: Kind, ask: Ask, linear: Option<&str>) -> Answer {
+    if let (Kind::Issue, Some(team)) = (kind, linear) {
+        return linear::answer(team, ask);
+    }
+    let Some((host, path)) = crate::git::remote(dir) else {
+        return crate::github::answer(dir, kind, ask);
+    };
+    if host.contains("gitlab") {
+        gitlab::answer(&host, &path, kind, ask)
+    } else if host == "bitbucket.org" {
+        bitbucket::answer(&path, kind, ask)
+    } else if let Some(repo) = azure::Repo::of(&host, &path) {
+        azure::answer(dir, &repo, kind, ask)
+    } else {
+        crate::github::answer(dir, kind, ask)
+    }
+}
+
+/// What `method` at `url` of `host`'s API answers, sent `body`: JSON, or
+/// null where it said nothing.
+fn api(host: Host, method: &str, url: &str, body: Option<&Value>) -> Result<Value, String> {
+    call(host, method, url, body).map(|b| serde_json::from_slice(&b).unwrap_or(Value::Null))
+}
+
+/// What `url` of `host`'s API answers as text: a patch.
+fn raw(host: Host, url: &str) -> Result<String, String> {
+    call(host, "GET", url, None).map(|b| String::from_utf8_lossy(&b).into_owned())
+}
+
+/// What `method` at `url` of `host`'s API answers, sent `body` and the
+/// token you gave for the host. The token goes to curl on its standard
+/// input, never on its command line.
+fn call(host: Host, method: &str, url: &str, body: Option<&Value>) -> Result<Vec<u8>, String> {
+    use base64::Engine as _;
+    use std::io::Write as _;
+    let auth = host.token().map(|t| match host {
+        Host::Linear => t,
+        Host::Bitbucket if !t.contains(':') => format!("Bearer {t}"),
+        Host::Bitbucket => format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode(t)
+        ),
+        Host::Azure => format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD.encode(format!(":{t}"))
+        ),
+        Host::GitHub | Host::GitLab => format!("Bearer {t}"),
+    });
+    let mut curl = std::process::Command::new("curl");
+    curl.args([
+        "-sS",
+        "-L",
+        "--fail-with-body",
+        "--max-time",
+        "30",
+        "-X",
+        method,
+    ])
+    .args(["-K", "-", "-H", "Accept: application/json"]);
+    if let Some(body) = body {
+        curl.args([
+            "-H",
+            "Content-Type: application/json",
+            "--data-binary",
+            &body.to_string(),
+        ]);
+    }
+    let mut child = curl
+        .arg(url)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("curl could not be started: {e}"))?;
+    let config = auth.map_or_else(String::new, |a| {
+        format!(
+            "header = \"Authorization: {}\"\n",
+            a.replace('\\', "\\\\").replace('"', "\\\"")
+        )
+    });
+    child
+        .stdin
+        .take()
+        .expect("piped")
+        .write_all(config.as_bytes())
+        .map_err(|e| e.to_string())?;
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if out.status.success() {
+        return Ok(out.stdout);
+    }
+    let said: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
+    // What the host said went wrong, as each says it.
+    let why = ["/message", "/error/message", "/error", "/errors/0/message"]
+        .iter()
+        .map(|p| text(&said, p))
+        .find(|w| !w.is_empty())
+        .unwrap_or_else(|| String::from_utf8_lossy(&out.stderr).trim().to_owned());
+    Err(format!("{}: {why}", host.name()))
+}
+
+/// `words` as a URL holds them.
+fn escape(words: &str) -> String {
+    words
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// The string at `pointer` in `v`; empty where there is none.
+fn text(v: &Value, pointer: &str) -> String {
+    match v.pointer(pointer) {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Number(n)) => n.to_string(),
+        _ => String::new(),
+    }
+}
+
+/// The number at `pointer` in `v`; nought where there is none.
+fn int(v: &Value, pointer: &str) -> u64 {
+    v.pointer(pointer).and_then(Value::as_u64).unwrap_or(0)
+}
+
+/// The strings at `field` of each in the list at `pointer` (each itself,
+/// with no field).
+fn list(v: &Value, pointer: &str, field: &str) -> Vec<String> {
+    let all = v.pointer(pointer).and_then(Value::as_array);
+    all.into_iter()
+        .flatten()
+        .map(|e| text(e, field))
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Each listed in what a host answered (a list, or one under `values` or
+/// `value`), read by `item`.
+fn items(answer: Result<Value, String>, item: fn(&Value) -> Item) -> Result<Vec<Item>, String> {
+    let v = answer?;
+    let all = ["", "/values", "/value"]
+        .iter()
+        .find_map(|p| v.pointer(p)?.as_array());
+    Ok(all.into_iter().flatten().map(item).collect())
+}
+
+/// Something said, read from `v` at the pointers given.
+fn said(v: &Value, who: &str, when: &str, how: &str, body: &str) -> Said {
+    Said {
+        who: text(v, who),
+        when: text(v, when),
+        how: how.to_owned(),
+        body: text(v, body),
+    }
+}
+
+/// What GitHub's search on the page says (`author:@me`, words), as a host
+/// with no such search takes it: whose they are (author, or assigned),
+/// and the words left.
+fn words(search: &str) -> (Option<&'static str>, String) {
+    let mut mine = None;
+    let mut left = Vec::new();
+    for word in search.split_whitespace() {
+        match word.split_once(':') {
+            Some(("author", "@me")) => mine = Some("author"),
+            Some((_, "@me")) => mine = Some("assignee"),
+            _ => left.push(word),
+        }
+    }
+    (mine, left.join(" "))
 }
 
 /// What is known of a host here: the version of its CLI found on the
