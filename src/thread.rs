@@ -767,43 +767,33 @@ impl Desk {
         let key = format!("{}-{i}", s.key);
         match item {
             Item::You(text) => {
-                // Under a message of yours, on hover: copy it; and after the
-                // first, take the session back to it, or branch off before it.
+                // Under a message of yours, on hover: when it was said;
+                // branching off before it (after the first); rolling the
+                // session back to it, the first included; copying it.
                 let group = SharedString::from(format!("{key}-you"));
                 let idle = matches!(
                     s.state,
                     crate::session::State::Idle | crate::session::State::Closed
                 );
-                let back = s.fork_point(i).is_some() && idle && self.can_fork(s);
+                let first = s.items.iter().position(|x| matches!(x, Item::You(_))) == Some(i);
+                let branch = idle && s.fork_point(i).is_some() && self.can_fork(s);
+                let back = idle && s.id.is_some() && (branch || first);
                 let at = s.key;
                 let copy = text.clone();
-                let mut tools = div()
+                let rewinding = self.popup == crate::desk::Popup::Rewind(at, i);
+                let tools = div()
                     .relative()
                     .flex()
                     .items_center()
                     .gap(px(2.))
                     .invisible()
                     .group_hover(group.clone(), Styled::visible)
+                    .when(rewinding, Styled::visible)
                     .children(s.time_of(i).map(|t| {
                         meta(faces, when::said_at(t, std::time::SystemTime::now())).mr(px(6.))
                     }))
-                    .child(
-                        Self::under(&key, "copy", "copy", "Copy").on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
-                        }),
-                    );
-                if back {
-                    let rewinding = self.popup == crate::desk::Popup::Rewind(at, i);
-                    tools = tools
-                        .when(rewinding, Styled::visible)
-                        .child(
-                            Self::under(&key, "rewind", "pencil", "Edit from here").on_click(
-                                cx.listener(move |this, _, _, cx| {
-                                    this.toggle_popup(crate::desk::Popup::Rewind(at, i), cx);
-                                }),
-                            ),
-                        )
-                        .child(
+                    .when(branch, |d| {
+                        d.child(
                             Self::under(
                                 &key,
                                 "branch",
@@ -812,8 +802,22 @@ impl Desk {
                             )
                             .on_click(cx.listener(move |this, _, _, cx| this.fork_at(at, i, cx))),
                         )
-                        .children(rewinding.then(|| Self::rewind_menu(faces, s, i, cx)));
-                }
+                    })
+                    .when(back, |d| {
+                        d.child(
+                            Self::under(&key, "rewind", "retry", "Roll back to here").on_click(
+                                cx.listener(move |this, _, _, cx| {
+                                    this.toggle_popup(crate::desk::Popup::Rewind(at, i), cx);
+                                }),
+                            ),
+                        )
+                    })
+                    .child(
+                        Self::under(&key, "copy", "copy", "Copy").on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
+                        }),
+                    )
+                    .children(rewinding.then(|| Self::rewind_menu(faces, s, i, cx)));
                 // A long message shows its first lines, the rest a click away.
                 let full_key = format!("{key}:full");
                 let long = text.lines().count() > 12 || text.len() > 1500;
@@ -1399,8 +1403,8 @@ impl Desk {
                         .child(
                             row(
                                 "rewind-keep",
-                                "Edit from here",
-                                "What came after is left behind; the files stay as they are.",
+                                "Roll back to here",
+                                "What came after is left behind; it is in the composer to say again. The files stay as they are.",
                             )
                             .on_click(cx.listener(
                                 move |this, _, _, cx| {
@@ -1412,7 +1416,7 @@ impl Desk {
                             d.child(
                                 row(
                                     "rewind-files",
-                                    "Edit from here, files too",
+                                    "Roll back to here, files too",
                                     "The files go back to how they were before this.",
                                 )
                                 .on_click(cx.listener(

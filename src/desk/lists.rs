@@ -513,9 +513,11 @@ impl Desk {
         let Some(s) = self.sessions.iter().find(|s| s.key == key) else {
             return;
         };
-        let Some(point) = s.fork_point(item) else {
+        let point = s.fork_point(item);
+        let first = s.items.iter().position(|i| matches!(i, Item::You(_))) == Some(item);
+        if point.is_none() && !first {
             return;
-        };
+        }
         if files
             && let Some(turn) = s.turn_of(item)
             && let Some(before) = s.turns.get(turn).and_then(|t| t.before.clone())
@@ -531,8 +533,42 @@ impl Desk {
                 self.tx.clone(),
             );
         }
-        self.rewinding = Some(key);
-        self.branch(key, Some((item, point)), cx);
+        match point {
+            Some(point) => {
+                self.rewinding = Some(key);
+                self.branch(key, Some((item, point)), cx);
+            }
+            // The first message has nothing before it to branch off: the
+            // session begins again, its words in the composer, in its
+            // place; the old one is archived.
+            None => self.start_over(key, item, cx),
+        }
+    }
+
+    fn start_over(&mut self, key: u64, item: usize, cx: &mut Context<Self>) {
+        let Some(old) = self.sessions.iter().find(|s| s.key == key).cloned() else {
+            return;
+        };
+        let new = self.take_key();
+        let mut s = Session::new(new, &old.agent, old.folder.clone());
+        s.project.clone_from(&old.project);
+        s.worktree.clone_from(&old.worktree);
+        s.title.clone_from(&old.title);
+        s.flags.order = old.flags.order;
+        s.flags.pinned = old.flags.pinned;
+        if let Some(Item::You(text)) = old.items.get(item) {
+            s.unsent.clone_from(text);
+        }
+        if let Some(slot) = self.slot(&old.agent) {
+            slot.seed(&mut s);
+        }
+        if let Some(o) = self.session_mut(key) {
+            o.flags.archived = true;
+            o.flags.pinned = None;
+        }
+        self.sessions.push(s);
+        self.save_index();
+        self.bring(new, cx);
     }
 
     fn branch(&mut self, key: u64, upto: Option<(usize, MessageId)>, cx: &mut Context<Self>) {
