@@ -167,6 +167,15 @@ impl Desk {
                             row(
                                 faces,
                                 q,
+                                "Snooze for",
+                                "The ways to snooze offered first, each as you would type it in Custom…: 1h, 5pm, tomorrow, next week. Commas between.",
+                                div()
+                                    .w(px(220.))
+                                    .child(Input::new(&self.pages.snoozes).small()),
+                            ),
+                            row(
+                                faces,
+                                q,
                                 "Keep sessions with a pull request",
                                 "One whose pull request is open is never done for being left.",
                                 Self::pick(

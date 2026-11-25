@@ -107,11 +107,16 @@ pub fn reset_at(text: &str, now: SystemTime) -> Option<SystemTime> {
     ahead(after, now)
 }
 
-/// A time ahead said shortly: a while ("3h", "in 2 days") from `now`, or
-/// the next such time of day ("5pm", "at 17:30"). None where it says no
-/// time.
+/// A time ahead said shortly: a while ("3h", "in 2 days") from `now`, the
+/// next such time of day ("5pm", "at 17:30"), or "tomorrow" and "next
+/// week" (nine o'clock that day, Monday's). None where it says no time.
 pub fn ahead(text: &str, now: SystemTime) -> Option<SystemTime> {
     let text = text.to_lowercase();
+    match text.trim() {
+        "tomorrow" => return Some(at_hour(now, 1, 9)),
+        "next week" => return Some(at_hour(now, to_monday(now), 9)),
+        _ => {}
+    }
     let words: Vec<&str> = text
         .split(|c: char| c.is_whitespace() || c == ',' || c == '.' || c == '(' || c == ')')
         .filter(|w| !w.is_empty())
@@ -200,6 +205,8 @@ mod tests {
         );
         assert_eq!(ahead("5pm", now), Some(at_hour(now, 0, 17)));
         assert_eq!(ahead("at 08:00", now), Some(at_hour(now, 1, 8)));
+        assert_eq!(ahead("Tomorrow", now), Some(at_hour(now, 1, 9)));
+        assert!(ahead("next week", now).is_some_and(|t| t > now));
         assert_eq!(ahead("later", now), None);
     }
 

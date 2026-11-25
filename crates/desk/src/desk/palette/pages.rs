@@ -255,9 +255,10 @@ impl Desk {
             }
             Sub::Snooze => {
                 let now = std::time::SystemTime::now();
-                let mut rows: Vec<Row> = crate::desk::lists::SNOOZES
-                    .iter()
-                    .map(|&(word, later)| Row::new("clock", word, Act::Snooze(later)))
+                let mut rows: Vec<Row> = self
+                    .snoozes()
+                    .into_iter()
+                    .map(|(word, later)| Row::new("clock", word, Act::Snooze(later)))
                     .collect();
                 let Some(at) = crate::when::ahead(typed, now) else {
                     return narrowed(rows, typed);

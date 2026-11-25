@@ -46,6 +46,8 @@ pub struct Pages {
     pub search: Entity<InputState>,
     pub agent_search: Entity<InputState>,
     pub prefix: Entity<InputState>,
+    /// Your snooze presets as you write them, commas between.
+    pub snoozes: Entity<InputState>,
     pub recording: Option<&'static str>,
     pub sizes: Vec<(String, u64)>,
     pub tidied: Option<String>,
@@ -91,12 +93,29 @@ impl Pages {
             }
         })
         .detach();
+        let snoozes = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder("1h, tomorrow")
+                .default_value(settings.snoozes.join(", "))
+        });
+        cx.subscribe(&snoozes, |this, input, e: &InputEvent, cx| {
+            if let InputEvent::Change = e {
+                this.settings.snoozes = (input.read(cx).value().split(','))
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_owned)
+                    .collect();
+                this.save_settings();
+            }
+        })
+        .detach();
         Self {
             open: false,
             tab: Tab::General,
             search,
             agent_search,
             prefix,
+            snoozes,
             recording: None,
             sizes: Vec::new(),
             tidied: None,

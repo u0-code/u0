@@ -187,6 +187,14 @@ pub struct Settings {
     /// lays them out.
     #[serde(default)]
     pub host_folders: bool,
+    /// The ways to snooze offered first, each as typed in Custom… ("1h",
+    /// "5pm", "tomorrow"), as t3code's snooze presets.
+    #[serde(default = "snoozes")]
+    pub snoozes: Vec<String>,
+}
+
+fn snoozes() -> Vec<String> {
+    vec!["1h".into(), "tomorrow".into(), "next week".into()]
 }
 
 /// How far a new worktree's submodules are checked out, as t3code's: all
@@ -704,6 +712,7 @@ impl Default for Settings {
             submodules: Submodules::default(),
             projects_in: None,
             host_folders: false,
+            snoozes: snoozes(),
         }
     }
 }

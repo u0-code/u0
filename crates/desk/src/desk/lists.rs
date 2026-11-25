@@ -61,13 +61,6 @@ impl Search {
 /// How long what was done to sessions can be taken back.
 pub const UNDO_FOR: Duration = Duration::from_secs(5);
 
-/// The ways to snooze offered first, as t3code's presets.
-pub const SNOOZES: [(&str, Later); 3] = [
-    ("For an hour", Later::In(60)),
-    ("Until tomorrow", Later::Tomorrow),
-    ("Until next week", Later::NextWeek),
-];
-
 /// When a snoozed session comes back, or what you wrote is said.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Later {
@@ -75,8 +68,6 @@ pub enum Later {
     In(u64),
     /// Tomorrow at nine.
     Tomorrow,
-    /// Next Monday at nine.
-    NextWeek,
     /// At the next nine o'clock, and each day after.
     Daily,
     /// At a time said: when a limit the agent hit resets.
@@ -90,7 +81,6 @@ impl Later {
             Self::In(minutes) => now + Duration::from_secs(minutes * 60),
             Self::Tomorrow => when::at_hour(now, 1, 9),
             Self::At(at) => at,
-            Self::NextWeek => when::at_hour(now, when::to_monday(now), 9),
             Self::Daily => match when::at_hour(now, 0, 9) {
                 today if today > now => today,
                 _ => when::at_hour(now, 1, 9),
@@ -321,6 +311,19 @@ impl Desk {
         } else {
             self.undoable(Undone::Settle, &[key], cx);
         }
+    }
+
+    /// Your snooze presets, each with the time it says now, as it reads:
+    /// those that say none are left out.
+    pub fn snoozes(&self) -> Vec<(String, Later)> {
+        let now = SystemTime::now();
+        (self.settings.snoozes.iter())
+            .filter_map(|said| {
+                let at = when::ahead(said, now)?;
+                let shown = when::said_at(at, now, self.settings.twelve);
+                Some((format!("{said} · {shown}"), Later::At(at)))
+            })
+            .collect()
     }
 
     /// Put the sessions `keys` out of the way until `until`.
@@ -1186,12 +1189,7 @@ mod tests {
     #[test]
     fn each_later_is_ahead_and_each_day_is_within_a_day() {
         let now = SystemTime::now();
-        for later in [
-            Later::In(30),
-            Later::Tomorrow,
-            Later::NextWeek,
-            Later::Daily,
-        ] {
+        for later in [Later::In(30), Later::Tomorrow, Later::Daily] {
             assert!(later.at(now) > now, "{later:?}");
         }
         let day = Duration::from_hours(25);

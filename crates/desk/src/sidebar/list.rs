@@ -579,7 +579,7 @@ impl Desk {
             on_hover
                 .child(
                     act("snooze", "clock", "Snooze")
-                        .dropdown_menu(move |menu, _, _| snooze_items(menu, &snooze, &[key])),
+                        .dropdown_menu(move |menu, _, cx| snooze_items(menu, &snooze, &[key], cx)),
                 )
                 .child(act("settle", "check", "Settle").on_click(move |_, _, cx| {
                     cx.stop_propagation();
@@ -973,7 +973,7 @@ fn session_menu(
             "Snooze",
             window,
             cx,
-            move |menu, _, _| snooze_items(menu, &desk, &[key]),
+            move |menu, _, cx| snooze_items(menu, &desk, &[key], cx),
         )
     };
     if !f.unread {
@@ -1136,7 +1136,7 @@ fn chosen_menu(
             format!("Snooze ({n})"),
             window,
             cx,
-            move |menu, _, _| snooze_items(menu, &snooze, &keys),
+            move |menu, _, cx| snooze_items(menu, &snooze, &keys, cx),
         )
         .separator()
         .item(item(format!("Delete ({n})"), "trash", move |window, cx| {
@@ -1177,10 +1177,11 @@ fn project_menu(menu: PopupMenu, folder: &Path, pinned: bool, desk: &Entity<Desk
 }
 
 /// The ways to snooze the sessions `keys`, as menu items.
-fn snooze_items(menu: PopupMenu, desk: &Entity<Desk>, keys: &[u64]) -> PopupMenu {
-    let menu = lists::SNOOZES.iter().fold(menu, |menu, &(label, later)| {
+fn snooze_items(menu: PopupMenu, desk: &Entity<Desk>, keys: &[u64], cx: &App) -> PopupMenu {
+    let presets = desk.read(cx).snoozes();
+    let menu = presets.into_iter().fold(menu, |menu, (label, later)| {
         let (desk, keys) = (desk.clone(), keys.to_vec());
-        menu.item(item(label, "clock", move |_, cx| {
+        menu.item(item(&label, "clock", move |_, cx| {
             desk.update(cx, |d, cx| d.snooze(&keys, later, cx));
         }))
     });
