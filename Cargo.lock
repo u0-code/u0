@@ -2214,7 +2214,7 @@ dependencies = [
 [[package]]
 name = "gpui-base"
 version = "0.11.0"
-source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus#213edc78d24e85e1bd0e32507b5a7a919dd1ab63"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus-tab-diff#c4bd357b791b8b0d8d81c05e15d0ad71be83f51c"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -2256,7 +2256,7 @@ dependencies = [
 [[package]]
 name = "gpui-component"
 version = "0.11.0"
-source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus#213edc78d24e85e1bd0e32507b5a7a919dd1ab63"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus-tab-diff#c4bd357b791b8b0d8d81c05e15d0ad71be83f51c"
 dependencies = [
  "anyhow",
  "core-text",
@@ -2304,7 +2304,7 @@ dependencies = [
 [[package]]
 name = "gpui-component-macros"
 version = "0.11.0"
-source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus#213edc78d24e85e1bd0e32507b5a7a919dd1ab63"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus-tab-diff#c4bd357b791b8b0d8d81c05e15d0ad71be83f51c"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -2315,7 +2315,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit"
 version = "0.11.0"
-source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus#213edc78d24e85e1bd0e32507b5a7a919dd1ab63"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus-tab-diff#c4bd357b791b8b0d8d81c05e15d0ad71be83f51c"
 dependencies = [
  "gpui-base",
  "gpui-component",
@@ -2329,7 +2329,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit-assets"
 version = "0.11.0"
-source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus#213edc78d24e85e1bd0e32507b5a7a919dd1ab63"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus-tab-diff#c4bd357b791b8b0d8d81c05e15d0ad71be83f51c"
 dependencies = [
  "anyhow",
  "gpui-pre",
