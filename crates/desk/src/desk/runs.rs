@@ -177,7 +177,7 @@ impl Desk {
     /// Close a terminal, stopping what runs in it; with a command still
     /// running in it, only once you have closed it twice.
     pub fn close_terminal(&mut self, id: u64, cx: &mut Context<Self>) {
-        let force = self.drawer.closing == Some(id);
+        let force = !self.settings.confirm.terminal || self.drawer.closing == Some(id);
         self.transport.send(Call::TermClose { id, force });
         cx.notify();
     }

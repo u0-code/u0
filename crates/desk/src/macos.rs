@@ -57,6 +57,32 @@ pub fn dictate() {
 #[cfg(not(target_os = "macos"))]
 pub fn dictate() {}
 
+/// Whether the event being handled is a key held down (macOS repeating
+/// it), or pressed; none when it is not a key at all (a menu clicked).
+#[cfg(target_os = "macos")]
+pub fn key_held() -> Option<bool> {
+    use cocoa::{
+        appkit::{NSApp, NSEvent, NSEventType},
+        base::{id, nil},
+    };
+    use objc::{msg_send, sel, sel_impl};
+    // SAFETY: called on the main thread while AppKit dispatches an event;
+    // `currentEvent` is that event or nil, and is only read here.
+    unsafe {
+        let event: id = msg_send![NSApp(), currentEvent];
+        if event == nil || event.eventType() != NSEventType::NSKeyDown {
+            return None;
+        }
+        let held: bool = msg_send![event, isARepeat];
+        Some(held)
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn key_held() -> Option<bool> {
+    Some(false)
+}
+
 /// Say on the Dock's icon how many things wait for you; nothing at none.
 #[cfg(target_os = "macos")]
 pub fn badge(n: usize) {

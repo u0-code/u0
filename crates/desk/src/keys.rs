@@ -388,7 +388,7 @@ pub fn handle(cx: &mut App, shown: &Shown) {
         let shown = quitting.clone();
         cx.defer(move |cx| {
             let quit = shown.update(cx, |d, _, cx| {
-                let may = d.may_quit(cx);
+                let may = d.may_quit(crate::macos::key_held(), cx);
                 cx.notify();
                 may
             });

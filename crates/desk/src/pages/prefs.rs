@@ -12,7 +12,7 @@ use crate::{
     desk::Desk,
     fonts::{Faces, Weighted as _},
     keys,
-    settings::{Notify, Width},
+    settings::{Notify, Quit, Width},
     theme,
     ui::{self, Pick, Weight},
 };
@@ -129,6 +129,63 @@ impl Desk {
                                 cx,
                             ),
                         )],
+                    ),
+                    group(
+                        faces,
+                        "Confirmations",
+                        vec![
+                            self.asks(
+                                faces,
+                                q,
+                                ("Unpin", "Ask before a session is unpinned."),
+                                |c| &mut c.unpin,
+                                cx,
+                            ),
+                            self.asks(
+                                faces,
+                                q,
+                                ("Archive", "Ask before a session is archived."),
+                                |c| &mut c.archive,
+                                cx,
+                            ),
+                            self.asks(
+                                faces,
+                                q,
+                                (
+                                    "Delete",
+                                    "Ask before a session and what was said in it are deleted.",
+                                ),
+                                |c| &mut c.delete,
+                                cx,
+                            ),
+                            self.asks(
+                                faces,
+                                q,
+                                (
+                                    "Close a terminal",
+                                    "Ask before a terminal is closed with something running in it.",
+                                ),
+                                |c| &mut c.terminal,
+                                cx,
+                            ),
+                            row(
+                                faces,
+                                q,
+                                "Quit with ⌘Q",
+                                "Quit in the menu always quits at once.",
+                                Self::pick(
+                                    "quit",
+                                    [
+                                        ("Hold", Quit::Hold),
+                                        ("Double press", Quit::Double),
+                                        ("Direct", Quit::Direct),
+                                    ],
+                                    self.settings.confirm.quit,
+                                    |s, v| s.confirm.quit = v,
+                                    cx,
+                                ),
+                            ),
+                        ],
                     ),
                 ],
             ),
@@ -492,6 +549,34 @@ impl Desk {
                 .on_click(cx.listener(move |this, _, _, cx| {
                     let told = of(&mut this.settings.notify_on);
                     *told = !*told;
+                    this.save_settings();
+                    cx.notify();
+                })),
+        )
+    }
+
+    /// Whether Ghost asks before `name` (`about` saying more): the switch
+    /// for it in `settings.confirm`.
+    fn asks(
+        &self,
+        faces: &Faces,
+        q: &str,
+        (name, about): (&'static str, &str),
+        of: fn(&mut crate::settings::Confirm) -> &mut bool,
+        cx: &mut Context<Self>,
+    ) -> Option<Div> {
+        let mut confirm = self.settings.confirm.clone();
+        row(
+            faces,
+            q,
+            name,
+            about,
+            Switch::new(SharedString::from(format!("confirm-{name}")))
+                .small()
+                .checked(*of(&mut confirm))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    let asks = of(&mut this.settings.confirm);
+                    *asks = !*asks;
                     this.save_settings();
                     cx.notify();
                 })),

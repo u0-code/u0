@@ -56,7 +56,7 @@ impl Search {
     }
 }
 
-/// How long a deleted or archived session can be taken back.
+/// How long what was done to sessions can be taken back.
 pub const UNDO_FOR: Duration = Duration::from_secs(5);
 
 /// When a snoozed session comes back, or what you wrote is said.
@@ -100,18 +100,35 @@ pub enum Waiting {
     Write(u64, crate::writer::Ask),
 }
 
-/// What can still be taken back, and since when.
+/// What can still be taken back, and since when: one action, done to
+/// one session or several, each with where it stood before.
 pub struct Undo {
-    pub key: u64,
     pub what: Undone,
+    pub before: Vec<(u64, store::Flags)>,
     pub at: Instant,
 }
 
+/// The actions that can be taken back, as t3code's notice names them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Undone {
+    Unpin,
+    Settle,
+    Snooze,
+    Archive,
     /// Deleted once the moment passes; until then only hidden.
     Delete,
-    Archive,
+}
+
+impl Undone {
+    fn word(self) -> &'static str {
+        match self {
+            Self::Unpin => "Unpinned",
+            Self::Settle => "Settled",
+            Self::Snooze => "Snoozed",
+            Self::Archive => "Archived",
+            Self::Delete => "Deleted",
+        }
+    }
 }
 
 impl Desk {
@@ -136,6 +153,10 @@ impl Desk {
 
     /// Pin the session `key` on top, or take the pin off.
     pub fn toggle_pin(&mut self, key: u64, cx: &mut Context<Self>) {
+        if self.flags_mut(key).is_some_and(|f| f.pinned.is_some()) {
+            self.unpin(vec![key], cx);
+            return;
+        }
         let last = self
             .sessions
             .all
@@ -143,12 +164,12 @@ impl Desk {
             .filter_map(|s| s.meta.flags.pinned)
             .max()
             .unwrap_or(0);
-        self.mark(key, cx, |f| {
-            f.pinned = match f.pinned {
-                Some(_) => None,
-                None => Some(last + 1),
-            };
-        });
+        self.mark(key, cx, |f| f.pinned = Some(last + 1));
+    }
+
+    /// Take the pin off the sessions `keys`, asking first if you said to.
+    pub fn unpin(&mut self, keys: Vec<u64>, cx: &mut Context<Self>) {
+        self.ask_first(self.settings.confirm.unpin, Undone::Unpin, keys, cx);
     }
 
     /// Put the session `moved` just before `before` in the list: among the
@@ -196,15 +217,83 @@ impl Desk {
         cx.notify();
     }
 
-    /// Change the flags of each session chosen with ⌘-click, then choose
-    /// none.
-    pub(crate) fn for_chosen(&mut self, cx: &mut Context<Self>, f: impl Fn(&mut store::Flags)) {
-        for key in std::mem::take(&mut self.chosen) {
-            if let Some(s) = self.sessions.at_mut(key) {
-                f(&mut s.meta.flags);
+    /// Do `what` to the sessions `keys`, to be taken back for a moment: an
+    /// action like the last one, still to be taken back, joins it.
+    pub(crate) fn undoable(&mut self, what: Undone, keys: &[u64], cx: &mut Context<Self>) {
+        if self
+            .undo
+            .as_ref()
+            .is_some_and(|u| u.what != what || u.at.elapsed() >= UNDO_FOR)
+        {
+            self.finish_undo(cx);
+        }
+        let now = store::secs(SystemTime::now());
+        let mut before = self.undo.take().map(|u| u.before).unwrap_or_default();
+        for &key in keys {
+            let Some(flags) = self.flags_mut(key) else {
+                continue;
+            };
+            let was = flags.clone();
+            match what {
+                Undone::Unpin => flags.pinned = None,
+                Undone::Settle => {
+                    flags.settled = Some(now);
+                    flags.snoozed = None;
+                }
+                Undone::Archive => flags.archived = true,
+                Undone::Snooze | Undone::Delete => {}
+            }
+            if !before.iter().any(|(k, _)| *k == key) {
+                before.push((key, was));
+            }
+            if self.current == Some(key) && matches!(what, Undone::Archive | Undone::Delete) {
+                self.current = None;
             }
         }
+        self.chosen.clear();
+        self.undo = Some(Undo {
+            what,
+            before,
+            at: Instant::now(),
+        });
+        self.popup = super::Popup::Closed;
         self.save_index();
+        self.say_undo();
+        Self::after_undo(cx);
+        cx.notify();
+    }
+
+    /// Do `what` to the sessions `keys`; with `ask`, once you say so.
+    fn ask_first(&mut self, ask: bool, what: Undone, keys: Vec<u64>, cx: &mut Context<Self>) {
+        if !ask {
+            self.undoable(what, &keys, cx);
+            return;
+        }
+        let title = match keys.as_slice() {
+            [key] => format!(
+                "{} \u{201c}{}\u{201d}?",
+                match what {
+                    Undone::Unpin => "Unpin",
+                    Undone::Archive => "Archive",
+                    _ => "Delete session",
+                },
+                self.sessions
+                    .at(*key)
+                    .map(|s| s.meta.title.as_str())
+                    .unwrap_or_default()
+            ),
+            _ => format!(
+                "{} {} sessions?",
+                match what {
+                    Undone::Unpin => "Unpin",
+                    Undone::Archive => "Archive",
+                    _ => "Delete",
+                },
+                keys.len()
+            ),
+        };
+        self.confirming = Some((title, what, keys));
+        self.popup = super::Popup::Closed;
         cx.notify();
     }
 
@@ -214,19 +303,23 @@ impl Desk {
 
     /// Done for now, or back among the rest.
     pub fn toggle_settled(&mut self, key: u64, cx: &mut Context<Self>) {
-        let now = store::secs(SystemTime::now());
-        self.mark(key, cx, |f| {
-            f.settled = match f.settled {
-                Some(_) => None,
-                None => Some(now),
-            };
-            f.snoozed = None;
-        });
+        if self.flags_mut(key).is_some_and(|f| f.settled.is_some()) {
+            self.mark(key, cx, |f| f.settled = None);
+        } else {
+            self.undoable(Undone::Settle, &[key], cx);
+        }
     }
 
-    pub fn snooze(&mut self, key: u64, until: Later, cx: &mut Context<Self>) {
-        let at = until.at(SystemTime::now());
-        self.mark(key, cx, |f| f.snoozed = Some(store::secs(at)));
+    /// Put the sessions `keys` out of the way until `until`.
+    pub fn snooze(&mut self, keys: &[u64], until: Later, cx: &mut Context<Self>) {
+        let at = store::secs(until.at(SystemTime::now()));
+        self.undoable(Undone::Snooze, keys, cx);
+        for &key in keys {
+            if let Some(f) = self.flags_mut(key) {
+                f.snoozed = Some(at);
+            }
+        }
+        self.save_index();
     }
 
     /// Snooze the session `key` for the while `text` says ("3h", "2d").
@@ -234,59 +327,26 @@ impl Desk {
         self.mark(key, cx, |f| f.snoozed = None);
     }
 
-    /// Archive the session `key`: hidden and read only until restored.
+    /// Archive the session `key`: hidden and read only until restored;
+    /// asking first if you said to.
     pub fn archive(&mut self, key: u64, cx: &mut Context<Self>) {
-        // A delete still waiting is done first, not brought back.
-        self.finish_undo(cx);
-        self.mark(key, cx, |f| f.archived = true);
-        self.undo = Some(Undo {
-            key,
-            what: Undone::Archive,
-            at: Instant::now(),
-        });
-        self.say_undo();
-        Self::after_undo(cx);
-        if self.current == Some(key) {
-            self.current = None;
-        }
+        self.ask_first(
+            self.settings.confirm.archive,
+            Undone::Archive,
+            vec![key],
+            cx,
+        );
     }
 
     pub fn restore(&mut self, key: u64, cx: &mut Context<Self>) {
         self.mark(key, cx, |f| f.archived = false);
     }
 
-    /// Delete the session `key` after a moment in which it can be taken
+    /// Ask before deleting the sessions `keys`, in t3code's words, if you
+    /// said to; and for one that alone works in its worktree, whether that
+    /// goes too. Each is deleted after a moment in which it can be taken
     /// back; until then it is only hidden.
-    pub fn delete_later(&mut self, key: u64, cx: &mut Context<Self>) {
-        self.popup = super::Popup::Closed;
-        self.finish_undo(cx);
-        self.undo = Some(Undo {
-            key,
-            what: Undone::Delete,
-            at: Instant::now(),
-        });
-        if self.current == Some(key) {
-            self.current = None;
-        }
-        self.say_undo();
-        Self::after_undo(cx);
-        cx.notify();
-    }
-
-    /// Ask before deleting the sessions `keys`, in t3code's words; and for
-    /// one that alone works in its worktree, whether that goes too.
     pub fn ask_delete(&mut self, keys: Vec<u64>, window: &mut Window, cx: &mut Context<Self>) {
-        use gpui::component::WindowExt as _;
-        let title = match keys.as_slice() {
-            [key] => format!(
-                "Delete session \u{201c}{}\u{201d}?",
-                self.sessions
-                    .at(*key)
-                    .map(|s| s.meta.title.as_str())
-                    .unwrap_or_default()
-            ),
-            _ => format!("Delete {} sessions?", keys.len()),
-        };
         // Its worktree, where no other session works in it.
         let alone = match keys.as_slice() {
             [key] => self
@@ -303,20 +363,36 @@ impl Desk {
                 }),
             _ => None,
         };
+        match alone {
+            Some(wt) => Self::ask_worktree(keys[0], &wt.path, window, cx),
+            None => self.ask_first(self.settings.confirm.delete, Undone::Delete, keys, cx),
+        }
+    }
+
+    /// What waits to be confirmed, as gpui-kit's alert: done on OK.
+    pub(crate) fn show_confirm(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use gpui::component::WindowExt as _;
+        let Some((title, what, keys)) = self.confirming.take() else {
+            return;
+        };
+        let (label, about) = match what {
+            Undone::Unpin => ("Unpin", "It goes back among its project's sessions."),
+            Undone::Archive => ("Archive", "It is hidden until you restore it."),
+            _ => (
+                "Delete",
+                "This permanently clears conversation history for this session.",
+            ),
+        };
         let desk = cx.entity();
         window.open_alert_dialog(cx, move |alert, _, _| {
-            let (desk, keys, alone) = (desk.clone(), keys.clone(), alone.clone());
+            let (desk, keys) = (desk.clone(), keys.clone());
             alert
                 .title(title.clone())
-                .description("This permanently clears conversation history for this session.")
-                .ok_text("Delete")
+                .description(about)
+                .ok_text(label)
                 .show_cancel(true)
-                .on_ok(move |_, window, cx| {
-                    let (keys, alone) = (keys.clone(), alone.clone());
-                    desk.update(cx, |d, cx| match alone {
-                        Some(wt) => Self::ask_worktree(keys[0], &wt.path, window, cx),
-                        None => keys.into_iter().for_each(|key| d.delete_later(key, cx)),
-                    });
+                .on_ok(move |_, _, cx| {
+                    desk.update(cx, |d, cx| d.undoable(what, &keys, cx));
                     true
                 })
         });
@@ -341,13 +417,13 @@ impl Desk {
                     .cancel_text("Keep it")
                     .show_cancel(true)
                     .on_ok(move |_, _, cx| {
-                        yes.update(cx, |d, cx| d.delete_later(key, cx));
+                        yes.update(cx, |d, cx| d.undoable(Undone::Delete, &[key], cx));
                         true
                     })
                     .on_cancel(move |_, _, cx| {
                         no.update(cx, |d, cx| {
                             d.keep_worktree.insert(key);
-                            d.delete_later(key, cx);
+                            d.undoable(Undone::Delete, &[key], cx);
                         });
                         true
                     })
@@ -355,27 +431,32 @@ impl Desk {
         });
     }
 
-    /// Say what was just deleted or archived, with Undo, for as long as
-    /// it can be taken back.
+    /// Say what was just done, with Undo, for as long as it can be taken
+    /// back: one notice, said again as more joins it.
     fn say_undo(&mut self) {
         let Some(u) = &self.undo else { return };
-        let title = (self.sessions.at(u.key))
-            .map(|s| crate::ui::fit(&s.meta.title, 32))
-            .unwrap_or_default();
-        let what = match u.what {
-            Undone::Delete => "Deleted",
-            Undone::Archive => "Archived",
+        let what = match u.before.as_slice() {
+            [(key, _)] => format!(
+                "{} \u{201c}{}\u{201d}",
+                u.what.word(),
+                (self.sessions.at(*key))
+                    .map(|s| crate::ui::fit(&s.meta.title, 32))
+                    .unwrap_or_default()
+            ),
+            all => format!("{} {} sessions", u.what.word(), all.len()),
         };
-        self.done(format!("{what} “{title}”"), Some(super::notices::Way::Undo));
+        self.done(what, Some(super::notices::Way::Undo));
     }
 
-    /// Take back what was just deleted or archived.
+    /// Take back what was just done: each session as it stood before.
     pub fn take_back(&mut self, cx: &mut Context<Self>) {
-        if let Some(u) = self.undo.take()
-            && u.what == Undone::Archive
-        {
-            self.mark(u.key, cx, |f| f.archived = false);
+        let Some(u) = self.undo.take() else { return };
+        for (key, flags) in u.before {
+            if let Some(f) = self.flags_mut(key) {
+                *f = flags;
+            }
         }
+        self.save_index();
         cx.notify();
     }
 
@@ -383,7 +464,7 @@ impl Desk {
     pub fn deleting(&self, key: u64) -> bool {
         self.undo
             .as_ref()
-            .is_some_and(|u| u.key == key && u.what == Undone::Delete)
+            .is_some_and(|u| u.what == Undone::Delete && u.before.iter().any(|(k, _)| *k == key))
     }
 
     /// Once the moment to take it back is over, do what waits.
@@ -407,7 +488,9 @@ impl Desk {
     fn finish_undo(&mut self, cx: &mut Context<Self>) {
         let Some(u) = self.undo.take() else { return };
         if u.what == Undone::Delete {
-            self.delete_now(u.key, cx);
+            for (key, _) in u.before {
+                self.delete_now(key, cx);
+            }
         }
         cx.notify();
     }

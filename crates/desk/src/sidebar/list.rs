@@ -1044,18 +1044,23 @@ fn chosen_menu(
     cx: &mut Context<PopupMenu>,
 ) -> PopupMenu {
     let n = keys.len();
-    let each = |label: &str, icon: &str, f: fn(&mut store::Flags)| {
-        let desk = desk.clone();
+    let each = |label: &str, icon: &str, f: fn(&mut Desk, Vec<u64>, &mut Context<Desk>)| {
+        let (desk, keys) = (desk.clone(), keys.to_vec());
         item(format!("{label} ({n})"), icon, move |_, cx| {
-            desk.update(cx, |d, cx| d.for_chosen(cx, f));
+            desk.update(cx, |d, cx| f(d, keys.clone(), cx));
         })
     };
     let (snooze, gone, keys) = (desk.clone(), desk.clone(), keys.to_vec());
-    menu.item(each("Unpin", "pin", |f| f.pinned = None))
-        .item(each("Settle", "check", |f| {
-            f.settled = Some(store::secs(SystemTime::now()));
+    menu.item(each("Unpin", "pin", Desk::unpin))
+        .item(each("Settle", "check", |d, keys, cx| {
+            d.undoable(lists::Undone::Settle, &keys, cx);
         }))
-        .item(each("Mark unread", "bell", |f| f.unread = true))
+        .item(each("Mark unread", "bell", |d, keys, cx| {
+            for key in keys {
+                d.mark_unread(key, cx);
+            }
+            d.chosen.clear();
+        }))
         .submenu_with_icon(
             Some(Icon::empty().path("icons/clock.svg")),
             format!("Snooze ({n})"),
@@ -1112,12 +1117,7 @@ fn snooze_items(menu: PopupMenu, desk: &Entity<Desk>, keys: &[u64]) -> PopupMenu
     .fold(menu, |menu, (label, later)| {
         let (desk, keys) = (desk.clone(), keys.to_vec());
         menu.item(item(label, "clock", move |_, cx| {
-            desk.update(cx, |d, cx| {
-                for key in &keys {
-                    d.snooze(*key, later, cx);
-                }
-                d.chosen.clear();
-            });
+            desk.update(cx, |d, cx| d.snooze(&keys, later, cx));
         }))
     })
 }

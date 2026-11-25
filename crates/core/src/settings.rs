@@ -137,6 +137,60 @@ pub struct Settings {
     /// Who writes what Ghost has written for you.
     #[serde(default)]
     pub writer: Writer,
+    /// What Ghost asks before it does it.
+    #[serde(default)]
+    pub confirm: Confirm,
+}
+
+/// What Ghost asks before it does it, as t3code's confirmations: each
+/// action that can be taken back asks only if you want it to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is a question of its own, asked or not"
+)]
+pub struct Confirm {
+    /// Before a session is unpinned.
+    #[serde(default)]
+    pub unpin: bool,
+    /// Before a session is archived.
+    #[serde(default)]
+    pub archive: bool,
+    /// Before a session and what was said in it are deleted.
+    #[serde(default = "yes")]
+    pub delete: bool,
+    /// Before a terminal is closed with something running in it.
+    #[serde(default = "yes")]
+    pub terminal: bool,
+    /// What ⌘Q takes to quit.
+    #[serde(default)]
+    pub quit: Quit,
+}
+
+impl Default for Confirm {
+    fn default() -> Self {
+        Self {
+            unpin: false,
+            archive: false,
+            delete: true,
+            terminal: true,
+            quit: Quit::default(),
+        }
+    }
+}
+
+/// What ⌘Q takes to quit. Quit in the menu always quits at once.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Quit {
+    /// Held a moment, or pressed twice quickly.
+    #[default]
+    Hold,
+    /// Pressed once.
+    Direct,
+    /// Pressed twice quickly.
+    Double,
 }
 
 /// The writer: the agent that writes what Ghost has written for you, and
@@ -473,6 +527,7 @@ impl Default for Settings {
             editor: None,
             no_spacing: false,
             writer: Writer::default(),
+            confirm: Confirm::default(),
         }
     }
 }
@@ -547,6 +602,14 @@ mod tests {
         assert_eq!(s.folders[6], Path::new("/p3"));
         s.forget(Path::new("/p3"));
         assert_eq!(s.folders.len(), 9);
+    }
+
+    #[test]
+    fn unsaid_confirmations_ask_before_deleting_and_closing_and_quit_on_a_hold() {
+        let c: Confirm = serde_json::from_str("{}").unwrap();
+        assert_eq!(c, Confirm::default());
+        assert!(c.delete && c.terminal && !c.unpin && !c.archive);
+        assert_eq!(c.quit, Quit::Hold);
     }
 
     #[test]

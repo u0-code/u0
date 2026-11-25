@@ -387,7 +387,7 @@ impl Desk {
                         Weight::Quiet,
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.snooze(key, crate::desk::Later::At(at), cx);
+                        this.snooze(&[key], crate::desk::Later::At(at), cx);
                     })),
                 );
         }

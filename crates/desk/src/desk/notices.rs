@@ -40,7 +40,7 @@ pub enum Way {
     Agent(String),
     /// A session, to put it on screen.
     Show(u64),
-    /// What was just deleted or archived, to take it back.
+    /// What was just done to sessions, to take it back.
     Undo,
 }
 
@@ -119,6 +119,10 @@ impl Desk {
         }
         if n.system {
             note = note.delivery(NotificationDelivery::System);
+        }
+        // One undo notice, said again as more joins what it takes back.
+        if n.way == Some(Way::Undo) {
+            note = note.id::<super::lists::Undo>();
         }
         let label = match &n.way {
             Some(Way::Open(_)) => "Open",

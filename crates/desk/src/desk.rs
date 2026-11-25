@@ -172,7 +172,7 @@ pub struct Desk {
     /// under, as questions to be answered over the composer.
     pub forms:
         std::collections::HashMap<u64, Entity<gpui::component::questionnaire::QuestionnaireState>>,
-    /// When quitting was last asked while agents worked.
+    /// When ⌘Q was last pressed, not held.
     pub quit_asked: Option<std::time::Instant>,
     /// Each running agent's process and the memory its group holds (kB),
     /// as last weighed.
@@ -198,8 +198,11 @@ pub struct Desk {
     pub keep_worktree: HashSet<u64>,
     /// The image looked at large: the session's key and its item.
     pub zoom: Option<(u64, usize)>,
-    /// What was just deleted or archived, while it can be taken back.
+    /// What was just done to sessions, while it can be taken back.
     pub undo: Option<lists::Undo>,
+    /// What waits to be asked before it is done: the question, the
+    /// action and its sessions.
+    pub confirming: Option<(String, lists::Undone, Vec<u64>)>,
     /// The session being taken back to one of your messages: the fork
     /// made for it takes its place.
     pub rewinding: Option<u64>,
@@ -496,6 +499,7 @@ impl Desk {
             reader,
             rename,
             undo: None,
+            confirming: None,
             waiting: Vec::new(),
             rewinding: None,
             asking_beside: None,
@@ -1056,28 +1060,33 @@ impl Desk {
         .detach();
     }
 
-    /// Whether Ghost may quit now: at once with no agent at work, else at
-    /// the second asking within a few seconds.
-    pub fn may_quit(&mut self, cx: &gpui::App) -> bool {
-        let working = self
-            .sessions
-            .all
-            .iter()
-            .any(|s| matches!(s.state, State::Working));
-        let again = self
-            .quit_asked
-            .is_some_and(|t| t.elapsed() < std::time::Duration::from_secs(3));
-        if !working || again {
+    /// Whether Ghost may quit now, as `confirm.quit` says of ⌘Q: `held`
+    /// says whether this press is the key held down, and is none for Quit
+    /// chosen in the menu, which quits at once.
+    pub fn may_quit(&mut self, held: Option<bool>, cx: &gpui::App) -> bool {
+        use crate::settings::Quit;
+        use std::time::{Duration, Instant};
+        let mode = self.settings.confirm.quit;
+        let Some(held) = held.filter(|_| mode != Quit::Direct) else {
+            return true;
+        };
+        let since = self.quit_asked.map(|t| t.elapsed());
+        if held {
+            return mode == Quit::Hold && since.is_some_and(|t| t >= Duration::from_millis(1200));
+        }
+        if since.is_some_and(|t| t <= Duration::from_millis(500)) {
             return true;
         }
-        self.quit_asked = Some(std::time::Instant::now());
+        self.quit_asked = Some(Instant::now());
+        let working = (self.sessions.all.iter()).any(|s| matches!(s.state, State::Working));
+        let key = crate::keys::written(&crate::keys::keys_of(cx, "quit"));
+        let how = match mode {
+            Quit::Hold => format!("Hold {key}, or press it twice, to quit"),
+            _ => format!("Press {key} twice to quit"),
+        };
         self.trouble(
-            "Agents are at work",
-            Some(crate::keys::hint(
-                cx,
-                "Quitting stops their turns. Quit again to quit",
-                "quit",
-            )),
+            how,
+            working.then(|| "Agents are at work: quitting stops their turns.".to_owned()),
             None,
         );
         false
@@ -1446,6 +1455,7 @@ impl Render for Desk {
             self.command_down = None;
         }
         self.show_notices(window, cx);
+        self.show_confirm(window, cx);
         let faces = fonts::faces(cx).clone();
         let lights = lights_room(window);
         let left = self
