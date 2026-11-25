@@ -708,9 +708,10 @@ impl Desk {
         }
     }
 
-    /// Keys in the list, past those the tree takes (↑ ↓ → ←): Return
-    /// opens the session chosen, F2 renames it or its project, Home and
-    /// End go to the first and last row. Whether one was taken.
+    /// Keys in the list, past those the tree takes (↑ ↓ → ←, ⇧F10):
+    /// Return or Space opens the session chosen, F2 renames it or its
+    /// project, Home and End go to the first and last row. Whether one
+    /// was taken.
     pub(crate) fn side_key(
         &mut self,
         k: &gpui::Keystroke,
@@ -730,7 +731,7 @@ impl Desk {
             (row, len)
         };
         match (k.key.as_str(), row) {
-            ("enter", Some(Row::Session(key))) => self.show(key, window, cx),
+            ("enter" | "space", Some(Row::Session(key))) => self.show(key, window, cx),
             ("f2", Some(Row::Session(key))) => {
                 self.begin_rename(Renaming::Session { key, here: false }, window, cx);
             }
