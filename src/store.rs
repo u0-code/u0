@@ -163,15 +163,17 @@ fn safe(id: &str) -> String {
 /// is refused with why, and nothing is saved over it.
 pub fn load(home: &Path) -> Result<Index, String> {
     let path = index_path(home);
-    match std::fs::read_to_string(&path) {
-        Err(_) => Ok(Index::default()),
-        Ok(text) => serde_json::from_str(&text).map_err(|e| {
+    let text = match std::fs::read_to_string(&path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Index::default()),
+        text => text.map_err(|e| e.to_string()),
+    };
+    text.and_then(|text| serde_json::from_str(&text).map_err(|e| e.to_string()))
+        .map_err(|e| {
             format!(
                 "{} is not in a form this desk reads ({e}). Move it away to start afresh; until then sessions are not remembered.",
                 path.display()
             )
-        }),
-    }
+        })
 }
 
 /// The index as bytes, to be written whole.
@@ -320,6 +322,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("ghost-index-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(index_path(&dir), r#"{"threads":[]}"#).unwrap();
+        assert!(load(&dir).unwrap_err().contains("Move it away"));
+        std::fs::write(index_path(&dir), b"{\"sessions\":[\xff]}").unwrap();
         assert!(load(&dir).unwrap_err().contains("Move it away"));
         let _ = std::fs::remove_dir_all(&dir);
     }
