@@ -74,6 +74,9 @@ pub struct Settings {
     /// Text and edges that matter less drawn stronger.
     #[serde(default)]
     pub contrast: bool,
+    /// The window's grounds let the desktop show through, blurred.
+    #[serde(default)]
+    pub glass: bool,
     /// The face code and numbers are set in.
     #[serde(default)]
     pub mono: CodeFont,
@@ -452,6 +455,7 @@ impl Default for Settings {
             twelve: false,
             blue_orange: false,
             contrast: false,
+            glass: false,
             mono: CodeFont::default(),
             side_by_side: false,
             steer: false,

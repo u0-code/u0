@@ -79,14 +79,15 @@ actions!(
         ClearTerminal,
         EditQueued,
         PreviousTurn,
-        NextTurn
+        NextTurn,
+        FullScreen
     ]
 );
 
 /// Each action a binding of yours can name: its name, what it does, and
 /// the action. The keys page lists them in this order.
 type Make = fn() -> Box<dyn Action>;
-pub const ACTIONS: [(&str, &str, Make); 42] = [
+pub const ACTIONS: [(&str, &str, Make); 43] = [
     ("palette", "Go to anything", || Box::new(Palette)),
     ("new_session", "New session", || Box::new(NewSession)),
     ("new_here", "New session in this project", || {
@@ -166,6 +167,9 @@ pub const ACTIONS: [(&str, &str, Make); 42] = [
         Box::new(PreviousTurn)
     }),
     ("next_turn", "To what you said next", || Box::new(NextTurn)),
+    ("full_screen", "Full screen, or not", || {
+        Box::new(FullScreen)
+    }),
     (
         "transcript_view",
         "Transcript view: normal, thinking, verbose",
@@ -320,6 +324,7 @@ pub fn bind(cx: &mut App, yours: &[Binding]) {
         KeyBinding::new("cmd-shift-f", SearchWords, None),
         KeyBinding::new("ctrl-o", TranscriptView, None),
         KeyBinding::new("ctrl-shift-up", PreviousTurn, None),
+        KeyBinding::new("ctrl-cmd-f", FullScreen, None),
         KeyBinding::new("ctrl-shift-down", NextTurn, None),
         KeyBinding::new("cmd-h", Hide, None),
         KeyBinding::new("cmd-alt-h", HideOthers, None),
@@ -451,6 +456,7 @@ pub fn handle(cx: &mut App, shown: &Shown) {
     on::<TranscriptView>(cx, shown, |d, _, cx| d.set_view(d.settings.view.next(), cx));
     on::<PreviousTurn>(cx, shown, |d, _, cx| d.step_turn(false, cx));
     on::<NextTurn>(cx, shown, |d, _, cx| d.step_turn(true, cx));
+    on::<FullScreen>(cx, shown, |_, window, _| window.toggle_fullscreen());
     on::<CopyPr>(cx, shown, |d, _, cx| {
         d.copy_of_session(|s| s.git.pr.as_ref().map(|p| p.url.clone()), cx);
     });

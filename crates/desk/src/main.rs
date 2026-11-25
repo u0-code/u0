@@ -88,7 +88,11 @@ fn main() {
                         OsAction::SelectAll,
                     ),
                 ]),
-                Menu::new("View").items(vec![MenuItem::action("Toggle Sidebar", ToggleSidebar)]),
+                Menu::new("View").items(vec![
+                    MenuItem::action("Toggle Sidebar", ToggleSidebar),
+                    MenuItem::separator(),
+                    MenuItem::action("Enter Full Screen", keys::FullScreen),
+                ]),
                 Menu::new("Window").items(vec![MenuItem::action("Minimize", Minimize)]),
             ]);
 

@@ -163,6 +163,8 @@ pub struct Desk {
     /// The session asked to stop, and when: past a while, it can be
     /// stopped by force.
     pub stopping: Option<(u64, std::time::Instant)>,
+    /// Whether the window was last set blurred behind, for glass.
+    glassed: bool,
     /// What sessions cost, by key, as their records say: read for the
     /// usage page.
     pub spent: std::collections::HashMap<u64, Vec<crate::store::Spend>>,
@@ -481,6 +483,7 @@ impl Desk {
             ahead: Vec::new(),
             trailing: false,
             stopping: None,
+            glassed: false,
             spent: std::collections::HashMap::new(),
             forms: std::collections::HashMap::new(),
             quit_asked: None,
@@ -1422,6 +1425,15 @@ impl Render for Desk {
             },
             cx,
         );
+        // The window behind the grounds: blurred where glass is on.
+        if self.glassed != theme::glass() {
+            self.glassed = theme::glass();
+            window.set_background_appearance(if self.glassed {
+                gpui::WindowBackgroundAppearance::Blurred
+            } else {
+                gpui::WindowBackgroundAppearance::Opaque
+            });
+        }
         self.sync_lines();
         self.sync_diff(cx);
         self.sync_files(cx);
@@ -1566,6 +1578,7 @@ pub const EDITORS: [(&str, &str); 4] = [
 fn mirror(settings: &settings::Settings, cx: &mut gpui::App) {
     theme::set_blue_orange(settings.blue_orange);
     theme::set_contrast(settings.contrast);
+    theme::set_glass(settings.glass);
     fonts::set_mono(cx, settings.mono);
     theme::kit(cx);
 }

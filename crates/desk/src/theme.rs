@@ -44,6 +44,28 @@ pub fn set_contrast(on: bool) {
     CONTRAST.store(on, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// Whether the grounds let the desktop show through: set from the settings.
+static GLASS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_glass(on: bool) {
+    GLASS.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether the grounds let the desktop show through.
+pub fn glass() -> bool {
+    GLASS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// A ground, see-through where glass is on.
+fn ground(dark: u32, light: u32) -> Hsla {
+    let colour = pick(dark, light);
+    if glass() {
+        colour.opacity(0.82)
+    } else {
+        colour
+    }
+}
+
 /// `normal`, or `strong` with more contrast; each dark then light.
 fn step(normal: (u32, u32), strong: (u32, u32)) -> Hsla {
     let (dark, light) = if CONTRAST.load(std::sync::atomic::Ordering::Relaxed) {
@@ -79,11 +101,11 @@ fn pick(dark: u32, light: u32) -> Hsla {
 
 /// The window's ground: the thread and the right column.
 pub fn bg() -> Hsla {
-    pick(0x1919_19, 0xFAFA_F9)
+    ground(0x1919_19, 0xFAFA_F9)
 }
 /// The rail down the left, a shade lighter than the ground.
 pub fn rail() -> Hsla {
-    pick(0x1F1F_1F, 0xF2F2_F0)
+    ground(0x1F1F_1F, 0xF2F2_F0)
 }
 /// A panel on the ground: the composer, a menu, a sheet.
 pub fn panel() -> Hsla {

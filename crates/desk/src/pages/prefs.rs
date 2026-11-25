@@ -171,6 +171,19 @@ impl Desk {
                         row(
                             faces,
                             q,
+                            "Glass",
+                            "The window's grounds let the desktop show through, blurred.",
+                            Self::pick(
+                                "glass",
+                                [("Solid", false), ("Glass", true)],
+                                self.settings.glass,
+                                |s, v| s.glass = v,
+                                cx,
+                            ),
+                        ),
+                        row(
+                            faces,
+                            q,
                             "Code font",
                             "What code, commands and numbers are set in.",
                             Self::pick(
