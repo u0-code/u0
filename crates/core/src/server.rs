@@ -39,6 +39,7 @@ use crate::{
     repo,
     session::Session,
     store::{self, Index, Job, Meta},
+    terminals::Terminals,
     tidy,
 };
 
@@ -60,6 +61,7 @@ pub struct Server {
     records: Arc<Records>,
     /// The switch that stops the clone going on.
     cloning: Mutex<Arc<AtomicBool>>,
+    terminals: Terminals,
 }
 
 /// How many pages of a project's sessions are read from an agent at most:
@@ -82,6 +84,7 @@ impl Server {
             installs: Mutex::default(),
             index: Mutex::new(index),
             cloning: Mutex::default(),
+            terminals: Terminals::default(),
         }
     }
 
@@ -375,6 +378,19 @@ impl Server {
                 });
             }
             Call::Hosts => self.off(|| Event::Hosts(crate::remote::hosts())),
+            Call::TermOpen {
+                id,
+                dir,
+                host,
+                first,
+                size,
+            } => (self.terminals).open(id, (dir, host), first, size, self.send.clone()),
+            Call::TermInput { id, bytes } => self.terminals.input(id, &bytes),
+            Call::TermResize { id, size } => self.terminals.resize(id, size),
+            Call::TermClose { id, force } => {
+                let busy = self.terminals.close(id, force);
+                (self.send)(Event::TermClosed { id, busy });
+            }
         }
     }
 

@@ -74,6 +74,7 @@ crates/core/src/
   repo.rs       what is asked of a project's folder and its git: each a Call, one Event
   remote.rs     projects on another machine; their agents over SSH
   pty.rs        a shell in a pseudo-terminal: its process, input and size
+  terminals.rs  your terminals by id, each a pty and the last 256 KiB it printed
   session.rs    a session: its thread built from session/update; its turns' checkpoints
   git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR
   settings.rs   ~/.ghost/settings.json and the home
@@ -86,7 +87,7 @@ crates/core/src/
   fixtures/     answers recorded from real agents
 crates/desk/src/
   main.rs       the app: the window opened, the menus, the keys bound
-  terminal.rs   a terminal of yours: its pty and its screen
+  terminal.rs   a terminal of yours: its screen (its shell is the server's)
   hub.rs        the Transport to the server; the window's own work, back as Msg
   hub/          agent (each agent's slot, as the desk sees it)
   sessions.rs   the sessions on the desk, by key and by the agent's id; what agents say of them

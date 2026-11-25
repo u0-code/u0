@@ -339,6 +339,30 @@ pub enum Call {
     },
     /// The hosts your SSH config names.
     Hosts,
+    /// Open the terminal `id` in `dir` (on `host`, over SSH), `size` rows
+    /// by columns, `first` typed into it; one open already is said again.
+    TermOpen {
+        id: u64,
+        dir: PathBuf,
+        host: Option<String>,
+        first: Option<String>,
+        size: (u16, u16),
+    },
+    /// What was typed or pasted in the terminal `id`.
+    TermInput {
+        id: u64,
+        bytes: Vec<u8>,
+    },
+    TermResize {
+        id: u64,
+        size: (u16, u16),
+    },
+    /// Close the terminal `id`; one with a command running in it only when
+    /// `force`d.
+    TermClose {
+        id: u64,
+        force: bool,
+    },
 }
 
 /// What the server sends back.
@@ -578,6 +602,29 @@ pub enum Event {
     Tidied(String),
     /// The hosts your SSH config names.
     Hosts(Vec<String>),
+    /// The terminal `id` opened, called what it is called in its tab, or
+    /// why it did not.
+    TermOpened {
+        id: u64,
+        result: Result<String, String>,
+    },
+    /// What the terminal `id` printed: on opening one again, the last of
+    /// all it printed.
+    TermOutput {
+        id: u64,
+        bytes: Vec<u8>,
+    },
+    /// The shell of the terminal `id` ended, how.
+    TermEnded {
+        id: u64,
+        how: String,
+    },
+    /// The terminal `id` closed, or was left (`busy`): a command runs in
+    /// it.
+    TermClosed {
+        id: u64,
+        busy: bool,
+    },
 }
 
 /// What a session loaded or resumed starts with.
@@ -759,6 +806,25 @@ mod tests {
                 })),
             },
             Call::Hosts,
+            Call::TermOpen {
+                id: 2,
+                dir: dir.clone(),
+                host: Some("box".into()),
+                first: Some("make dev".into()),
+                size: (24, 80),
+            },
+            Call::TermInput {
+                id: 2,
+                bytes: b"ls\r".to_vec(),
+            },
+            Call::TermResize {
+                id: 2,
+                size: (30, 100),
+            },
+            Call::TermClose {
+                id: 2,
+                force: false,
+            },
         ];
         let events = vec![
             Event::Looked {
@@ -861,6 +927,19 @@ mod tests {
             Event::Sizes(vec![("Session records".into(), 3)]),
             Event::Tidied("1 record removed".into()),
             Event::Hosts(vec!["box".into()]),
+            Event::TermOpened {
+                id: 2,
+                result: Ok("zsh".into()),
+            },
+            Event::TermOutput {
+                id: 2,
+                bytes: b"\x1b[31mred\x1b[0m".to_vec(),
+            },
+            Event::TermEnded {
+                id: 2,
+                how: "exit 1".into(),
+            },
+            Event::TermClosed { id: 2, busy: true },
         ];
         (calls, events)
     }

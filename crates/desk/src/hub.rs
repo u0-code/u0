@@ -6,7 +6,7 @@
 //! as [`Msg::Event`]. Each agent switched on has a [`Slot`] here
 //! (`hub/agent.rs`): what the registry says of it, whether it can be
 //! started, and once started what it said it can do. What is the window's
-//! own (pictures, your editor, notifications, key bindings, terminals)
+//! own (pictures, your editor, notifications, key bindings)
 //! runs on the ACP runtime too, and all of it comes back to the window as
 //! a [`Msg`] over one channel, which the desk reads in order.
 
@@ -37,14 +37,6 @@ pub enum Msg {
     /// Something done off the window's thread, to be said: what was done,
     /// or what was not and why.
     Notice(Result<String, (String, String)>),
-    /// A terminal was opened, or why not; its screen changed; its shell
-    /// ended.
-    TerminalOpened {
-        id: u64,
-        result: Result<Box<crate::terminal::Terminal>, String>,
-    },
-    Terminal(u64),
-    TerminalEnded(u64),
     /// A picture to go with what you write: a window you chose, captured,
     /// or a file dropped in, read; nothing if you let it be.
     Picture(Option<crate::desk::mention::Picture>),
@@ -164,44 +156,6 @@ pub fn set_keys(home: PathBuf, name: &'static str, key: Option<String>, tx: Send
     crate::store::queue(crate::store::Job::Then(Box::new(move || {
         let _ = tx.send(Msg::Keys(crate::keys::set_yours(&home, name, key)));
     })));
-}
-
-/// Open the terminal `id` beside the session `session` in `dir` (on
-/// `host`, if it is on another machine), `first` typed into it, and read
-/// what it prints on the same thread, after it is the window's.
-pub fn open_terminal(
-    id: u64,
-    session: u64,
-    dir: PathBuf,
-    host: Option<String>,
-    first: Option<String>,
-    size: (u16, u16),
-    tx: Sender,
-) {
-    std::thread::spawn(move || {
-        let opened = crate::terminal::Terminal::open(
-            id,
-            session,
-            &dir,
-            host.as_deref(),
-            first.as_deref(),
-            size,
-        );
-        match opened {
-            Ok((t, from)) => {
-                let read = t.reader(from);
-                let result = Ok(Box::new(t));
-                let _ = tx.send(Msg::TerminalOpened { id, result });
-                read(&tx);
-            }
-            Err(why) => {
-                let _ = tx.send(Msg::TerminalOpened {
-                    id,
-                    result: Err(why),
-                });
-            }
-        }
-    });
 }
 
 /// Write `text` to `path` whole, and say that it is there, or why not.

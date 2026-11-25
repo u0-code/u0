@@ -16,6 +16,7 @@ use gpui::{
 use super::Desk;
 use crate::{
     input::TextInput,
+    proto::Call,
     scripts::Script,
     terminal::{self, Terminal},
 };
@@ -104,28 +105,31 @@ impl Desk {
             .terminals
             .last()
             .map_or(FIRST_SIZE, Terminal::size);
-        let first = first.map(str::to_owned);
-        crate::hub::open_terminal(
+        self.transport.send(Call::TermOpen {
             id,
-            key,
-            dir.to_path_buf(),
+            dir: dir.to_path_buf(),
             host,
-            first,
+            first: first.map(str::to_owned),
             size,
-            self.tx.clone(),
-        );
+        });
+        self.drawer.terminals.push(Terminal::new(id, key, size));
         self.drawer.on = Some(id);
         self.drawer.open = true;
         cx.notify();
     }
 
-    /// A terminal opened, or why not: one a session's first message
-    /// waited for no longer holds it.
-    pub(crate) fn terminal_opened(&mut self, id: u64, result: Result<Box<Terminal>, String>) {
+    /// A terminal opened, called `title`, or why not: one that did not is
+    /// put away, and a session's first message waited for it no longer.
+    pub(crate) fn terminal_opened(&mut self, id: u64, result: Result<String, String>) {
         match result {
-            Ok(t) => self.drawer.terminals.push(*t),
+            Ok(title) => {
+                if let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id) {
+                    t.title = title;
+                }
+            }
             Err(why) => {
                 tracing::warn!("{why}");
+                self.put_away(id);
                 self.setup_ended(id);
             }
         }
@@ -159,28 +163,34 @@ impl Desk {
     /// Close a terminal, stopping what runs in it; with a command still
     /// running in it, only once you have closed it twice.
     pub fn close_terminal(&mut self, id: u64, cx: &mut Context<Self>) {
-        let busy = self
-            .drawer
-            .terminals
-            .iter()
-            .find(|t| t.id == id)
-            .is_some_and(Terminal::busy);
-        if busy && self.drawer.closing != Some(id) {
+        let force = self.drawer.closing == Some(id);
+        self.transport.send(Call::TermClose { id, force });
+        cx.notify();
+    }
+
+    /// The terminal `id` closed; or not, `busy` with a command, until it
+    /// is closed again.
+    pub(crate) fn terminal_closed(&mut self, id: u64, busy: bool, cx: &mut Context<Self>) {
+        if busy {
             self.drawer.closing = Some(id);
             self.trouble(
                 "Something is still running in that terminal",
                 Some("Close it again to stop it.".into()),
                 None,
             );
-            cx.notify();
-            return;
+        } else {
+            self.drawer.closing = None;
+            self.put_away(id);
         }
-        self.drawer.closing = None;
+        cx.notify();
+    }
+
+    /// Take the terminal `id` out of the drawer.
+    fn put_away(&mut self, id: u64) {
         self.drawer.terminals.retain(|t| t.id != id);
         if self.drawer.on == Some(id) {
             self.drawer.on = self.session_terminals().last().map(|t| t.id);
         }
-        cx.notify();
     }
 
     /// Open or close the drawer (⌘J); opened with no terminal beside the
@@ -209,7 +219,7 @@ impl Desk {
         let k = &e.keystroke;
         if k.modifiers.platform && k.key == "v" {
             if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
-                t.paste(&text);
+                self.transport.send(t.paste(&text));
             }
             cx.stop_propagation();
             return;
@@ -236,7 +246,7 @@ impl Desk {
             return;
         }
         if let Some(bytes) = terminal::key_bytes(k, t.app_cursor()) {
-            t.send(&bytes);
+            self.transport.send(t.send(bytes));
             cx.stop_propagation();
         }
     }
@@ -415,7 +425,9 @@ impl Desk {
     /// Fit the terminals to the drawer: `cols` by `rows` each.
     pub(crate) fn fit_terminals(&mut self, rows: u16, cols: u16) {
         for t in &mut self.drawer.terminals {
-            t.resize(rows, cols);
+            if let Some(call) = t.resize(rows, cols) {
+                self.transport.send(call);
+            }
         }
     }
 }

@@ -1,44 +1,31 @@
 //! A terminal of yours in the drawer under the thread, as t3code's: a real
-//! shell in a pseudo-terminal (ghost-core's `pty`), in the session's folder
-//! (or on the machine a remote project is on, over SSH), whose screen is
-//! kept by a VT parser and drawn by the desk. What you type goes to it as a
-//! terminal sends keys; what it prints wakes the window through the hub's
-//! channel.
+//! shell in a pseudo-terminal, run by the server (ghost-core's
+//! `terminals`), in the session's folder (or on the machine a remote
+//! project is on, over SSH), whose screen is kept here by a VT parser and
+//! drawn by the desk. What you type goes to it as a terminal sends keys
+//! (a `Call::TermInput`); what it prints comes back as `Event::TermOutput`.
 
 use std::{
-    io::Read as _,
     num::NonZeroU16,
-    path::Path,
-    sync::{
-        Arc, Mutex, PoisonError,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex},
 };
 
-use ghost_core::pty::Pty;
 use gpui::{Hsla, Keystroke};
 
-use crate::{
-    hub::{Msg, Sender},
-    theme,
-};
+use crate::{proto::Call, theme};
 
 /// How many lines scrolled off the top are kept.
 const SCROLLBACK: usize = 5_000;
 
-/// A shell in a pseudo-terminal, and its screen.
+/// A terminal's screen, of a shell the server runs.
 pub struct Terminal {
     pub id: u64,
     /// The session it was opened beside.
     pub session: u64,
     /// What it is called in its tab: the shell, or the script it was
-    /// opened for.
+    /// opened for; nothing until it has opened.
     pub title: String,
-    screen: Arc<Mutex<vt100::Parser>>,
-    /// Set by the reader when the screen changed and the window has not
-    /// been told since.
-    pub changed: Arc<AtomicBool>,
-    pty: Pty,
+    screen: vt100::Parser,
     /// How it ended, once it has.
     pub ended: Option<String>,
     size: (u16, u16),
@@ -60,64 +47,28 @@ pub struct Stretch {
 }
 
 impl Terminal {
-    /// Open a shell as [`Pty::open`] does, with a screen for it. Blocking:
-    /// it starts a process. What it prints comes from the reader handed
-    /// back with it (see `reader`).
-    pub fn open(
-        id: u64,
-        session: u64,
-        dir: &Path,
-        host: Option<&str>,
-        first: Option<&str>,
-        (rows, cols): (u16, u16),
-    ) -> Result<(Self, Box<dyn std::io::Read + Send>), String> {
-        let (pty, title, reader) = Pty::open(dir, host, first, (rows, cols))?;
-        let screen = Arc::new(Mutex::new(vt100::Parser::new(
-            NonZeroU16::new(rows).unwrap_or(NonZeroU16::MIN),
-            NonZeroU16::new(cols).unwrap_or(NonZeroU16::MIN),
-            SCROLLBACK,
-        )));
-        let t = Self {
+    /// The screen of the terminal `id`, beside the session `session`,
+    /// `rows` by `cols`, blank until it prints.
+    pub fn new(id: u64, session: u64, (rows, cols): (u16, u16)) -> Self {
+        Self {
             id,
             session,
-            title,
-            screen,
-            changed: Arc::new(AtomicBool::new(false)),
-            pty,
+            title: String::new(),
+            screen: vt100::Parser::new(
+                NonZeroU16::new(rows).unwrap_or(NonZeroU16::MIN),
+                NonZeroU16::new(cols).unwrap_or(NonZeroU16::MIN),
+                SCROLLBACK,
+            ),
             ended: None,
             size: (rows, cols),
             selection: None,
             origin: Arc::default(),
-        };
-        Ok((t, reader))
+        }
     }
 
-    /// What reads its output (`from`) onto its screen until its shell ends,
-    /// telling the window over `tx`: run on a thread of its own once the
-    /// terminal is the window's.
-    pub fn reader(
-        &self,
-        mut from: Box<dyn std::io::Read + Send>,
-    ) -> impl FnOnce(&Sender) + Send + 'static {
-        let (id, into, told) = (self.id, self.screen.clone(), self.changed.clone());
-        move |tx| {
-            let mut buf = [0u8; 16 * 1024];
-            loop {
-                match from.read(&mut buf) {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        into.lock()
-                            .unwrap_or_else(PoisonError::into_inner)
-                            .process(&buf[..n]);
-                        // Once per drawing, however much comes before it.
-                        if !told.swap(true, Ordering::AcqRel) {
-                            let _ = tx.send(Msg::Terminal(id));
-                        }
-                    }
-                }
-            }
-            let _ = tx.send(Msg::TerminalEnded(id));
-        }
+    /// Take what it printed onto its screen.
+    pub fn printed(&mut self, bytes: &[u8]) {
+        self.screen.process(bytes);
     }
 
     /// Its rows and columns.
@@ -125,47 +76,49 @@ impl Terminal {
         self.size
     }
 
-    /// Send what was typed or pasted.
-    pub fn send(&mut self, bytes: &[u8]) {
+    /// What was typed or pasted, to be sent to it.
+    pub fn send(&mut self, bytes: Vec<u8>) -> Call {
         // Typing brings the screen back to its bottom.
-        self.parser().screen_mut().set_scrollback(0);
+        self.screen.screen_mut().set_scrollback(0);
         self.selection = None;
-        self.pty.send(bytes);
+        Call::TermInput { id: self.id, bytes }
     }
 
     /// Paste `text`, marked as a paste where the program asked for that.
-    pub fn paste(&mut self, text: &str) {
-        let bracketed = self.parser().screen().bracketed_paste();
+    pub fn paste(&mut self, text: &str) -> Call {
+        let bracketed = self.screen.screen().bracketed_paste();
         let text = text.replace("\r\n", "\r").replace('\n', "\r");
         if bracketed {
-            self.send(format!("\x1b[200~{text}\x1b[201~").as_bytes());
+            self.send(format!("\x1b[200~{text}\x1b[201~").into_bytes())
         } else {
-            self.send(text.as_bytes());
+            self.send(text.into_bytes())
         }
     }
 
-    /// Make it `rows` by `cols`, if it is not already.
-    pub fn resize(&mut self, rows: u16, cols: u16) {
+    /// Make it `rows` by `cols`: what tells its shell, unless it is so
+    /// already.
+    pub fn resize(&mut self, rows: u16, cols: u16) -> Option<Call> {
         let (rows, cols) = (rows.max(2), cols.max(10));
         if self.size == (rows, cols) {
-            return;
+            return None;
         }
         self.size = (rows, cols);
-        self.pty.resize(rows, cols);
-        self.parser().screen_mut().set_size(
+        self.screen.screen_mut().set_size(
             NonZeroU16::new(rows).unwrap_or(NonZeroU16::MIN),
             NonZeroU16::new(cols).unwrap_or(NonZeroU16::MIN),
         );
+        Some(Call::TermResize {
+            id: self.id,
+            size: (rows, cols),
+        })
     }
 
     /// Scroll back through what went off the top (`by` above zero) or
     /// down again.
     pub fn scroll(&mut self, by: isize) {
-        let mut parser = self.parser();
-        let screen = parser.screen_mut();
+        let screen = self.screen.screen_mut();
         let at = screen.scrollback().saturating_add_signed(by);
         screen.set_scrollback(at);
-        drop(parser);
         self.selection = None;
     }
 
@@ -219,11 +172,6 @@ impl Terminal {
         (word.starts_with("https://") || word.starts_with("http://")).then_some(word)
     }
 
-    /// Whether something runs in it besides its shell.
-    pub fn busy(&self) -> bool {
-        self.pty.busy()
-    }
-
     /// The text of the cells chosen.
     pub fn chosen_text(&self) -> Option<String> {
         let ((r0, c0), (r1, c1)) = self.chosen()?;
@@ -250,13 +198,8 @@ impl Terminal {
         self.parser().screen().contents()
     }
 
-    /// Note how it ended.
-    pub fn end(&mut self) {
-        self.ended = Some(self.pty.ended());
-    }
-
-    fn parser(&self) -> std::sync::MutexGuard<'_, vt100::Parser> {
-        self.screen.lock().unwrap_or_else(PoisonError::into_inner)
+    fn parser(&self) -> &vt100::Parser {
+        &self.screen
     }
 }
 
@@ -446,27 +389,44 @@ mod tests {
         assert_eq!(cursor, Some((1, 3)));
     }
 
-    #[test]
-    fn a_shell_opens_in_a_terminal_and_answers() {
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let dir = std::env::temp_dir();
-        let (mut t, from) = Terminal::open(1, 1, &dir, None, Some("echo ghost-$((40+2))"), (6, 40))
-            .expect("a terminal opens");
-        let read = t.reader(from);
-        std::thread::spawn(move || read(&tx));
-        let mut seen = false;
+    /// What the server says of the terminal 1 into `t`, until its screen
+    /// shows `text`.
+    fn until(
+        t: &mut Terminal,
+        rx: &std::sync::mpsc::Receiver<crate::proto::Event>,
+        text: &str,
+    ) -> bool {
         for _ in 0..100 {
-            while rx.try_recv().is_ok() {
-                t.changed.store(false, Ordering::Release);
+            while let Ok(e) = rx.try_recv() {
+                match e {
+                    crate::proto::Event::TermOpened { result, .. } => {
+                        t.title = result.expect("a terminal opens");
+                    }
+                    crate::proto::Event::TermOutput { bytes, .. } => t.printed(&bytes),
+                    _ => {}
+                }
             }
-            if t.text().contains("ghost-42") {
-                seen = true;
-                break;
+            if t.text().contains(text) {
+                return true;
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
-        assert!(seen, "{}", t.text());
-        assert!(!t.busy(), "the shell waits again");
+        false
+    }
+
+    #[test]
+    fn a_shell_opens_in_a_terminal_and_answers_and_opened_again_shows_it_still() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let send: Arc<dyn Fn(crate::proto::Event) + Send + Sync> = Arc::new(move |e| {
+            let _ = tx.send(e);
+        });
+        let shells = ghost_core::terminals::Terminals::default();
+        let at = (std::env::temp_dir(), None);
+        let first = Some("echo ghost-$((40+2))".to_owned());
+        shells.open(1, at.clone(), first.clone(), (6, 40), send.clone());
+        let mut t = Terminal::new(1, 1, (6, 40));
+        assert!(until(&mut t, &rx, "ghost-42"), "{}", t.text());
+        assert_eq!(t.title, "echo ghost-$((40+2))");
         // The answer's own line, chosen with the mouse, is its text.
         let row = t
             .rows()
@@ -484,9 +444,16 @@ mod tests {
         t.selection = Some(((row, 7), (row, 0)));
         assert_eq!(t.chosen_text().as_deref(), Some("ghost-42"));
         assert_eq!(t.word_at((row, 3)), ((row, 0), (row, 7)));
-        t.send(b" ");
+        let typed = t.send(b" ".to_vec());
+        assert!(matches!(typed, Call::TermInput { id: 1, .. }));
         assert_eq!(t.chosen(), None);
-        t.resize(10, 50);
+        assert!(t.resize(10, 50).is_some());
+        assert!(t.resize(10, 50).is_none(), "it is that size already");
         assert_eq!(t.rows().0.len(), 10);
+        // Opened again (a desk come back), it shows what it printed.
+        shells.open(1, at, first, (6, 40), send);
+        let mut again = Terminal::new(1, 1, (6, 40));
+        assert!(until(&mut again, &rx, "ghost-42"), "{}", again.text());
+        assert!(!shells.close(1, false), "the shell waits again: it closes");
     }
 }

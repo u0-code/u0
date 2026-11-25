@@ -135,18 +135,6 @@ impl Desk {
         self.behind = cx.active_window().is_none();
         match msg {
             Msg::Event(e) => self.event(e, cx),
-            Msg::Terminal(id) => {
-                if let Some(t) = self.drawer.terminals.iter().find(|t| t.id == id) {
-                    t.changed.store(false, std::sync::atomic::Ordering::Release);
-                }
-            }
-            Msg::TerminalOpened { id, result } => self.terminal_opened(id, result),
-            Msg::TerminalEnded(id) => {
-                if let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id) {
-                    t.end();
-                }
-                self.setup_ended(id);
-            }
             Msg::Picture(Some(picture)) => self.add_picture(picture, cx),
             Msg::Picture(None) => {}
             Msg::OnPath(found) => self.on_path = found,
@@ -255,6 +243,19 @@ impl Desk {
                 repo,
                 scripts,
             } => self.looked(key, &folder, branch, repo, scripts),
+            Event::TermOpened { id, result } => self.terminal_opened(id, result),
+            Event::TermOutput { id, bytes } => {
+                if let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id) {
+                    t.printed(&bytes);
+                }
+            }
+            Event::TermEnded { id, how } => {
+                if let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id) {
+                    t.ended = Some(how);
+                }
+                self.setup_ended(id);
+            }
+            Event::TermClosed { id, busy } => self.terminal_closed(id, busy, cx),
             Event::Hosts(hosts) => self.adding.hosts = hosts,
             Event::Held { folder, held } => {
                 self.held.insert(folder, held);

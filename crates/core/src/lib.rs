@@ -22,6 +22,7 @@ pub mod server;
 pub mod session;
 pub mod settings;
 pub mod store;
+pub mod terminals;
 pub mod tidy;
 pub mod when;
 pub mod whole;

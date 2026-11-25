@@ -1,6 +1,6 @@
 //! A shell in a pseudo-terminal: the process, what is sent to it and how
-//! big it is. What it prints is read by whoever opened it, whose screen it
-//! is (the desk's `terminal.rs`).
+//! big it is. What it prints is read by whoever opened it (`terminals`),
+//! and drawn on a screen elsewhere (the desk's `terminal.rs`).
 
 use std::{io::Write as _, path::Path};
 
