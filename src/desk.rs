@@ -155,6 +155,8 @@ pub struct Desk {
     pub reader: Entity<TextInput>,
     /// What is typed to narrow a long menu of choices (a model's).
     pub menu_search: Entity<TextInput>,
+    /// Ports brought here from another machine (ssh -L), each its tunnel.
+    pub tunnels: Vec<(u16, std::process::Child)>,
     /// A terminal asked to close with something running in it, to close at
     /// the second asking.
     pub closing: Option<u64>,
@@ -592,6 +594,7 @@ impl Desk {
             resizing_left: false,
             chosen: std::collections::BTreeSet::new(),
             closing: None,
+            tunnels: Vec::new(),
             menu_search,
             reading: None,
             reader,

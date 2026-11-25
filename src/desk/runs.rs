@@ -249,6 +249,44 @@ impl Desk {
         }
     }
 
+    /// Bring the port of `address` on the machine `host` here (ssh -L),
+    /// and open it once it is: kept while Ghost runs.
+    pub fn forward(&mut self, host: &str, address: &str, cx: &mut Context<Self>) {
+        let Some(port) = address
+            .rsplit(':')
+            .next()
+            .and_then(|p| p.split('/').next())
+            .and_then(|p| p.parse::<u16>().ok())
+        else {
+            return;
+        };
+        if !self.tunnels.iter().any(|(p, _)| *p == port) {
+            match std::process::Command::new("ssh")
+                .args(["-N", "-L", &format!("{port}:localhost:{port}"), host])
+                .stdin(std::process::Stdio::null())
+                .spawn()
+            {
+                Ok(child) => self.tunnels.push((port, child)),
+                Err(e) => {
+                    self.trouble(
+                        format!("Couldn't forward port {port} from {host}"),
+                        Some(e.to_string()),
+                        None,
+                    );
+                    cx.notify();
+                    return;
+                }
+            }
+        }
+        self.done(
+            format!("Port {port} on {host} is here now"),
+            Some(super::notices::Way::Open(format!(
+                "http://localhost:{port}"
+            ))),
+        );
+        cx.notify();
+    }
+
     /// Fit the terminals to the drawer: `cols` by `rows` each.
     pub(crate) fn fit_terminals(&mut self, rows: u16, cols: u16) {
         for t in &mut self.terminals {
