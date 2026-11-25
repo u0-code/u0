@@ -219,6 +219,9 @@ impl Desk {
                 }
                 self.setup_ended(id);
             }
+            Msg::CliVersion { cli, version } => {
+                self.cli_versions.insert(cli, version);
+            }
             Msg::Elsewhere { agent, folders } => {
                 self.elsewhere.insert(agent, folders);
             }

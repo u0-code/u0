@@ -206,6 +206,20 @@ impl Desk {
                     .text_color(theme::faint()),
             );
         }
+        // The CLI it drives: yours, as your terminal has it.
+        if let Some((_, cli)) = entry.your_cli() {
+            let version = self.cli_versions.get(&cli).cloned().unwrap_or_default();
+            download = download.child(fine(
+                faces,
+                format!(
+                    "Runs your {} {version} · {}",
+                    cli.file_name()
+                        .map(|n| n.to_string_lossy())
+                        .unwrap_or_default(),
+                    Desk::shown(&cli)
+                ),
+            ));
+        }
         let step_row = |n: u8, st: Step, body: Div| {
             div()
                 .flex()

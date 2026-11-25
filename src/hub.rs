@@ -84,6 +84,11 @@ pub enum Msg {
         agent: String,
         folders: Vec<(PathBuf, usize)>,
     },
+    /// What a CLI of yours says its version is.
+    CliVersion {
+        cli: PathBuf,
+        version: String,
+    },
     /// What a session of `agent` offers before it is opened, or why the
     /// agent would not open one.
     Probed {
@@ -750,6 +755,27 @@ pub fn list_files(folder: PathBuf, tx: Sender) {
     acp::runtime().spawn_blocking(move || {
         let files = git::files(&folder);
         let _ = tx.send(Msg::Files { folder, files });
+    });
+}
+
+/// Ask `cli` its version (`--version`, its first line).
+pub fn cli_version(cli: PathBuf, tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        let out = std::process::Command::new(&cli)
+            .arg("--version")
+            .stdin(std::process::Stdio::null())
+            .output();
+        if let Ok(out) = out
+            && out.status.success()
+        {
+            let version = String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_owned();
+            let _ = tx.send(Msg::CliVersion { cli, version });
+        }
     });
 }
 

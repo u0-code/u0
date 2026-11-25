@@ -208,10 +208,20 @@ impl Entry {
         program.is_file().then_some(program)
     }
 
-    /// A program unpacked beside its command, other than the command: the
-    /// agent's own CLI where an archive brings one (Claude's `claude`), in
-    /// which it is signed in.
+    /// Your CLI on the PATH its adapter drives, and the variable that
+    /// points the adapter at it.
+    pub fn your_cli(&self) -> Option<(&'static str, PathBuf)> {
+        let (_, name, var) = DRIVES.iter().find(|(id, ..)| *id == self.id)?;
+        which(name).map(|p| (*var, p))
+    }
+
+    /// The CLI it is signed in through: yours on the PATH where its
+    /// adapter drives it, else a program unpacked beside its command (an
+    /// archive's own `claude`).
     pub fn own_cli(&self, home: &Path) -> Option<PathBuf> {
+        if let Some((_, yours)) = self.your_cli() {
+            return Some(yours);
+        }
         let b = self.distribution.binary.get(&platform())?;
         let dir = self.dir_of(home, &self.installed(home)?);
         let cmd = dir.join(&b.cmd);
@@ -250,8 +260,19 @@ impl Entry {
         self.installed(home).is_some()
     }
 
-    /// How to start it, or why it cannot be.
+    /// How to start it, or why it cannot be: pointed at your CLI where
+    /// it drives one and you have it.
     pub fn launch(&self, home: &Path) -> Result<Launch, Missing> {
+        let mut launch = self.launch_as_shipped(home)?;
+        if let Some((var, path)) = self.your_cli() {
+            launch
+                .env
+                .push((var.to_owned(), path.to_string_lossy().into_owned()));
+        }
+        Ok(launch)
+    }
+
+    fn launch_as_shipped(&self, home: &Path) -> Result<Launch, Missing> {
         let d = &self.distribution;
         match self.way() {
             Way::Archive => {
@@ -394,6 +415,16 @@ pub fn fetch(home: &Path) -> Result<Registry, String> {
 /// `say` is told each stage as it starts.
 /// The file in a package's install folder that names its program.
 const PROGRAM: &str = "program";
+
+/// The CLI an agent's adapter drives, and the variable that points the
+/// adapter at one. Yours on the PATH is the one it runs, so that its
+/// version, sign-in and settings are those of your terminal; without one
+/// it runs its own. The registry does not say these, so this is the one
+/// list of agents in code.
+const DRIVES: [(&str, &str, &str); 2] = [
+    ("claude-acp", "claude", "CLAUDE_CODE_EXECUTABLE"),
+    ("codex-acp", "codex", "CODEX_PATH"),
+];
 
 /// What installs a runner's package: npm for npx's, uv for uvx's.
 fn installer(runner: &str) -> &'static str {

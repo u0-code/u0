@@ -282,6 +282,8 @@ pub struct Desk {
     pub grep: Vec<(String, String)>,
     pub prs: HashMap<PathBuf, Vec<(u64, String)>>,
     pub issues: HashMap<PathBuf, Vec<(u64, String)>>,
+    /// What each CLI of yours an agent runs says its version is.
+    pub cli_versions: HashMap<PathBuf, String>,
     /// What was named with `@` and images put in, waiting to be sent.
     pub mentions: Vec<mention::Mention>,
     pub pictures: Vec<mention::Picture>,
@@ -725,6 +727,7 @@ impl Desk {
             split: false,
             prs: HashMap::new(),
             issues: HashMap::new(),
+            cli_versions: HashMap::new(),
             mentions: Vec::new(),
             pictures: Vec::new(),
             registry,
@@ -2033,6 +2036,9 @@ impl Desk {
             let c = self.settings.commands.get(id).cloned().unwrap_or_default();
             self.agent_command.update(cx, |i, cx| i.set_text(&c, cx));
             self.agent_model.update(cx, |i, cx| i.set_text("", cx));
+            if let Some((_, cli)) = self.entry(id).and_then(crate::registry::Entry::your_cli) {
+                hub::cli_version(cli, self.tx.clone());
+            }
         }
         if page == Page::NewProject {
             self.hosts = crate::remote::hosts();
