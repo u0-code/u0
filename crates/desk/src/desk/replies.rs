@@ -480,6 +480,10 @@ impl Desk {
                 self.tasks.list = list;
                 cx.notify();
             }
+            Event::Workflows { flows, runs } => {
+                (self.flows.list, self.flows.runs) = (flows, runs);
+                cx.notify();
+            }
             Event::TaskTurn {
                 meta,
                 record,

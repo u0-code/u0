@@ -137,7 +137,7 @@ impl Shared {
         let Some(task) = task else { return };
         let this = self.clone();
         acp::runtime().spawn(async move {
-            let result = this.turn(&task).await;
+            let result = this.turn_with(&task, |_| {}).await;
             this.change_tasks(|all| {
                 let Some(t) = all.tasks.iter_mut().find(|t| t.id == task.id) else {
                     return;
@@ -199,7 +199,12 @@ impl Shared {
     /// Say the task's prompt: in the session it keeps, opened again if it
     /// is not open, or in a new one. The session it was said in, or why it
     /// was not (with the session, where it got that far).
-    async fn turn(&self, task: &Task) -> Result<SessionId, (Option<SessionId>, String)> {
+    /// `opened` is told the session as soon as it has one.
+    pub(super) async fn turn_with(
+        &self,
+        task: &Task,
+        opened: impl FnOnce(&SessionId),
+    ) -> Result<SessionId, (Option<SessionId>, String)> {
         let agent = self.agent(&task.agent).await.map_err(|e| (None, e))?;
         let kept = task.session.clone().filter(|_| task.same);
         let (meta, fresh) = match kept {
@@ -207,6 +212,7 @@ impl Shared {
             None => (self.open(&agent, task).await.map_err(|e| (None, e))?, true),
         };
         let id = meta.id.clone().expect("a session opened has an id");
+        opened(&id);
         let failed = |why: String| (Some(id.clone()), why);
         // The desk is told, with what was said in it so far, read after all
         // that is being written to it; then what you said is recorded.

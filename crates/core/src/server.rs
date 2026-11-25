@@ -49,6 +49,7 @@ use crate::{
     tidy, writer,
 };
 
+mod flows;
 mod scheduled;
 
 /// Where what the server says goes.
@@ -91,6 +92,8 @@ struct Shared {
     turning: Arc<Mutex<std::collections::HashSet<(String, SessionId)>>>,
     /// The scheduled tasks, or why they do not read.
     tasks: Arc<Mutex<Result<crate::tasks::Tasks, String>>>,
+    /// The workflows' runs, or why they do not read.
+    runs: Arc<Mutex<Result<crate::workflows::Runs, String>>>,
 }
 
 impl Shared {
@@ -215,6 +218,10 @@ impl Server {
         if let Err(why) = &tasks {
             tracing::warn!("{why}");
         }
+        let runs = crate::workflows::load_runs(&home);
+        if let Err(why) = &runs {
+            tracing::warn!("{why}");
+        }
         let outbox = Arc::new(Outbox::default());
         let kept = outbox.clone();
         let server = Arc::new(Self {
@@ -233,6 +240,7 @@ impl Server {
                 index: Arc::new(Mutex::new(index)),
                 turning: Arc::default(),
                 tasks: Arc::new(Mutex::new(tasks)),
+                runs: Arc::new(Mutex::new(runs)),
             },
             installs: Mutex::default(),
             cloning: Mutex::default(),
@@ -240,6 +248,7 @@ impl Server {
         });
         server.share_as_kept(false);
         server.shared.schedule();
+        server.shared.go_on();
         server
     }
 
@@ -401,6 +410,11 @@ impl Server {
             Call::SetTask(task) => self.set_task(task),
             Call::DropTask(id) => self.drop_task(id),
             Call::RunTask(id) => self.run_task(id),
+            Call::Workflows => self.say_flows(),
+            Call::StartFlow { workflow, input } => self.start_flow(workflow, input),
+            Call::AnswerFlow { run, choice } => self.answer_flow(run, choice),
+            Call::ResumeFlow(run) => self.resume_flow(run),
+            Call::CancelFlow(run) => self.cancel_flow(run),
             Call::Keep(metas) => self.shared.change_index(|index| {
                 for meta in metas {
                     match index.sessions.iter_mut().find(|m| same(m, &meta)) {

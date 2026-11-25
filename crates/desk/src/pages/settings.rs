@@ -50,11 +50,12 @@ pub enum Tab {
     Sharing,
     Connections,
     Tasks,
+    Workflows,
 }
 
 impl Tab {
     /// Each tab, in the order the side list shows them.
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 17] = [
         Self::General,
         Self::Appearance,
         Self::Chat,
@@ -65,6 +66,7 @@ impl Tab {
         Self::NewSessions,
         Self::Writing,
         Self::Tasks,
+        Self::Workflows,
         Self::Sessions,
         Self::Usage,
         Self::Sharing,
@@ -91,6 +93,7 @@ impl Tab {
             Self::Sharing => "Sharing & access",
             Self::Connections => "Connections",
             Self::Tasks => "Scheduled tasks",
+            Self::Workflows => "Workflows",
         }
     }
 
@@ -112,6 +115,7 @@ impl Tab {
             Self::Sharing => "globe",
             Self::Connections => "server",
             Self::Tasks => "clock",
+            Self::Workflows => "list",
         }
     }
 
@@ -123,6 +127,7 @@ impl Tab {
             | Self::NewSessions
             | Self::Writing
             | Self::Tasks
+            | Self::Workflows
             | Self::Sessions
             | Self::Usage => "Agents",
             Self::Sharing | Self::Connections => "Machines",

@@ -48,6 +48,7 @@ pub(crate) mod runs;
 pub(crate) mod updates;
 
 pub use lists::{Later, Renaming};
+pub mod flows;
 mod replies;
 mod send;
 pub mod tasks;
@@ -275,6 +276,8 @@ pub struct Desk {
     pub popup: Popup,
     /// The scheduled tasks, and the one being written.
     pub tasks: tasks::Tasks,
+    /// The workflows and their runs.
+    pub flows: flows::Flows,
     pub picker: crate::thread::Picker,
     pub panes: Panes,
     pub composer: mention::Composer,
@@ -522,6 +525,7 @@ impl Desk {
             forms: std::collections::HashMap::new(),
             quit_asked: None,
             tasks: tasks::Tasks::default(),
+            flows: flows::Flows::default(),
             fetched: None,
             badge: 0,
             here: HashMap::new(),
@@ -1365,6 +1369,7 @@ impl Desk {
                 self.transport.send(Call::Share(crate::share::Share::Look));
             }
             crate::pages::Tab::Connections => self.read_servers(),
+            crate::pages::Tab::Workflows => self.read_flows(window, cx),
             _ => {}
         }
         if !self.pages.open {

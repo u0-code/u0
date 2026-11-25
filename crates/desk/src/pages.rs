@@ -4,6 +4,7 @@
 //! window, where agents are switched on and off.
 
 mod diagnostics;
+mod flows;
 mod forge;
 mod hosts;
 mod looks;

@@ -22,7 +22,7 @@ use crate::{
     repo::{GitAction, Held, Snapshot},
     scripts::Script,
     session::Begin,
-    store, tasks, tidy, writer,
+    store, tasks, tidy, workflows, writer,
 };
 
 /// What the desk asks of the server. An agent is named by its registry id
@@ -440,6 +440,22 @@ pub enum Call {
     DropTask(u64),
     /// Run the task `id` now, whatever its schedule says.
     RunTask(u64),
+    /// The workflows and their runs: answered, as each change to a run
+    /// is, with [`Event::Workflows`].
+    Workflows,
+    /// Begin a run of the workflow `workflow` with `input`.
+    StartFlow {
+        workflow: String,
+        input: String,
+    },
+    /// Answer the question the run `run` waits on.
+    AnswerFlow {
+        run: u64,
+        choice: String,
+    },
+    /// Take the paused run up again, at the step it stopped at.
+    ResumeFlow(u64),
+    CancelFlow(u64),
 }
 
 /// What the server sends back.
@@ -568,6 +584,12 @@ pub enum Event {
     /// The scheduled tasks as they are now, or why `tasks.json` does not
     /// read.
     Tasks(Result<Vec<tasks::Task>, String>),
+    /// Each workflow, or why its file does not read (by name); the runs,
+    /// or why `runs.json` does not read.
+    Workflows {
+        flows: Vec<Result<workflows::Workflow, (String, String)>>,
+        runs: Result<Vec<workflows::Run>, String>,
+    },
     /// A task's turn in the session `meta` begins (`ended` none), with the
     /// session's record so far where `record`; or it ended, how.
     TaskTurn {
@@ -1325,6 +1347,17 @@ mod tests {
                 runs: 0,
             }),
             Call::DropTask(1),
+            Call::Workflows,
+            Call::StartFlow {
+                workflow: "w".into(),
+                input: "i".into(),
+            },
+            Call::AnswerFlow {
+                run: 1,
+                choice: "Ship".into(),
+            },
+            Call::ResumeFlow(1),
+            Call::CancelFlow(1),
             Call::RunTask(1),
             Call::Keep(vec![meta]),
             Call::Forget {
@@ -1500,6 +1533,18 @@ mod tests {
                 last: None,
                 runs: 0,
             }])),
+            Event::Workflows {
+                flows: vec![Err(("w".into(), "bad".into()))],
+                runs: Ok(vec![workflows::Run {
+                    id: 1,
+                    workflow: "w".into(),
+                    input: "i".into(),
+                    began: 1,
+                    state: workflows::State::Paused("x".into()),
+                    done: Vec::new(),
+                    turn: None,
+                }]),
+            },
             Event::TaskTurn {
                 meta: Box::new(index.sessions[0].clone()),
                 record: None,

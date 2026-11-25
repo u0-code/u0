@@ -38,4 +38,5 @@ pub mod tidy;
 pub mod update;
 pub mod when;
 pub mod whole;
+pub mod workflows;
 pub mod writer;
