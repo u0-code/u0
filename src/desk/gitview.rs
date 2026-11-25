@@ -81,6 +81,20 @@ impl Desk {
     /// Check out `branch` where the session on screen works: not while a
     /// session at work shares that checkout.
     pub fn switch_branch(&mut self, branch: String, cx: &mut Context<Self>) {
+        self.branch_action(hub::GitAction::Switch(branch), cx);
+    }
+
+    /// Make the branch `name` where the session works, and check it out.
+    pub fn new_branch(&mut self, name: &str, cx: &mut Context<Self>) {
+        let name = name.trim().replace(' ', "-");
+        if !name.is_empty() {
+            self.branch_action(hub::GitAction::NewBranch(name), cx);
+        }
+    }
+
+    /// Check out, or make, a branch where the session on screen works:
+    /// not while a session is at work in that checkout.
+    fn branch_action(&mut self, action: hub::GitAction, cx: &mut Context<Self>) {
         self.popup = super::Popup::Closed;
         let Some(s) = self.session() else { return };
         let (key, dir) = (s.key, s.folder.clone());
@@ -99,7 +113,7 @@ impl Desk {
         }
         hub::git_action(
             dir,
-            hub::GitAction::Switch(branch),
+            action,
             (self.settings.branch_prefix.clone(), Vec::new()),
             key,
             self.tx.clone(),

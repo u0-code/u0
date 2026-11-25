@@ -80,6 +80,9 @@ pub struct Settings {
     /// for it to end.
     #[serde(default)]
     pub steer: bool,
+    /// The editor files open in, by its command; none, the first found.
+    #[serde(default)]
+    pub editor: Option<String>,
     /// A diff's long lines wrap, rather than being cut at the edge.
     #[serde(default = "yes")]
     pub diff_wrap: bool,
@@ -206,6 +209,7 @@ impl Default for Settings {
             cmd_sends: false,
             left: left(),
             diff_wrap: yes(),
+            editor: None,
             no_spacing: false,
         }
     }

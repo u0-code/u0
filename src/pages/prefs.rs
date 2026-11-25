@@ -39,6 +39,10 @@ impl Desk {
                             cx.notify();
                         }))),
                 ]))
+                .child(group(faces, "Files", vec![
+                    row(faces, "Files open in", "A file the agent named, an edit, or keybindings.json.",
+                        self.editor_pick(faces, cx)),
+                ]))
                 .child(group(faces, "Done for now", vec![
                     row(faces, "A session is done after it is left for", "It moves to Done in the sidebar; anything said to it brings it back.",
                         Self::pick(faces, "settle", [
@@ -126,6 +130,35 @@ impl Desk {
             })
             .collect();
         ui::segmented(faces, id, choices)
+    }
+
+    /// The editors here to open files in, and macOS's own choice.
+    fn editor_pick(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+        let mut choices: Vec<(&'static str, bool, Pick)> = vec![(
+            "First found",
+            self.settings.editor.is_none(),
+            Box::new(cx.listener(|this, _, _, cx| {
+                this.settings.editor = None;
+                this.save_settings();
+                this.settings_took(cx);
+                cx.notify();
+            })),
+        )];
+        for (command, name) in crate::desk::EDITORS {
+            if crate::registry::which(command).is_some() {
+                choices.push((
+                    name,
+                    self.settings.editor.as_deref() == Some(command),
+                    Box::new(cx.listener(move |this, _, _, cx| {
+                        this.settings.editor = Some(command.to_owned());
+                        this.save_settings();
+                        this.settings_took(cx);
+                        cx.notify();
+                    })),
+                ));
+            }
+        }
+        ui::segmented(faces, "editor", choices)
     }
 
     /// The keys as they are now, yours over the window's, and the file

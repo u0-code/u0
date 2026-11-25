@@ -311,6 +311,7 @@ impl Desk {
         let cmd_sends = settings.cmd_sends;
         crate::thread::drawn::set_wrap(settings.diff_wrap);
         crate::git::leave_out_spacing(settings.no_spacing);
+        choose_editor(settings.editor.clone());
         let input = cx.new(|cx| {
             let mut i = TextInput::new(cx, "Ask for anything, or give a task")
                 .wrapping(8)
@@ -378,8 +379,10 @@ impl Desk {
                 .keeping()
         });
         cx.subscribe(&menu_search, |this, _, Submitted(text), cx| {
-            if let Popup::Session(key) = this.popup {
-                this.snooze_for(key, text, cx);
+            match this.popup {
+                Popup::Session(key) => this.snooze_for(key, text, cx),
+                Popup::Branch => this.new_branch(text, cx),
+                _ => {}
             }
         })
         .detach();
@@ -1696,7 +1699,16 @@ impl Desk {
     }
 
     pub fn toggle_popup(&mut self, popup: Popup, cx: &mut Context<Self>) {
-        self.menu_search.update(cx, |i, cx| i.set_text("", cx));
+        // The menu's line says what it takes there.
+        let says = match popup {
+            Popup::Branch => "A new branch: its name, then Return",
+            Popup::Session(_) => "Or for a while: 3h, 2d",
+            _ => "Search",
+        };
+        self.menu_search.update(cx, |i, cx| {
+            i.set_text("", cx);
+            i.set_placeholder(says, cx);
+        });
         self.popup = if self.popup == popup {
             Popup::Closed
         } else {
@@ -1730,6 +1742,7 @@ impl Desk {
         self.input.update(cx, |i, _| i.set_enter_breaks(breaks));
         crate::thread::drawn::set_wrap(self.settings.diff_wrap);
         crate::git::leave_out_spacing(self.settings.no_spacing);
+        choose_editor(self.settings.editor.clone());
         // Diffs read again, spacing in or out.
         if let Some(key) = self.current {
             self.refresh_diffs(key);
@@ -1991,13 +2004,34 @@ impl Desk {
     }
 }
 
-/// Open `path` in your editor: the first of Cursor, VS Code, Zed and
-/// Sublime Text whose command is on the PATH, else the app macOS opens
-/// text in.
+/// The editors Ghost can open a file in, by their command, and their
+/// names.
+pub const EDITORS: [(&str, &str); 4] = [
+    ("cursor", "Cursor"),
+    ("code", "VS Code"),
+    ("zed", "Zed"),
+    ("subl", "Sublime Text"),
+];
+
+/// The editor you chose (its command), as the settings set it: none, the
+/// first found.
+static EDITOR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+pub fn choose_editor(command: Option<String>) {
+    if let Ok(mut e) = EDITOR.lock() {
+        *e = command;
+    }
+}
+
+/// Open `path` in your editor: the one you chose, else the first of
+/// Cursor, VS Code, Zed and Sublime Text whose command is on the PATH,
+/// else the app macOS opens text in.
 pub fn open_in_editor(path: &Path) {
-    let editor = ["cursor", "code", "zed", "subl"]
-        .into_iter()
-        .find_map(registry::which);
+    let chosen = EDITOR.lock().ok().and_then(|e| e.clone());
+    let editor = chosen
+        .as_deref()
+        .and_then(registry::which)
+        .or_else(|| EDITORS.into_iter().find_map(|(c, _)| registry::which(c)));
     let spawned = match editor {
         Some(cmd) => std::process::Command::new(cmd).arg(path).spawn(),
         None => std::process::Command::new("open")

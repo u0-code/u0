@@ -376,6 +376,8 @@ pub enum GitAction {
     RenameBranch(String),
     /// Merge the branch's pull request (squashed), as gh does.
     Merge,
+    /// Make this branch, from where it is, and check it out.
+    NewBranch(String),
     /// Bring in what the upstream has.
     Pull,
     /// Make the folder a repository.
@@ -396,6 +398,7 @@ impl GitAction {
             Self::RenameBranch(_) => "rename the branch",
             Self::Merge => "merge the pull request",
             Self::Pull => "pull",
+            Self::NewBranch(_) => "make the branch",
             Self::Init => "make it a repository",
             Self::Publish => "put it on GitHub",
         }
@@ -1190,6 +1193,7 @@ pub fn git_action(
             GitAction::Switch(b) => git::switch(&dir, b).map(|()| format!("On {b}")),
             GitAction::Merge => git::merge_pr(&dir).map(|_| "The pull request is merged".into()),
             GitAction::Pull => git::pull(&dir).map(|_| "Pulled".into()),
+            GitAction::NewBranch(b) => git::branch_off(&dir, b).map(|()| format!("On {b}, new")),
             GitAction::Init => {
                 git::init_here(&dir).map(|_| "It is a repository now, all of it committed".into())
             }

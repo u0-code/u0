@@ -303,7 +303,10 @@ impl Desk {
                 return;
             }
             (hub::GitAction::RenameBranch(_), Err(_)) => return,
-            (hub::GitAction::Switch(_) | hub::GitAction::Init, Ok(_)) => s.look(),
+            (
+                hub::GitAction::Switch(_) | hub::GitAction::Init | hub::GitAction::NewBranch(_),
+                Ok(_),
+            ) => s.look(),
             _ => {}
         }
         let s = self.session_mut(key).expect("found above");

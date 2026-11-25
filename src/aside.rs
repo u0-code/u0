@@ -393,14 +393,12 @@ impl Desk {
                 .cursor_pointer()
                 .hover(|st| st.bg(theme::hover()))
                 .child(fine_mono(faces, ui::fit(branch, 22)))
-                .when(s.branches.len() > 1, |d| {
-                    d.child(ui::icon("chevron-down", 10.).text_color(theme::faint()))
-                })
+                .child(ui::icon("chevron-down", 10.).text_color(theme::faint()))
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.toggle_popup(crate::desk::Popup::Branch, cx);
                 })),
         );
-        if open && s.branches.len() > 1 {
+        if open {
             let mut menu = div().flex().flex_col().w(px(240.)).p(px(6.)).child(
                 ui::text(faces, "Check out")
                     .px(px(8.))
@@ -422,12 +420,40 @@ impl Desk {
                         .cursor_pointer()
                         .when(on, |d| d.bg(theme::panel2()))
                         .hover(|st| st.bg(theme::hover()))
-                        .child(ui::mono(faces, ui::fit(b, 30)).text_size(px(12.)))
+                        .child(ui::mono(faces, ui::fit(b, 30)).text_size(px(12.)).flex_1())
+                        .child({
+                            let copied = name.clone();
+                            ui::icon_button(
+                                SharedString::from(format!("branch-copy-{n}")),
+                                "copy",
+                                "Copy its name",
+                            )
+                            .size(px(20.))
+                            .text_color(theme::faint())
+                            .on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                                    copied.clone(),
+                                ));
+                            })
+                        })
                         .on_click(
                             cx.listener(move |this, _, _, cx| this.switch_branch(name.clone(), cx)),
                         ),
                 );
             }
+            // A new one, from where it is: its name, then Return.
+            menu = menu.child(
+                div()
+                    .mt(px(4.))
+                    .mx(px(4.))
+                    .px(px(6.))
+                    .rounded(px(6.))
+                    .bg(theme::well())
+                    .border_1()
+                    .border_color(theme::border2())
+                    .child(self.menu_search.clone()),
+            );
             chip = chip.child(gpui::deferred(
                 gpui::anchored()
                     .anchor(gpui::Corner::TopRight)
