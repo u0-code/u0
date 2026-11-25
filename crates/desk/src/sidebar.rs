@@ -102,10 +102,10 @@ impl Desk {
                     .child(ui::icon("square-pen", 16.))
                     .tooltip(crate::keys::hint(cx, "New session", "new_session"))
                     .on_click(cx.listener(|this, e: &gpui::ClickEvent, window, cx| {
-                        let here = this.session().map(|s| s.meta.project.clone());
-                        match here.filter(|_| e.modifiers().shift) {
-                            Some(project) => this.new_in(project, window, cx),
-                            None => this.new_default(window, cx),
+                        if e.modifiers().shift {
+                            this.new_default(window, cx);
+                        } else {
+                            this.new_anywhere(window, cx);
                         }
                     })),
             );

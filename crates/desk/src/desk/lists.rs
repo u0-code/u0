@@ -268,6 +268,88 @@ impl Desk {
         cx.notify();
     }
 
+    /// Ask before deleting the sessions `keys`, in t3code's words; and for
+    /// one that alone works in its worktree, whether that goes too.
+    pub fn ask_delete(&mut self, keys: Vec<u64>, window: &mut Window, cx: &mut Context<Self>) {
+        use gpui::component::WindowExt as _;
+        let title = match keys.as_slice() {
+            [key] => format!(
+                "Delete session \u{201c}{}\u{201d}?",
+                self.sessions
+                    .at(*key)
+                    .map(|s| s.meta.title.as_str())
+                    .unwrap_or_default()
+            ),
+            _ => format!("Delete {} sessions?", keys.len()),
+        };
+        // Its worktree, where no other session works in it.
+        let alone = match keys.as_slice() {
+            [key] => self
+                .sessions
+                .at(*key)
+                .and_then(|s| s.meta.worktree.clone())
+                .filter(|wt| {
+                    self.sessions
+                        .all
+                        .iter()
+                        .filter(|o| o.meta.worktree.as_ref().is_some_and(|w| w.path == wt.path))
+                        .count()
+                        == 1
+                }),
+            _ => None,
+        };
+        let desk = cx.entity();
+        window.open_alert_dialog(cx, move |alert, _, _| {
+            let (desk, keys, alone) = (desk.clone(), keys.clone(), alone.clone());
+            alert
+                .title(title.clone())
+                .description("This permanently clears conversation history for this session.")
+                .ok_text("Delete")
+                .show_cancel(true)
+                .on_ok(move |_, window, cx| {
+                    let (keys, alone) = (keys.clone(), alone.clone());
+                    desk.update(cx, |d, cx| match alone {
+                        Some(wt) => Self::ask_worktree(keys[0], &wt.path, window, cx),
+                        None => keys.into_iter().for_each(|key| d.delete_later(key, cx)),
+                    });
+                    true
+                })
+        });
+    }
+
+    /// Whether the worktree at `path`, which the session `key` alone works
+    /// in, is deleted with it; then the session is.
+    fn ask_worktree(key: u64, path: &std::path::Path, window: &mut Window, cx: &mut Context<Self>) {
+        use gpui::component::WindowExt as _;
+        let desk = cx.entity();
+        let said = format!(
+            "This session is the only one linked to this worktree: {}. Delete the worktree too?",
+            Desk::shown(path)
+        );
+        window.defer(cx, move |window, cx| {
+            window.open_alert_dialog(cx, move |alert, _, _| {
+                let (yes, no) = (desk.clone(), desk.clone());
+                alert
+                    .title("Delete the worktree too?")
+                    .description(said.clone())
+                    .ok_text("Delete worktree")
+                    .cancel_text("Keep it")
+                    .show_cancel(true)
+                    .on_ok(move |_, _, cx| {
+                        yes.update(cx, |d, cx| d.delete_later(key, cx));
+                        true
+                    })
+                    .on_cancel(move |_, _, cx| {
+                        no.update(cx, |d, cx| {
+                            d.keep_worktree.insert(key);
+                            d.delete_later(key, cx);
+                        });
+                        true
+                    })
+            });
+        });
+    }
+
     /// Take back what was just deleted or archived.
     pub fn take_back(&mut self, cx: &mut Context<Self>) {
         if let Some(u) = self.undo.take()

@@ -889,8 +889,8 @@ impl Desk {
                 .item(item("Archive".into(), "archive", |d, key, _, cx| {
                     d.archive(key, cx);
                 }))
-                .item(item("Delete".into(), "trash", |d, key, _, cx| {
-                    d.delete_later(key, cx);
+                .item(item("Delete".into(), "trash", |d, key, window, cx| {
+                    d.ask_delete(vec![key], window, cx);
                 }));
         }
         menu
@@ -921,11 +921,10 @@ impl Desk {
         .item(
             PopupMenuItem::new(format!("Delete ({n})"))
                 .icon(Icon::empty().path("icons/trash.svg"))
-                .on_click(move |_, _, cx| {
+                .on_click(move |_, window, cx| {
                     gone.update(cx, |d, cx| {
-                        for key in std::mem::take(&mut d.chosen) {
-                            d.delete_later(key, cx);
-                        }
+                        let keys = std::mem::take(&mut d.chosen).into_iter().collect();
+                        d.ask_delete(keys, window, cx);
                     });
                 }),
         )

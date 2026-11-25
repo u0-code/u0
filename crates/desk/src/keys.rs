@@ -24,6 +24,7 @@ actions!(
     [
         Quit,
         NewSession,
+        NewHere,
         ToggleSidebar,
         Stop,
         Minimize,
@@ -76,9 +77,12 @@ actions!(
 /// Each action a binding of yours can name: its name, what it does, and
 /// the action. The keys page lists them in this order.
 type Make = fn() -> Box<dyn Action>;
-pub const ACTIONS: [(&str, &str, Make); 33] = [
+pub const ACTIONS: [(&str, &str, Make); 34] = [
     ("palette", "Go to anything", || Box::new(Palette)),
     ("new_session", "New session", || Box::new(NewSession)),
+    ("new_here", "New session in this project", || {
+        Box::new(NewHere)
+    }),
     ("find", "Find in the session", || Box::new(Find)),
     ("drawer", "Terminal", || Box::new(Drawer)),
     ("model", "Choose the model", || Box::new(Model)),
@@ -253,6 +257,7 @@ pub fn bind(cx: &mut App, yours: &[Binding]) {
     cx.bind_keys([
         KeyBinding::new("cmd-q", Quit, None),
         KeyBinding::new("cmd-n", NewSession, None),
+        KeyBinding::new("cmd-shift-n", NewHere, None),
         KeyBinding::new("cmd-b", ToggleSidebar, None),
         KeyBinding::new("cmd-.", Stop, None),
         KeyBinding::new("cmd-m", Minimize, None),
@@ -360,7 +365,8 @@ pub fn handle(cx: &mut App, shown: &Shown) {
         d.open_tab(Tab::About, window, cx);
     });
     on::<Minimize>(cx, shown, |_, window, _| window.minimize_window());
-    on::<NewSession>(cx, shown, Desk::new_default);
+    on::<NewSession>(cx, shown, Desk::new_anywhere);
+    on::<NewHere>(cx, shown, Desk::new_default);
     on::<Find>(cx, shown, Desk::toggle_find);
     on::<Drawer>(cx, shown, Desk::toggle_drawer);
     on::<Palette>(cx, shown, Desk::toggle_palette);

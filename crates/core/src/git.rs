@@ -103,6 +103,32 @@ pub fn worktrees(repo: &Path, under: &Path) -> Vec<Worktree> {
     found
 }
 
+/// What a new worktree starts from when no branch is chosen, as t3code
+/// starts one: the remote's default branch, fetched first; where there is
+/// no remote, or it cannot be reached, where the folder is.
+pub fn fresh_base(dir: &Path) -> String {
+    let Some(repo) = root(dir) else {
+        return "HEAD".into();
+    };
+    if git(&repo, &["fetch", "--quiet", "origin"], None).is_err() {
+        return "HEAD".into();
+    }
+    git(
+        &repo,
+        &[
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "refs/remotes/origin/HEAD",
+        ],
+        None,
+    )
+    .map(|b| b.trim().to_owned())
+    .ok()
+    .filter(|b| !b.is_empty())
+    .unwrap_or_else(|| "HEAD".into())
+}
+
 /// `text` as a short name for a branch: lower case, words joined by `-`.
 pub fn slug(text: &str) -> String {
     let mut out = String::new();

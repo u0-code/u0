@@ -590,7 +590,11 @@ impl Desk {
                             "Delete",
                             Weight::Quiet,
                         )
-                        .on_click(cx.listener(move |this, _, _, cx| this.delete_later(key, cx))),
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.ask_delete(vec![key], window, cx);
+                            },
+                        )),
                     ),
             );
         }

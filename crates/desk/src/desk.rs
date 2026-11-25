@@ -178,6 +178,8 @@ pub struct Desk {
     pub chosen: std::collections::BTreeSet<u64>,
     /// The projects the sidebar shows; none chosen, all.
     pub filter: Vec<PathBuf>,
+    /// Sessions deleted whose worktree you kept.
+    pub keep_worktree: HashSet<u64>,
     /// The image looked at large: the session's key and its item.
     pub zoom: Option<(u64, usize)>,
     /// What was just deleted or archived, while it can be taken back.
@@ -434,6 +436,7 @@ impl Desk {
             renaming: None,
             zoom: None,
             filter: Vec::new(),
+            keep_worktree: HashSet::new(),
             chosen: std::collections::BTreeSet::new(),
             tunnels: Vec::new(),
             trail: Vec::new(),
@@ -662,6 +665,21 @@ impl Desk {
         if let Some(slot) = self.slot(agent) {
             slot.seed(&mut s);
         }
+        // As t3code: with the agent of the session open, its model too.
+        let model = self.session().filter(|o| o.meta.agent == agent).and_then(|o| {
+            o.options.iter().find_map(|opt| match &opt.kind {
+                agent_client_protocol::v1::schema::SessionConfigKind::Select(sel)
+                    if opt.category
+                        == Some(agent_client_protocol::v1::schema::SessionConfigOptionCategory::Model) =>
+                {
+                    Some((opt.id.0.to_string(), sel.current_value.0.to_string()))
+                }
+                _ => None,
+            })
+        });
+        if let Some((config, value)) = model {
+            s.choose(&config, &value);
+        }
         s
     }
 
@@ -725,7 +743,22 @@ impl Desk {
         cx.notify();
     }
 
-    /// Begin a session in the project on screen.
+    /// ⌘N, as t3code's: with more than one project and the sidebar not
+    /// narrowed to one, the palette's New session in…; else a session in
+    /// the one project.
+    pub fn new_anywhere(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        match self.filter.as_slice() {
+            [only] => self.new_in(only.clone(), window, cx),
+            _ if self.projects().len() > 1 => {
+                self.toggle_palette(window, cx);
+                self.new_in_page(window, cx);
+            }
+            _ => self.new_default(window, cx),
+        }
+    }
+
+    /// Begin a session in the project on screen (⇧⌘N): that of the session
+    /// open, else the one chosen last, else the first.
     pub fn new_default(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(project) = self.project() {
             self.new_in(project, window, cx);
@@ -808,26 +841,19 @@ impl Desk {
     }
 
     /// Ask for a folder to add as a project, and begin a session in it.
-    pub fn add_project(cx: &mut Context<Self>) {
+    pub fn add_project(window: &mut Window, cx: &mut Context<Self>) {
         let answer = cx.prompt_for_paths(PathPromptOptions {
             files: false,
             directories: true,
             multiple: false,
             prompt: Some("Add project".into()),
         });
-        cx.spawn(async move |this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = answer.await
                 && let Some(folder) = paths.into_iter().next()
             {
-                let _ = this.update(cx, |this, cx| {
-                    this.settings.used(&folder);
-                    this.save_settings();
-                    let agents: Vec<String> =
-                        this.slots.iter().map(|s| s.entry.id.clone()).collect();
-                    for agent in agents {
-                        this.list_sessions(&agent);
-                    }
-                    cx.notify();
+                let _ = this.update_in(cx, |this, window, cx| {
+                    this.add_and_begin(&folder, window, cx);
                 });
             }
         })
@@ -867,8 +893,9 @@ impl Desk {
             self.transport.send(Call::DropCheckpoints { dir, uid });
         }
         // Its worktree goes too, unless another session works in it (a
-        // fork, or a new session begun there).
+        // fork, or a new session begun there), or you kept it.
         if let Some(wt) = s.meta.worktree
+            && !self.keep_worktree.remove(&key)
             && !self
                 .sessions
                 .all

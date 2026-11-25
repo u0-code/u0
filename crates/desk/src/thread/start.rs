@@ -58,7 +58,7 @@ impl Desk {
                     "Choose a folder to work in".into(),
                     None,
                 )
-                .on_click(cx.listener(|_, _, _, cx| Self::add_project(cx))),
+                .on_click(cx.listener(|_, _, window, cx| Self::add_project(window, cx))),
             );
         } else if !fresh {
             let named = self

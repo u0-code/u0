@@ -420,15 +420,14 @@ impl Desk {
             let from = title.chars().count() - name.chars().count();
             rows.push(Row {
                 bold: std::iter::once(from..title.chars().count()).collect(),
-                keys: crate::keys::keys_of(cx, "new_session"),
+                keys: crate::keys::keys_of(cx, "new_here"),
                 ..Row::new("square-pen", title, Act::NewIn(project))
             });
         }
-        rows.push(Row::new(
-            "square-pen",
-            "New session in…",
-            Act::Sub(Sub::NewIn),
-        ));
+        rows.push(Row {
+            keys: crate::keys::keys_of(cx, "new_session"),
+            ..Row::new("square-pen", "New session in…", Act::Sub(Sub::NewIn))
+        });
         rows.push(key("new_scratch", "New session without a project"));
         let s = self.session();
         if let Some(s) = s {
@@ -781,7 +780,7 @@ impl Desk {
         match row.act {
             Act::Sub(_) | Act::Fill(_) | Act::ChooseParent | Act::Clone(_) | Act::CancelClone => {}
             Act::Adopt(folder) => self.add_and_begin(&folder, window, cx),
-            Act::Choose => Self::add_project(cx),
+            Act::Choose => Self::add_project(window, cx),
             Act::Make(name) => self.create_project(&name, cx),
             Act::Remote(typed) => self.add_remote(&typed, cx),
             Act::Key(name) => {
@@ -805,7 +804,7 @@ impl Desk {
                     match row.act {
                         Act::Unread => self.mark_unread(key, cx),
                         Act::Archive => self.archive(key, cx),
-                        _ => self.delete_later(key, cx),
+                        _ => self.ask_delete(vec![key], window, cx),
                     }
                 }
             }
@@ -817,23 +816,7 @@ impl Desk {
             Act::Tab(tab) => self.open_tab(tab, window, cx),
             Act::File(name) => self.open_file(&name, cx),
             Act::Go(key) => self.show(key, window, cx),
-            Act::Open(folder) => {
-                let latest = self
-                    .sessions
-                    .all
-                    .iter()
-                    .filter(|s| {
-                        s.meta.project == folder
-                            && self.listed_now(s)
-                            && s.meta.flags.settled.is_none()
-                    })
-                    .max_by_key(|s| lists::used(s))
-                    .map(|s| s.key);
-                match latest {
-                    Some(key) => self.show(key, window, cx),
-                    None => self.new_in(folder, window, cx),
-                }
-            }
+            Act::Open(folder) => self.open_project(&folder, window, cx),
             Act::NewIn(folder) => self.new_in(folder, window, cx),
             Act::FromPr(folder, n, title) => {
                 self.new_in(folder, window, cx);

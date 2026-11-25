@@ -179,7 +179,7 @@ pub fn make_worktree(
     let result = match from {
         Some(Begin::Pr(number, _)) => git::pr_worktree(dir, number, home),
         Some(Begin::Branch(b)) => git::worktree(dir, about, home, prefix, &b),
-        None => git::worktree(dir, about, home, prefix, "HEAD"),
+        None => git::worktree(dir, about, home, prefix, &git::fresh_base(dir)),
     };
     let result = result.map(|wt| {
         let scripts = scripts::config(&wt.path).scripts;

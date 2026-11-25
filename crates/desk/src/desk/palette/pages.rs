@@ -94,6 +94,11 @@ impl Desk {
         }
     }
 
+    /// The palette's New session in…, over what it shows.
+    pub fn new_in_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.palette_page(Sub::NewIn, window, cx);
+    }
+
     /// Add a project from the palette: open it, or open the palette at it.
     pub fn add_project_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.palette.open {
@@ -163,15 +168,48 @@ impl Desk {
         }
     }
 
-    /// Make `folder` a project and begin a session in it.
+    /// Make `folder` a project, as t3code adds one: made where it is
+    /// missing, never twice, taken out of the archive; then its latest
+    /// session not done, or a new one.
     pub(crate) fn add_and_begin(
         &mut self,
         folder: &Path,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if crate::remote::parse(folder).is_none()
+            && let Err(e) = std::fs::create_dir_all(folder)
+        {
+            self.trouble("Couldn't make the folder", Some(e.to_string()), None);
+            return;
+        }
+        if self.prefs(folder).archived {
+            self.restore_project(folder, cx);
+        }
         self.adopt(folder);
-        self.new_in(folder.to_path_buf(), window, cx);
+        self.open_project(folder, window, cx);
+    }
+
+    /// A project's latest session not done, or a new one in it.
+    pub(crate) fn open_project(
+        &mut self,
+        folder: &Path,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let latest = self
+            .sessions
+            .all
+            .iter()
+            .filter(|s| {
+                s.meta.project == folder && self.listed_now(s) && s.meta.flags.settled.is_none()
+            })
+            .max_by_key(|s| super::lists::used(s))
+            .map(|s| s.key);
+        match latest {
+            Some(key) => self.show(key, window, cx),
+            None => self.new_in(folder.to_path_buf(), window, cx),
+        }
     }
 
     /// The rows of the page `sub` for what is typed; none where a page
