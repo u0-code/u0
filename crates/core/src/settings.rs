@@ -181,6 +181,10 @@ pub struct Settings {
     /// How many days of Ghost's log are kept in its home (`logs/`).
     #[serde(default = "fortnight")]
     pub log_days: u16,
+    /// The ACP registry is read again each hour, for agents' newer
+    /// versions.
+    #[serde(default = "yes")]
+    pub check_agents: bool,
     /// Ghost looks for an update as it starts and every four hours.
     #[serde(default = "yes")]
     pub check_updates: bool,
@@ -735,6 +739,8 @@ impl Default for Settings {
 
             log_days: fortnight(),
             check_updates: yes(),
+            check_agents: yes(),
+
             frame: None,
             worktrees: None,
             submodules: Submodules::default(),

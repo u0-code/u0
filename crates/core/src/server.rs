@@ -193,6 +193,16 @@ impl Server {
             Call::SignIn { agent, method } => self.authenticate(&agent, method),
             Call::SignOut { agent } => self.logout(&agent),
             Call::Weigh => self.weigh(),
+            Call::Signal { pid, signal } => self.off(move || {
+                Event::Notice(
+                    crate::diagnostics::signal(std::process::id(), pid, &signal)
+                        .map_err(|e| (format!("Couldn't stop {pid}"), e)),
+                )
+            }),
+            Call::Troubles => {
+                let home = self.home.clone();
+                self.off(move || Event::Troubles(crate::diagnostics::troubles(&home, 200)));
+            }
             Call::Here { agents } => self.here(agents),
             Call::CliVersion { cli } => self.cli_version(cli),
             Call::Watch => {
@@ -1022,29 +1032,15 @@ impl Server {
         });
     }
 
-    /// How much memory each agent running holds with what it started (ps),
-    /// by its id and process id: in kilobytes.
+    /// What Ghost runs (`diagnostics`), and which are the agents running:
+    /// each one's id and process id.
     fn weigh(&self) {
         let running: Vec<(String, u32)> = (self.agents.lock().expect("agents").iter())
             .filter_map(|(id, a)| Some((id.clone(), a.pid()?)))
             .collect();
-        self.off(move || {
-            Event::Weighed(
-                running
-                    .into_iter()
-                    .filter_map(|(id, pid)| {
-                        let out = std::process::Command::new("ps")
-                            .args(["-o", "rss=", "-g", &pid.to_string()])
-                            .output()
-                            .ok()?;
-                        let kb: u64 = String::from_utf8_lossy(&out.stdout)
-                            .lines()
-                            .filter_map(|l| l.trim().parse::<u64>().ok())
-                            .sum();
-                        Some((id, pid, kb))
-                    })
-                    .collect(),
-            )
+        self.off(move || Event::Weighed {
+            agents: running,
+            processes: crate::diagnostics::processes(std::process::id()),
         });
     }
 

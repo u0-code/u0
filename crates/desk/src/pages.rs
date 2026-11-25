@@ -3,6 +3,7 @@
 //! the settings (`settings`), a dialog over the
 //! window, where agents are switched on and off.
 
+mod diagnostics;
 mod forge;
 mod hosts;
 mod looks;
@@ -77,6 +78,10 @@ pub struct Pages {
     pub tokens: [Entity<InputState>; 5],
     /// Themes of yours that did not read, each said.
     pub themes_refused: Vec<String>,
+    /// What Ghost runs (the agents among it, by id and process id), and
+    /// the warnings and errors in its log: Settings › Diagnostics.
+    pub processes: (Vec<(String, u32)>, crate::diagnostics::Processes),
+    pub troubles: Vec<String>,
 }
 
 impl Pages {
@@ -145,6 +150,8 @@ impl Pages {
             period: Some(30),
             forges: Vec::new(),
             themes_refused: Vec::new(),
+            processes: Default::default(),
+            troubles: Vec::new(),
 
             tokens: crate::forge::Host::ALL.map(|_| {
                 cx.new(|cx| {

@@ -403,11 +403,8 @@ impl Desk {
                 resumed,
                 result,
             } => self.loaded(key, resumed, result),
-            Event::Weighed(mut weights) => {
-                // In the order the agents are listed.
-                weights.sort_by_key(|(id, ..)| self.slots.iter().position(|s| &s.entry.id == id));
-                self.weights = weights;
-            }
+            Event::Weighed { agents, processes } => self.pages.processes = (agents, processes),
+            Event::Troubles(lines) => self.pages.troubles = lines,
             Event::Here(here) => self.here = here,
             Event::Deleted { key, result } => match result {
                 Ok(()) => self.forget_session(key, false, cx),

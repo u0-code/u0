@@ -137,9 +137,26 @@ impl Desk {
         });
     }
 
-    /// Ask how much memory each running agent holds, for Settings, Usage.
+    /// Ask what Ghost runs, and which are the agents, for Settings ›
+    /// Diagnostics.
     pub(crate) fn weigh_agents(&self) {
         self.transport.send(Call::Weigh);
+    }
+
+    /// Ask what Ghost runs and what its log says went wrong.
+    pub(crate) fn diagnose(&self) {
+        self.weigh_agents();
+        self.transport.send(Call::Troubles);
+    }
+
+    /// Ask the process `pid`, one Ghost runs, to stop (TERM), and look
+    /// again.
+    pub(crate) fn stop_process(&self, pid: u32) {
+        self.transport.send(Call::Signal {
+            pid,
+            signal: "TERM".into(),
+        });
+        self.weigh_agents();
     }
 
     /// Every five minutes, look again at the agents not running: one now
@@ -160,7 +177,7 @@ impl Desk {
             }
             self.start_ready();
         }
-        if self.health_tick.is_multiple_of(60) {
+        if self.settings.check_agents && self.health_tick.is_multiple_of(60) {
             self.transport.send(Call::Fetch);
         }
     }

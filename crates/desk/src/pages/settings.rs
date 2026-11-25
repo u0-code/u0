@@ -46,11 +46,12 @@ pub enum Tab {
     About,
     Projects,
     SourceControl,
+    Diagnostics,
 }
 
 impl Tab {
     /// Each tab, in the order the side list shows them.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
         Self::General,
         Self::Appearance,
         Self::Chat,
@@ -62,6 +63,7 @@ impl Tab {
         Self::Writing,
         Self::Sessions,
         Self::Usage,
+        Self::Diagnostics,
         Self::About,
     ];
 
@@ -79,6 +81,7 @@ impl Tab {
             Self::Usage => "Usage",
             Self::About => "About",
             Self::SourceControl => "Source control",
+            Self::Diagnostics => "Diagnostics",
         }
     }
 
@@ -96,6 +99,7 @@ impl Tab {
             Self::Usage => "clock",
             Self::About => "ghost",
             Self::SourceControl => "branch",
+            Self::Diagnostics => "gauge",
         }
     }
 
@@ -106,7 +110,7 @@ impl Tab {
             Self::Agents | Self::NewSessions | Self::Writing | Self::Sessions | Self::Usage => {
                 "Agents"
             }
-            Self::About => "Ghost",
+            Self::About | Self::Diagnostics => "Ghost",
             _ => "",
         }
     }

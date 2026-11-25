@@ -121,6 +121,7 @@ crates/core/src/
   whole.rs      a file written whole; a JSON file read back
   writer.rs     text an agent writes for you: what each kind asks, what is kept
   tidy.rs       what Ghost keeps here, measured and tidied
+  diagnostics.rs  the processes Ghost runs, as a tree with CPU and memory; its log's troubles
   path.rs       the PATH your shell sets up, for an app opened from the Dock
   scripts.rs    a repository's own commands, in its ghost.json
   when.rs       times as read
@@ -156,7 +157,8 @@ crates/desk/src/
                 side chat in it (side)
   pages/        the settings dialog and its tabs (settings, prefs, projects, writing,
                 usage, voice: dictation's settings, updates: on About, hosts:
-                Source control, looks: Appearance's themes),
+                Source control, looks: Appearance's themes, diagnostics),
+
                 the PRs and Issues pages drawn (forge)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   ui.rs, theme.rs, style.rs

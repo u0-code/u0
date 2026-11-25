@@ -1,7 +1,7 @@
 //! The usage page (⌘U): what sessions cost over a period, as their agents
 //! said it (ACP's `usage_update`, read back from the records), by agent and
-//! by session; the context each open one holds; and the agents running,
-//! each can be let go. ⇧⌘1 to ⇧⌘5 choose the period. Ghost prices nothing
+//! by session; and the context each open one holds (what runs is in
+//! Diagnostics). ⇧⌘1 to ⇧⌘5 choose the period. Ghost prices nothing
 //! itself: where an agent says no cost, none is shown.
 
 use std::collections::BTreeMap;
@@ -189,36 +189,6 @@ impl Desk {
                 .when(n > 0, |d| d.border_t_1().border_color(theme::border())),
             );
         }
-        let mut running = card().overflow_hidden();
-        for (n, (agent, pid, kb)) in self.weights.iter().enumerate() {
-            let agent_id = agent.clone();
-            running = running.child(
-                setting(
-                    faces,
-                    &self.name_of(agent),
-                    &format!("process {pid} · {} MB", kb / 1024),
-                    ui::button(
-                        SharedString::from(format!("let-go-{n}")),
-                        "Let it go",
-                        Weight::Quiet,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.let_go(&agent_id);
-                        this.weigh_agents();
-                        cx.notify();
-                    })),
-                )
-                .when(n > 0, |d| d.border_t_1().border_color(theme::border())),
-            );
-        }
-        if self.weights.is_empty() {
-            running = running.child(
-                div()
-                    .px(px(16.))
-                    .py(px(14.))
-                    .child(ui::fine(faces, "No agent is running.")),
-            );
-        }
         let section = |label: &str, body: Div| {
             div()
                 .flex()
@@ -230,18 +200,17 @@ impl Desk {
         let mut out = page(
             faces,
             super::Tab::Usage.title(),
-            "What sessions cost, as their agents said, and what runs.",
+            "What sessions cost, as their agents said.",
         )
         .child(div().flex().child(periods))
         .child(section("By agent", agents));
         if !rows.is_empty() {
             out = out.child(section("By session", sessions));
         }
-        out.child(section("Agents running", running))
-            .child(ui::fine(
-                faces,
-                "Limits and their reset times are not shown: no agent says them over ACP yet.",
-            ))
+        out.child(ui::fine(
+            faces,
+            "Limits and their reset times are not shown: no agent says them over ACP yet.",
+        ))
     }
 }
 

@@ -162,8 +162,16 @@ pub enum Call {
     SignOut {
         agent: String,
     },
-    /// How much memory each agent running holds.
+    /// Ghost's processes, and which are the agents running.
     Weigh,
+    /// Send the process `pid`, one of Ghost's, the signal `signal` (TERM,
+    /// KILL); answered as a `Notice`.
+    Signal {
+        pid: u32,
+        signal: String,
+    },
+    /// The warnings and errors in Ghost's log, newest first.
+    Troubles,
     /// What of each of `agents` is here.
     Here {
         agents: Vec<Entry>,
@@ -520,9 +528,14 @@ pub enum Event {
         agent: String,
         result: Result<(), String>,
     },
-    /// How much memory each running agent holds: its id, process id and
-    /// kilobytes.
-    Weighed(Vec<(String, u32, u64)>),
+    /// Ghost's processes (`diagnostics`), and the agents running among
+    /// them: each one's id and process id.
+    Weighed {
+        agents: Vec<(String, u32)>,
+        processes: crate::diagnostics::Processes,
+    },
+    /// The warnings and errors in Ghost's log, newest first.
+    Troubles(Vec<String>),
     /// What of each agent the registry lists is here, by its id.
     Here(HashMap<String, Here>),
     /// What a CLI of yours says its version is.
@@ -1201,6 +1214,11 @@ mod tests {
             },
             Call::SignOut { agent: "a".into() },
             Call::Weigh,
+            Call::Signal {
+                pid: 7,
+                signal: "TERM".into(),
+            },
+            Call::Troubles,
             Call::Here {
                 agents: vec![entry.clone()],
             },
@@ -1335,7 +1353,22 @@ mod tests {
                 agent: "a".into(),
                 result: Ok(()),
             },
-            Event::Weighed(vec![("a".into(), 42, 1024)]),
+            Event::Weighed {
+                agents: vec![("a".into(), 42)],
+                processes: crate::diagnostics::Processes {
+                    procs: vec![crate::diagnostics::Proc {
+                        pid: 42,
+                        depth: 1,
+                        cpu: 1.5,
+                        kb: 1024,
+                        name: "a".into(),
+                    }],
+                    load: "1.0 1.0 1.0".into(),
+                    cores: 8,
+                    memory: 1 << 34,
+                },
+            },
+            Event::Troubles(vec!["t ERROR x".into()]),
             Event::Here(HashMap::from([(
                 "a".to_owned(),
                 Here {

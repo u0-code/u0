@@ -190,25 +190,40 @@ impl Desk {
                     ),
                     group(
                         faces,
-                        "Repositories",
-                        vec![row(
-                            faces,
-                            q,
-                            "Fetch each project's remote every",
-                            "So branches and pull requests are up to date; projects set to pull are moved on too.",
-                            Self::pick(
-                                "fetch-every",
-                                [
-                                    ("Minute", Some(1)),
-                                    ("5 minutes", Some(5)),
-                                    ("15 minutes", Some(15)),
-                                    ("Never", None),
-                                ],
-                                self.settings.fetch_every,
-                                |s, v| s.fetch_every = v,
-                                cx,
+                        "In the background",
+                        vec![
+                            row(
+                                faces,
+                                q,
+                                "Fetch each project's remote every",
+                                "So branches and pull requests are up to date; projects set to pull are moved on too.",
+                                Self::pick(
+                                    "fetch-every",
+                                    [
+                                        ("Minute", Some(1)),
+                                        ("5 minutes", Some(5)),
+                                        ("15 minutes", Some(15)),
+                                        ("Never", None),
+                                    ],
+                                    self.settings.fetch_every,
+                                    |s, v| s.fetch_every = v,
+                                    cx,
+                                ),
                             ),
-                        )],
+                            row(
+                                faces,
+                                q,
+                                "Look for agents' new versions",
+                                "The ACP registry is read again each hour; an agent that stops working is updated to the newest.",
+                                Self::pick(
+                                    "check-agents",
+                                    [("Each hour", true), ("Never", false)],
+                                    self.settings.check_agents,
+                                    |s, v| s.check_agents = v,
+                                    cx,
+                                ),
+                            ),
+                        ],
                     ),
                     group(
                         faces,
@@ -643,6 +658,7 @@ impl Desk {
             Tab::Usage => return q.is_empty().then(|| self.usage(faces, cx)),
             Tab::About => return self.about_ghost(faces, q, cx),
             Tab::SourceControl => return self.source_control(faces, q, cx),
+            Tab::Diagnostics => return self.diagnostics(faces, q, cx),
             Tab::Agents | Tab::Sessions | Tab::Projects => return None,
         };
         let groups: Vec<Div> = groups.into_iter().flatten().collect();

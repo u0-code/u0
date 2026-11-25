@@ -188,7 +188,6 @@ pub struct Desk {
     pub quit_asked: Option<std::time::Instant>,
     /// Each running agent's process and the memory its group holds (kB),
     /// as last weighed.
-    pub weights: Vec<(String, u32, u64)>,
     /// What of each agent the registry lists is here, by its id.
     pub here: HashMap<String, crate::proto::Here>,
     /// The programs the desk offers that are on the PATH (`hub::on_path`).
@@ -517,7 +516,6 @@ impl Desk {
             quit_asked: None,
             fetched: None,
             badge: 0,
-            weights: Vec::new(),
             here: HashMap::new(),
             on_path: Vec::new(),
             menu_search,
@@ -1352,10 +1350,8 @@ impl Desk {
             crate::pages::Tab::Sessions => self.measure(),
             crate::pages::Tab::Appearance => self.read_themes(cx),
             crate::pages::Tab::SourceControl => self.transport.send(crate::proto::Call::Forges),
-            crate::pages::Tab::Usage => {
-                self.weigh_agents();
-                self.read_spent();
-            }
+            crate::pages::Tab::Usage => self.read_spent(),
+            crate::pages::Tab::Diagnostics => self.diagnose(),
             _ => {}
         }
         if !self.pages.open {
