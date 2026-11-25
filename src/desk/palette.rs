@@ -367,10 +367,20 @@ impl Desk {
                 continue;
             };
             let project = self.project_name(&s.project);
-            if !found(&s.title) && !found(&project) {
+            // Found by what was said in it too, where its thread is here.
+            let said = q.len() >= 3
+                && s.items.iter().any(|i| match i {
+                    crate::session::Item::You(t) | crate::session::Item::Agent(t) => {
+                        t.to_lowercase().contains(&q)
+                    }
+                    _ => false,
+                });
+            if !found(&s.title) && !found(&project) && !said {
                 continue;
             }
-            let hint = if n < 9 {
+            let hint = if said && !found(&s.title) {
+                format!("{project} · said in it")
+            } else if n < 9 {
                 format!("{project}  ⌘{}", n + 1)
             } else {
                 project

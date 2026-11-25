@@ -196,6 +196,20 @@ impl Desk {
             cx.stop_propagation();
             return;
         }
+        // ⌘T another terminal beside the session; ⌘W this one closed.
+        if k.modifiers.platform && !k.modifiers.shift && k.key == "t" {
+            let dir = self.session().map(|s| (s.key, s.folder.clone()));
+            if let Some((key, dir)) = dir {
+                self.open_terminal_in(key, &dir, None, cx);
+            }
+            cx.stop_propagation();
+            return;
+        }
+        if k.modifiers.platform && k.key == "w" {
+            self.close_terminal(id, cx);
+            cx.stop_propagation();
+            return;
+        }
         if k.modifiers.platform && k.key == "c" {
             if let Some(text) = t.chosen_text() {
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
