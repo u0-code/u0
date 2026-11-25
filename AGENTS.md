@@ -32,9 +32,7 @@ change is held to these rules.
    the change makes obsolete. Reuse it or remove it. Code made dead by a
    change is deleted in that change.
 2. **One source of truth.** The wire shapes are `agent-client-protocol-schema`'s
-   v1 types; never hand-built JSON that mirrors them. The one exception is
-   `src/fork.rs`, which speaks v2 to a second process of the agent, because
-   agents announce where a session can be forked only on v2. The list of agents and
+   v1 types; never hand-built JSON that mirrors them. The list of agents and
    how each is installed is the ACP registry's; never a table of agents in
    code. Each other fact is defined once and referenced everywhere else.
 3. **No second mechanism.** Before adding a check, gate, retry, cache,
@@ -62,7 +60,6 @@ src/remote.rs     projects on another machine; their agents over SSH
 src/terminal.rs   a terminal of yours: a shell in a pseudo-terminal, its screen
 src/hub.rs        the agents switched on; async work, back to the window as Msg
 src/session.rs    a session: its thread built from session/update; its turns' checkpoints
-src/fork.rs       a session forked before one of your messages, over ACP v2
 src/git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR
 src/settings.rs   ~/.ghost/settings.json and the home
 src/store.rs      sessions.json and each session's record; the one writer

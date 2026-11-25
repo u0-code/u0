@@ -162,8 +162,7 @@ impl Desk {
             Msg::Elsewhere { agent, folders } => {
                 self.elsewhere.insert(agent, folders);
             }
-            Msg::Forked { from, result } => self.forked(from, result, cx),
-            Msg::ForkedAt { from, text, result } => self.forked_at(from, text, result, cx),
+            Msg::Forked { from, at, result } => self.forked(from, at, result, cx),
             Msg::Files { folder, files } => {
                 self.files.insert(folder, files);
             }

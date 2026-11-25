@@ -12,8 +12,8 @@ use std::{
 };
 
 use agent_client_protocol_schema::v1::{
-    ContentBlock, EmbeddedResourceResource, PermissionOption, PermissionOptionKind, Plan,
-    RequestPermissionRequest, SessionConfigOption, SessionId, SessionInfo, SessionModeState,
+    ContentBlock, EmbeddedResourceResource, MessageId, PermissionOption, PermissionOptionKind,
+    Plan, RequestPermissionRequest, SessionConfigOption, SessionId, SessionInfo, SessionModeState,
     SessionUpdate, StopReason, ToolCall, ToolCallContent, ToolCallId, ToolCallStatus,
     ToolCallUpdate, ToolKind, UsageUpdate,
 };
@@ -192,6 +192,9 @@ pub struct Session {
     pub title: String,
     pub state: State,
     pub items: Vec<Item>,
+    /// The ids the agent gave its messages and yours, each by the item of
+    /// the thread it is in: where a fork can end.
+    pub marks: Vec<(usize, MessageId)>,
     pub plan: Option<Plan>,
     pub modes: Option<SessionModeState>,
     pub options: Vec<SessionConfigOption>,
@@ -373,19 +376,67 @@ impl Session {
     pub fn replay(&mut self, events: Vec<store::Event>) {
         self.replaying = true;
         for e in events {
-            match e {
-                store::Event::You(text) => self.items.push(Item::You(text)),
-                store::Event::Update(u) => self.apply(*u),
-                store::Event::Ended { reason, secs } => {
-                    self.thought_over();
-                    self.items.push(Item::Ended { reason, secs });
-                }
-                store::Event::Note { text, trouble } => {
-                    self.items.push(Item::Note { text, trouble });
-                }
-            }
+            self.take(e);
         }
         self.replaying = false;
+    }
+
+    fn take(&mut self, e: store::Event) {
+        match e {
+            store::Event::You(text) => self.items.push(Item::You(text)),
+            store::Event::Update(u) => self.apply(*u),
+            store::Event::Ended { reason, secs } => {
+                self.thought_over();
+                self.items.push(Item::Ended { reason, secs });
+            }
+            store::Event::Note { text, trouble } => {
+                self.items.push(Item::Note { text, trouble });
+            }
+        }
+    }
+
+    /// The last message a fork made before your message at `item` of the
+    /// thread keeps, by the id its agent gave it; none for your first
+    /// message, or where the agent gave no ids.
+    pub fn fork_point(&self, item: usize) -> Option<MessageId> {
+        if !matches!(self.items.get(item), Some(Item::You(_)))
+            || !self.items[..item].iter().any(|i| matches!(i, Item::You(_)))
+        {
+            return None;
+        }
+        self.marks
+            .iter()
+            .rev()
+            .find(|(at, _)| *at < item)
+            .map(|(_, id)| id.clone())
+    }
+
+    /// Empty the thread, to build it again.
+    pub fn forget(&mut self) {
+        self.items.clear();
+        self.marks.clear();
+    }
+
+    /// The events of a record up to the one that begins your message
+    /// after the first `yours`: the record of a fork made before it.
+    pub fn record_before(events: Vec<store::Event>, yours: usize) -> Vec<store::Event> {
+        let mut thread = Self::blank(0, "", PathBuf::new());
+        thread.replaying = true;
+        let mut kept = Vec::new();
+        for e in events {
+            thread.take(e.clone());
+            if thread
+                .items
+                .iter()
+                .filter(|i| matches!(i, Item::You(_)))
+                .count()
+                > yours
+            {
+                break;
+            }
+            kept.push(e);
+        }
+        kept
     }
 
     /// Whether it is in a mode that only plans (its mode, or an option of
@@ -453,6 +504,7 @@ impl Session {
             title,
             state: State::Draft,
             items: Vec::new(),
+            marks: Vec::new(),
             plan: None,
             modes: None,
             options: Vec::new(),
@@ -557,12 +609,44 @@ impl Session {
         if !matches!(update, SessionUpdate::AgentThoughtChunk(_)) {
             self.thought_over();
         }
+        if let SessionUpdate::UserMessageChunk(c)
+        | SessionUpdate::AgentMessageChunk(c)
+        | SessionUpdate::AgentThoughtChunk(c) = &update
+            && let Some(id) = &c.message_id
+        {
+            // Where the message goes: the last item, or one about to be
+            // added; a message of yours with another id is one of its own.
+            let last = self
+                .marks
+                .last()
+                .filter(|(at, _)| *at + 1 == self.items.len())
+                .map(|(_, id)| id);
+            let at = match (&update, self.items.last()) {
+                (SessionUpdate::UserMessageChunk(_), Some(Item::You(_)))
+                    if last.is_none_or(|last| last == id) =>
+                {
+                    self.items.len() - 1
+                }
+                (SessionUpdate::AgentMessageChunk(_), Some(Item::Agent(_)))
+                | (SessionUpdate::AgentThoughtChunk(_), Some(Item::Thought { .. })) => {
+                    self.items.len() - 1
+                }
+                _ => self.items.len(),
+            };
+            if self.marks.last() != Some(&(at, id.clone())) {
+                self.marks.push((at, id.clone()));
+            }
+        }
         match update {
             SessionUpdate::UserMessageChunk(c) => {
                 // A session being reopened replays what you said.
                 let text = text_of(&c.content);
+                let own = self
+                    .marks
+                    .last()
+                    .is_some_and(|(at, _)| *at == self.items.len());
                 match self.items.last_mut() {
-                    Some(Item::You(t)) => t.push_str(&text),
+                    Some(Item::You(t)) if !own => t.push_str(&text),
                     _ => self.items.push(Item::You(text)),
                 }
             }
@@ -1009,5 +1093,48 @@ mod tests {
         assert!(r.modes.is_some());
         let options = r.config_options.unwrap();
         assert!(options.iter().any(|o| &*o.id.0 == "model"));
+    }
+
+    #[test]
+    fn a_fork_before_a_message_keeps_up_to_what_the_agent_last_said_and_its_record() {
+        let chunk = |kind: &str, id: &str, text: &str| {
+            update(&format!(
+                r#"{{"sessionUpdate":"{kind}","messageId":"{id}","content":{{"type":"text","text":"{text}"}}}}"#
+            ))
+        };
+        let events = vec![
+            store::Event::Update(Box::new(chunk("user_message_chunk", "u1", "first"))),
+            store::Event::Update(Box::new(chunk("agent_thought_chunk", "t1", "hmm"))),
+            store::Event::Update(Box::new(chunk("agent_message_chunk", "a1", "one"))),
+            store::Event::Update(Box::new(chunk("agent_message_chunk", "a1", " two"))),
+            store::Event::Update(Box::new(chunk("user_message_chunk", "u2", "[stopped]"))),
+            store::Event::Update(Box::new(chunk("user_message_chunk", "u3", "go on"))),
+            store::Event::You("second".into()),
+            store::Event::Update(Box::new(chunk("agent_message_chunk", "a2", "three"))),
+        ];
+        let mut s = Session::new(1, "x", std::env::temp_dir());
+        s.replay(events.clone());
+        let second = s
+            .items
+            .iter()
+            .rposition(|i| matches!(i, Item::You(_)))
+            .unwrap();
+        assert_eq!(s.fork_point(second), Some(MessageId::new("u3")));
+        let stopped = s
+            .items
+            .iter()
+            .position(|i| matches!(i, Item::You(t) if t == "[stopped]"))
+            .unwrap();
+        assert_eq!(s.fork_point(stopped), Some(MessageId::new("a1")));
+        // Your first message has nothing before it to keep.
+        assert_eq!(s.fork_point(0), None);
+        // Two messages of yours in a row stay two.
+        assert_eq!(
+            s.items.iter().filter(|i| matches!(i, Item::You(_))).count(),
+            4
+        );
+        let kept = Session::record_before(events, 1);
+        assert_eq!(kept.len(), 4);
+        assert!(!kept.iter().any(|e| matches!(e, store::Event::You(_))));
     }
 }

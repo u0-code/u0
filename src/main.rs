@@ -14,7 +14,6 @@ mod assets;
 mod base64;
 mod desk;
 mod fonts;
-mod fork;
 mod git;
 mod hub;
 mod icon;

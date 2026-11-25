@@ -925,7 +925,7 @@ impl Desk {
             && !self.read_record(key)
             && let Some(s) = self.session_mut(key)
         {
-            s.items.clear();
+            s.forget();
             s.plan = None;
             s.turns.clear();
             s.total = None;
@@ -1235,7 +1235,7 @@ impl Desk {
             // Its agent opens it again (resumed from the record, or loaded),
             // and then it goes.
             if !session.recorded {
-                session.items.clear();
+                session.forget();
             }
             session.pending = Some(text);
             session.state = State::Opening;

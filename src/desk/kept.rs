@@ -96,7 +96,7 @@ impl Desk {
             .iter_mut()
             .find(|s| s.key == key)
             .expect("found above");
-        s.items.clear();
+        s.forget();
         s.replay(events);
         s.recorded = true;
         // In a repository, what it shows beside is what is not committed.
@@ -121,7 +121,7 @@ impl Desk {
             if let Some(id) = &s.id {
                 store::queue(Job::Remove(store::record_path(&home, &s.agent, &id.0)));
             }
-            s.items.clear();
+            s.forget();
             s.log.clear();
             s.recorded = false;
         }

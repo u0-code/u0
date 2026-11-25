@@ -19,7 +19,7 @@ use agent_client_protocol_schema::{
         AuthenticateRequest, CancelNotification, ClientCapabilities, CloseSessionRequest,
         ContentBlock, DeleteSessionRequest, ForkSessionRequest, ForkSessionResponse,
         Implementation, InitializeRequest, InitializeResponse, ListSessionsRequest,
-        ListSessionsResponse, LoadSessionRequest, LoadSessionResponse, LogoutRequest,
+        ListSessionsResponse, LoadSessionRequest, LoadSessionResponse, LogoutRequest, MessageId,
         NewSessionRequest, NewSessionResponse, PermissionOptionId, PromptRequest, PromptResponse,
         RequestPermissionOutcome, RequestPermissionResponse, ResumeSessionRequest,
         ResumeSessionResponse, SelectedPermissionOutcome, SessionConfigId, SessionConfigOption,
@@ -90,17 +90,12 @@ pub enum Msg {
         agent: String,
         result: Result<Box<NewSessionResponse>, Failure>,
     },
-    /// A session branched off the session `from`, or why it was not.
+    /// A session branched off the session `from` (before the item `at` of
+    /// its thread, or whole), or why it was not.
     Forked {
         from: u64,
+        at: Option<usize>,
         result: Result<Box<ForkSessionResponse>, Failure>,
-    },
-    /// A session branched off the session `from` before your message
-    /// `text`, or why it was not.
-    ForkedAt {
-        from: u64,
-        text: String,
-        result: Result<SessionId, Failure>,
     },
     /// The files of a project, for `@` to name.
     Files {
@@ -618,15 +613,33 @@ pub fn probe(agent: Arc<Agent>, name: String, dir: PathBuf, delete: bool, close:
     });
 }
 
-/// Branch the session `id` off into a new one, in `folder`, with all that
-/// was said in it.
-pub fn fork(agent: Arc<Agent>, from: u64, id: SessionId, folder: PathBuf, tx: Sender) {
+/// Branch the session `id` off into a new one, in `folder`: with all that
+/// was said in it, or, given `upto` (an item of its thread and the last
+/// message the fork keeps), with what was said before that item.
+///
+/// ACP's own fork point is a cursor, which agents announce only on v2. The
+/// adapters of Claude Code and Codex read one from the request's `_meta` on
+/// v1 as well: `jetbrains.air.fork`, the id of the last message to keep.
+pub fn fork(
+    agent: Arc<Agent>,
+    from: u64,
+    id: SessionId,
+    folder: PathBuf,
+    upto: Option<(usize, MessageId)>,
+    tx: Sender,
+) {
     acp::runtime().spawn(async move {
+        let mut request = ForkSessionRequest::new(id, folder);
+        if let Some((_, last)) = &upto {
+            let point = serde_json::json!({"air": {"fork": {"version": 1, "messageId": last}}});
+            request = request.meta(serde_json::Map::from_iter([("jetbrains".into(), point)]));
+        }
         let result = agent
-            .request::<_, ForkSessionResponse>("session/fork", ForkSessionRequest::new(id, folder))
+            .request::<_, ForkSessionResponse>("session/fork", request)
             .await
             .map(Box::new);
-        let _ = tx.send(Msg::Forked { from, result });
+        let at = upto.map(|(at, _)| at);
+        let _ = tx.send(Msg::Forked { from, at, result });
     });
 }
 

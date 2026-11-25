@@ -520,8 +520,7 @@ impl Desk {
                 // Beside a message of yours after the first, on hover: a new
                 // session with what was said before it, to say it again.
                 let group = SharedString::from(format!("{key}-you"));
-                let branch = i > 0
-                    && s.items[..i].iter().any(|x| matches!(x, Item::You(_)))
+                let branch = s.fork_point(i).is_some()
                     && matches!(
                         s.state,
                         crate::session::State::Idle | crate::session::State::Closed
