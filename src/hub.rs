@@ -188,6 +188,9 @@ pub enum Msg {
         dir: PathBuf,
         result: Result<(), String>,
     },
+    /// How much memory each running agent holds: its id, process id and
+    /// kilobytes.
+    Weighed(Vec<(String, u32, u64)>),
     /// How much each part of Ghost's home takes, and what a tidying did.
     Sizes(Vec<(&'static str, u64)>),
     Tidied(String),
@@ -838,6 +841,29 @@ pub fn pr(dir: PathBuf, key: u64, tx: Sender) {
     off(tx, move || Msg::Pr {
         key,
         pr: git::read_pr(&dir),
+    });
+}
+
+/// How much memory each of the `running` agents holds with what it
+/// started (ps), by its id and process id: in kilobytes.
+pub fn weigh(running: Vec<(String, u32)>, tx: Sender) {
+    off(tx, move || {
+        Msg::Weighed(
+            running
+                .into_iter()
+                .filter_map(|(id, pid)| {
+                    let out = std::process::Command::new("ps")
+                        .args(["-o", "rss=", "-g", &pid.to_string()])
+                        .output()
+                        .ok()?;
+                    let kb: u64 = String::from_utf8_lossy(&out.stdout)
+                        .lines()
+                        .filter_map(|l| l.trim().parse::<u64>().ok())
+                        .sum();
+                    Some((id, pid, kb))
+                })
+                .collect(),
+        )
     });
 }
 

@@ -331,6 +331,7 @@ impl Desk {
                 repo,
                 scripts,
             } => self.looked(key, &folder, branch, repo, scripts),
+            Msg::Weighed(weights) => self.weights = weights,
             Msg::Held { folder, held } => {
                 self.held.insert(folder, held);
             }

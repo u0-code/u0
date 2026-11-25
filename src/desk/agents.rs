@@ -55,24 +55,12 @@ impl Desk {
         cx.notify();
     }
 
-    /// How much memory each running agent holds (ps), for Settings, Usage.
-    pub(crate) fn weigh_agents(&mut self) {
-        self.weights = self
-            .slots
-            .iter()
-            .filter_map(|s| {
-                let pid = s.running()?.pid()?;
-                let out = std::process::Command::new("ps")
-                    .args(["-o", "rss=", "-g", &pid.to_string()])
-                    .output()
-                    .ok()?;
-                let kb: u64 = String::from_utf8_lossy(&out.stdout)
-                    .lines()
-                    .filter_map(|l| l.trim().parse::<u64>().ok())
-                    .sum();
-                Some((s.entry.id.clone(), pid, kb))
-            })
+    /// Ask how much memory each running agent holds, for Settings, Usage.
+    pub(crate) fn weigh_agents(&self) {
+        let running = (self.slots.iter())
+            .filter_map(|s| Some((s.entry.id.clone(), s.running()?.pid()?)))
             .collect();
+        hub::weigh(running, self.tx.clone());
     }
 
     /// Every five minutes, look again at the agents not running: one now
