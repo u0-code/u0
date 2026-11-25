@@ -110,25 +110,53 @@ impl Desk {
                     group(
                         faces,
                         "Done for now",
-                        vec![row(
-                            faces,
-                            q,
-                            "A session is done after it is left for",
-                            "It moves to Done in the sidebar; anything said to it brings it back.",
-                            Self::pick(
-                                "settle",
-                                [
-                                    ("3 days", Some(3)),
-                                    ("7 days", Some(7)),
-                                    ("14 days", Some(14)),
-                                    ("30 days", Some(30)),
-                                    ("Never", None),
-                                ],
-                                self.settings.settle_days,
-                                |s, v| s.settle_days = v,
-                                cx,
+                        vec![
+                            row(
+                                faces,
+                                q,
+                                "A session is done after it is left for",
+                                "It moves to Settled in the sidebar; anything said to it brings it back.",
+                                Self::pick(
+                                    "settle",
+                                    [
+                                        ("3 days", Some(3)),
+                                        ("7 days", Some(7)),
+                                        ("14 days", Some(14)),
+                                        ("30 days", Some(30)),
+                                        ("Never", None),
+                                    ],
+                                    self.settings.settle_days,
+                                    |s, v| s.settle_days = v,
+                                    cx,
+                                ),
                             ),
-                        )],
+                            row(
+                                faces,
+                                q,
+                                "When its pull request merges or closes",
+                                "The session is done then, while it waits on nothing.",
+                                Self::pick(
+                                    "settle-merged",
+                                    [("Settle it", true), ("Leave it", false)],
+                                    self.settings.settle_merged,
+                                    |s, v| s.settle_merged = v,
+                                    cx,
+                                ),
+                            ),
+                            row(
+                                faces,
+                                q,
+                                "Keep sessions with a pull request",
+                                "One whose pull request is open is never done for being left.",
+                                Self::pick(
+                                    "keep-with-pr",
+                                    [("Keep them", true), ("Let them settle", false)],
+                                    self.settings.keep_with_pr,
+                                    |s, v| s.keep_with_pr = v,
+                                    cx,
+                                ),
+                            ),
+                        ],
                     ),
                     group(
                         faces,

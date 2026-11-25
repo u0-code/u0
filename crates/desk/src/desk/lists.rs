@@ -1015,18 +1015,22 @@ impl Desk {
     }
 
     /// Settle what has been left as many days as you said, unless it is
-    /// pinned or settled.
+    /// pinned or settled, or has a pull request open and you said to keep
+    /// those.
     pub(crate) fn settle_idle(&mut self) {
         let Some(days) = self.settings.settle_days else {
             return;
         };
         let after = Duration::from_secs(u64::from(days) * 24 * 3600);
         let now = SystemTime::now();
+        let keep_with_pr = self.settings.keep_with_pr;
         let mut changed = false;
         for s in &mut self.sessions.all {
             let idle = now.duration_since(s.meta.updated).unwrap_or_default() >= after;
+            let open_pr = s.git.pr.as_ref().is_some_and(|p| p.state == "open");
             if idle
                 && !s.meta.flags.kept
+                && !(keep_with_pr && open_pr)
                 && s.meta.flags.pinned.is_none()
                 && s.meta.flags.settled.is_none()
                 && matches!(s.state, State::Closed | State::Idle)

@@ -65,6 +65,13 @@ pub struct Settings {
     /// The days a session is left before it is done; none, never.
     #[serde(default = "week")]
     pub settle_days: Option<u32>,
+    /// A session whose pull request merged, or closed, is done.
+    #[serde(default = "yes")]
+    pub settle_merged: bool,
+    /// A session with an open pull request is not done however long it
+    /// is left.
+    #[serde(default)]
+    pub keep_with_pr: bool,
     /// Times on a twelve-hour clock.
     #[serde(default)]
     pub twelve: bool,
@@ -504,6 +511,8 @@ impl Default for Settings {
             notify_on: NotifyOn::default(),
             awake: yes(),
             settle_days: week(),
+            settle_merged: yes(),
+            keep_with_pr: false,
             width: Width::default(),
             look: Look::default(),
             twelve: false,

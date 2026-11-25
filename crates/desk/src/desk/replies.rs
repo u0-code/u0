@@ -228,11 +228,22 @@ impl Desk {
                 }
             }
             Event::Pr { key, pr } => {
-                let merged = pr.as_ref().is_some_and(|p| p.state == "merged");
+                let ended = |p: &Option<crate::git::Pr>| {
+                    p.as_ref()
+                        .is_some_and(|p| p.state == "merged" || p.state == "closed")
+                };
+                let on = self.settings.settle_merged;
                 if let Some(s) = self.sessions.at_mut(key) {
+                    // Its pull request merged or closed just now, while it
+                    // waits on nothing: the session is done, unless you said
+                    // it never is.
+                    let done = on
+                        && ended(&pr)
+                        && !ended(&s.git.pr)
+                        && !s.meta.flags.kept
+                        && matches!(s.state, State::Idle | State::Closed);
                     s.git.pr = pr;
-                    // Its pull request merged: the session is done.
-                    if merged && s.meta.flags.settled.is_none() {
+                    if done && s.meta.flags.settled.is_none() {
                         s.meta.flags.settled =
                             Some(crate::store::secs(std::time::SystemTime::now()));
                         self.save_index();
