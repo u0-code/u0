@@ -136,44 +136,18 @@ fn is_test(path: &str) -> bool {
         || stem.ends_with("Tests")
 }
 
-/// The lines of `patch` holding `words` (any case): each line's side,
-/// number and the byte span found, for the view to light and step through.
-fn found(patch: &str, words: &str) -> Vec<(DiffSide, usize, std::ops::Range<usize>)> {
+/// Where `words` (in any case) are in `files`' lines, as gpui-kit's view
+/// reads them: each line's place and the byte span found, to light and step
+/// through.
+fn found(files: &[DiffFile], words: &str) -> Vec<(DiffLinePosition, std::ops::Range<usize>)> {
     let needle = words.to_lowercase();
-    let (mut old, mut new) = (0, 0);
     let mut hits = Vec::new();
-    for line in patch.lines() {
-        if let Some(head) = line.strip_prefix("@@ ") {
-            let start = |sign: char| {
-                head.split_whitespace()
-                    .find_map(|w| w.strip_prefix(sign))
-                    .and_then(|w| w.split(',').next()?.parse::<usize>().ok())
-                    .unwrap_or(1)
-            };
-            (old, new) = (start('-'), start('+'));
-            continue;
-        }
-        if old == 0 && new == 0 {
-            continue;
-        }
-        let (side, at, text) = match line.split_at_checked(1) {
-            Some(("-", text)) => (DiffSide::Original, old, text),
-            Some(("+", text)) => (DiffSide::Modified, new, text),
-            Some((" ", text)) => (DiffSide::Modified, new, text),
-            _ => continue,
-        };
+    for (at, text) in files.iter().flat_map(DiffFile::source_lines) {
         let lower = text.to_lowercase();
+        // Only where lowering kept every byte where it was.
         if lower.len() == text.len() {
             for (from, _) in lower.match_indices(&needle) {
-                hits.push((side, at, from..from + needle.len()));
-            }
-        }
-        match side {
-            DiffSide::Original => old += 1,
-            DiffSide::Modified if line.starts_with('+') => new += 1,
-            DiffSide::Modified => {
-                old += 1;
-                new += 1;
+                hits.push((at.clone(), from..from + needle.len()));
             }
         }
     }
@@ -251,14 +225,7 @@ impl Desk {
             self.review.hits = if words.trim().is_empty() {
                 Vec::new()
             } else {
-                shown
-                    .iter()
-                    .flat_map(|f| {
-                        found(&f.patch, &words)
-                            .into_iter()
-                            .map(|(side, line, span)| (f.path.clone(), side, line, span))
-                    })
-                    .collect()
+                found(&parsed, &words)
             };
             state.update(cx, |st, cx| {
                 st.set_files(parsed, cx);
@@ -320,10 +287,10 @@ impl Desk {
             .rem_euclid(n.cast_signed())
             .cast_unsigned();
         self.review.hit = at;
-        let (path, side, line, _) = self.review.hits[at].clone();
+        let (place, _) = self.review.hits[at].clone();
         self.review.diff.update(cx, |st, cx| {
-            st.set_file_collapsed(&path, false, cx);
-            st.scroll_to_line(DiffLinePosition::new(path, side, line), cx);
+            st.set_file_collapsed(place.path(), false, cx);
+            st.scroll_to_line(place, cx);
         });
         cx.notify();
     }
@@ -622,12 +589,11 @@ impl Desk {
                 DiffLinePosition::new(path, DiffSide::Modified, *line),
             ));
         }
-        let lit = self.review.hits.iter().map(|(path, side, line, span)| {
-            DiffSpanHighlight::new(
-                DiffLinePosition::new(path.clone(), *side, *line),
-                span.clone(),
-            )
-        });
+        let lit = self
+            .review
+            .hits
+            .iter()
+            .map(|(place, span)| DiffSpanHighlight::new(place.clone(), span.clone()));
         let input = self.review.comment.clone();
         let (repo, left_out) = (s.repo, s.git.left_out.clone());
         let key = s.key;
@@ -895,13 +861,14 @@ mod tests {
 
     #[test]
     fn words_are_found_on_the_side_and_line_they_are_on() {
-        let patch = "--- a/a.rs\n+++ b/a.rs\n@@ -10,3 +10,3 @@\n keep Foo\n-old foo\n+new FOO\n";
+        let patch = "--- a/a.rs\n+++ b/a.rs\n@@ -10,2 +10,2 @@\n keep Foo\n-old foo\n+new FOO\n";
+        let at = |side, line| DiffLinePosition::new("a.rs", side, line);
         assert_eq!(
-            found(patch, "foo"),
+            found(&DiffFile::parse(patch).unwrap(), "foo"),
             [
-                (DiffSide::Modified, 10, 5..8),
-                (DiffSide::Original, 11, 4..7),
-                (DiffSide::Modified, 11, 4..7),
+                (at(DiffSide::Modified, 10), 5..8),
+                (at(DiffSide::Original, 11), 4..7),
+                (at(DiffSide::Modified, 11), 4..7),
             ]
         );
     }
@@ -915,7 +882,8 @@ mod tests {
         assert_eq!(read.len(), 1);
         assert_eq!(read[0].path().as_ref(), "src/a.rs");
         assert_eq!((read[0].additions(), read[0].deletions()), (1, 1));
-        assert!(found(&file.patch, "2").contains(&(DiffSide::Modified, 11, 4..5)));
+        let at = DiffLinePosition::new("src/a.rs", DiffSide::Modified, 11);
+        assert!(found(&read, "2").contains(&(at, 4..5)));
     }
 
     #[test]

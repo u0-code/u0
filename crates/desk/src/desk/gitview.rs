@@ -9,7 +9,7 @@ use std::{fmt::Write as _, path::PathBuf};
 use gpui::{AppContext as _, Context, Entity, Window};
 
 use gpui::component::{
-    diff::{DiffSide, DiffState},
+    diff::{DiffLinePosition, DiffState},
     input::{InputEvent, InputState},
     tree::TreeState,
 };
@@ -42,7 +42,7 @@ pub struct Review {
     pub tree_open: bool,
     pub find: Entity<InputState>,
     pub finding: bool,
-    pub hits: Vec<(String, DiffSide, usize, std::ops::Range<usize>)>,
+    pub hits: Vec<(DiffLinePosition, std::ops::Range<usize>)>,
     pub hit: usize,
     /// A file to bring into view once the view holds it.
     pub reveal: Option<String>,

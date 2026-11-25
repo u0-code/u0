@@ -9,7 +9,7 @@
 use gpui::component::{
     Sizable as _,
     kbd::Kbd,
-    menu::{ContextMenuExt as _, PopupMenuItem},
+    menu::{PopupMenu, PopupMenuItem},
     tab::{Tab, TabBar},
 };
 use gpui::{Context, Div, Keystroke, MouseButton, SharedString, div, prelude::*, px};
@@ -273,7 +273,45 @@ impl Desk {
             .enumerate()
             .map(|(n, t)| self.tab_of(s, t, n, &column, cx))
             .collect::<Vec<_>>();
-        let desk = cx.entity();
+        // Right-click a tab: what can be done with it and the others.
+        let (desk, shown) = (cx.entity(), column.tabs.clone());
+        let menu_of = move |n: usize,
+                            menu: PopupMenu,
+                            _: &mut gpui::Window,
+                            _: &mut Context<PopupMenu>| {
+            let close = |label: &str, which: fn(usize, usize) -> bool| {
+                let desk = desk.clone();
+                PopupMenuItem::new(label.to_owned()).on_click(move |_, _, cx| {
+                    desk.update(cx, |d, cx| d.close_tabs(|at| which(at, n), cx));
+                })
+            };
+            let mut menu = menu;
+            match shown.get(n) {
+                Some(Surface::File(path)) => {
+                    let copied = path.display().to_string();
+                    menu = menu
+                        .item(PopupMenuItem::new("Copy path").on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(copied.clone()));
+                        }))
+                        .separator();
+                }
+                Some(Surface::Side(key)) => {
+                    let (desk, key) = (desk.clone(), *key);
+                    menu = menu
+                        .item(PopupMenuItem::new("Open in main view").on_click(
+                            move |_, window, cx| {
+                                desk.update(cx, |d, cx| d.show(key, window, cx));
+                            },
+                        ))
+                        .separator();
+                }
+                _ => {}
+            }
+            menu.item(close("Close", |at, n| at == n))
+                .item(close("Close others", |at, n| at != n))
+                .item(close("Close to the right", |at, n| at > n))
+                .item(close("Close all", |_, _| true))
+        };
         div()
             .id("column-tabs")
             .flex()
@@ -294,51 +332,11 @@ impl Desk {
                         .flex_shrink(1.)
                         .selected_index(column.on)
                         .children(tabs)
-                        .on_click(cx.listener(|this, n: &usize, _, cx| this.show_tab(*n, cx))),
+                        .on_click(cx.listener(|this, n: &usize, _, cx| this.show_tab(*n, cx)))
+                        .context_menu(menu_of),
                 )
             })
             .child(menu)
-            // Right-click a tab: what can be done with it and the others.
-            .context_menu(move |menu, _, cx| {
-                let (n, shown) = {
-                    let d = desk.read(cx);
-                    let c = d.column();
-                    (
-                        c.and_then(|c| c.hovered),
-                        c.and_then(|c| c.hovered.and_then(|n| c.tabs.get(n)).cloned()),
-                    )
-                };
-                let Some(n) = n else { return menu };
-                let close = |label: &str, which: fn(usize, usize) -> bool| {
-                    let desk = desk.clone();
-                    PopupMenuItem::new(label.to_owned()).on_click(move |_, _, cx| {
-                        desk.update(cx, |d, cx| d.close_tabs(|at| which(at, n), cx));
-                    })
-                };
-                let mut menu = menu;
-                if let Some(Surface::File(path)) = &shown {
-                    let copied = path.display().to_string();
-                    menu = menu
-                        .item(PopupMenuItem::new("Copy path").on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(copied.clone()));
-                        }))
-                        .separator();
-                }
-                if let Some(Surface::Side(key)) = shown {
-                    let desk = desk.clone();
-                    menu = menu
-                        .item(PopupMenuItem::new("Open in main view").on_click(
-                            move |_, window, cx| {
-                                desk.update(cx, |d, cx| d.show(key, window, cx));
-                            },
-                        ))
-                        .separator();
-                }
-                menu.item(close("Close", |at, n| at == n))
-                    .item(close("Close others", |at, n| at != n))
-                    .item(close("Close to the right", |at, n| at > n))
-                    .item(close("Close all", |_, _| true))
-            })
     }
 
     /// One tab: its icon, which turns into its close mark under the
@@ -385,16 +383,6 @@ impl Desk {
                     cx.notify();
                 }
             }))
-            // The tab right-clicked is the one its menu is of, though the
-            // pointer came straight to it.
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener(move |this, _, _, _| {
-                    if let Some(c) = this.column_mut() {
-                        c.hovered = Some(n);
-                    }
-                }),
-            )
             .on_mouse_down(
                 MouseButton::Middle,
                 cx.listener(move |this, _, _, cx| this.close_tabs(|at| at == n, cx)),
