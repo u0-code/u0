@@ -132,16 +132,16 @@ impl Desk {
     }
 
     /// Whether something goes on in a session of `agent`: a turn, a sign-in,
-    /// or a question to you.
+    /// a question to you, a subagent at work or a task left running in the
+    /// background (a dev server goes with the agent's process).
     pub(crate) fn agent_busy(&self, agent: &str) -> bool {
+        use crate::session::State;
         self.sessions.iter().any(|s| {
             s.agent == agent
-                && (matches!(
-                    s.state,
-                    crate::session::State::Working
-                        | crate::session::State::Opening
-                        | crate::session::State::SignIn
-                ) || s.waiting().is_some())
+                && (matches!(s.state, State::Working | State::Opening | State::SignIn)
+                    || s.waiting().is_some()
+                    || (s.state != State::Closed
+                        && (s.sub.working() || s.tasks.iter().any(|t| t.ended.is_none()))))
         })
     }
 }
