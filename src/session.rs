@@ -199,6 +199,8 @@ pub struct Session {
     pub marks: Vec<(usize, MessageId)>,
     /// The id of the session it was branched off, if it was.
     pub from: Option<String>,
+    /// How much of its thread there was when you last left it.
+    pub seen: Option<usize>,
     /// The scripts run in its new worktree as it was made (ghost.json's),
     /// each in a terminal: said at its head until put away.
     pub setup: Vec<String>,
@@ -592,6 +594,7 @@ impl Session {
             from: None,
             parent: None,
             setup: Vec::new(),
+            seen: None,
             times: Vec::new(),
             stamp: None,
             plan: None,

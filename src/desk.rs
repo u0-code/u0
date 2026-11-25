@@ -1034,6 +1034,7 @@ impl Desk {
                 && let Some(s) = self.session_mut(old)
             {
                 s.unsent = typed;
+                s.seen = Some(s.items.len());
             }
             let unsent = self
                 .sessions

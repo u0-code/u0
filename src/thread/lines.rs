@@ -26,6 +26,8 @@ pub enum Line {
     Row(fold::Row),
     /// Starting, signing in, or stopped: under the last turn.
     State,
+    /// Where you stopped reading when you last left it.
+    Since,
 }
 
 impl Desk {
@@ -63,7 +65,23 @@ impl Desk {
             rows
         };
         let mut out = vec![Line::Head];
-        out.extend(rows.into_iter().map(Line::Row));
+        // What came while you were away is marked where it begins.
+        let since = s.seen.filter(|n| *n > 0 && *n < s.items.len());
+        let mut marked = false;
+        for row in rows {
+            if let (Some(n), false) = (since, marked) {
+                let at = match &row {
+                    fold::Row::Item(i)
+                    | fold::Row::Group { from: i, .. }
+                    | fold::Row::Turn { from: i, .. } => *i,
+                };
+                if at >= n {
+                    out.push(Line::Since);
+                    marked = true;
+                }
+            }
+            out.push(Line::Row(row));
+        }
         if matches!(s.state, State::Opening | State::SignIn | State::Broken(_)) {
             out.push(Line::State);
         }
@@ -228,6 +246,18 @@ impl Desk {
         let el: AnyElement = match line {
             Line::Head => self.turn_header(&faces, s, cx).into_any_element(),
             Line::Row(row) => self.row(&faces, s, row, cx),
+            Line::Since => div()
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .child(div().flex_1().h(px(1.)).bg(theme::link().opacity(0.35)))
+                .child(
+                    ui::text(&faces, "New since you last looked")
+                        .text_size(px(12.))
+                        .text_color(theme::link()),
+                )
+                .child(div().flex_1().h(px(1.)).bg(theme::link().opacity(0.35)))
+                .into_any_element(),
             Line::State => match &s.state {
                 State::Opening => step()
                     .child(div().mx(px(2.)).child(ui::live_dot()))
