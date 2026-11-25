@@ -330,11 +330,10 @@ impl Desk {
     /// An agent's name as the desk shows it.
     pub(crate) fn name_of(&self, id: &str) -> String {
         let (agent, host) = crate::remote::split(id);
-        let registry = self.entry(agent).map_or(agent, |e| e.name.as_str());
-        let name = theme::agent_name(agent, registry).into_owned();
+        let name = self.entry(agent).map_or(agent, |e| e.name.as_str());
         match host {
             Some(host) => format!("{name} on {host}"),
-            None => name,
+            None => name.to_owned(),
         }
     }
 

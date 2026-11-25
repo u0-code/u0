@@ -224,8 +224,8 @@ impl Entry {
     /// Your CLI on the PATH its adapter drives, and the variable that
     /// points the adapter at it.
     pub fn your_cli(&self) -> Option<(&'static str, PathBuf)> {
-        let (_, name, var) = DRIVES.iter().find(|(id, ..)| *id == self.id)?;
-        which(name).map(|p| (*var, p))
+        let (name, var) = known(&self.id)?.1?;
+        which(name).map(|p| (var, p))
     }
 
     /// The CLI it is signed in through: yours on the PATH where its
@@ -392,15 +392,47 @@ pub fn fetch(home: &Path) -> Result<Registry, String> {
 /// The file in a package's install folder that names its program.
 const PROGRAM: &str = "program";
 
-/// The CLI an agent's adapter drives, and the variable that points the
-/// adapter at one. Yours on the PATH is the one it runs, so that its
-/// version, sign-in and settings are those of your terminal; without one
-/// it runs its own. The registry does not say these, so this is the one
-/// list of agents in code.
-const DRIVES: [(&str, &str, &str); 2] = [
-    ("claude-acp", "claude", "CLAUDE_CODE_EXECUTABLE"),
-    ("codex-acp", "codex", "CODEX_PATH"),
+/// What Ghost knows of an agent that the registry does not say, by its id;
+/// the one list of agents in code. Each row is:
+///
+/// - the CLI its adapter drives, and the variable that points the adapter
+///   at one: yours on the PATH is the one it runs, so that its version,
+///   sign-in and settings are those of your terminal; without one it runs
+///   its own;
+/// - whether it is switched on when the desk is first opened;
+/// - the colour its logo is drawn in, on the dark ground and the light:
+///   GPUI draws an icon in one colour, so each gets its brand's own,
+///   deepened on the light ground to keep 3:1 there; a mark that is black
+///   has none and is drawn in the text colour.
+type Known = (
+    &'static str,
+    Option<(&'static str, &'static str)>,
+    bool,
+    Option<(u32, u32)>,
+);
+pub const KNOWN: [Known; 6] = [
+    (
+        "claude-acp",
+        Some(("claude", "CLAUDE_CODE_EXECUTABLE")),
+        true,
+        Some((0xD977_57, 0xD977_57)),
+    ),
+    ("codex-acp", Some(("codex", "CODEX_PATH")), true, None),
+    ("antigravity-acp", None, true, Some((0x8FBD_FF, 0x3C7B_E0))),
+    ("gemini", None, false, Some((0xA99B_FA, 0x6B5B_D6))),
+    ("opencode", None, false, Some((0xB4B4_B4, 0x6E6E_6E))),
+    (
+        "github-copilot-cli",
+        None,
+        false,
+        Some((0xC4C4_C4, 0x6E6E_6E)),
+    ),
 ];
+
+/// What Ghost knows of the agent with this id, if anything.
+pub fn known(id: &str) -> Option<&'static Known> {
+    KNOWN.iter().find(|k| k.0 == id)
+}
 
 /// What installs a runner's package: npm for npx's, uv for uvx's.
 fn installer(runner: &str) -> &'static str {

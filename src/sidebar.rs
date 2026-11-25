@@ -198,11 +198,8 @@ impl Desk {
                             .child(ui::mark(faces, &self.mark_of(&id), 16.)),
                     )
                     .child(
-                        ui::one_line(
-                            ui::text(faces, theme::agent_name(&id, &entry.name).into_owned())
-                                .text_size(px(13.5)),
-                        )
-                        .opacity(0.45),
+                        ui::one_line(ui::text(faces, entry.name.clone()).text_size(px(13.5)))
+                            .opacity(0.45),
                     )
                     .child(fine(faces, "Off"))
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -402,7 +399,7 @@ impl Desk {
         agent_shell(SharedString::from(format!("agent-{id}")), on)
             .child(mark)
             .child(ui::one_line(
-                ui::text(faces, theme::agent_name(&id, &slot.entry.name).into_owned())
+                ui::text(faces, slot.entry.name.clone())
                     .text_size(px(13.5))
                     .text_color(if usable {
                         theme::text()

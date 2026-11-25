@@ -192,29 +192,10 @@ pub fn link_line() -> Hsla {
     pick(0x3F53_6D, 0xB5C9_E8)
 }
 
-/// The colour an agent's logo is drawn in: GPUI draws an icon in one
-/// colour, so each gets its brand's own, by registry id, deepened on the
-/// light ground to keep 3:1 there. A brand whose mark is black is drawn in
-/// the text colour.
+/// The colour the logo of the agent with this id is drawn in
+/// (`registry::KNOWN`).
 pub fn brand(id: &str) -> Hsla {
-    match id {
-        "claude-acp" => c(0xD977_57),
-        "antigravity-acp" => pick(0x8FBD_FF, 0x3C7B_E0),
-        "gemini" => pick(0xA99B_FA, 0x6B5B_D6),
-        "opencode" => pick(0xB4B4_B4, 0x6E6E_6E),
-        "github-copilot-cli" => pick(0xC4C4_C4, 0x6E6E_6E),
-        _ => text(),
-    }
-}
-
-/// The name an agent goes by in the desk: the product's own short name
-/// where the registry's is longer ("Claude Agent" is Claude Code), else the
-/// registry's.
-pub fn agent_name<'a>(id: &str, registry: &'a str) -> std::borrow::Cow<'a, str> {
-    match id {
-        "claude-acp" => "Claude Code".into(),
-        "antigravity-acp" => "Antigravity".into(),
-        "github-copilot-cli" => "Copilot CLI".into(),
-        _ => registry.into(),
-    }
+    crate::registry::known(id)
+        .and_then(|k| k.3)
+        .map_or_else(text, |(dark, light)| pick(dark, light))
 }

@@ -12,9 +12,6 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// The agents switched on when the desk is first opened.
-pub const FIRST: [&str; 3] = ["claude-acp", "codex-acp", "antigravity-acp"];
-
 /// The desk's home.
 pub fn home() -> PathBuf {
     if let Some(dir) = std::env::var_os("GHOST_HOME").filter(|d| !d.is_empty()) {
@@ -234,7 +231,11 @@ pub struct Prefs {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            enabled: FIRST.iter().map(|s| (*s).to_owned()).collect(),
+            enabled: crate::registry::KNOWN
+                .iter()
+                .filter(|k| k.2)
+                .map(|k| k.0.to_owned())
+                .collect(),
             folders: Vec::new(),
             worktree: false,
             by_status: false,

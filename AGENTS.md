@@ -34,10 +34,11 @@ change is held to these rules.
 2. **One source of truth.** The protocol is the `agent-client-protocol` SDK's:
    its connection and its v1 schema types; never hand-built JSON-RPC or JSON
    that mirrors them. The list of agents and how each is installed is the
-   ACP registry's; never a table of agents in code, but one: which CLI an
-   adapter drives and the variable that points it at yours
-   (`registry::DRIVES`), which the registry does not say. Each other fact is
-   defined once and referenced everywhere else.
+   ACP registry's; never a table of agents in code, but one
+   (`registry::KNOWN`): what the registry does not say of an agent (the CLI
+   its adapter drives and the variable that points it at yours, whether it
+   is on at first, its brand's colour). Each other fact is defined once and
+   referenced everywhere else.
 3. **No second mechanism.** Before adding a check, gate, retry, cache,
    second pass or fallback, show that stating the rule once at its source
    does not work.
