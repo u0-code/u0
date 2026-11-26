@@ -86,6 +86,10 @@ pub(super) struct Tools {
 /// Why a tool that acts, or asks you, is not for an agent outside Ghost.
 const OUTSIDE: &str = "Only an agent in a session of Ghost's can do this: Ghost asks you first there. Start one in Ghost.";
 
+/// Why a call is not made: the key it came in with lets no one in now.
+const LET_GO: &str =
+    "The key this agent came in with lets no one in now: start it again with the key in mcp.json";
+
 /// Why a folder is not read for this caller.
 const NOT_HERE: &str = "Only a project of yours, or a worktree of one, is read here";
 
@@ -720,12 +724,18 @@ impl Tools {
     instructions = "Ghost, the app this agent may be running in: the sessions it keeps of your agents, your projects and what is found in them, their diffs, worktrees, pull requests and checks, its workflows and scheduled tasks, the simulators and emulators where it runs; and the user, asked in this session's thread."
 )]
 impl ServerHandler for Tools {
-    /// Each call counted by its tool (`telemetry`), then made.
+    /// Each call made while its key still lets it in, as each request
+    /// over HTTP is: a connection made with a key since replaced (New
+    /// key) or let go calls nothing more. Each counted by its tool
+    /// (`telemetry`), then made.
     async fn call_tool(
         &self,
         request: rmcp::model::CallToolRequestParams,
         context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<rmcp::model::CallToolResponse, rmcp::ErrorData> {
+        if self.caller().is_none() {
+            return Err(rmcp::ErrorData::invalid_request(LET_GO, None));
+        }
         (self.shared.telemetry).count(|c| crate::telemetry::tally(&mut c.tools, &request.name));
         let call = rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
         Self::every().call(call).await
@@ -815,6 +825,9 @@ pub(super) mod tests {
         /// What the tool called last said, and whether as a failure.
         pub(in crate::server) fn result(&mut self) -> (String, bool) {
             let said = self.reply();
+            if let Some(refused) = said["error"]["message"].as_str() {
+                return (refused.to_owned(), true);
+            }
             let result = &said["result"];
             let text = result["content"][0]["text"].as_str().unwrap_or_default();
             (text.to_owned(), result["isError"] == json!(true))
@@ -974,7 +987,7 @@ esac; done"#;
     }
 
     #[test]
-    fn the_tools_keep_their_ports_and_key_until_you_ask_for_a_new_key() {
+    fn the_tools_keep_their_ports_and_key_until_a_new_key_cuts_off_the_old() {
         let home = tempfile::tempdir().unwrap();
         let free = || {
             let l = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
@@ -998,13 +1011,22 @@ esac; done"#;
         // The key is kept, until a new one is asked for: then the old one
         // lets no one in, and the new one is kept.
         assert_eq!(moved.key, door.key);
+        let mut kept = Client::new(home.path(), None);
+        kept.call("list_sessions", &json!({}));
+        assert!(!kept.result().1);
         ghost.handle(Call::NewToolsKey);
+        let _ = door_once(home.path(), |d| d.key != door.key);
+        kept.call("list_sessions", &json!({}));
         let new = door_once(home.path(), |d| d.key != door.key).key;
         assert_eq!((door_once(home.path(), |_| true).port), port);
         let list = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
             "params": {"name": "list_sessions", "arguments": {}}});
         assert!(over_http(home.path(), &door.key, &list).0.contains("401"));
         assert!(over_http(home.path(), &new, &list).0.contains("200"));
+        assert!(
+            kept.result().1,
+            "a pipe opened with the old key calls nothing more"
+        );
         let third = tempfile::tempdir().unwrap();
         let (_third, _) = server(third.path());
         assert_eq!(door_once(third.path(), |_| true).key, new);

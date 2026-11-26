@@ -266,8 +266,9 @@ impl Shared {
     }
 
     /// Give agents outside Ghost a new key, kept from now on and written
-    /// in the door: the old one lets no one in, and its "allowed" go
-    /// with it.
+    /// in the door: the old one lets no one in (a connection made with it
+    /// calls nothing more, `Tools::call_tool`), and its "allowed" go with
+    /// it.
     pub(super) fn new_outside_key(&self) {
         let mut door = match mcp::door(&self.home) {
             Ok(door) => door,
