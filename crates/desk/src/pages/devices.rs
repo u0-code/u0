@@ -126,7 +126,12 @@ impl Desk {
                     .small()
                     .checked(listening)
                     .disabled(!known)
-                    .on_click(cx.listener(move |this, _, _, _| this.share(Share::Serve(!asked))))
+                    .on_click(cx.listener(move |this, _, _, _| {
+                        this.share(Share::Serve(!asked));
+                        if !asked {
+                            this.new_link();
+                        }
+                    }))
                     .into_any_element()
             },
         );
@@ -314,7 +319,10 @@ impl Desk {
                 },
             )
         };
-        let Some((link, at, made_for)) = self.pages.shared.as_ref().and_then(|s| s.link.clone())
+        // The link this desk made, while the server says it is still good.
+        let live = self.pages.shared.as_ref().and_then(|s| s.offer);
+        let Some((link, at, made_for)) =
+            (self.pages.offered.clone()).filter(|(_, made, grant)| live == Some((*made, *grant)))
         else {
             return vec![
                 scope,
@@ -501,6 +509,11 @@ impl Desk {
     /// Make a new pairing link, as chosen above it.
     pub(crate) fn new_link(&mut self) {
         self.share(Share::Link(self.pages.grant, self.pages.route));
+        // This Mac's own server, in this process, is asked for it at once;
+        // one elsewhere tells this desk alone (`Event::Offered`).
+        if let Some(server) = self.machine(self.pages.on).and_then(|m| m.local()) {
+            self.pages.offered = server.offered();
+        }
     }
 
     /// The devices paired with this Mac, each by its key's fingerprint.

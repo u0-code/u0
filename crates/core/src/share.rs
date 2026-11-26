@@ -32,9 +32,8 @@ use crate::{
 pub enum Share {
     /// How it stands: answered, as each change is, with [`Event::Shared`].
     Look,
-    /// Listen, now and each time Ghost starts, with a new pairing link
-    /// for a device of full scope; or stop, cutting off each device
-    /// linked.
+    /// Listen, now and each time Ghost starts; or stop, cutting off each
+    /// device linked.
     Serve(bool),
     /// A new pairing link, for a device as the grant says, naming the
     /// route given (none: the tunnel once it is up, else the first there
@@ -68,9 +67,11 @@ pub struct Shared {
     pub awake: bool,
     /// The devices paired, or why they do not read.
     pub devices: Result<Vec<Device>, String>,
-    /// The pairing link last made, when (seconds since 1970), and what it
-    /// lets in: good once, for ten minutes.
-    pub link: Option<(String, u64, Grant)>,
+    /// When the pairing link last made was made (seconds since 1970), and
+    /// what it lets in, while it is still good (once, for ten minutes).
+    /// Never the link itself: that is told only to whoever made it
+    /// (`Server::offered`), so that no other device can pair with it.
+    pub offer: Option<(u64, Grant)>,
     /// Where it listens beyond 127.0.0.1.
     pub bind: Bind,
     /// The routes a pairing link can name, each with the host it gives;
@@ -168,7 +169,6 @@ impl Server {
                     if self.sharing().port().is_none() {
                         self.share_as_kept(true);
                     }
-                    self.offer(Grant::default(), None);
                 } else {
                     let mut sharing = self.sharing();
                     sharing.stop_tunnel();
@@ -225,6 +225,12 @@ impl Server {
         let made = crate::store::secs(std::time::SystemTime::now());
         self.sharing().link = Some((link.clone(), made, grant));
         Some(link)
+    }
+
+    /// The pairing link last made, when, and what it lets in: for the
+    /// desk that asked for it alone, never said to every link.
+    pub fn offered(&self) -> Option<(String, u64, Grant)> {
+        self.sharing().link.clone()
     }
 
     /// Each way this Ghost is reached, as it listens now: 127.0.0.1, each
@@ -508,9 +514,11 @@ impl Server {
                 devices: kept.map(|k| k.devices),
                 // Only while its code is good: not once used, or past its
                 // ten minutes.
-                link: (sharing.link.clone()).filter(|(l, _, _)| {
-                    reach::pairing(l).is_some_and(|(_, code)| self.access().live(&code).is_some())
-                }),
+                offer: (sharing.link.as_ref())
+                    .filter(|(l, _, _)| {
+                        reach::pairing(l).is_some_and(|(_, c)| self.access().live(&c).is_some())
+                    })
+                    .map(|(_, made, grant)| (*made, *grant)),
             }
         };
         self.say(Event::Shared(Box::new(shared)));

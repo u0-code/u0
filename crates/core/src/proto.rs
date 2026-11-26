@@ -743,6 +743,14 @@ pub enum Event {
     /// session's record so far where `record`; or it ended, how.
     /// What came of the `Call::Say` of `tag`: its session, or why it was
     /// not said; and once its turn ends, what the agent answered.
+    /// The pairing link this desk asked for (`Share::Link`), when it was
+    /// made and what it lets in: said to that desk alone, never to every
+    /// link.
+    Offered {
+        link: String,
+        made: u64,
+        grant: crate::access::Grant,
+    },
     Turned {
         tag: u64,
         session: Result<SessionId, String>,
@@ -1786,6 +1794,11 @@ mod tests {
                 ended: Some(Ok(StopReason::EndTurn)),
             },
             Event::Index(Ok(index)),
+            Event::Offered {
+                link: "ghost://pair?host=a#c".into(),
+                made: 1,
+                grant: crate::access::Grant::default(),
+            },
             Event::Turned {
                 tag: 1,
                 session: Ok(SessionId::new("s1")),
@@ -1805,11 +1818,7 @@ mod tests {
                     paired: 1,
                     seen: 2,
                 }]),
-                link: Some((
-                    "ghost://pair?host=a#c".into(),
-                    1,
-                    crate::access::Grant::default(),
-                )),
+                offer: Some((1, crate::access::Grant::default())),
                 bind: crate::reach::Bind::Network,
                 routes: Ok(vec![(crate::reach::Route::Lan, "192.168.1.5:4318".into())]),
             })),

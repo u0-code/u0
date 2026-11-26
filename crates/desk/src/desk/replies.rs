@@ -683,6 +683,9 @@ impl Desk {
                 }
             }
             Event::Index(index) => self.keep_from(host, index),
+            Event::Offered { link, made, grant } => {
+                self.pages.offered = Some((link, made, grant));
+            }
             Event::Shared(shared) => {
                 self.pages.shared = Some(*shared);
                 // A server here may have paired back with a Mac.
@@ -771,6 +774,7 @@ impl Desk {
                 | Event::Troubles(_)
                 | Event::Telemetry(_)
                 | Event::Shared(_)
+                | Event::Offered { .. }
                 | Event::Tasks(_)
                 | Event::Workflows { .. }
         )

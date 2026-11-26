@@ -678,6 +678,7 @@ pub fn handle(cx: &mut App, shown: &Shown) {
     });
     on::<ShowPairingCode>(cx, shown, |d, window, cx| {
         d.share(crate::share::Share::Serve(true));
+        d.new_link();
         d.open_tab(Tab::Devices, window, cx);
     });
     on::<ZoomWindow>(cx, shown, |_, window, _| window.zoom_window());

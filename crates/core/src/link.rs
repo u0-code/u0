@@ -641,7 +641,17 @@ async fn serve(server: &Arc<Server>, mut ws: Upgraded) -> Result<(), String> {
         tokio::select! {
             heard = ws.next() => match heard {
                 Some(Ok(Message::Text(t))) => match serde_json::from_str::<Call>(&t) {
-                    Ok(call) if Access::allows(scope, &call, server.home()) => server.handle(call),
+                    Ok(call) if Access::allows(scope, &call, server.home()) => {
+                        let offers = matches!(call, Call::Share(crate::share::Share::Link(..)));
+                        server.handle(call);
+                        // The link made is said on this link alone: every
+                        // other device hears only that there is one.
+                        if offers && let Some((link, made, grant)) = server.offered() {
+                            let offered = Event::Offered { link, made, grant };
+                            let frame = serde_json::to_string(&(at, offered)).expect("an event serializes");
+                            next = Some(Message::text(frame));
+                        }
+                    }
                     Ok(_) => {
                         tracing::info!("a call refused: its device may only read");
                         if !std::mem::replace(&mut told, true) {
@@ -1743,10 +1753,14 @@ esac; done"#;
         let home = tempfile::tempdir().unwrap();
         let (server, shared) = sharing(home.path());
         server.share(Share::Serve(true));
-        let on = told(&shared);
-        let (Some(Ok(port)), Some((offered, _, _))) = (on.serving, on.link) else {
+        server.share(Share::Link(crate::access::Grant::default(), None));
+        let on = std::iter::from_fn(|| shared.try_recv().ok())
+            .last()
+            .unwrap();
+        let (Some(Ok(port)), Some(_)) = (on.serving, on.offer) else {
             panic!("listening, with a link")
         };
+        let (offered, ..) = server.offered().unwrap();
         let (way, code) = crate::reach::pairing(&offered).unwrap();
         assert_eq!(way, here(port));
         let key = Key::generate();
@@ -1760,12 +1774,55 @@ esac; done"#;
         let off = std::iter::from_fn(|| shared.try_recv().ok())
             .last()
             .unwrap();
-        assert_eq!((off.serving, off.link), (None, None));
+        assert_eq!((off.serving, off.offer), (None, None));
         assert!(matches!(told(&stood), State::Lost(_)));
         assert!(desk(port, Key::read(&kept).unwrap(), None).is_err());
         assert!(
             server.access().live(&spare).is_none(),
             "no code made before lets a key in"
+        );
+    }
+
+    #[test]
+    fn a_pairing_link_is_told_to_the_desk_that_made_it_and_to_no_other_device() {
+        let home = tempfile::tempdir().unwrap();
+        let (server, shared) = sharing(home.path());
+        server.share(crate::share::Share::Serve(true));
+        let Some(Ok(port)) = told(&shared).serving else {
+            panic!("listening")
+        };
+        let read = crate::access::Grant {
+            scope: crate::access::Scope::Read,
+            ..crate::access::Grant::default()
+        };
+        let watcher = kept();
+        pair_as(&server, port, &watcher, read);
+        let (_watching, _, heard, _) = desk(port, key(&watcher), None).unwrap();
+        let (link, _, mine, _) = desk(port, Key::generate(), Some(&server)).unwrap();
+        link.send(Call::Share(crate::share::Share::Link(
+            crate::access::Grant::default(),
+            None,
+        )));
+        let offered = loop {
+            if let Event::Offered { link, .. } = told(&mine) {
+                break link;
+            }
+        };
+        let (_, code) = crate::reach::pairing(&offered).unwrap();
+        assert!(server.access().live(&code).is_some());
+        // Whatever the watcher heard (that a link was made, sharing as it
+        // stands) holds no code to pair with.
+        let mut said = Vec::new();
+        while let Ok(e) = heard.recv_timeout(Duration::from_millis(500)) {
+            said.push(serde_json::to_string(&e).unwrap());
+        }
+        assert!(
+            said.iter().any(|e| e.contains("offer")),
+            "it heard of the link"
+        );
+        assert!(
+            said.iter().all(|e| !e.contains(&code)),
+            "no code reached it"
         );
     }
 

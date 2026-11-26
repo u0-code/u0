@@ -114,6 +114,9 @@ pub struct Pages {
     pub pairing: bool,
     /// What the next pairing link made lets in.
     pub grant: crate::access::Grant,
+    /// The pairing link this desk last made, when, and what it lets in:
+    /// told to this desk alone.
+    pub offered: Option<(String, u64, crate::access::Grant)>,
     /// The way the next pairing link names; none, the best there is.
     pub route: Option<crate::reach::Route>,
     /// The telemetry level on its slider, and the batch it would send,
@@ -217,6 +220,7 @@ impl Pages {
             pair_link: field("ghost://pair?host=…", window, cx),
             pairing: false,
             grant: crate::access::Grant::default(),
+            offered: None,
             route: None,
             changes: instructions_field(
                 &settings.writer.changes,
