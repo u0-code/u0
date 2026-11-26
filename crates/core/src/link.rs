@@ -262,39 +262,19 @@ async fn respond(
     mut req: hyper::Request<hyper::body::Incoming>,
     upgrade: &Mutex<Option<hyper::upgrade::OnUpgrade>>,
 ) -> Answer {
-    use hyper::{Method, StatusCode, header};
+    use hyper::{Method, StatusCode};
+    use tokio_tungstenite::tungstenite::handshake::server::create_response_with_body;
     if req.method() == Method::POST
         && let Some(token) = req.uri().path().strip_prefix("/hook/")
     {
         let token = token.to_owned();
         return hook(server, &token, req).await;
     }
-    let asks = |name, value: &str| {
-        (req.headers().get_all(name).iter())
-            .filter_map(|v| v.to_str().ok())
-            .flat_map(|v| v.split(','))
-            .any(|v| v.trim().eq_ignore_ascii_case(value))
-    };
-    let key = req.headers().get(header::SEC_WEBSOCKET_KEY).cloned();
-    let (Some(key), true) = (key, asks(header::UPGRADE, "websocket")) else {
+    // The upgrade as tungstenite checks it: a GET, HTTP/1.1, version 13.
+    let Ok(answer) = create_response_with_body(&req, Default::default) else {
         return status(StatusCode::NOT_FOUND);
     };
     *upgrade.lock().expect("upgrade") = Some(hyper::upgrade::on(&mut req));
-    let accept = tokio_tungstenite::tungstenite::handshake::derive_accept_key(key.as_bytes());
-    let mut answer = status(StatusCode::SWITCHING_PROTOCOLS);
-    let headers = answer.headers_mut();
-    headers.insert(
-        header::UPGRADE,
-        header::HeaderValue::from_static("websocket"),
-    );
-    headers.insert(
-        header::CONNECTION,
-        header::HeaderValue::from_static("Upgrade"),
-    );
-    headers.insert(
-        header::SEC_WEBSOCKET_ACCEPT,
-        header::HeaderValue::from_str(&accept).expect("base64 is a header's"),
-    );
     answer
 }
 
@@ -1098,6 +1078,36 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         rt.spawn(listen(server.clone(), listener, None));
         (server, port)
+    }
+
+    #[test]
+    fn only_a_whole_websocket_upgrade_is_taken_up() {
+        use std::io::{Read as _, Write as _};
+        let home = tempfile::tempdir().unwrap();
+        let (_server, port) = server(home.path());
+        let first = |head: &str| {
+            let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+            s.set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            write!(
+                s,
+                "{head}Host: x\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"
+            )
+            .unwrap();
+            let mut said = [0; 12];
+            let _ = s.read_exact(&mut said);
+            String::from_utf8_lossy(&said).into_owned()
+        };
+        let whole = "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\n";
+        assert_eq!(first(&format!("GET / HTTP/1.1\r\n{whole}")), "HTTP/1.1 101");
+        for head in [
+            format!("PUT / HTTP/1.1\r\n{whole}"),
+            "GET / HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n".into(),
+            "GET / HTTP/1.1\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\n".into(),
+            "GET / HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 8\r\n".into(),
+        ] {
+            assert_eq!(first(&head), "HTTP/1.1 404", "{head}");
+        }
     }
 
     #[test]
