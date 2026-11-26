@@ -121,9 +121,14 @@ impl Desk {
                 self.viewer.open_all,
             );
             if self.viewer.held.as_ref() != Some(&held) {
+                let found: std::collections::HashSet<&String> =
+                    crate::desk::rank::paths(files, &words)
+                        .into_iter()
+                        .map(|(f, _)| f)
+                        .collect();
                 let found = files
                     .iter()
-                    .filter(|f| words.is_empty() || f.to_lowercase().contains(&words))
+                    .filter(|f| found.contains(f))
                     .map(String::as_str);
                 let mut items = super::diff::tree_of(found);
                 fold(&mut items, self.viewer.open_all || !words.is_empty());

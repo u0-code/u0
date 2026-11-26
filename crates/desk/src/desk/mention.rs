@@ -444,10 +444,10 @@ impl Desk {
         }
         offers.truncate(3);
         offers.extend(
-            ranked(self.files.get(&s.meta.folder), &query)
+            super::rank::paths(self.files.get(&s.meta.folder).into_iter().flatten(), &query)
                 .into_iter()
                 .take(OFFERS)
-                .map(|f| Offer::File(f.clone())),
+                .map(|(f, _)| Offer::File(f.clone())),
         );
         offers.truncate(OFFERS);
         Some((start, offers))
@@ -750,21 +750,6 @@ pub(crate) fn token_of(title: &str) -> String {
     format!("@{}", crate::ui::fit(title, 32).replace(' ', "-"))
 }
 
-/// The files whose paths hold `query` (in lower case), a name that starts
-/// with it first, then the shortest paths.
-pub(super) fn ranked<'a>(files: Option<&'a Vec<String>>, query: &str) -> Vec<&'a String> {
-    let mut found: Vec<&String> = files
-        .into_iter()
-        .flatten()
-        .filter(|f| f.to_lowercase().contains(query))
-        .collect();
-    found.sort_by_key(|f| {
-        let name = f.rsplit('/').next().unwrap_or_default().to_lowercase();
-        (!name.starts_with(query), f.len())
-    });
-    found
-}
-
 /// A link to the file `f` in `folder`, by a `file:` URI with what needs
 /// escaping in the path escaped; none where `folder` is not absolute.
 fn link(folder: &Path, f: &str) -> Option<ContentBlock> {
@@ -829,28 +814,6 @@ mod tests {
         assert_eq!(next_item("plain"), None);
         assert_eq!(next_item("-not a list"), None);
         assert_eq!(next_item(". no number"), None);
-    }
-
-    #[test]
-    fn a_file_whose_name_starts_with_what_is_typed_comes_before_a_shorter_path() {
-        let files = [
-            "a/ma/b.rs",
-            "app/domain/maps.rs",
-            "docs/Main.md",
-            "src/main.rs",
-            "x.rs",
-        ]
-        .map(String::from)
-        .to_vec();
-        assert_eq!(
-            ranked(Some(&files), "ma"),
-            [
-                "src/main.rs",
-                "docs/Main.md",
-                "app/domain/maps.rs",
-                "a/ma/b.rs"
-            ]
-        );
     }
 
     #[test]

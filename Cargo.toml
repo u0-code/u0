@@ -41,6 +41,8 @@ url = "2.5"
 percent-encoding = "2.3"
 # A program on the PATH, as the shell finds it: executable, first in order.
 which = "8"
+# A file found by what is typed (⌘P, @, the Files tab): Helix's matcher.
+nucleo-matcher = "0.3"
 similar = { version = "2.7", default-features = false, features = ["text"] }
 jiff = "1.0.2"
 tempfile = "3.27"

@@ -583,25 +583,18 @@ impl Desk {
                     .as_deref()
                     .map_or_else(|| "Files".to_owned(), |f| self.project_name(f));
                 let files = folder.as_ref().and_then(|f| self.files.get(f));
-                // As t3code's file picker: the letters typed in order, in
-                // the files' own order; "@", "./" and spaces dropped.
-                let typed: String = typed
-                    .trim_start_matches('@')
-                    .trim_start_matches("./")
-                    .chars()
-                    .filter(|c| !c.is_whitespace())
-                    .collect();
-                let rows = files
+                let typed = typed.trim_start_matches('@').trim_start_matches("./");
+                let rows = super::rank::paths(files.into_iter().flatten(), typed)
                     .into_iter()
-                    .flatten()
-                    .filter(|f| letters_in(&typed, f).is_some())
                     .take(FILES)
-                    .map(|f| {
-                        let file = f.rsplit_once('/').map_or(f.as_str(), |(_, file)| file);
+                    .map(|(f, at)| {
+                        let (folder, file) = f.rsplit_once('/').unwrap_or(("", f.as_str()));
+                        // The letters in its name are drawn bold.
+                        let skip = folder.chars().count() + usize::from(!folder.is_empty());
                         Row {
-                            bold: letters_in(&typed, file)
-                                .unwrap_or_default()
+                            bold: at
                                 .into_iter()
+                                .filter_map(|n| n.checked_sub(skip))
                                 .map(|n| n..n + 1)
                                 .collect(),
                             ..Row::new("file", file, Act::File(f.clone())).sub(f.as_str())
@@ -1043,18 +1036,6 @@ fn match_toggles(desk: &Entity<Desk>, how: crate::git::Match) -> gpui::Div {
             how.regex,
             |h| h.regex = !h.regex,
         ))
-}
-
-/// Where the letters of `typed` stand in `text`, in order, whatever their
-/// case: by character; none where they are not all there.
-fn letters_in(typed: &str, text: &str) -> Option<Vec<usize>> {
-    let mut at = Vec::new();
-    let mut letters = text.chars().enumerate();
-    for t in typed.chars().flat_map(char::to_lowercase) {
-        let (n, _) = letters.find(|(_, c)| c.to_lowercase().eq(std::iter::once(t)))?;
-        at.push(n);
-    }
-    Some(at)
 }
 
 /// Whether the action named `name` needs a session on screen to do

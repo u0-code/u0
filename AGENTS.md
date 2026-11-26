@@ -207,6 +207,7 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
 | A menu opened from a trigger | `Desk::menu`: gpui-kit's Popover, held open by `Desk::popup` |
 | A call from inside the desk's update that may call the desk back (a window call that tells its observers, such as `set_zoom`) | `window.defer`, so it runs once the update is over: the desk updated twice at once panics |
 | Something shown only on hover | `invisible`, and `visible` on `group_hover`, laid over the row; never `hidden`/`flex` on hover, which GPUI can paint without laying out, and panics |
+| What is typed, found | a file path: `rank::paths` (nucleo-matcher); sessions, commands, names: `rank::rank` and `rank::terms` |
 
 ## Data
 
