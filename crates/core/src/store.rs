@@ -182,9 +182,11 @@ pub fn index_path(home: &Path) -> PathBuf {
     home.join("sessions.json")
 }
 
+/// Where the record of the session `id` of `agent` is: under
+/// `transcripts/`, whatever either says (each is made a file's name).
 pub fn record_path(home: &Path, agent: &str, id: &str) -> PathBuf {
     home.join("transcripts")
-        .join(agent)
+        .join(safe(agent))
         .join(format!("{}.jsonl", safe(id)))
 }
 
@@ -345,6 +347,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let path = record_path(&dir, "claude-acp", "a/b");
         assert!(path.ends_with("claude-acp/a_b.jsonl"));
+        // An agent named to lead out of the records leads nowhere.
+        let out = record_path(&dir, "../../etc", "passwd");
+        assert_eq!(
+            out,
+            dir.join("transcripts")
+                .join("______etc")
+                .join("passwd.jsonl")
+        );
         let update: SessionUpdate = serde_json::from_str(
             r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Done."}}"#,
         )
