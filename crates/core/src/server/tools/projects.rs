@@ -50,6 +50,26 @@ struct SearchCode {
     regex: bool,
 }
 
+/// Why a folder is not added as a project.
+const TOO_WIDE: &str = "That folder is too wide to be a project: not the root, your home folder or a folder holding it, nor Ghost's own";
+
+/// Whether `folder`, as it really is, is too wide to be made a project by
+/// an agent: a project is read by agents outside Ghost and devices that
+/// may only read, so it is never the root, your home folder or one that
+/// holds it, nor Ghost's home (`ghost`: its keys and records) or a folder
+/// in it or holding it.
+fn too_wide(folder: &std::path::Path, ghost: &std::path::Path) -> bool {
+    let real = |p: &std::path::Path| std::fs::canonicalize(p).ok();
+    let Some(folder) = real(folder) else {
+        return true;
+    };
+    let yours = std::env::var_os("HOME").and_then(|h| real(h.as_ref()));
+    let ghost = real(ghost);
+    folder.parent().is_none()
+        || yours.is_some_and(|h| h.starts_with(&folder))
+        || ghost.is_some_and(|g| g.starts_with(&folder) || folder.starts_with(&g))
+}
+
 /// The settings kept, or why they are not read (then none are written).
 fn settings(home: &std::path::Path) -> Result<Settings, String> {
     match Settings::load(home) {
@@ -72,6 +92,9 @@ impl Tools {
     async fn add_project(&self, Parameters(ask): Parameters<AddProject>) -> Result<String, String> {
         if !ask.folder.is_absolute() || !ask.folder.is_dir() {
             return Err("Name a folder that is there, by its whole path".into());
+        }
+        if too_wide(&ask.folder, &self.shared.home) {
+            return Err(TOO_WIDE.into());
         }
         let shown = ask.folder.display().to_string();
         self.allowed("add_project", format!("Add the project {shown}"), &ask)
@@ -193,15 +216,18 @@ mod tests {
         assert_eq!(said("find_files", find), refused);
         let grep = json!({"folder": elsewhere, "words": "build"});
         assert_eq!(said("search_code", grep), refused);
-        let add = json!({"folder": elsewhere});
+        let away = tempfile::tempdir().unwrap();
+        let add = json!({"folder": away.path()});
         assert_eq!(said("add_project", add), (OUTSIDE.to_owned(), true));
     }
 
     #[test]
     fn a_session_adds_a_project_once_you_allow_it_and_the_desk_is_told() {
         let home = tempfile::tempdir().unwrap();
-        let other = home.path().join("other");
+        let elsewhere = tempfile::tempdir().unwrap();
+        let other = elsewhere.path().join("other");
         std::fs::create_dir(&other).unwrap();
+        let other = other.canonicalize().unwrap();
         let (server, said, mut client) = in_session(home.path(), home.path());
         client.call("add_project", &json!({"folder": other}));
         let title = answer_card(&server, &said, "once");
@@ -228,5 +254,22 @@ mod tests {
         assert!(kept().contains(&other_text), "written");
         client.call("add_project", &json!({"folder": "not/whole"}));
         assert!(client.result().1, "a folder by its whole path alone");
+        let mut wide = vec![
+            std::path::PathBuf::from("/"),
+            home.path().to_path_buf(),
+            home.path().join("transcripts"),
+        ];
+        wide.extend(std::env::var_os("HOME").map(std::path::PathBuf::from));
+        std::fs::create_dir_all(home.path().join("transcripts")).unwrap();
+        for folder in wide {
+            client.call("add_project", &json!({"folder": folder}));
+            let refused = client.result();
+            assert_eq!(
+                refused,
+                (super::TOO_WIDE.to_owned(), true),
+                "{}",
+                folder.display()
+            );
+        }
     }
 }

@@ -65,7 +65,7 @@ in **Settings › Agents** and switch them off. That agent's id is added to
 | `interrupt_session` | Stop the turn going on in a session. | Sessions in Ghost; asks you first, in that session |
 | `events` | What happened in the sessions Ghost runs (a turn ended, an agent asks you), each numbered: call again with the last number (`after`) to follow on, and with `seconds` to wait for something to happen. `missed` says some of it is no longer kept. | Any agent |
 | `list_projects` | Your projects: their folders, as the sidebar lists them. | Any agent |
-| `add_project` | Make a `folder` (its whole path) one of your projects, first in the list; every window open on that Ghost shows it at once. | Sessions in Ghost; asks you first |
+| `add_project` | Make a `folder` (its whole path) one of your projects, first in the list; every window open on that Ghost shows it at once. Not the root, your home folder or a folder holding it, nor Ghost's home or a folder in it. | Sessions in Ghost; asks you first |
 | `search_sessions` | The sessions whose title, or what was said in them, holds `query` (case aside), the latest first, as `list_sessions` gives them. | Any agent |
 | `find_files` | The files git sees in a `folder` whose paths hold the letters of `query` in order, as Ghost's file finder finds them (`smr` finds `src/main.rs`), the best first, fifty at most. | Any agent |
 | `search_code` | Where `words` are in the files git sees in a `folder`: `path:line` and the line, fifty at most; `case`, `word` and `regex` as the Files tab's search. | Any agent |
@@ -75,7 +75,7 @@ in **Settings › Agents** and switch them off. That agent's id is added to
 | `merge_pr` | Merge a pull request, its branch deleted after: `how` (squash, merge or rebase; none, as **General › Pull requests › Merged as** says), now or once its checks pass (`auto`). | Sessions in Ghost; asks you first |
 | `pr_checks` | A pull request's checks: each one's name, how it stands, where it ran, and for one that failed on GitHub Actions the `run` that `ci_log` reads. | Any agent |
 | `ci_log` | The end of what a failed `run` of the checks printed. | Any agent |
-| `list_workflows` | Your workflows: each one's name, what it is for and its steps, or why its file does not read; and their runs, with where each stands and the steps it has done. | Any agent |
+| `list_workflows` | Your workflows: each one's name, what it is for and its steps, or why its file does not read; and their runs, with where each stands and the steps it has done. An agent that may only read is not given a `run` step's command, nor what a step gave back. | Any agent |
 | `start_workflow` | Begin a run of a `workflow` with `input`: its id. | Sessions in Ghost; asks you first |
 | `list_tasks` | The scheduled tasks: each one's id, title, prompt, agent, project, schedule, whether it is paused, and its last run. A webhook's address is never given. | Any agent |
 | `change_task` | Pause a task (`id`), resume it, run it now or remove it (`change`). | Sessions in Ghost; asks you first |
@@ -95,7 +95,13 @@ There are two kinds of caller:
   you on a permission card in that session's thread, the same card the
   agent's own questions use, with **Allow**, **Always allow** and
   **Reject**. **Always allow** holds for that tool in that session until
-  the session's connection ends.
+  the session's connection ends. The card for `review_pr` and `merge_pr`
+  names the pull request, its repository (by its address) and all it
+  does: the verdict, or the method, whether it waits for the checks, and
+  the branch deleted. `merge_pr`, `start_workflow`, `change_task` and
+  `remove_worktree` never offer **Always allow**: what they do cannot be
+  undone, and text an agent reads (a pull request, a CI log, code) could
+  steer what it asks of them.
 - **An agent outside Ghost** (below). It reads: `list_sessions`,
   `read_session`, `read_diff`, `wait_for_turn`, `events`, `list_devices`,
   `device_screen`, and each tool that lists, finds or reads above (a

@@ -86,6 +86,17 @@ pub(super) struct Tools {
 /// Why a tool that acts, or asks you, is not for an agent outside Ghost.
 const OUTSIDE: &str = "Only an agent in a session of Ghost's can do this: Ghost asks you first there. Start one in Ghost.";
 
+/// The tools asked of you each time, never allowed always: what they do
+/// cannot be undone, and what they are given can be steered by text an
+/// agent reads but nobody vetted (a pull request's body, a CI log, code,
+/// a webhook), so a yes once must not become a yes to that text.
+const EACH_TIME: [&str; 4] = [
+    "merge_pr",
+    "start_workflow",
+    "change_task",
+    "remove_worktree",
+];
+
 /// Why a call is not made: the key it came in with lets no one in now.
 const LET_GO: &str =
     "The key this agent came in with lets no one in now: start it again with the key in mcp.json";
@@ -126,6 +137,16 @@ impl Tools {
         (self.shared.callers.lock().expect("callers"))
             .get(&self.key)
             .map(|c| c.who.clone())
+    }
+
+    /// Whether it may only read, as a device of read scope does: an agent
+    /// outside Ghost, or on such a device. It is told what would let it
+    /// act as such a device is (`Event::for_reader`).
+    fn reads_only(&self) -> bool {
+        !matches!(
+            self.caller(),
+            Some(Caller::Session(..) | Caller::Device(Scope::Full))
+        )
     }
 
     /// Ask you whether `tool` may do what `title` says, with `input`, in
@@ -184,16 +205,16 @@ impl Tools {
             return Ok(());
         }
         // Every agent outside Ghost comes in by the one key `mcp.json`
-        // holds: a yes for always would be a yes to each of them, so it
-        // is asked each time.
-        let shared_key = self.caller() == Some(Caller::Outside);
+        // holds: a yes for always would be a yes to each of them; and
+        // some tools are asked each time whoever calls (`EACH_TIME`).
+        let each_time = self.caller() == Some(Caller::Outside) || EACH_TIME.contains(&tool);
         let options = [
             Some(PermissionOption::new(
                 "once",
                 "Allow",
                 PermissionOptionKind::AllowOnce,
             )),
-            (!shared_key).then(|| {
+            (!each_time).then(|| {
                 PermissionOption::new("always", "Always allow", PermissionOptionKind::AllowAlways)
             }),
             Some(PermissionOption::new(
@@ -222,7 +243,7 @@ impl Tools {
             return Err("You did not allow it".into());
         };
         match &*chosen.option_id.0 {
-            "always" if !shared_key => {
+            "always" if !each_time => {
                 self.always.lock().expect("always").insert(tool);
                 Ok(())
             }

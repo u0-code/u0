@@ -42,18 +42,29 @@ impl Tools {
     /// The workflows (your files in Ghost's `workflows` folder): each
     /// one's name, what it is for and its steps, or why its file does
     /// not read; and their runs, each one's id, input, state and the
-    /// steps it has done.
+    /// steps it has done. To one that may only read, no step's command
+    /// nor what a step gave back, as a device of read scope is told them.
     #[tool]
     async fn list_workflows(&self) -> Result<String, String> {
-        let flows: Vec<_> = (workflows::load(&self.shared.home).into_iter())
+        let flows = workflows::load(&self.shared.home);
+        let runs = (self.shared.runs.lock().expect("runs").clone()).map(|r| r.runs);
+        let all = Event::Workflows { flows, runs };
+        let told = if self.reads_only() {
+            all.for_reader()
+        } else {
+            Some(all)
+        };
+        let Some(Event::Workflows { flows, runs }) = told else {
+            return Err("The workflows could not be told".into());
+        };
+        let flows: Vec<_> = (flows.into_iter())
             .map(|flow| match flow {
                 Ok(f) => serde_json::json!({"name": f.name, "about": f.about,
                     "agent": f.agent, "project": f.project, "steps": f.steps}),
                 Err((name, why)) => serde_json::json!({"name": name, "does_not_read": why}),
             })
             .collect();
-        let runs = self.shared.runs.lock().expect("runs").clone();
-        said(&serde_json::json!({"workflows": flows, "runs": runs.map(|r| r.runs)}))
+        said(&serde_json::json!({"workflows": flows, "runs": runs}))
     }
 
     /// Begin a run of a workflow with `input`: its id, whose state
@@ -165,6 +176,10 @@ mod tests {
         assert!(client.result().1, "turned down, it stays");
         client.call("change_task", &json!({"id": 9, "change": "run"}));
         assert!(client.result().0.contains("No task has that id"));
+        // Never allowed always: a yes is for this once.
+        client.call("change_task", &json!({"id": 2, "change": "resume"}));
+        answer_card(&server, &said, "always");
+        assert_eq!(client.result(), ("You did not allow it".to_owned(), true));
         let mut outside = Client::new(home.path(), None);
         outside.call("change_task", &json!({"id": 2, "change": "resume"}));
         assert_eq!(outside.result(), (OUTSIDE.to_owned(), true));
@@ -176,7 +191,8 @@ mod tests {
         let flows = crate::workflows::folder(home.path());
         std::fs::create_dir(&flows).unwrap();
         let ask = json!({"about": "Ship it", "steps": [
-            {"ask": {"name": "go", "title": "Go?", "choices": ["Yes"]}}]});
+            {"ask": {"name": "go", "title": "Go?", "choices": ["Yes"]}},
+            {"run": {"name": "push", "command": "push --token s3cret"}}]});
         std::fs::write(flows.join("release.json"), ask.to_string()).unwrap();
         std::fs::write(flows.join("broken.json"), "{").unwrap();
         let (server, said, mut client) = in_session(home.path(), home.path());
@@ -187,6 +203,15 @@ mod tests {
             .map(|f| f["name"].as_str().unwrap())
             .collect();
         assert_eq!(names, ["broken", "release"]);
+        assert!(listed.to_string().contains("s3cret"));
+        // One that may only read is not told a command.
+        let mut outside = Client::new(home.path(), None);
+        outside.call("list_workflows", &json!({}));
+        let (read, _) = outside.result();
+        assert!(
+            read.contains("release") && !read.contains("s3cret"),
+            "{read}"
+        );
         client.call(
             "start_workflow",
             &json!({"workflow": "release", "input": "v2"}),

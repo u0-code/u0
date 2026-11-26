@@ -955,7 +955,10 @@ impl Event {
     /// This event as a device that may only read is told it, where it
     /// carries what would let one act: a webhook task's address (its
     /// token) taken out; the settings as it reads them in its welcome
-    /// (`Settings::for_reader`). None where it carries nothing such.
+    /// (`Settings::for_reader`); the workflows without their steps'
+    /// commands, their runs without what each step gave back or why one
+    /// paused (a command's output may hold a key). None where it carries
+    /// nothing such.
     pub fn for_reader(&self) -> Option<Self> {
         match self {
             Self::Settings(settings) => Some(Self::Settings(Box::new(settings.for_reader()))),
@@ -967,6 +970,31 @@ impl Event {
                     t
                 })
                 .collect()))),
+            Self::Workflows { flows, runs } => Some(Self::Workflows {
+                flows: (flows.iter().cloned())
+                    .map(|flow| {
+                        flow.map(|mut f| {
+                            for step in &mut f.steps {
+                                if let workflows::Step::Run { command, .. } = step {
+                                    command.clear();
+                                }
+                            }
+                            f
+                        })
+                    })
+                    .collect(),
+                runs: runs.clone().map(|runs| {
+                    (runs.into_iter())
+                        .map(|mut run| {
+                            run.done.iter_mut().for_each(|d| d.result.clear());
+                            if let workflows::State::Paused(why) = &mut run.state {
+                                why.clear();
+                            }
+                            run
+                        })
+                        .collect()
+                }),
+            }),
             _ => None,
         }
     }

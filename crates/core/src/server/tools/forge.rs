@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use super::{Tools, off, said};
 use crate::{
     git::Method,
-    github::{Act, Answer, Ask, Detail, Kind, Line},
+    github::{Act, Answer, Ask, Detail, Item, Kind, Line},
     settings::Settings,
 };
 
@@ -117,6 +117,38 @@ fn merge(ask: &MergePr, settings: &Settings) -> Act {
     }
 }
 
+/// The pull request `number` of `folder`'s host, as it is now: what its
+/// card names. Asked only of an agent in a session of Ghost's, for none
+/// other may act.
+async fn about(tools: &Tools, folder: PathBuf, number: u64) -> Result<Item, String> {
+    tools.session().ok_or(super::OUTSIDE)?;
+    let Answer::Viewed(_, read) = asked(folder, Ask::View(number)).await? else {
+        return Err("The host said nothing of it".into());
+    };
+    Ok(read?.item)
+}
+
+/// The card's title for `act` on `pr`: which pull request, of which
+/// repository (its address), and all it does.
+fn card(pr: &Item, act: &Act) -> String {
+    let named = format!("pull request #{} “{}” ({})", pr.number, pr.title, pr.url);
+    match act {
+        Act::Merge { how, auto, .. } => {
+            let when = if *auto { ", once its checks pass" } else { "" };
+            format!(
+                "Merge {named} into {} by {how}{when}, then delete its branch {}",
+                pr.base, pr.branch
+            )
+        }
+        Act::Review { verdict, .. } => match verdict.as_str() {
+            "approve" => format!("Approve {named}"),
+            "request-changes" => format!("Request changes on {named}"),
+            _ => format!("Comment on {named}"),
+        },
+        _ => named,
+    }
+}
+
 /// The review `ask` asks for, its verdict as the hosts take it.
 fn review(ask: ReviewPr) -> Act {
     let verdict = match ask.verdict {
@@ -186,10 +218,12 @@ impl Tools {
     #[tool]
     async fn review_pr(&self, Parameters(ask): Parameters<ReviewPr>) -> Result<String, String> {
         let folder = self.folder(ask.folder.clone())?;
-        let title = format!("Review pull request #{}", ask.number);
-        self.allowed("review_pr", title, &ask).await?;
+        let pr = about(self, folder.clone(), ask.number).await?;
         let number = ask.number;
-        acted(asked(folder, Ask::Act(number, review(ask))).await?, number)
+        let input = serde_json::to_value(&ask).map_err(|e| e.to_string())?;
+        let act = review(ask);
+        self.allowed("review_pr", card(&pr, &act), &input).await?;
+        acted(asked(folder, Ask::Act(number, act)).await?, number)
     }
 
     /// Merge a pull request, its branch deleted after: now, or once its
@@ -197,9 +231,9 @@ impl Tools {
     #[tool]
     async fn merge_pr(&self, Parameters(ask): Parameters<MergePr>) -> Result<String, String> {
         let folder = self.folder(ask.folder.clone())?;
-        let title = format!("Merge pull request #{}", ask.number);
-        self.allowed("merge_pr", title, &ask).await?;
+        let pr = about(self, folder.clone(), ask.number).await?;
         let act = merge(&ask, &Settings::load(&self.shared.home).0.of(&folder));
+        self.allowed("merge_pr", card(&pr, &act), &ask).await?;
         acted(asked(folder, Ask::Act(ask.number, act)).await?, ask.number)
     }
 
@@ -291,6 +325,29 @@ mod tests {
         .unwrap();
         let runs: Vec<_> = checks(&detail).iter().map(|c| c["run"].clone()).collect();
         assert_eq!(runs, [json!("123"), json!(null)]);
+    }
+
+    #[test]
+    fn a_cards_title_names_the_repository_the_pull_request_and_all_the_act_does() {
+        let pr: Item = serde_json::from_value(json!({"number": 7, "title": "Fix it",
+            "state": "open", "draft": false, "author": "a", "labels": [], "updated": "",
+            "url": "https://github.com/o/r/pull/7", "branch": "fix", "base": "main",
+            "review": "", "checks": [0, 0, 0], "comments": 0}))
+        .unwrap();
+        let settings = Settings::default();
+        let ask: MergePr =
+            serde_json::from_value(json!({"number": 7, "how": "rebase", "auto": true})).unwrap();
+        assert_eq!(
+            card(&pr, &merge(&ask, &settings)),
+            "Merge pull request #7 “Fix it” (https://github.com/o/r/pull/7) into main by rebase, once its checks pass, then delete its branch fix"
+        );
+        let ask: ReviewPr = serde_json::from_value(json!({"number": 7,
+            "verdict": "approve", "body": "Yes"}))
+        .unwrap();
+        assert_eq!(
+            card(&pr, &review(ask)),
+            "Approve pull request #7 “Fix it” (https://github.com/o/r/pull/7)"
+        );
     }
 
     #[test]
