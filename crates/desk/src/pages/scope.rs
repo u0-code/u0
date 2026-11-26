@@ -12,7 +12,6 @@ use super::prefs::{group, whole};
 use crate::{
     desk::{Desk, Popup},
     settings::Settings,
-    theme,
     ui::{self, Pick, Weight},
 };
 
@@ -21,7 +20,7 @@ impl Desk {
     /// project its choices marked so are set for.
     pub(super) fn scope_group(w: &WeakEntity<Desk>) -> SettingGroup {
         group(
-            "",
+            "Applying to",
             vec![whole(
                 w,
                 &["project", "override", "scope"],
@@ -58,7 +57,6 @@ impl Desk {
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .child(ui::text(faces, "Applying to").text_color(theme::muted()))
                     .child(menu)
                     .child(ui::fine(
                         faces,
