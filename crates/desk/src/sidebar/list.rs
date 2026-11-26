@@ -12,7 +12,7 @@ use std::{
 };
 
 use gpui::component::{
-    Icon, Sizable as _,
+    Sizable as _,
     button::{Button, ButtonVariants as _},
     input::Input,
     list::ListItem,
@@ -968,7 +968,7 @@ fn item(
     f: impl Fn(&mut Window, &mut App) + 'static,
 ) -> PopupMenuItem {
     PopupMenuItem::new(label)
-        .icon(Icon::empty().path(format!("icons/{icon}.svg")))
+        .icon(ui::glyph(icon))
         .on_click(move |_, window, cx| f(window, cx))
 }
 
@@ -1022,7 +1022,7 @@ fn session_menu(
     } else {
         let desk = desk.clone();
         menu.submenu_with_icon(
-            Some(Icon::empty().path("icons/clock.svg")),
+            Some(ui::glyph("clock")),
             "Snooze",
             window,
             cx,
@@ -1083,7 +1083,7 @@ fn session_menu(
     if !f.others.is_empty() {
         let (others, hand) = (f.others.clone(), desk.clone());
         menu = menu.submenu_with_icon(
-            Some(Icon::empty().path("icons/corner-up-right.svg")),
+            Some(ui::glyph("corner-up-right")),
             "Continue with",
             window,
             cx,
@@ -1108,7 +1108,7 @@ fn session_menu(
         f.link.clone(),
     );
     menu = menu.separator().submenu_with_icon(
-        Some(Icon::empty().path("icons/copy.svg")),
+        Some(ui::glyph("copy")),
         "Copy",
         window,
         cx,
@@ -1185,7 +1185,7 @@ fn chosen_menu(
             d.chosen.clear();
         }))
         .submenu_with_icon(
-            Some(Icon::empty().path("icons/clock.svg")),
+            Some(ui::glyph("clock")),
             format!("Snooze ({n})"),
             window,
             cx,

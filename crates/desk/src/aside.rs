@@ -17,10 +17,10 @@ use std::time::SystemTime;
 
 use agent_client_protocol::v1::schema::{ToolCallContent, ToolCallStatus};
 use gpui::component::{
-    Sizable as _, button::Button, input::Input, popover::Popover, progress::Progress,
-    scroll::ScrollableElement as _,
+    Sizable as _, button::Button, input::Input, list::ListItem, menu::PopupMenu, popover::Popover,
+    progress::Progress, scroll::ScrollableElement as _,
 };
-use gpui::{Context, Div, SharedString, div, prelude::*, px};
+use gpui::{Context, Div, Entity, SharedString, div, prelude::*, px};
 
 use crate::{
     desk::{Desk, RIGHT, TOPBAR, draggable},
@@ -129,7 +129,7 @@ impl Desk {
         let head = top()
             .child(self.strip(faces, s, cx))
             .when(self.surface() == Some(Surface::Details), |d| {
-                d.child(self.details_chooser(faces, cx))
+                d.child(self.details_chooser(cx))
             })
             .children(
                 s.branch
@@ -242,53 +242,42 @@ impl Desk {
     }
 
     /// What opens the choice of the details shown.
-    fn details_chooser(
-        &self,
-        faces: &Faces,
-        cx: &mut Context<Self>,
-    ) -> gpui::component::popover::Popover {
-        let faces = faces.clone();
+    fn details_chooser(&self, cx: &mut Context<Self>) -> gpui::component::popover::Popover {
         let chooser =
             ui::icon_button("details-rows", "sliders", "Choose what shows here").size(px(24.));
         self.menu(
             crate::desk::Popup::Details,
             chooser,
-            move |d, _, cx| d.details_menu(&faces, cx),
+            |d, menu, desk, _| d.details_menu(menu, desk),
             cx,
         )
         .anchor(gpui::Anchor::TopRight)
     }
 
     /// Which of the details show, each ticked or not, and all again.
-    fn details_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let mut menu = div().flex().flex_col().w(px(200.));
-        for (n, d) in Detail::ALL.into_iter().enumerate() {
+    fn details_menu(&self, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
+        for d in Detail::ALL {
             let on = !self.settings.hidden_details.contains(&d);
-            menu = menu.child(
-                ui::menu_row(SharedString::from(format!("detail-{n}")), false)
-                    .child(ui::text(faces, d.head()).flex_1().text_size(px(13.)))
-                    .when(on, |r| r.child(ui::icon("check", 13.)))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        let hidden = &mut this.settings.hidden_details;
-                        if on {
-                            hidden.push(d);
-                        } else {
-                            hidden.retain(|h| *h != d);
-                        }
-                        this.save_settings();
-                        cx.notify();
-                    })),
-            );
-        }
-        menu.child(
-            ui::menu_row("details-reset", false)
-                .child(ui::text(faces, "Show them all").text_size(px(13.)))
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.settings.hidden_details.clear();
+            menu = menu.item(
+                Self::menu_item(desk, d.head(), move |this, _, cx| {
+                    let hidden = &mut this.settings.hidden_details;
+                    if on {
+                        hidden.push(d);
+                    } else {
+                        hidden.retain(|h| *h != d);
+                    }
                     this.save_settings();
                     cx.notify();
-                })),
-        )
+                })
+                .checked(on),
+            );
+        }
+        menu.separator()
+            .item(Self::menu_item(desk, "Show them all", |this, _, cx| {
+                this.settings.hidden_details.clear();
+                this.save_settings();
+                cx.notify();
+            }))
     }
 
     /// What goes on beside the session (or its parent, on a subagent's own
@@ -477,7 +466,7 @@ impl Desk {
             .child(fine_mono(faces, ui::fit(branch, 22)))
             .child(ui::icon("chevron-down", 10.).text_color(theme::faint()));
         let (faces, key, branch) = (faces.clone(), s.key, branch.to_owned());
-        self.menu(
+        self.popover(
             crate::desk::Popup::Branch,
             chip,
             move |d, _, cx| d.branch_menu(&faces, key, &branch, cx),
@@ -499,20 +488,13 @@ impl Desk {
         let branches = self.sessions.at(key).map(|s| s.git.branches.as_slice());
         for (n, b) in branches.unwrap_or_default().iter().enumerate() {
             let (on, name) = (b == branch, b.clone());
+            let copied = name.clone();
             menu = menu.child(
-                div()
-                    .id(SharedString::from(format!("branch-{n}")))
-                    .flex()
-                    .items_center()
-                    .px(px(8.))
-                    .h(px(28.))
-                    .rounded(px(7.))
-                    .cursor_pointer()
-                    .when(on, |d| d.bg(theme::panel2()))
-                    .hover(|st| st.bg(theme::hover()))
-                    .child(ui::mono(faces, ui::fit(b, 30)).text_size(px(12.)).flex_1())
-                    .child({
-                        let copied = name.clone();
+                ListItem::new(SharedString::from(format!("branch-{n}")))
+                    .selected(on)
+                    .child(ui::mono(faces, ui::fit(b, 30)).text_size(px(12.)))
+                    .suffix(move |_, _| {
+                        let copied = copied.clone();
                         ui::icon_button(
                             SharedString::from(format!("branch-copy-{n}")),
                             "copy",

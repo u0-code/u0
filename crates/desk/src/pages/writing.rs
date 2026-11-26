@@ -5,17 +5,16 @@ use agent_client_protocol::v1::schema::SessionConfigOptionCategory as Category;
 use gpui::component::{
     Selectable as _, Sizable as _,
     input::{Textarea, TextareaState},
-    scroll::ScrollableElement as _,
+    menu::PopupMenu,
     setting::{SettingItem, SettingPage},
     switch::Switch,
 };
-use gpui::{Axis, Context, Div, Entity, SharedString, WeakEntity, div, prelude::*, px};
+use gpui::{Axis, Context, Entity, WeakEntity, prelude::*, px};
 
 use super::prefs::{group, item};
 use crate::{
     desk::{Desk, Popup},
     fonts::Faces,
-    theme,
     thread::select_choices,
     ui,
 };
@@ -105,23 +104,21 @@ impl Desk {
                     .map(|a| ui::mark(faces, &self.mark_of(a), 14.)),
             )
             .child(shown);
-        let faces = faces.clone();
         self.menu(
             Popup::Writer,
             trigger,
-            move |d, _, cx| {
-                let w = d.settings.writer.clone();
+            |d, menu, desk, _| {
+                let w = &d.settings.writer;
                 d.models_menu(
-                    &faces,
+                    menu,
+                    desk,
                     Some("The session's agent"),
                     (w.agent.as_deref(), w.model.as_deref()),
                     |d, agent, model| {
                         (d.settings.writer.agent, d.settings.writer.model) = (agent, model);
                         d.save_settings();
                     },
-                    cx,
                 )
-                .overflow_y_scrollbar()
             },
             cx,
         )
@@ -138,71 +135,34 @@ impl Desk {
     }
 
     /// The agents switched on, each with its models, to choose one from;
-    /// `own`, where given, names a choice of none first. `chosen` is lit;
-    /// picking one hands it to `set`.
+    /// `own`, where given, names a choice of none first. `chosen` is
+    /// ticked; picking one hands it to `set`.
     pub(super) fn models_menu(
         &self,
-        faces: &Faces,
+        mut menu: PopupMenu,
+        desk: &Entity<Self>,
         own: Option<&str>,
         chosen: (Option<&str>, Option<&str>),
         set: fn(&mut Self, Option<String>, Option<String>),
-        cx: &mut Context<Self>,
-    ) -> gpui::Stateful<Div> {
-        let pick = |id: String,
-                    label: String,
-                    on: bool,
-                    agent: Option<String>,
-                    model: Option<String>,
-                    cx: &mut Context<Self>| {
-            ui::menu_row(SharedString::from(id), on)
-                .child(ui::one_line(ui::text(faces, label).text_size(px(13.))))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    set(this, agent.clone(), model.clone());
-                    this.popup = Popup::Closed;
-                    cx.notify();
-                }))
+    ) -> PopupMenu {
+        let pick = |label: String, on: bool, agent: Option<String>, model: Option<String>| {
+            Self::menu_item(desk, label, move |this, _, cx| {
+                set(this, agent.clone(), model.clone());
+                cx.notify();
+            })
+            .checked(on)
         };
-        let mut list = div()
-            .id("models-menu")
-            .flex()
-            .flex_col()
-            .w(px(300.))
-            .max_h(px(420.));
         if let Some(own) = own {
-            list = list.child(pick(
-                "models-own".into(),
-                own.into(),
-                chosen.0.is_none(),
-                None,
-                None,
-                cx,
-            ));
+            menu = menu.item(pick(own.into(), chosen.0.is_none(), None, None));
         }
         for slot in &self.slots {
             let agent = slot.entry.id.clone();
             let on = chosen.0 == Some(agent.as_str());
-            list = list.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .px(px(8.))
-                    .pt(px(10.))
-                    .pb(px(4.))
-                    .child(ui::mark(faces, &self.mark_of(&agent), 14.))
-                    .child(
-                        ui::text(faces, self.name_of(&agent))
-                            .text_size(px(12.))
-                            .text_color(theme::muted()),
-                    ),
-            );
-            list = list.child(pick(
-                format!("models-{agent}"),
+            menu = menu.label(self.name_of(&agent)).item(pick(
                 "Its default model".into(),
                 on && chosen.1.is_none(),
                 Some(agent.clone()),
                 None,
-                cx,
             ));
             let models = slot
                 .probe
@@ -217,17 +177,10 @@ impl Desk {
                 .unwrap_or_default();
             for (value, name, _) in models {
                 let is_chosen = on && chosen.1 == Some(value.as_str());
-                list = list.child(pick(
-                    format!("models-{agent}-{value}"),
-                    name,
-                    is_chosen,
-                    Some(agent.clone()),
-                    Some(value),
-                    cx,
-                ));
+                menu = menu.item(pick(name, is_chosen, Some(agent.clone()), Some(value)));
             }
         }
-        list
+        menu.min_w(px(300.))
     }
 }
 

@@ -35,11 +35,12 @@ use gpui::component::{
     bubble::{Bubble, BubbleContent, BubbleVariant},
     button::Button,
     input::Textarea,
+    menu::{PopupMenu, PopupMenuItem},
     message::MessageAlignment,
     popover::Popover,
     scroll::ScrollableElement as _,
 };
-use gpui::{AnyElement, Context, Div, SharedString, Stateful, div, prelude::*, px};
+use gpui::{AnyElement, Context, Div, Entity, SharedString, div, prelude::*, px};
 
 use crate::{
     desk::Desk,
@@ -636,81 +637,52 @@ impl Desk {
                     .text_color(theme::text2()),
             )
             .child(ui::icon("chevron-down", 11.).text_color(theme::faint()));
-        let (faces, key) = (faces.clone(), s.key);
+        let key = s.key;
         self.menu(
             crate::desk::Popup::Base,
             chip,
-            move |d, _, cx| {
-                // The pull requests it lists are asked for once, as it opens.
-                d.want_offers();
-                d.base_menu(&faces, key, cx).overflow_y_scrollbar()
-            },
+            move |d, menu, desk, _| d.base_menu(key, menu, desk),
             cx,
         )
     }
 
     /// The local branches a new worktree can begin from, then the open
-    /// pull requests.
-    fn base_menu(&self, faces: &Faces, key: u64, cx: &mut Context<Self>) -> Stateful<Div> {
+    /// pull requests (asked for as it opens).
+    fn base_menu(&self, key: u64, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
         use crate::session::Begin;
-        let mut list = div()
-            .id("base-menu")
-            .flex()
-            .flex_col()
-            .w(px(288.))
-            .max_h(px(348.));
         let Some(s) = self.sessions.at(key) else {
-            return list;
+            return menu;
         };
-        let pick = |n: usize, label: String, on: bool, begin: Begin, cx: &mut Context<Self>| {
-            div()
-                .id(SharedString::from(format!("base-{n}")))
-                .flex()
-                .items_center()
-                .h(px(30.))
-                .px(px(10.))
-                .rounded(px(7.))
-                .cursor_pointer()
-                .when(on, |d| d.bg(theme::hover()))
-                .hover(|st| st.bg(theme::hover()))
-                .child(ui::one_line(ui::mono(faces, label).text_size(px(12.5))))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    if let Some(s) = this.sessions.at_mut(key) {
-                        s.begin = Some(begin.clone());
-                    }
-                    this.popup = crate::desk::Popup::Closed;
-                    cx.notify();
-                }))
+        let pick = |label: String, on: bool, begin: Begin| {
+            Self::menu_item(desk, label, move |this, _, cx| {
+                if let Some(s) = this.sessions.at_mut(key) {
+                    s.begin = Some(begin.clone());
+                }
+                cx.notify();
+            })
+            .checked(on)
         };
-        for (n, b) in s.git.branches.iter().enumerate() {
+        for b in &s.git.branches {
             let on = match &s.begin {
                 Some(Begin::Branch(f)) => f == b,
                 Some(Begin::Pr(..)) => false,
                 None => Some(b) == s.branch.as_ref(),
             };
-            list = list.child(pick(n, b.clone(), on, Begin::Branch(b.clone()), cx));
+            menu = menu.item(pick(b.clone(), on, Begin::Branch(b.clone())));
         }
         let prs = self.prs.get(&s.meta.project).filter(|p| !p.is_empty());
         if let Some(prs) = prs {
-            list = list.child(
-                div()
-                    .px(px(10.))
-                    .pt(px(8.))
-                    .pb(px(4.))
-                    .child(meta(faces, "Pull requests: on its own branch")),
-            );
-            for (n, (number, title)) in prs.iter().enumerate() {
+            menu = menu.separator().label("Pull requests: on its own branch");
+            for (number, title) in prs {
                 let on = matches!(&s.begin, Some(Begin::Pr(p, _)) if p == number);
-                list = list.child(pick(
-                    s.git.branches.len() + n,
+                menu = menu.item(pick(
                     format!("#{number} {}", ui::fit(title, 34)),
                     on,
                     Begin::Pr(*number, title.clone()),
-                    cx,
                 ));
             }
         }
-        list
+        menu.min_w(px(288.))
     }
 
     fn item(
@@ -769,7 +741,7 @@ impl Desk {
                             self.menu(
                                 crate::desk::Popup::Rewind(at, i),
                                 Self::under(&key, "rewind", "retry", "Roll back to here"),
-                                move |d, _, cx| d.rewind_menu(&faces, at, i, cx),
+                                move |d, menu, desk, _| d.rewind_menu(&faces, at, i, menu, desk),
                                 cx,
                             )
                             .anchor(gpui::Anchor::TopRight),
@@ -1376,56 +1348,41 @@ impl Desk {
 
     /// How to take the session back to your message at `item`: keeping
     /// the files as they are, or putting them back as they were before.
-    fn rewind_menu(&self, faces: &Faces, key: u64, item: usize, cx: &mut Context<Self>) -> Div {
+    fn rewind_menu(
+        &self,
+        faces: &Faces,
+        key: u64,
+        item: usize,
+        menu: PopupMenu,
+        desk: &Entity<Self>,
+    ) -> PopupMenu {
         let files = self.sessions.at(key).is_some_and(|s| {
             s.repo
                 && s.turn_of(item)
                     .and_then(|t| s.turns.get(t))
                     .is_some_and(|t| t.before.is_some())
         });
-        let row = |id: &'static str, label: &'static str, about: &'static str| {
-            div()
-                .id(id)
-                .flex()
-                .flex_col()
-                .px(px(10.))
-                .py(px(6.))
-                .rounded(px(7.))
-                .cursor_pointer()
-                .hover(|st| st.bg(theme::hover()))
-                .child(ui::text(faces, label).text_size(px(13.)))
-                .child(
-                    ui::text(faces, about)
-                        .text_size(px(12.))
-                        .text_color(theme::faint()),
-                )
-        };
-        div()
-            .flex()
-            .flex_col()
-            .w(px(288.))
-            .child(
-                row(
-                    "rewind-keep",
-                    "Roll back to here",
-                    "What came after is left behind; it is in the composer to say again. The files stay as they are.",
-                )
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.rewind(key, item, false, window, cx);
-                })),
-            )
-            .when(files, |d| {
-                d.child(
-                    row(
-                        "rewind-files",
-                        "Roll back to here, files too",
-                        "The files go back to how they were before this.",
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.rewind(key, item, true, window, cx);
-                    })),
-                )
+        let row = |label: &'static str, about: &'static str, files: bool| {
+            let faces = faces.clone();
+            PopupMenuItem::element(move |_, _| {
+                ui::described(&faces, label, Some(about)).w(px(268.))
             })
+            .on_click(Self::does(desk, move |this, window, cx| {
+                this.rewind(key, item, files, window, cx);
+            }))
+        };
+        menu.item(row(
+            "Roll back to here",
+            "What came after is left behind; it is in the composer to say again. The files stay as they are.",
+            false,
+        ))
+        .when(files, |m| {
+            m.item(row(
+                "Roll back to here, files too",
+                "The files go back to how they were before this.",
+                true,
+            ))
+        })
     }
 
     /// A folded stretch of the thread, as Claude sets it: what was done in

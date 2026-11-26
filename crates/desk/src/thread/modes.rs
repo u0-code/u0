@@ -3,8 +3,13 @@
 //! list, whether the agent says its modes as modes or as an option.
 
 use agent_client_protocol::v1::schema::SessionConfigOptionCategory as Category;
-use gpui::component::{Selectable as _, kbd::Kbd, list::ListItem, popover::Popover};
-use gpui::{Anchor, Context, Div, SharedString, Window, div, prelude::*, px};
+use gpui::component::{
+    Selectable as _,
+    kbd::Kbd,
+    menu::{PopupMenu, PopupMenuItem},
+    popover::Popover,
+};
+use gpui::{Anchor, Context, Entity, Window, div, prelude::*, px};
 
 use super::composer::over_box;
 use crate::{
@@ -109,7 +114,7 @@ impl Desk {
             self.menu(
                 Popup::Mode,
                 chip,
-                move |d, _, cx| d.mode_menu(&faces, cx),
+                move |d, menu, desk, _| d.mode_menu(&faces, menu, desk),
                 cx,
             ),
             Anchor::BottomRight,
@@ -124,90 +129,56 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> Option<Popover> {
         let name = Self::mode_name(s)?;
-        let open = self.popup == Popup::ModelMode;
         let button = ui::opener("picker-mode")
             .h(px(28.))
-            .selected(open)
+            .selected(self.popup == Popup::ModelMode)
             .child(
                 ui::text(faces, name)
                     .text_size(px(12.))
                     .text_color(theme::muted()),
             )
             .child(ui::icon("chevron-up", 12.).text_color(theme::faint()));
-        let (desk, drawn, faces) = (cx.entity(), cx.entity(), faces.clone());
+        let faces = faces.clone();
         Some(
-            Popover::new("picker-mode-menu")
-                .anchor(Anchor::BottomRight)
-                .p(px(6.))
-                .open(open)
-                .trigger(button)
-                .on_open_change(move |open, _, cx| {
-                    desk.update(cx, |d, cx| {
-                        if *open {
-                            d.popup = Popup::ModelMode;
-                        } else if d.popup == Popup::ModelMode {
-                            d.popup = Popup::Model;
-                        }
-                        cx.notify();
-                    });
-                })
-                .content(move |_, _, cx| drawn.update(cx, |d, cx| d.mode_menu(&faces, cx))),
+            self.menu(
+                Popup::ModelMode,
+                button,
+                move |d, menu, desk, _| d.mode_menu(&faces, menu, desk),
+                cx,
+            )
+            .anchor(Anchor::BottomRight),
         )
     }
 
     /// The session's modes as Claude lists them: each one's name over what
     /// it does, the one now ticked, ⌘1 to ⌘9 beside the first nine.
-    fn mode_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let mut menu = div().flex().flex_col().w(px(300.)).child(
-            ui::text(faces, "Mode · this session")
-                .px(px(8.))
-                .pt(px(4.))
-                .pb(px(6.))
-                .text_size(px(12.))
-                .text_color(theme::faint()),
-        );
+    fn mode_menu(&self, faces: &Faces, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
+        // Each has its icon, so the one chosen is ticked at the end.
+        menu = (menu.label("Mode · this session").min_w(px(300.)))
+            .check_side(gpui::component::Side::Right);
         let Some((config, modes)) = self.session().and_then(modes_of) else {
             return menu;
         };
         for (n, m) in modes.into_iter().enumerate() {
             let icon = mode_icon(&m.id, &m.name);
             let (config, id, on) = (config.clone(), m.id, m.on);
-            menu = menu.child(
-                ListItem::new(SharedString::from(format!("mode-{n}")))
-                    .px(px(8.))
-                    .py(px(5.))
-                    .rounded(px(6.))
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(8.))
-                            .child(ui::icon(icon, 15.).mt(px(2.)).text_color(theme::muted()))
-                            .child(
-                                div()
-                                    .flex()
-                                    .flex_col()
-                                    .child(ui::text(faces, m.name).text_size(px(14.)))
-                                    .children(m.about.map(|a| {
-                                        ui::text(faces, a)
-                                            .text_size(px(12.))
-                                            .text_color(theme::faint())
-                                    })),
-                            ),
-                    )
-                    .suffix(move |_, _| {
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .when(on, |d| {
-                                d.child(ui::icon("check", 14.).text_color(theme::accent()))
-                            })
-                            .when(n < 9, |d| d.child(Kbd::new(crate::keys::numbered(n + 1))))
-                    })
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.pick_mode(config.clone(), id.clone(), cx);
-                        this.close_popup(window, cx);
-                    })),
+            let (faces, name, about) = (faces.clone(), m.name, m.about);
+            menu = menu.item(
+                PopupMenuItem::element(move |_, _| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .w(px(276.))
+                        .child(ui::described(&faces, name.clone(), about.clone()).flex_1())
+                        .when(n < 9, |d| d.child(Kbd::new(crate::keys::numbered(n + 1))))
+                })
+                .icon(ui::glyph(icon))
+                .checked(on)
+                .on_click(Self::does(desk, move |this, window, cx| {
+                    this.pick_mode(config.clone(), id.clone(), cx);
+                    this.close_popup(window, cx);
+                })),
             );
         }
         menu

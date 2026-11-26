@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use gpui::component::{
-    Icon, Sizable as _,
+    Sizable as _,
     button::{Button, ButtonVariants as _},
     input::Input,
     menu::{DropdownMenu as _, PopupMenuItem},
@@ -231,7 +231,7 @@ impl Desk {
                     Button::new("all-projects")
                         .ghost()
                         .small()
-                        .icon(Icon::empty().path("icons/chevron-left.svg"))
+                        .icon(ui::glyph("chevron-left"))
                         .label("Projects")
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.pages.project = None;

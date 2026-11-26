@@ -210,7 +210,7 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
 | A tool for agents | a `#[tool]` in `server/tools.rs`, over what the server already does for a `Call`; one that acts calls `Tools::allowed` first |
 | Text written for you (a title, a commit message, ...) | `Desk::ask_writer` with a `writer::Ask`: the writer agent, in a session of its own |
 | A widget (switch, button, menu, ...) | `gpui::component` (gpui-kit, which the desk names `gpui`), coloured by `theme::kit` |
-| A menu opened from a trigger | `Desk::menu`: gpui-kit's Popover, held open by `Desk::popup` |
+| A menu opened from a trigger | `Desk::menu`: gpui-kit's PopupMenu (items, ticked for a choice) in a Popover held open by `Desk::popup`; one with a line to type in, `Desk::popover`; a choice among several in the settings, gpui-kit's `SettingField::dropdown` |
 | A call from inside the desk's update that may call the desk back (a window call that tells its observers, such as `set_zoom`) | `window.defer`, so it runs once the update is over: the desk updated twice at once panics |
 | Something shown only on hover | `invisible`, and `visible` on `group_hover`, laid over the row; never `hidden`/`flex` on hover, which GPUI can paint without laying out, and panics |
 | A setting in the settings dialog | `prefs::item` (a gpui-kit SettingItem whose control the desk draws), under `prefs::group`; a page drawn whole, `prefs::whole` |

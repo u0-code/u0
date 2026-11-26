@@ -2,8 +2,12 @@
 //! what is to be said later in the session, each a chip under the box
 //! with its list over it.
 
-use gpui::component::{button::Button, popover::Popover};
-use gpui::{Context, Div, SharedString, Window, div, prelude::*, px};
+use gpui::component::{
+    button::Button,
+    menu::{PopupMenu, PopupMenuItem},
+    popover::Popover,
+};
+use gpui::{Context, Div, Entity, SharedString, Window, div, prelude::*, px};
 
 use super::composer::over_line;
 use crate::{
@@ -41,26 +45,52 @@ impl Desk {
         over_line(self.menu(
             Popup::Stash,
             mark,
-            move |d, _, cx| d.stashed_list(&faces, cx),
+            move |d, menu, desk, _| d.stashed_list(&faces, menu, desk),
             cx,
         ))
     }
 
+    /// A line of a menu that can be let go (its ×), as `let_go` does.
+    fn going_item(
+        desk: &Entity<Self>,
+        id: SharedString,
+        line: impl Fn(&Faces) -> Div + 'static,
+        faces: &Faces,
+        let_go: impl Fn(&mut Self) + 'static,
+    ) -> PopupMenuItem {
+        let (desk, faces, let_go) = (desk.clone(), faces.clone(), std::rc::Rc::new(let_go));
+        PopupMenuItem::element(move |_, _| {
+            let (desk, let_go) = (desk.clone(), let_go.clone());
+            line(&faces)
+                .w(px(300.))
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .child(
+                    ui::icon_button(id.clone(), "x", "Let it go")
+                        .size(px(22.))
+                        .on_click(move |_, _, cx| {
+                            cx.stop_propagation();
+                            desk.update(cx, |d, cx| {
+                                let_go(d);
+                                d.menu_changed += 1;
+                                cx.notify();
+                            });
+                        }),
+                )
+        })
+    }
+
     /// What was put aside, the latest first: a click takes it back.
-    fn stashed_list(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let mut list = div().flex().flex_col().w(px(348.)).child(
-            ui::label(faces, "Put aside")
-                .px(px(8.))
-                .pt(px(6.))
-                .pb(px(4.)),
-        );
+    fn stashed_list(&self, faces: &Faces, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
+        menu = menu.label("Put aside");
         for (n, stashed) in self.composer.stashed.iter().enumerate().rev() {
             let first = stashed.text.lines().next().unwrap_or_default().to_owned();
             let with = stashed.attached.len();
-            list = list.child(
-                ui::menu_row(SharedString::from(format!("stash-{n}")), false)
+            let line = move |faces: &Faces| {
+                div()
                     .child(
-                        ui::one_line(ui::text(faces, first).text_size(px(13.)))
+                        ui::one_line(ui::text(faces, first.clone()).text_size(px(13.)))
                             .flex_1()
                             .min_w(px(0.)),
                     )
@@ -71,28 +101,21 @@ impl Desk {
                                 .text_color(theme::faint()),
                         )
                     })
-                    .child(
-                        ui::icon_button(
-                            SharedString::from(format!("stash-drop-{n}")),
-                            "x",
-                            "Let it go",
-                        )
-                        .size(px(22.))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            cx.stop_propagation();
-                            if n < this.composer.stashed.len() {
-                                this.composer.stashed.remove(n);
-                                this.save_stash();
-                            }
-                            cx.notify();
-                        })),
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.take_stashed(n, window, cx);
-                    })),
+            };
+            let id = SharedString::from(format!("stash-drop-{n}"));
+            menu = menu.item(
+                Self::going_item(desk, id, line, faces, move |this| {
+                    if n < this.composer.stashed.len() {
+                        this.composer.stashed.remove(n);
+                        this.save_stash();
+                    }
+                })
+                .on_click(Self::does(desk, move |this, window, cx| {
+                    this.take_stashed(n, window, cx);
+                })),
             );
         }
-        list
+        menu
     }
 
     /// The clock: what is in the composer said later, once or each day,
@@ -108,46 +131,38 @@ impl Desk {
         over_line(self.menu(
             Popup::Later,
             mark,
-            move |d, _, cx| d.later_list(&faces, key, cx),
+            move |d, menu, desk, cx| d.later_list(&faces, key, menu, desk, cx),
             cx,
         ))
     }
 
     /// When to say what is written, and what waits to be said.
-    fn later_list(&self, faces: &Faces, key: u64, cx: &mut Context<Self>) -> Div {
+    fn later_list(
+        &self,
+        faces: &Faces,
+        key: u64,
+        mut menu: PopupMenu,
+        desk: &Entity<Self>,
+        cx: &gpui::App,
+    ) -> PopupMenu {
         use crate::desk::Later;
         let written = !self.typed(cx).trim().is_empty();
-        let mut list = div().flex().flex_col().w(px(308.)).child(
-            ui::label(
-                faces,
-                if written {
-                    "Say what you wrote"
-                } else {
-                    "Write it first, then say when"
-                },
-            )
-            .px(px(8.))
-            .pt(px(6.))
-            .pb(px(4.)),
-        );
+        menu = menu.label(if written {
+            "Say what you wrote"
+        } else {
+            "Write it first, then say when"
+        });
         if written {
-            for (n, (label, when)) in [
+            for (label, when) in [
                 ("In 30 minutes", Later::In(30)),
                 ("In an hour", Later::In(60)),
                 ("In 3 hours", Later::In(180)),
                 ("Tomorrow at 9:00", Later::Tomorrow),
                 ("Each day at 9:00", Later::Daily),
-            ]
-            .into_iter()
-            .enumerate()
-            {
-                list = list.child(
-                    ui::menu_row(SharedString::from(format!("later-{n}")), false)
-                        .child(ui::text(faces, label).flex_1().text_size(px(13.)))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.send_later(when, window, cx);
-                        })),
-                );
+            ] {
+                menu = menu.item(Self::menu_item(desk, label, move |this, window, cx| {
+                    this.send_later(when, window, cx);
+                }));
             }
         }
         let waiting = self
@@ -157,12 +172,7 @@ impl Desk {
             .unwrap_or_default();
         if !waiting.is_empty() {
             let now = std::time::SystemTime::now();
-            list = list.child(
-                ui::label(faces, "Waiting to be said")
-                    .px(px(8.))
-                    .pt(px(10.))
-                    .pb(px(4.)),
-            );
+            menu = menu.separator().label("Waiting to be said");
             for task in waiting {
                 let id = task.id;
                 let when = match &task.schedule {
@@ -171,45 +181,29 @@ impl Desk {
                     }
                     other => other.said(self.settings.twelve),
                 };
-                list = list.child(
-                    ui::menu_row(SharedString::from(format!("waiting-{id}")), false)
+                let prompt = task.prompt.lines().next().unwrap_or_default().to_owned();
+                let line = move |faces: &Faces| {
+                    div()
                         .child(
-                            ui::text(faces, when)
+                            ui::text(faces, when.clone())
                                 .flex_none()
                                 .text_size(px(12.))
                                 .text_color(theme::faint()),
                         )
                         .child(
-                            ui::one_line(
-                                ui::text(
-                                    faces,
-                                    task.prompt.lines().next().unwrap_or_default().to_owned(),
-                                )
-                                .text_size(px(13.)),
-                            )
-                            .flex_1()
-                            .min_w(px(0.)),
+                            ui::one_line(ui::text(faces, prompt.clone()).text_size(px(13.)))
+                                .flex_1()
+                                .min_w(px(0.)),
                         )
-                        .child(
-                            ui::icon_button(
-                                SharedString::from(format!("later-drop-{id}")),
-                                "x",
-                                "Let it go",
-                            )
-                            .size(px(22.))
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    this.drop_task(id);
-                                    cx.notify();
-                                },
-                            )),
-                        ),
-                );
+                };
+                let drop = SharedString::from(format!("later-drop-{id}"));
+                menu = menu.item(Self::going_item(desk, drop, line, faces, move |this| {
+                    this.drop_task(id);
+                }));
             }
         }
-        list
+        menu
     }
-
     /// The scheduled tasks said in the session `s` that are still to run.
     fn waiting_in(&self, s: &crate::session::Session) -> Vec<&crate::tasks::Task> {
         let tasks = self

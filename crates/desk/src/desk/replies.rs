@@ -233,6 +233,7 @@ impl Desk {
             } => {
                 self.prs.insert(folder.clone(), prs);
                 self.issues.insert(folder, issues);
+                self.menu_changed += 1;
             }
             Event::PrText { number, text } => {
                 for m in &mut self.composer.mentions {

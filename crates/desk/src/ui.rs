@@ -30,6 +30,11 @@ pub fn icon(name: &str, size: f32) -> Svg {
         .text_color(theme::muted())
 }
 
+/// A line icon by name, as gpui-kit's components take one (a menu's item).
+pub fn glyph(name: &str) -> Icon {
+    Icon::empty().path(format!("icons/{name}.svg"))
+}
+
 /// Mono text: times, counts, hashes, keys.
 pub fn mono(faces: &Faces, text: impl Into<SharedString>) -> Div {
     div()
@@ -86,7 +91,7 @@ pub fn mark(faces: &Faces, mark: &Mark, size: f32) -> AnyElement {
 /// A raised panel with a soft edge, over the page, for what floats but
 /// opens from no trigger: the composer's offers, what a terminal's chosen
 /// cells offer. A menu that opens from a
-/// trigger is a Popover (`Desk::menu`).
+/// trigger is a `PopupMenu` (`Desk::menu`).
 pub fn menu(id: impl Into<gpui::ElementId>) -> gpui::Stateful<Div> {
     div()
         .id(id)
@@ -214,21 +219,19 @@ pub fn counts(faces: &Faces, added: usize, gone: usize, size: f32) -> Div {
         })
 }
 
-/// A line of a menu: 30 high, corners of 7, lit on hover; the one chosen
-/// on the lifted ground. Drawn here, not taken from gpui-kit: its own menu
-/// item element is private to it.
-pub fn menu_row(id: impl Into<gpui::ElementId>, on: bool) -> gpui::Stateful<Div> {
+/// What a menu's item says when one line is not enough: its name, and
+/// under it, fainter, what it does.
+pub fn described(
+    faces: &Faces,
+    label: impl Into<SharedString>,
+    about: Option<impl Into<SharedString>>,
+) -> Div {
     div()
-        .id(id)
         .flex()
-        .items_center()
-        .gap(px(10.))
-        .px(px(8.))
-        .h(px(30.))
-        .rounded(px(7.))
-        .cursor_pointer()
-        .when(on, |d| d.bg(theme::panel2()))
-        .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
+        .flex_col()
+        .py(px(2.))
+        .child(text(faces, label).text_size(px(13.)))
+        .children(about.map(|a| text(faces, a).text_size(px(12.)).text_color(theme::faint())))
 }
 
 /// What opens a menu where it is not an icon (a chip, a line): gpui-kit's
@@ -246,7 +249,7 @@ pub fn icon_button(
 ) -> Button {
     Button::new(id)
         .ghost()
-        .icon(Icon::empty().path(format!("icons/{icon_name}.svg")))
+        .icon(glyph(icon_name))
         .tooltip(tip_text)
 }
 

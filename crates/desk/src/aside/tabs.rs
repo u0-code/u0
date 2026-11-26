@@ -9,10 +9,11 @@
 use gpui::component::{
     Sizable as _,
     kbd::Kbd,
+    list::ListItem,
     menu::{PopupMenu, PopupMenuItem},
     tab::{Tab, TabBar},
 };
-use gpui::{Context, Div, Keystroke, MouseButton, SharedString, div, prelude::*, px};
+use gpui::{Context, Div, Entity, Keystroke, MouseButton, SharedString, div, prelude::*, px};
 
 use crate::{
     desk::{Desk, Popup},
@@ -263,7 +264,7 @@ impl Desk {
             .menu(
                 Popup::Surfaces,
                 add,
-                move |d, _, cx| d.surface_list(&faces2, cx).w(px(232.)),
+                move |d, menu, desk, _| d.surface_menu(&faces2, menu, desk),
                 cx,
             )
             .anchor(gpui::Anchor::TopLeft);
@@ -419,25 +420,57 @@ impl Desk {
         }
     }
 
-    /// What can be opened in the column, each with its letter: the Open…
-    /// menu, and the column's page when every tab is closed.
+    /// The key that opens what `letter` stands for while the Open… menu is
+    /// open.
+    fn letter_key(letter: char) -> Kbd {
+        Kbd::new(Keystroke {
+            modifiers: gpui::Modifiers::default(),
+            key: letter.to_ascii_lowercase().to_string(),
+            key_char: None,
+        })
+    }
+
+    /// The Open… menu: what can be opened in the column, each with its
+    /// letter.
+    fn surface_menu(&self, faces: &Faces, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
+        for (name, icon, letter) in OFFERS {
+            let faces = faces.clone();
+            menu = menu.item(
+                PopupMenuItem::element(move |_, _| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .w(px(200.))
+                        .child(ui::text(&faces, name).flex_1().text_size(px(13.)))
+                        .child(Self::letter_key(letter))
+                })
+                .icon(ui::glyph(icon))
+                .disabled(!self.offered(letter))
+                .on_click(Self::does(desk, move |this, _, cx| this.offer(letter, cx))),
+            );
+        }
+        menu
+    }
+
+    /// What can be opened in the column, each with its letter: the
+    /// column's page when every tab is closed.
     pub(super) fn surface_list(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let mut list = div().flex().flex_col();
         for (name, icon, letter) in OFFERS {
             let on = self.offered(letter);
             list = list.child(
-                ui::menu_row(SharedString::from(format!("offer-{letter}")), false)
-                    .when(!on, |d| d.opacity(0.45).cursor_default())
-                    .child(ui::icon(icon, 15.))
-                    .child(ui::text(faces, name).flex_1().text_size(px(13.)))
-                    .child(Kbd::new(Keystroke {
-                        modifiers: gpui::Modifiers::default(),
-                        key: letter.to_ascii_lowercase().to_string(),
-                        key_char: None,
-                    }))
-                    .when(on, |d| {
-                        d.on_click(cx.listener(move |this, _, _, cx| this.offer(letter, cx)))
-                    }),
+                ListItem::new(SharedString::from(format!("offer-{letter}")))
+                    .disabled(!on)
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(10.))
+                            .child(ui::icon(icon, 15.))
+                            .child(ui::text(faces, name).flex_1().text_size(px(13.)))
+                            .child(Self::letter_key(letter)),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| this.offer(letter, cx))),
             );
         }
         list

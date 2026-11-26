@@ -7,7 +7,7 @@ use std::time::SystemTime;
 use gpui::component::{
     Selectable as _, Sizable as _,
     input::{Input, Textarea},
-    scroll::ScrollableElement as _,
+    menu::PopupMenu,
     switch::Switch,
     tag::Tag,
 };
@@ -155,51 +155,42 @@ impl Desk {
                         cx.notify();
                     })),
             )
-            .child(self.task_menu(faces, menu_id, cx))
+            .child(self.task_menu(menu_id, cx))
     }
 
     /// A task's menu: change it, run it now, delete it.
-    fn task_menu(&self, faces: &Faces, id: u64, cx: &mut Context<Self>) -> impl IntoElement {
+    fn task_menu(&self, id: u64, cx: &mut Context<Self>) -> impl IntoElement {
         let trigger = ui::icon_button(
             SharedString::from(format!("task-menu-{id}")),
             "dots",
             "More",
         )
         .selected(self.popup == Popup::Task(id));
-        let faces = faces.clone();
         self.menu(
             Popup::Task(id),
             trigger,
-            move |_, _, cx| {
-                let item = |n: &str, icon: &str, label: &str| {
-                    ui::menu_row(SharedString::from(format!("task-{n}-{id}")), false)
-                        .child(ui::icon(icon, 14.).text_color(theme::muted()))
-                        .child(ui::text(&faces, label.to_owned()).text_size(px(13.)))
-                };
-                div()
-                    .flex()
-                    .flex_col()
-                    .w(px(180.))
-                    .child(item("edit", "pencil", "Edit").on_click(cx.listener(
-                        move |this, _, window, cx| {
-                            this.popup = Popup::Closed;
-                            this.edit_task(id, window, cx);
-                        },
-                    )))
-                    .child(item("run", "play", "Run now").on_click(cx.listener(
-                        move |this, _, _, cx| {
-                            this.popup = Popup::Closed;
-                            this.run_task(id);
-                            cx.notify();
-                        },
-                    )))
-                    .child(item("drop", "trash", "Delete").on_click(cx.listener(
-                        move |this, _, _, cx| {
-                            this.popup = Popup::Closed;
-                            this.drop_task(id);
-                            cx.notify();
-                        },
-                    )))
+            move |_, menu, desk, _| {
+                menu.item(
+                    Self::menu_item(desk, "Edit", move |this, window, cx| {
+                        this.edit_task(id, window, cx);
+                    })
+                    .icon(ui::glyph("pencil")),
+                )
+                .item(
+                    Self::menu_item(desk, "Run now", move |this, _, cx| {
+                        this.run_task(id);
+                        cx.notify();
+                    })
+                    .icon(ui::glyph("play")),
+                )
+                .item(
+                    Self::menu_item(desk, "Delete", move |this, _, cx| {
+                        this.drop_task(id);
+                        cx.notify();
+                    })
+                    .icon(ui::glyph("trash")),
+                )
+                .min_w(px(180.))
             },
             cx,
         )
@@ -335,7 +326,7 @@ impl Desk {
                 faces,
                 "Project",
                 "Where it works.",
-                self.task_project_pick(faces, cx),
+                self.task_project_pick(cx),
             ),
             field(
                 "Schedule",
@@ -428,25 +419,18 @@ impl Desk {
                 (!task.agent.is_empty()).then(|| ui::mark(faces, &self.mark_of(&task.agent), 14.)),
             )
             .child(shown);
-        let faces = faces.clone();
         self.menu(
             Popup::TaskAgent,
             trigger,
-            move |d, _, cx| {
-                let task = d.tasks.draft.as_ref().map(|d| d.task.clone());
-                let (agent, model) = task.map(|t| (Some(t.agent), t.model)).unwrap_or_default();
-                d.models_menu(
-                    &faces,
-                    None,
-                    (agent.as_deref(), model.as_deref()),
-                    |d, agent, model| {
-                        if let (Some(draft), Some(agent)) = (&mut d.tasks.draft, agent) {
-                            (draft.task.agent, draft.task.model) = (agent, model);
-                        }
-                    },
-                    cx,
-                )
-                .overflow_y_scrollbar()
+            |d, menu, desk, _| {
+                let task = d.tasks.draft.as_ref().map(|d| &d.task);
+                let (agent, model) =
+                    task.map_or((None, None), |t| (Some(&*t.agent), t.model.as_deref()));
+                d.models_menu(menu, desk, None, (agent, model), |d, agent, model| {
+                    if let (Some(draft), Some(agent)) = (&mut d.tasks.draft, agent) {
+                        (draft.task.agent, draft.task.model) = (agent, model);
+                    }
+                })
             },
             cx,
         )
@@ -454,7 +438,7 @@ impl Desk {
 
     /// The project the task being written works in, and the menu of the
     /// projects to choose another.
-    fn task_project_pick(&self, faces: &Faces, cx: &mut Context<Self>) -> impl IntoElement {
+    fn task_project_pick(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let task = &self
             .tasks
             .draft
@@ -469,39 +453,27 @@ impl Desk {
             } else {
                 self.project_name(&task.project)
             });
-        let faces = faces.clone();
         self.menu(
             Popup::TaskProject,
             trigger,
-            move |d, _, cx| {
-                let chosen = d.tasks.draft.as_ref().map(|d| d.task.project.clone());
-                let mut list = div().flex().flex_col().w(px(260.));
-                for (n, folder) in d.settings.folders.iter().enumerate() {
+            |d, menu, desk, _| {
+                let chosen = d.tasks.draft.as_ref().map(|d| &d.task.project);
+                let items = d.settings.folders.iter().map(|folder| {
                     let f = folder.clone();
-                    list = list.child(
-                        ui::menu_row(
-                            SharedString::from(format!("task-project-{n}")),
-                            chosen.as_ref() == Some(folder),
-                        )
-                        .child(ui::one_line(
-                            ui::text(&faces, d.project_name(folder)).text_size(px(13.)),
-                        ))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            if let Some(draft) = &mut this.tasks.draft {
-                                draft.task.project.clone_from(&f);
-                            }
-                            this.popup = Popup::Closed;
-                            cx.notify();
-                        })),
-                    );
-                }
-                list
+                    Self::menu_item(desk, d.project_name(folder), move |this, _, cx| {
+                        if let Some(draft) = &mut this.tasks.draft {
+                            draft.task.project.clone_from(&f);
+                        }
+                        cx.notify();
+                    })
+                    .checked(chosen == Some(folder))
+                });
+                items.fold(menu.min_w(px(260.)), PopupMenu::item)
             },
             cx,
         )
     }
 }
-
 /// What picking a choice of the task being written does: `change` it.
 fn draft_pick(
     cx: &mut Context<Desk>,

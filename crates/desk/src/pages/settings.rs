@@ -6,7 +6,7 @@
 use std::time::SystemTime;
 
 use gpui::component::{
-    Icon, Sizable as _,
+    Sizable as _,
     input::Input,
     kbd::Kbd,
     setting::{SettingGroup, SettingPage, Settings},
@@ -190,7 +190,7 @@ impl Desk {
                 .own_tab(tab, w, cx)
                 .unwrap_or_else(|| SettingPage::new(tab.title())),
         };
-        page.icon(Icon::empty().path(format!("icons/{}.svg", tab.icon())))
+        page.icon(ui::glyph(tab.icon()))
     }
 
     /// The settings, over the window: gpui-kit's Settings, a page for each

@@ -1,10 +1,8 @@
 //! The bar over the middle: the session's title and its menu, the terminal
 //! and the right column.
 
-use gpui::component::{
-    Selectable as _, Sizable as _, input::Input, list::ListItem, separator::Separator,
-};
-use gpui::{Context, Div, div, prelude::*, px};
+use gpui::component::{Selectable as _, Sizable as _, input::Input, menu::PopupMenu};
+use gpui::{Context, Div, Entity, div, prelude::*, px};
 
 use super::meta;
 use crate::fonts::Weighted as _;
@@ -109,13 +107,12 @@ impl Desk {
                     let caret = ui::icon_button("title-menu", "chevron-down", "This session")
                         .size(px(22.))
                         .text_color(theme::faint());
-                    let faces = faces.clone();
                     bar = bar
                         .child(named)
                         .child(self.menu(
                             Popup::Title,
                             caret,
-                            move |d, _, cx| d.title_menu(&faces, cx),
+                            |d, menu, desk, _| d.title_menu(menu, desk),
                             cx,
                         ))
                         .child(div().flex_1());
@@ -175,92 +172,63 @@ impl Desk {
     /// Under the title's caret: how the transcript shows (⌃O goes round),
     /// then the session's folder in your editor, its id and pull request
     /// to copy, and archiving it.
-    fn title_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+    fn title_menu(&self, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
         let Some(s) = self.session() else {
-            return div();
+            return menu;
         };
-        let row = |id: &str, says: &str| {
-            ListItem::new(gpui::SharedString::from(id.to_owned()))
-                .h(px(28.))
-                .px(px(8.))
-                .rounded(px(6.))
-                .child(ui::text(faces, says.to_owned()).text_size(px(13.)))
-        };
-        let mut menu = div().flex().flex_col().w(px(240.)).child(
-            ui::text(faces, "Transcript view")
-                .px(px(8.))
-                .pt(px(4.))
-                .pb(px(4.))
-                .text_size(px(12.))
-                .text_color(theme::faint()),
-        );
-        for (id, says, view) in [
-            ("view-zen", "Answers only", View::Zen),
-            ("view-quiet", "Calls that went wrong", View::Quiet),
-            ("view-normal", "Normal", View::Normal),
-            ("view-thinking", "Thinking", View::Thinking),
-            ("view-verbose", "Verbose", View::Verbose),
+        menu = menu.label("Transcript view").min_w(px(240.));
+        for (says, view) in [
+            ("Answers only", View::Zen),
+            ("Calls that went wrong", View::Quiet),
+            ("Normal", View::Normal),
+            ("Thinking", View::Thinking),
+            ("Verbose", View::Verbose),
         ] {
             let on = self.settings.view == view;
-            menu = menu.child(
-                row(id, says)
-                    .when(on, |d| {
-                        d.suffix(|_, _| ui::icon("check", 13.).text_color(theme::text2()))
-                    })
-                    .on_click(cx.listener(move |this, _, _, cx| this.set_view(view, cx))),
+            menu = menu.item(
+                Self::menu_item(desk, says, move |this, _, cx| this.set_view(view, cx)).checked(on),
             );
         }
-        let (key, pr) = (s.key, s.git.pr.as_ref().map(|p| p.url.clone()));
+        let (key, pr) = (s.key, s.git.pr.is_some());
         if s.meta.id.is_some() {
             for (id, name) in self.others(&s.meta.agent) {
-                menu = menu.child(
-                    row(
-                        &format!("title-continue-{id}"),
-                        &format!("Continue with {name}"),
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.close_popup(window, cx);
-                        this.hand_off(key, &id, window, cx);
-                    })),
-                );
+                menu = menu.item(Self::menu_item(
+                    desk,
+                    format!("Continue with {name}"),
+                    move |this, window, cx| this.hand_off(key, &id, window, cx),
+                ));
             }
         }
         menu = menu
-            .child(Separator::horizontal().my(px(4.)))
-            .child(
-                row("title-editor", "Open in your editor").on_click(cx.listener(
-                    |this, _, window, cx| {
-                        this.close_popup(window, cx);
-                        if let Some(s) = this.session() {
-                            this.edit(s.meta.folder.clone(), None);
-                        }
-                    },
-                )),
-            )
-            .child(
-                row("title-copy-id", "Copy the session's id").on_click(cx.listener(
-                    |this, _, window, cx| {
-                        this.close_popup(window, cx);
-                        this.copy_of_session(|s| s.meta.id.as_ref().map(|i| i.0.to_string()), cx);
-                    },
-                )),
-            );
-        if pr.is_some() {
-            menu = menu.child(
-                row("title-copy-pr", "Copy the pull request's address").on_click(cx.listener(
-                    |this, _, window, cx| {
-                        this.close_popup(window, cx);
-                        this.copy_of_session(|s| s.git.pr.as_ref().map(|p| p.url.clone()), cx);
-                    },
-                )),
-            );
+            .separator()
+            .item(Self::menu_item(
+                desk,
+                "Open in your editor",
+                |this, _, _| {
+                    if let Some(s) = this.session() {
+                        this.edit(s.meta.folder.clone(), None);
+                    }
+                },
+            ))
+            .item(Self::menu_item(
+                desk,
+                "Copy the session's id",
+                |this, _, cx| {
+                    this.copy_of_session(|s| s.meta.id.as_ref().map(|i| i.0.to_string()), cx);
+                },
+            ));
+        if pr {
+            menu = menu.item(Self::menu_item(
+                desk,
+                "Copy the pull request's address",
+                |this, _, cx| {
+                    this.copy_of_session(|s| s.git.pr.as_ref().map(|p| p.url.clone()), cx);
+                },
+            ));
         }
-        menu.child(row("title-archive", "Archive").on_click(cx.listener(
-            move |this, _, window, cx| {
-                this.close_popup(window, cx);
-                this.archive(key, cx);
-            },
-        )))
+        menu.item(Self::menu_item(desk, "Archive", move |this, _, cx| {
+            this.archive(key, cx);
+        }))
     }
 
     /// Show the transcript as `view` says, and keep it so.

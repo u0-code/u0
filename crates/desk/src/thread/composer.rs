@@ -12,11 +12,11 @@ use gpui::component::{
     button::{Button, ButtonVariants as _},
     input::{Enter, Escape, IndentInline, MoveDown, MoveUp, Textarea},
     list::ListItem,
+    menu::PopupMenu,
     popover::Popover,
     progress::ProgressCircle,
-    separator::Separator,
 };
-use gpui::{Context, Div, SharedString, Window, div, prelude::*, px};
+use gpui::{Context, Div, Entity, SharedString, Window, div, prelude::*, px};
 
 use crate::{
     desk::{Desk, Popup, mention},
@@ -115,7 +115,7 @@ impl Desk {
                             .gap(px(4.))
                             .px(px(7.))
                             .py(px(8.))
-                            .child(self.add_menu(faces, s, cx))
+                            .child(self.add_menu(s, cx))
                             .child(
                                 div()
                                     .flex_1()
@@ -433,71 +433,43 @@ impl Desk {
                 .tooltip(Desk::shown(&s.meta.folder))
                 .into_any_element();
         }
-        let faces = faces.clone();
         over_line(self.menu(
             Popup::StartIn,
             says(true),
-            move |d, _, cx| d.work_in_menu(&faces, cx),
+            |d, menu, desk, _| d.work_in_menu(menu, desk),
             cx,
         ))
         .into_any_element()
     }
 
     /// The projects a new session can work in, and a folder to choose.
-    fn work_in_menu(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+    fn work_in_menu(&self, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
         let here = self.session().map(|s| s.meta.folder.clone());
-        let mut menu = div().flex().flex_col().w(px(240.));
-        for (n, p) in self.projects().into_iter().enumerate() {
+        // Each has its icon, so the one chosen is ticked at the end.
+        menu = menu.check_side(gpui::component::Side::Right);
+        for p in self.projects() {
             let on = here.as_ref() == Some(&p);
-            menu = menu.child(
-                ListItem::new(SharedString::from(format!("work-in-{n}")))
-                    .h(px(28.))
-                    .px(px(8.))
-                    .rounded(px(6.))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(8.))
-                            .child(ui::icon("folder", 14.).text_color(theme::faint()))
-                            .child(
-                                ui::text(faces, ui::fit(&self.project_name(&p), 28))
-                                    .text_size(px(13.)),
-                            ),
-                    )
-                    .when(on, |d| {
-                        d.suffix(|_, _| ui::icon("check", 13.).text_color(theme::text2()))
-                    })
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.close_popup(window, cx);
-                        if let Some(key) = this.current {
-                            this.work_in(key, &p, cx);
-                        }
-                    })),
+            let name = ui::fit(&self.project_name(&p), 28);
+            menu = menu.item(
+                Self::menu_item(desk, name, move |this, _, cx| {
+                    if let Some(key) = this.current {
+                        this.work_in(key, &p, cx);
+                    }
+                })
+                .icon(ui::glyph("folder"))
+                .checked(on),
             );
         }
-        menu.child(Separator::horizontal().my(px(4.))).child(
-            ListItem::new("work-in-other")
-                .h(px(28.))
-                .px(px(8.))
-                .rounded(px(6.))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .child(ui::icon("plus", 14.).text_color(theme::faint()))
-                        .child(ui::text(faces, "Choose a folder…").text_size(px(13.))),
-                )
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.close_popup(window, cx);
-                    this.choose_folder(cx);
-                })),
+        menu.separator().item(
+            Self::menu_item(desk, "Choose a folder…", |this, _, cx| {
+                this.choose_folder(cx);
+            })
+            .icon(ui::glyph("plus")),
         )
     }
 
     /// The + at the box's left: what can go with what you write.
-    fn add_menu(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Popover {
+    fn add_menu(&self, s: &Session, cx: &mut Context<Self>) -> Popover {
         let button = ui::icon_button("add", "plus", "Add files, a window, a command")
             .size(px(28.))
             .text_color(theme::muted());
@@ -506,65 +478,33 @@ impl Desk {
                 .slot(&s.meta.agent)
                 .and_then(crate::hub::Slot::caps)
                 .is_some_and(|k| k.session_capabilities.additional_directories.is_some());
-        let faces = faces.clone();
         over_line(self.menu(
             Popup::Add,
             button,
-            move |_, _, cx| {
-                let row = |id: &'static str, icon: &'static str, says: &'static str| {
-                    ListItem::new(id)
-                        .h(px(28.))
-                        .px(px(8.))
-                        .rounded(px(6.))
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(8.))
-                                .child(ui::icon(icon, 16.).text_color(theme::muted()))
-                                .child(ui::text(&faces, says).text_size(px(13.))),
-                        )
-                };
-                div()
-                    .flex()
-                    .flex_col()
-                    .w(px(230.))
-                    .child(
-                        row("add-files", "file", "Add files or photos").on_click(cx.listener(
-                            |this, _, window, cx| {
-                                this.close_popup(window, cx);
-                                Self::attach_files(window, cx);
-                            },
-                        )),
-                    )
-                    .child(
-                        row("add-window", "camera", "Add a window").on_click(cx.listener(
-                            |this, _, window, cx| {
-                                this.close_popup(window, cx);
-                                this.capture(cx);
-                            },
-                        )),
-                    )
-                    .child(
-                        row("add-command", "terminal", "Slash commands").on_click(cx.listener(
-                            |this, _, window, cx| {
-                                this.close_popup(window, cx);
-                                this.put_line("/", window, cx);
-                                let line = this.composer.input.clone();
-                                window.focus(&gpui::Focusable::focus_handle(line.read(cx), cx), cx);
-                            },
-                        )),
-                    )
-                    .when(able, |m| {
-                        m.child(
-                            row("add-folder", "folder", "Add folder").on_click(cx.listener(
-                                |this, _, window, cx| {
-                                    this.close_popup(window, cx);
-                                    this.add_folder(cx);
-                                },
-                            )),
-                        )
-                    })
+            move |_, menu, desk, _| {
+                let row =
+                    |icon: &str,
+                     says: &'static str,
+                     f: fn(&mut Self, &mut Window, &mut Context<Self>)| {
+                        Self::menu_item(desk, says, f).icon(ui::glyph(icon))
+                    };
+                menu.item(row("file", "Add files or photos", |_, window, cx| {
+                    Self::attach_files(window, cx);
+                }))
+                .item(row("camera", "Add a window", |this, _, cx| {
+                    this.capture(cx);
+                }))
+                .item(row("terminal", "Slash commands", |this, window, cx| {
+                    this.put_line("/", window, cx);
+                    let line = this.composer.input.clone();
+                    window.focus(&gpui::Focusable::focus_handle(line.read(cx), cx), cx);
+                }))
+                .when(able, |m| {
+                    m.item(row("folder", "Add folder", |this, _, cx| {
+                        this.add_folder(cx);
+                    }))
+                })
+                .min_w(px(230.))
             },
             cx,
         ))
@@ -858,24 +798,31 @@ impl Desk {
                         ),
                     };
                     menu = menu.child(
-                        ui::menu_row(SharedString::from(format!("offer-{n}")), n == chosen)
-                            .child(ui::icon(icon, 14.).text_color(theme::faint()))
+                        ListItem::new(SharedString::from(format!("offer-{n}")))
+                            .selected(n == chosen)
                             .child(
-                                ui::one_line(
-                                    ui::mono(faces, name)
-                                        .text_size(px(12.5))
-                                        .text_color(theme::text()),
-                                )
-                                .w_auto()
-                                .max_w(px(360.)),
-                            )
-                            .child(
-                                ui::one_line(
-                                    ui::text(faces, about)
-                                        .text_size(px(12.))
-                                        .text_color(theme::faint()),
-                                )
-                                .flex_1(),
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(10.))
+                                    .child(ui::icon(icon, 14.).text_color(theme::faint()))
+                                    .child(
+                                        ui::one_line(
+                                            ui::mono(faces, name)
+                                                .text_size(px(12.5))
+                                                .text_color(theme::text()),
+                                        )
+                                        .w_auto()
+                                        .max_w(px(360.)),
+                                    )
+                                    .child(
+                                        ui::one_line(
+                                            ui::text(faces, about)
+                                                .text_size(px(12.))
+                                                .text_color(theme::faint()),
+                                        )
+                                        .flex_1(),
+                                    ),
                             )
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.take_offer(n, window, cx);

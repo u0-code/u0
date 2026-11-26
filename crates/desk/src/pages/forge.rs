@@ -5,10 +5,11 @@ use gpui::component::{
     Sizable as _,
     diff::Diff,
     input::{Input, Textarea},
+    menu::PopupMenu,
     scroll::ScrollableElement as _,
     tab::{Tab as KitTab, TabBar},
 };
-use gpui::{Context, Div, SharedString, div, prelude::*, px};
+use gpui::{Context, Div, Entity, SharedString, div, prelude::*, px};
 
 use crate::{
     desk::{
@@ -82,7 +83,6 @@ impl Desk {
             || "No project".to_owned(),
             |n| n.to_string_lossy().into_owned(),
         );
-        let faces2 = faces.clone();
         let chip = ui::opener("forge-project")
             .h(px(26.))
             .px(px(8.))
@@ -101,7 +101,7 @@ impl Desk {
                 self.menu(
                     Popup::ForgeProject,
                     chip,
-                    move |d, _, cx| d.forge_projects(&faces2, cx),
+                    |d, menu, desk, _| d.forge_projects(menu, desk),
                     cx,
                 )
                 .anchor(gpui::Anchor::TopLeft),
@@ -175,28 +175,25 @@ impl Desk {
     }
 
     /// The projects a page can be of.
-    fn forge_projects(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let mut menu = div().flex().flex_col().w(px(240.));
-        for (n, folder) in self.projects().into_iter().enumerate() {
+    fn forge_projects(&self, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
+        for folder in self.projects() {
             let on = self.forge.folder.as_ref() == Some(&folder);
             let name = folder.file_name().map_or_else(
                 || folder.display().to_string(),
                 |n| n.to_string_lossy().into_owned(),
             );
-            menu = menu.child(
-                ui::menu_row(SharedString::from(format!("forge-project-{n}")), on)
-                    .child(ui::text(faces, name).text_size(px(13.)))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.forge.folder = Some(folder.clone());
-                        this.forge.chosen = None;
-                        this.forge.detail = None;
-                        this.popup = Popup::Closed;
-                        this.show_team(window, cx);
-                        this.list_forge(cx);
-                    })),
+            menu = menu.item(
+                Self::menu_item(desk, name, move |this, window, cx| {
+                    this.forge.folder = Some(folder.clone());
+                    this.forge.chosen = None;
+                    this.forge.detail = None;
+                    this.show_team(window, cx);
+                    this.list_forge(cx);
+                })
+                .checked(on),
             );
         }
-        menu
+        menu.min_w(px(240.))
     }
 
     /// One in the list: its state, number and title; who, its branch, when;
@@ -321,7 +318,7 @@ impl Desk {
                             .h(px(26.))
                             .on_click(move |_, _, cx| cx.open_url(&url)),
                     )
-                    .child(self.forge_actions(faces, d, cx)),
+                    .child(self.forge_actions(d, cx)),
             )
             .child(
                 div()
@@ -689,36 +686,30 @@ impl Desk {
     /// What can be done with the one read, under its "⋯".
     fn forge_actions(
         &self,
-        faces: &Faces,
         d: &Detail,
         cx: &mut Context<Self>,
     ) -> gpui::component::popover::Popover {
         let trigger =
             ui::icon_button("forge-actions", "dots", "What can be done with it").size(px(26.));
-        let (faces, detail) = (faces.clone(), d.clone());
+        let detail = d.clone();
         self.menu(
             Popup::ForgeActions,
             trigger,
-            move |desk, _, cx| desk.forge_menu(&faces, &detail, cx),
+            move |d, menu, desk, _| d.forge_menu(&detail, menu, desk),
             cx,
         )
         .anchor(gpui::Anchor::TopRight)
     }
 
-    fn forge_menu(&self, faces: &Faces, d: &Detail, cx: &mut Context<Self>) -> Div {
+    fn forge_menu(&self, d: &Detail, menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
         let item = &d.item;
         let (open, pr) = (item.state == "open", self.forge.kind == Kind::Pr);
         let folder = self.forge.folder.clone().unwrap_or_default();
         let mut rows = Vec::new();
-        let mut entry = |id: &'static str, label: String, act: Act3| {
-            rows.push(
-                ui::menu_row(id, false)
-                    .child(ui::text(faces, label).text_size(px(13.)))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.popup = Popup::Closed;
-                        act(this, window, cx);
-                    })),
-            );
+        let mut entry = |label: String, act: Act3| {
+            rows.push(Self::menu_item(desk, label, move |this, window, cx| {
+                act(this, window, cx);
+            }));
         };
         let merge = |how: &'static str, auto: bool| -> Act3 {
             Box::new(move |d, _, cx| {
@@ -734,24 +725,14 @@ impl Desk {
             })
         };
         if pr && open {
+            entry("Squash and merge".into(), merge("squash", false));
+            entry("Merge".into(), merge("merge", false));
+            entry("Rebase and merge".into(), merge("rebase", false));
             entry(
-                "merge-squash",
-                "Squash and merge".into(),
-                merge("squash", false),
-            );
-            entry("merge-merge", "Merge".into(), merge("merge", false));
-            entry(
-                "merge-rebase",
-                "Rebase and merge".into(),
-                merge("rebase", false),
-            );
-            entry(
-                "merge-auto",
                 "Merge when its checks pass".into(),
                 merge(self.settings.merge.gh(), true),
             );
             entry(
-                "ready",
                 if item.draft {
                     "Ready for review"
                 } else {
@@ -767,19 +748,16 @@ impl Desk {
         }
         if open {
             entry(
-                "close",
                 "Close".into(),
                 Box::new(|d, _, cx| d.act_forge(Act::Close, cx)),
             );
         } else if item.state == "closed" {
             entry(
-                "reopen",
                 "Reopen".into(),
                 Box::new(|d, _, cx| d.act_forge(Act::Reopen, cx)),
             );
         }
         entry(
-            "edit",
             "Edit title and description".into(),
             Box::new(|d, window, cx| d.edit_forge(false, window, cx)),
         );
@@ -787,7 +765,6 @@ impl Desk {
         if pr {
             let (f2, t2) = (folder.clone(), title.clone());
             entry(
-                "session-worktree",
                 "A session on it, in a worktree".into(),
                 Box::new(move |d, window, cx| {
                     d.start_from_pr(f2.clone(), n, t2.clone(), false, window, cx);
@@ -795,14 +772,12 @@ impl Desk {
             );
             let (f3, t3) = (folder.clone(), title.clone());
             entry(
-                "session-here",
                 "A session on it, checked out here".into(),
                 Box::new(move |d, window, cx| {
                     d.start_from_pr(f3.clone(), n, t3.clone(), true, window, cx);
                 }),
             );
             entry(
-                "copy-checkout",
                 "Copy the checkout command".into(),
                 Box::new(move |_, _, cx| {
                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(format!(
@@ -811,28 +786,25 @@ impl Desk {
                 }),
             );
             entry(
-                "reload",
                 "Load new commits".into(),
                 Box::new(move |d, _, cx| d.read_forge(n, cx)),
             );
         } else {
             let (f2, t2) = (folder.clone(), title.clone());
             entry(
-                "session-issue",
                 "A session about it".into(),
                 Box::new(move |d, window, cx| {
                     d.start_from_issue(f2.clone(), n, &t2, false, window, cx);
                 }),
             );
             entry(
-                "triage",
                 "Triage it".into(),
                 Box::new(move |d, window, cx| {
                     d.start_from_issue(folder.clone(), n, &title, true, window, cx);
                 }),
             );
         }
-        div().flex().flex_col().w(px(240.)).children(rows)
+        rows.into_iter().fold(menu.min_w(px(240.)), PopupMenu::item)
     }
 
     /// The line to say something on the one read, and its buttons.

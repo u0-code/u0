@@ -7,10 +7,11 @@
 use gpui::component::{
     Selectable as _, Sizable as _,
     input::Input,
+    menu::{PopupMenu, PopupMenuItem},
     popover::Popover,
     tab::{Tab, TabBar},
 };
-use gpui::{Context, Div, SharedString, div, prelude::*, px};
+use gpui::{Context, Div, Entity, div, prelude::*, px};
 
 use super::{fine, git_button, section};
 use crate::{
@@ -69,18 +70,17 @@ impl Desk {
                 d.child(self.compare_chip(faces, s, cx))
             })
             .when(!s.git.commits.is_empty(), |d| {
-                let faces = faces.clone();
                 let chip = ui::opener("commits")
                     .h(px(22.))
                     .px(px(6.))
-                    .child(fine(&faces, "Commits"))
+                    .child(fine(faces, "Commits"))
                     .child(ui::icon("chevron-down", 10.).text_color(theme::faint()));
-                let key = s.key;
+                let (faces, key) = (faces.clone(), s.key);
                 d.child(
                     self.menu(
                         crate::desk::Popup::Commits,
                         chip,
-                        move |d, _, cx| d.commits(&faces, key, cx),
+                        move |d, menu, desk, _| d.commits(&faces, key, menu, desk),
                         cx,
                     )
                     .anchor(gpui::Anchor::TopLeft),
@@ -101,59 +101,43 @@ impl Desk {
                     .text_color(theme::text2()),
             )
             .child(ui::icon("chevron-down", 10.).text_color(theme::faint()));
-        let (faces, key) = (faces.clone(), s.key);
+        let key = s.key;
         // Under the chip, its right edge on the chip's.
         self.menu(
             crate::desk::Popup::Compare,
             chip,
-            move |d, _, cx| d.compare_menu(&faces, key, cx),
+            move |d, menu, desk, _| d.compare_menu(key, menu, desk),
             cx,
         )
         .anchor(gpui::Anchor::TopRight)
     }
 
     /// The other branches: the one it is on compares with nothing.
-    fn compare_menu(&self, faces: &Faces, key: u64, cx: &mut Context<Self>) -> Div {
-        let others: Vec<&String> = self.sessions.at(key).map_or_else(Vec::new, |s| {
-            s.git
-                .branches
-                .iter()
-                .filter(|b| Some(*b) != s.branch.as_ref())
-                .collect()
-        });
-        let mut list = div().flex().flex_col().w(px(208.));
-        if others.is_empty() {
-            list = list.child(
-                div()
-                    .px(px(8.))
-                    .py(px(6.))
-                    .child(fine(faces, "No other branch here to compare with.")),
+    fn compare_menu(&self, key: u64, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
+        let Some(s) = self.sessions.at(key) else {
+            return menu;
+        };
+        let others = (s.git.branches.iter()).filter(|b| Some(*b) != s.branch.as_ref());
+        let mut any = false;
+        for b in others {
+            any = true;
+            let chosen = b.clone();
+            menu = menu.item(
+                Self::menu_item(desk, ui::fit(b, 28), move |this, _, cx| {
+                    if let Some(s) = this.sessions.at_mut(key) {
+                        s.git.compare_to = Some(chosen.clone());
+                    }
+                    this.refresh_diffs(key);
+                    cx.notify();
+                })
+                .checked(s.git.compare_to.as_ref() == Some(b)),
             );
         }
-        for (n, b) in others.into_iter().enumerate() {
-            let b = b.clone();
-            list = list.child(
-                div()
-                    .id(SharedString::from(format!("compare-{n}")))
-                    .flex()
-                    .items_center()
-                    .h(px(28.))
-                    .px(px(8.))
-                    .rounded(px(7.))
-                    .cursor_pointer()
-                    .hover(|st| st.bg(theme::hover()))
-                    .child(ui::mono(faces, ui::fit(&b, 28)).text_size(px(12.)))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if let Some(s) = this.sessions.at_mut(key) {
-                            s.git.compare_to = Some(b.clone());
-                        }
-                        this.popup = crate::desk::Popup::Closed;
-                        this.refresh_diffs(key);
-                        cx.notify();
-                    })),
-            );
+        if any {
+            menu
+        } else {
+            menu.label("No other branch here to compare with.")
         }
-        list
     }
 
     /// The message to commit with and what can be done with it: commit,
@@ -226,38 +210,49 @@ impl Desk {
 
     /// The recent commits where the session works; a click shows what one
     /// changed.
-    fn commits(&self, faces: &Faces, key: u64, cx: &mut Context<Self>) -> Div {
-        let mut rows = div().flex().flex_col().w(px(320.));
+    fn commits(
+        &self,
+        faces: &Faces,
+        key: u64,
+        mut menu: PopupMenu,
+        desk: &Entity<Self>,
+    ) -> PopupMenu {
         let commits = self.sessions.at(key).map(|s| s.git.commits.as_slice());
         for (id, subject, when) in commits.unwrap_or_default() {
             let to = Scope::Commit(id.clone());
-            rows = rows.child(
-                ui::menu_row(
-                    SharedString::from(format!("commit-{id}")),
-                    self.review.scope == to,
-                )
-                .child(
-                    ui::mono(faces, id.clone())
-                        .flex_none()
-                        .text_size(px(11.5))
-                        .text_color(theme::faint()),
-                )
-                .child(
-                    ui::one_line(
-                        ui::text(faces, ui::fit(subject, 30))
-                            .text_size(px(12.5))
-                            .text_color(theme::text2()),
-                    )
-                    .flex_1(),
-                )
-                .child(fine(faces, when.clone()).flex_none())
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.popup = crate::desk::Popup::Closed;
+            let on = self.review.scope == to;
+            let (faces, id, subject, when) =
+                (faces.clone(), id.clone(), subject.clone(), when.clone());
+            menu = menu.item(
+                PopupMenuItem::element(move |_, _| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .w(px(300.))
+                        .child(
+                            ui::mono(&faces, id.clone())
+                                .flex_none()
+                                .text_size(px(11.5))
+                                .text_color(theme::faint()),
+                        )
+                        .child(
+                            ui::one_line(
+                                ui::text(&faces, ui::fit(&subject, 30))
+                                    .text_size(px(12.5))
+                                    .text_color(theme::text2()),
+                            )
+                            .flex_1(),
+                        )
+                        .child(fine(&faces, when.clone()).flex_none())
+                })
+                .checked(on)
+                .on_click(Self::does(desk, move |this, _, cx| {
                     this.show_changes(to.clone(), cx);
                 })),
             );
         }
-        rows
+        menu
     }
 
     /// The branch's pull request: its state, its checks, the review asked.

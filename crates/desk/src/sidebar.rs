@@ -11,6 +11,7 @@ use gpui::component::{
     Selectable as _, Sizable as _,
     button::{Button, ButtonVariants as _},
     input::Input,
+    list::ListItem,
     resizable::{HandleEdge, resize_handle},
     separator::Separator,
     tree::tree,
@@ -82,7 +83,7 @@ impl Desk {
                     ),
             )
             .child(
-                self.menu(
+                self.popover(
                     Popup::Projects,
                     Button::new("projects")
                         .ghost()
@@ -282,17 +283,30 @@ impl Desk {
             let on = self.filter.contains(&p);
             let icon = self.icon_of(&p);
             menu = menu.child(
-                ui::menu_row(SharedString::from(format!("filter-{n}")), on)
-                    .child(crate::desk::projects::project_icon(&p, icon, 14.))
-                    .child(ui::one_line(ui::text(faces, name).text_size(px(13.))).flex_1())
-                    .when(on, |d| d.child(ui::icon("check", 14.)))
+                ListItem::new(SharedString::from(format!("filter-{n}")))
+                    .selected(on)
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(10.))
+                            .child(crate::desk::projects::project_icon(&p, icon, 14.))
+                            .child(ui::one_line(ui::text(faces, name).text_size(px(13.)))),
+                    )
+                    .when(on, |d| d.suffix(|_, _| ui::icon("check", 14.)))
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_filter(&p, cx))),
             );
         }
         menu.child(Separator::horizontal().my(px(4.))).child(
-            ui::menu_row("filter-add", false)
-                .child(ui::icon("folder-plus", 14.))
-                .child(ui::text(faces, "Add project").text_size(px(13.)))
+            ListItem::new("filter-add")
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .child(ui::icon("folder-plus", 14.))
+                        .child(ui::text(faces, "Add project").text_size(px(13.))),
+                )
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.close_popup(window, cx);
                     this.add_project_page(window, cx);

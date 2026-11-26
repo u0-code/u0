@@ -23,11 +23,12 @@ use std::{
 };
 
 use gpui::component::input::{InputEvent, InputState, TextareaState};
+use gpui::component::menu::{PopupMenu, PopupMenuItem};
 use gpui::component::popover::Popover;
 use gpui::component::{Selectable, WindowExt as _};
 use gpui::{
-    Context, Entity, Focusable as _, MouseButton, PathPromptOptions, SharedString, Window, div,
-    prelude::*, px,
+    App, Context, DismissEvent, Entity, Focusable as _, MouseButton, PathPromptOptions,
+    SharedString, Window, div, prelude::*, px,
 };
 use tokio::sync::mpsc;
 
@@ -131,8 +132,6 @@ pub enum Popup {
     Commits,
     /// The project the PRs or Issues page is of.
     ForgeProject,
-    /// The language dictation listens for, in the settings.
-    Language,
     /// What can be done with the pull request or issue read.
     ForgeActions,
     /// A scheduled task's menu, by its id.
@@ -174,6 +173,9 @@ pub struct Desk {
     pub reader: Entity<TextareaState>,
     /// What is typed to narrow a long menu of choices (a model's).
     pub menu_search: Entity<InputState>,
+    /// Moved when what the menu open lists changed while it is open (one
+    /// let go from it, pull requests come): it is built again.
+    pub menu_changed: u64,
     /// The session asked to stop, and when: past a while, it can be
     /// stopped by force.
     pub stopping: Option<(u64, std::time::Instant)>,
@@ -527,6 +529,7 @@ impl Desk {
             here: HashMap::new(),
             on_path: Vec::new(),
             menu_search,
+            menu_changed: 0,
             reading: None,
             reader,
             rename,
@@ -1147,26 +1150,110 @@ impl Desk {
         false
     }
 
-    /// The menu `popup` opens from `trigger`: gpui-kit's Popover, open
-    /// while the desk says so, its body drawn by `body` from the desk each
-    /// time the popover is drawn.
-    pub fn menu<E: IntoElement>(
+    /// The menu `popup` opens from `trigger`: gpui-kit's `PopupMenu`, in a
+    /// Popover open while the desk says so. Its items are built by `items`
+    /// from the desk as it opens, and again when `menu_changed` moves.
+    pub fn menu(
+        &self,
+        popup: Popup,
+        trigger: impl Selectable + IntoElement + 'static,
+        items: impl Fn(&Self, PopupMenu, &Entity<Self>, &App) -> PopupMenu + 'static,
+        cx: &mut Context<Self>,
+    ) -> Popover {
+        let desk = cx.entity();
+        let items = std::rc::Rc::new(items);
+        let id = SharedString::from(format!("menu:{popup:?}"));
+        self.held_open(popup.clone(), trigger, cx)
+            .appearance(false)
+            .content(move |_, window, cx| {
+                let changed = desk.read(cx).menu_changed;
+                let held =
+                    window.use_keyed_state(id.clone(), cx, |_, _| None::<(u64, Entity<PopupMenu>)>);
+                let build = {
+                    let (desk, items) = (desk.clone(), items.clone());
+                    move |menu: PopupMenu, _: &mut Window, cx: &mut Context<PopupMenu>| {
+                        items(desk.read(cx), menu, &desk, cx)
+                    }
+                };
+                let menu = match held.read(cx).clone() {
+                    Some((drawn, menu)) if drawn == changed => return menu,
+                    Some((_, menu)) => {
+                        menu.update(cx, |m: &mut PopupMenu, cx| m.rebuild(window, cx, build));
+                        menu
+                    }
+                    None => {
+                        let before = window.focused(cx);
+                        let menu = PopupMenu::build(window, cx, move |m, window, cx| {
+                            let m = build(m, window, cx).max_h(px(420.)).scrollable(true);
+                            match before {
+                                Some(f) => m.action_context(f),
+                                None => m,
+                            }
+                        });
+                        menu.focus_handle(cx).focus(window, cx);
+                        let (desk, popup) = (desk.clone(), popup.clone());
+                        window
+                            .subscribe(&menu, cx, move |_, _: &DismissEvent, window, cx| {
+                                desk.update(cx, |d, cx| d.menu_opened(&popup, false, window, cx));
+                            })
+                            .detach();
+                        menu
+                    }
+                };
+                held.update(cx, |h, _| *h = Some((changed, menu.clone())));
+                menu
+            })
+    }
+
+    /// What `popup` opens from `trigger` that is more than a menu (a line
+    /// to search or name in): gpui-kit's Popover, open while the desk says
+    /// so, its body drawn by `body` from the desk each time it is drawn.
+    pub fn popover<E: IntoElement>(
         &self,
         popup: Popup,
         trigger: impl Selectable + IntoElement + 'static,
         body: impl Fn(&mut Self, &mut Window, &mut Context<Self>) -> E + 'static,
         cx: &mut Context<Self>,
     ) -> Popover {
+        let drawn = cx.entity();
+        self.held_open(popup, trigger, cx)
+            .p(px(6.))
+            .content(move |_, window, cx| drawn.update(cx, |d, cx| body(d, window, cx)))
+    }
+
+    /// gpui-kit's Popover for `popup` from `trigger`, open while the desk
+    /// says so, the desk told as it opens or closes itself.
+    fn held_open(
+        &self,
+        popup: Popup,
+        trigger: impl Selectable + IntoElement + 'static,
+        cx: &mut Context<Self>,
+    ) -> Popover {
         let desk = cx.entity();
-        let drawn = desk.clone();
         Popover::new(SharedString::from(format!("{popup:?}")))
             .open(self.popup == popup)
-            .p(px(6.))
             .trigger(trigger)
-            .content(move |_, window, cx| drawn.update(cx, |d, cx| body(d, window, cx)))
             .on_open_change(move |open, window, cx| {
                 desk.update(cx, |d, cx| d.menu_opened(&popup, *open, window, cx));
             })
+    }
+
+    /// An item of a menu, `label`, which does `f` to the desk.
+    pub fn menu_item(
+        desk: &Entity<Self>,
+        label: impl Into<SharedString>,
+        f: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+    ) -> PopupMenuItem {
+        PopupMenuItem::new(label).on_click(Self::does(desk, f))
+    }
+
+    /// What a menu's item does when chosen: `f`, to the desk.
+    pub fn does(
+        desk: &Entity<Self>,
+        f: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+    ) -> impl Fn(&gpui::ClickEvent, &mut Window, &mut App) + 'static {
+        let desk = desk.clone();
+        move |_, window, cx| desk.update(cx, |d, cx| f(d, window, cx))
     }
 
     /// The popover of `popup` opened or closed itself (its trigger, a
@@ -1179,20 +1266,35 @@ impl Desk {
         cx: &mut Context<Self>,
     ) {
         if !open {
-            if self.popup == *popup {
-                self.close_popup(window, cx);
+            match popup {
+                // The picker's mode menu gives the picker back.
+                Popup::ModelMode if self.popup == *popup => {
+                    self.popup = Popup::Model;
+                    cx.notify();
+                }
+                _ if self.popup == *popup => self.close_popup(window, cx),
+                _ => {}
             }
             return;
         }
-        // The menu's line says what it takes there.
+        // The pull requests a worktree can begin from are asked for once,
+        // as their menu opens.
+        if *popup == Popup::Base {
+            self.want_offers();
+        }
+        // The menu's line says what it takes there; the picker's mode menu
+        // leaves the picker's search as it is.
         let says = match popup {
-            Popup::Branch => "A new branch: its name, then Return",
-            _ => "Search",
+            Popup::Branch => Some("A new branch: its name, then Return"),
+            Popup::ModelMode => None,
+            _ => Some("Search"),
         };
-        self.menu_search.update(cx, |i, cx| {
-            i.set_value("", window, cx);
-            i.set_placeholder(says, window, cx);
-        });
+        if let Some(says) = says {
+            self.menu_search.update(cx, |i, cx| {
+                i.set_value("", window, cx);
+                i.set_placeholder(says, window, cx);
+            });
+        }
         self.popup = popup.clone();
         cx.notify();
     }
