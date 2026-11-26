@@ -707,7 +707,7 @@ impl Desk {
             ))
             .child(ui::fine(
                 faces,
-                crate::tr("A POST to it runs the task; {{body}}, {{body.<field>}} or {{header.<name>}} in what it says is what was sent, marked as data from outside. A call made while Ghost is not running is not held: the sender has to send it again."),
+                crate::tr("A POST to it runs the task; {{body}}, {{body.<field>}} or {{header.<name>}} in what it says is what was sent, marked as data from outside; it can still try to steer the agent, so read it as you would anything pasted in. A call made while Ghost is not running is not held: the sender has to send it again."),
             ))
     }
 }

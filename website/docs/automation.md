@@ -144,12 +144,15 @@ POST /hook/<token>
   must hold. Empty, every call runs it.
 - A delivery its sender names (`X-GitHub-Delivery`,
   `X-GitLab-Event-UUID` or `X-Delivery-Id`) runs it once; sent again, it
-  runs nothing.
+  runs nothing. A signed body sent again runs nothing either, whatever
+  delivery it names.
 - The request body (up to 1 MiB) replaces each `{{body}}` in the prompt,
   `{{body.<a>.<b>}}` a field of it and `{{header.<name>}}` a header, each
   wrapped in `<webhook-data untrusted>` … `</webhook-data>` so the agent
-  knows it came from outside. Without them in the prompt the body is not
-  used.
+  knows it came from outside; a closing tag in what was sent is written
+  `<\/…`, so only Ghost's ends the mark. It can still try to steer the
+  agent: read it as you would anything pasted in. Without them in the
+  prompt the body is not used.
 - Ghost answers `202 Accepted` when the task runs; `204 No Content` when
   a rule of **Only when** does not hold; `200 OK` for a delivery heard
   before; `401 Unauthorized` for a call not signed as it must be;

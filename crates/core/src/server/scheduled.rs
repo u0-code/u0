@@ -216,9 +216,7 @@ impl Shared {
         }
         let found = (tasks::load(&self.home).ok()).and_then(|all| {
             all.tasks.into_iter().find_map(|t| match &t.schedule {
-                tasks::Schedule::Hook(h) if h.token == token && !t.paused => {
-                    Some((t.id, h.clone()))
-                }
+                tasks::Schedule::Hook(h) if h.is(token) && !t.paused => Some((t.id, h.clone())),
                 _ => None,
             })
         });
@@ -234,17 +232,24 @@ impl Shared {
         if !hook.lets(call) {
             return Hooked::Skipped;
         }
-        if let Some(delivery) = call.delivery() {
-            let mut heard = self.deliveries.lock().expect("deliveries");
-            let this = (id, delivery.to_owned());
-            if heard.contains(&this) {
-                return Hooked::Again;
-            }
-            heard.push_back(this);
-            while heard.len() > 1000 {
-                heard.pop_front();
-            }
+        // A delivery its sender names, and a signed body (by its
+        // signature: one heard again is a replay), runs once.
+        let signed = (call.signature())
+            .filter(|_| hook.signed)
+            .map(|s| format!("{token} {s}"));
+        let seen: Vec<(u64, String)> = (call.delivery().map(str::to_owned).into_iter())
+            .chain(signed)
+            .map(|s| (id, s))
+            .collect();
+        let mut heard = self.deliveries.lock().expect("deliveries");
+        if seen.iter().any(|s| heard.contains(s)) {
+            return Hooked::Again;
         }
+        heard.extend(seen);
+        while heard.len() > 1000 {
+            heard.pop_front();
+        }
+        drop(heard);
         self.run(id, |prompt| call.fill(prompt));
         Hooked::Ran
     }
@@ -265,10 +270,8 @@ impl Shared {
             Happened::Asks(what) => (tasks::Moment::Asks, format!("its agent asks: {what}")),
         };
         let title = meta.as_ref().map_or("", |m| m.title.as_str());
-        let event = format!(
-            "<event untrusted>\nIn “{title}” ({} session {}): {said}\n</event>",
-            m.agent, m.session.0
-        );
+        let said = format!("In “{title}” ({} session {}): {said}", m.agent, m.session.0);
+        let event = tasks::untrusted("event", &said);
         let due: Vec<u64> = match &*self.tasks.lock().expect("tasks") {
             Ok(all) => (all.tasks.iter())
                 .filter(|t| !t.paused)

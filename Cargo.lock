@@ -2371,6 +2371,7 @@ dependencies = [
  "similar",
  "slug",
  "ssh-key",
+ "subtle",
  "sysinfo 0.40.4",
  "tempfile",
  "tokio",

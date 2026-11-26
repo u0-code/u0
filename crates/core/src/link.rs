@@ -1240,6 +1240,8 @@ mod tests {
             .expect("a new address");
         assert_eq!(call("tok", &sign("s3cret"), "push", "d3"), "HTTP/1.1 404");
         assert_eq!(call(&token, &sign("s3cret"), "push", "d4"), "HTTP/1.1 202");
+        // Signed and sent again, with a delivery of another name: a replay.
+        assert_eq!(call(&token, &sign("s3cret"), "push", "d5"), "HTTP/1.1 200");
         assert_eq!(
             crate::secrets::get(&crate::tasks::Hook::secret("tok")),
             Ok(None)

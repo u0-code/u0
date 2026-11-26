@@ -123,6 +123,8 @@ rcgen = { version = "0.14", default-features = false, features = ["crypto", "rin
 ring = "0.17"
 ssh-key = { version = "0.6.7", default-features = false, features = ["alloc"] }
 qrcode = { version = "0.14", default-features = false }
+# A webhook's token compared in constant time: rustls's own.
+subtle = { version = "2.6", default-features = false }
 cocoa = "0.26"
 # Text read aloud on this Mac (AVFAudio's speech synthesizer).
 objc2 = "0.6"
