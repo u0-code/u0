@@ -147,11 +147,98 @@ pub async fn listen(server: Arc<Server>, listener: TcpListener) {
         };
         let server = server.clone();
         links.spawn(async move {
-            if let Err(why) = serve(&server, stream).await {
+            if let Err(why) = http(server, stream).await {
                 tracing::info!("a link ended: {why}");
             }
         });
     }
+}
+
+/// The most a request's head may take, its line and headers.
+const HEAD: usize = 16 << 10;
+
+/// One connection, as HTTP/1.1 (hyper's): a webhook's call answered, or
+/// a desk's WebSocket upgraded from it and served on this same task, so
+/// that it ends when listening does.
+async fn http(server: Arc<Server>, stream: TcpStream) -> Result<(), String> {
+    use hyper::{Request, body::Incoming, upgrade::OnUpgrade};
+    let upgrading: Arc<Mutex<Option<OnUpgrade>>> = Arc::default();
+    let (to, of) = (upgrading.clone(), server.clone());
+    let answer = hyper::service::service_fn(move |req: Request<Incoming>| {
+        let (to, server) = (to.clone(), of.clone());
+        async move { Ok::<_, std::convert::Infallible>(respond(&server, req, &to).await) }
+    });
+    hyper::server::conn::http1::Builder::new()
+        .timer(hyper_util::rt::TokioTimer::new())
+        .header_read_timeout(WAIT)
+        .keep_alive(false)
+        .max_buf_size(HEAD)
+        .serve_connection(hyper_util::rt::TokioIo::new(stream), answer)
+        .with_upgrades()
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(upgrade) = upgrading.lock().expect("upgrade").take() else {
+        return Ok(());
+    };
+    let io = hyper_util::rt::TokioIo::new(upgrade.await.map_err(|e| e.to_string())?);
+    let role = tokio_tungstenite::tungstenite::protocol::Role::Server;
+    serve(
+        &server,
+        WebSocketStream::from_raw_socket(io, role, Some(config())).await,
+    )
+    .await
+}
+
+type Answer = hyper::Response<http_body_util::Full<Bytes>>;
+
+/// An answer of `status` alone.
+fn status(status: hyper::StatusCode) -> Answer {
+    let mut answer = Answer::default();
+    *answer.status_mut() = status;
+    answer
+}
+
+/// What `req` asks: a webhook's call; a desk's WebSocket, the upgrade to
+/// it left in `upgrade` for the connection to take up; else nothing here.
+async fn respond(
+    server: &Arc<Server>,
+    mut req: hyper::Request<hyper::body::Incoming>,
+    upgrade: &Mutex<Option<hyper::upgrade::OnUpgrade>>,
+) -> Answer {
+    use hyper::{Method, StatusCode, header};
+    if req.method() == Method::POST
+        && let Some(token) = req.uri().path().strip_prefix("/hook/")
+    {
+        let token = token.to_owned();
+        return hook(server, &token, req.into_body()).await;
+    }
+    let asks = |name, value: &str| {
+        (req.headers().get_all(name).iter())
+            .filter_map(|v| v.to_str().ok())
+            .flat_map(|v| v.split(','))
+            .any(|v| v.trim().eq_ignore_ascii_case(value))
+    };
+    let key = req.headers().get(header::SEC_WEBSOCKET_KEY).cloned();
+    let (Some(key), true) = (key, asks(header::UPGRADE, "websocket")) else {
+        return status(StatusCode::NOT_FOUND);
+    };
+    *upgrade.lock().expect("upgrade") = Some(hyper::upgrade::on(&mut req));
+    let accept = tokio_tungstenite::tungstenite::handshake::derive_accept_key(key.as_bytes());
+    let mut answer = status(StatusCode::SWITCHING_PROTOCOLS);
+    let headers = answer.headers_mut();
+    headers.insert(
+        header::UPGRADE,
+        header::HeaderValue::from_static("websocket"),
+    );
+    headers.insert(
+        header::CONNECTION,
+        header::HeaderValue::from_static("Upgrade"),
+    );
+    headers.insert(
+        header::SEC_WEBSOCKET_ACCEPT,
+        header::HeaderValue::from_str(&accept).expect("base64 is a header's"),
+    );
+    answer
 }
 
 /// Serve the Ghost in this machine's home to desks elsewhere, with no
@@ -188,48 +275,31 @@ pub fn serve_here() -> Result<(), String> {
     Ok(())
 }
 
-/// How a call to a webhook task begins, where desks link (`Schedule::Hook`).
-const HOOK: &[u8; 11] = b"POST /hook/";
-
-/// The most of a webhook call's body read.
+/// The most of a webhook call's body taken: more is refused.
 const HOOK_BODY: usize = 1 << 20;
 
-/// A call to a webhook task: its token from the path, its body by its
-/// `Content-Length`; answered 202 when the task runs, else 404.
-async fn hook(server: &Arc<Server>, stream: TcpStream) -> Result<(), String> {
-    use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _};
-    let mut read = tokio::io::BufReader::new(stream);
-    let mut line = String::new();
-    read.read_line(&mut line).await.map_err(|e| e.to_string())?;
-    let token = (line.strip_prefix("POST /hook/"))
-        .and_then(|r| r.split_whitespace().next())
-        .unwrap_or_default()
-        .to_owned();
-    let mut length = 0;
-    loop {
-        line.clear();
-        if read.read_line(&mut line).await.map_err(|e| e.to_string())? == 0
-            || line.trim().is_empty()
-        {
-            break;
-        }
-        if let Some((name, value)) = line.split_once(':')
-            && name.trim().eq_ignore_ascii_case("content-length")
-        {
-            length = value.trim().parse().unwrap_or(0);
-        }
+/// A call to the webhook task of `token` (`Schedule::Hook`), `body` read
+/// whole within [`WAIT`] and [`HOOK_BODY`]: 202 when the task runs, 404
+/// where there is none, 413 for a body too long, 408 for one too slow.
+async fn hook(server: &Arc<Server>, token: &str, body: hyper::body::Incoming) -> Answer {
+    use http_body_util::BodyExt as _;
+    use hyper::{StatusCode, body::Body as _};
+    // Said too long by its Content-Length, it is refused before any of it
+    // is read.
+    if body.size_hint().lower() > HOOK_BODY as u64 {
+        return status(StatusCode::PAYLOAD_TOO_LARGE);
     }
-    let mut body = vec![0u8; length.min(HOOK_BODY)];
-    read.read_exact(&mut body)
-        .await
-        .map_err(|e| e.to_string())?;
-    let ran = server.hook(&token, &String::from_utf8_lossy(&body));
-    let status = if ran { "202 Accepted" } else { "404 Not Found" };
-    let answer = format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-    read.get_mut()
-        .write_all(answer.as_bytes())
-        .await
-        .map_err(|e| e.to_string())
+    let read = http_body_util::Limited::new(body, HOOK_BODY).collect();
+    let body = match tokio::time::timeout(WAIT, read).await {
+        Ok(Ok(body)) => body.to_bytes(),
+        Ok(Err(_)) => return status(StatusCode::PAYLOAD_TOO_LARGE),
+        Err(_) => return status(StatusCode::REQUEST_TIMEOUT),
+    };
+    if server.hook(token, &String::from_utf8_lossy(&body)) {
+        status(StatusCode::ACCEPTED)
+    } else {
+        status(StatusCode::NOT_FOUND)
+    }
 }
 
 type Socket<S> = WebSocketStream<S>;
@@ -252,14 +322,11 @@ where
     Err(why.to_owned())
 }
 
+/// A WebSocket upgraded from a connection to where Ghost listens.
+type Upgraded = Socket<hyper_util::rt::TokioIo<hyper::upgrade::Upgraded>>;
+
 /// One desk's link: its hello, then what it asks and what it is told.
-async fn serve(server: &Arc<Server>, stream: TcpStream) -> Result<(), String> {
-    let mut start = [0u8; HOOK.len()];
-    if stream.peek(&mut start).await.is_ok_and(|n| n == HOOK.len()) && start == *HOOK {
-        return hook(server, stream).await;
-    }
-    let accepted = tokio_tungstenite::accept_async_with_config(stream, Some(config()));
-    let mut ws = accepted.await.map_err(|e| e.to_string())?;
+async fn serve(server: &Arc<Server>, mut ws: Upgraded) -> Result<(), String> {
     let nonce = crate::access::random::<32>();
     let challenge = Challenge {
         nonce: nonce.clone(),
@@ -711,6 +778,27 @@ mod tests {
         };
         assert!(call("tok").starts_with("HTTP/1.1 202"));
         assert!(call("other").starts_with("HTTP/1.1 404"));
+        let said = |request: &[u8]| {
+            let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+            let _ = s.write_all(request);
+            let mut answer = String::new();
+            let _ = s.read_to_string(&mut answer);
+            answer
+        };
+        // A body sent in chunks is read whole; one too long is refused.
+        let chunked = said(
+            b"POST /hook/other HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n2\r\n{}\r\n0\r\n\r\n",
+        );
+        assert!(chunked.starts_with("HTTP/1.1 404"), "{chunked}");
+        let long = format!(
+            "POST /hook/tok HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n",
+            HOOK_BODY + 1
+        );
+        assert!(said(long.as_bytes()).starts_with("HTTP/1.1 413"));
+        // A head with no end is cut off, not read for ever.
+        let mut endless = b"POST /hook/tok HTTP/1.1\r\nX: ".to_vec();
+        endless.resize(HEAD * 2, b'y');
+        assert!(!said(&endless).starts_with("HTTP/1.1 202"));
         // The run is kept as the writer gets to it.
         let ran = (0..100).any(|_| {
             std::thread::sleep(std::time::Duration::from_millis(20));

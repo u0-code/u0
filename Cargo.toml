@@ -102,6 +102,11 @@ core-foundation-sys = "0.8"
 # tunnel that brings its own TLS; the desk's end speaks TLS to that tunnel
 # (rustls, with ring, as the rest of the build has it).
 tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect"] }
+# The one HTTP server where Ghost listens: a desk's WebSocket is upgraded
+# from it, and a webhook's call read by it, within its limits and times.
+hyper = { version = "1.13", default-features = false, features = ["server", "http1"] }
+hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"] }
+http-body-util = "0.1.5"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 # A desk's key: signed and verified with ring (the TLS provider already, and
