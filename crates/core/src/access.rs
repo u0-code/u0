@@ -278,11 +278,17 @@ impl Access {
                 });
             });
         } else {
-            self.change(|k| {
-                if let Some(d) = k.devices.iter_mut().find(|d| d.key == hello.key) {
-                    d.seen = now;
-                }
-            });
+            // Written only for a device paired, and only as its `seen`
+            // changes: a key unknown here changes nothing, and so writes
+            // and tells nothing.
+            let seen = |k: &Kept| (k.devices.iter()).any(|d| d.key == hello.key && d.seen != now);
+            if (self.kept.lock().expect("access").as_ref()).is_ok_and(seen) {
+                self.change(|k| {
+                    if let Some(d) = k.devices.iter_mut().find(|d| d.key == hello.key) {
+                        d.seen = now;
+                    }
+                });
+            }
         }
         self.lets_in(&hello.key).map(|scope| Admitted {
             key: hello.key.clone(),

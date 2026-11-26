@@ -660,8 +660,11 @@ async fn serve(
     }
     let admitted = server.access().admit(&hello, &nonce).await;
     // Its device is now paired, or last here now, or waits: Settings ›
-    // Devices shows it so, wherever it is open.
-    server.share(crate::share::Share::Look);
+    // Devices shows it so, wherever it is open. One turned away changed
+    // nothing, and is told to no one.
+    if matches!(admitted, Ok(_) | Err(Turned::Waiting)) {
+        server.share(crate::share::Share::Look);
+    }
     let crate::access::Admitted {
         key: device,
         scope,
@@ -1387,6 +1390,32 @@ mod tests {
     fn told<T>(rx: &std_mpsc::Receiver<T>) -> T {
         rx.recv_timeout(Duration::from_secs(10))
             .expect("told in time")
+    }
+
+    #[test]
+    fn a_stranger_turned_away_writes_nothing_and_is_told_to_no_desk() {
+        let home = tempfile::tempdir().unwrap();
+        let (server, port) = server(home.path());
+        let (_mine, _, heard, _) = desk(port, Key::generate(), Some(&server)).unwrap();
+        let devices = home.path().join("devices.json");
+        let written = || {
+            std::fs::metadata(&devices)
+                .and_then(|m| m.modified())
+                .unwrap()
+        };
+        let before = written();
+        // What its coming in said, said and gone.
+        std::thread::sleep(Duration::from_millis(300));
+        while heard.try_recv().is_ok() {}
+        for _ in 0..3 {
+            let why = desk(port, Key::generate(), None).map(|_| ()).unwrap_err();
+            assert!(why.contains("not paired"), "{why}");
+        }
+        assert_eq!(written(), before, "devices.json is not written");
+        let shared = std::iter::from_fn(|| heard.recv_timeout(Duration::from_millis(300)).ok())
+            .filter(|e| matches!(e, Event::Shared(_)))
+            .count();
+        assert_eq!(shared, 0);
     }
 
     #[test]
