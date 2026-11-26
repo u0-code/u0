@@ -5,6 +5,7 @@
 
 use std::path::Path;
 
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use serde_json::Value;
 
 use crate::github::{Answer, Ask, Item, Kind, Said};
@@ -172,17 +173,15 @@ fn call(host: Host, method: &str, url: &str, body: Option<&Value>) -> Result<Vec
     Err(format!("{}: {why}", host.name()))
 }
 
-/// `words` as a URL holds them.
+/// `words` as a URL holds them: all but RFC 3986's unreserved characters
+/// escaped.
 fn escape(words: &str) -> String {
-    words
-        .bytes()
-        .map(|b| match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                (b as char).to_string()
-            }
-            _ => format!("%{b:02X}"),
-        })
-        .collect()
+    const RESERVED: &AsciiSet = &NON_ALPHANUMERIC
+        .remove(b'-')
+        .remove(b'.')
+        .remove(b'_')
+        .remove(b'~');
+    utf8_percent_encode(words, RESERVED).to_string()
 }
 
 /// The string at `pointer` in `v`; empty where there is none.

@@ -18,6 +18,7 @@
 use std::path::PathBuf;
 
 use gpui::{Context, Window};
+use percent_encoding::percent_decode_str;
 
 use super::Desk;
 
@@ -65,7 +66,7 @@ impl Link {
             .into_iter()
             .flatten()
             .filter(|p| !p.is_empty())
-            .map(percent_decode)
+            .map(|p| percent_decode_str(p).decode_utf8_lossy().into_owned())
             .collect();
         match (url.host_str()?, parts.as_slice()) {
             ("new", []) => Some(Self::New {
@@ -109,13 +110,6 @@ impl Link {
             .append_pair("prompt", prompt);
         url.into()
     }
-}
-
-fn percent_decode(text: &str) -> String {
-    url::form_urlencoded::parse(format!("x={text}").as_bytes())
-        .next()
-        .map(|(_, v)| v.into_owned())
-        .unwrap_or_default()
 }
 
 /// `text` without the characters that do not show, and whether any were
@@ -294,6 +288,23 @@ mod tests {
         );
         assert_eq!(Link::parse("https://example.com"), None);
         assert_eq!(Link::parse("ghost://elsewhere"), None);
+    }
+
+    #[test]
+    fn a_plus_in_a_session_link_stays_a_plus() {
+        let session = Link::to_session("claude-acp", "a+b c");
+        assert_eq!(
+            Link::parse(&session),
+            Some(Link::Session {
+                agent: "claude-acp".into(),
+                id: "a+b c".into(),
+                prompt: None,
+            })
+        );
+        assert!(matches!(
+            Link::parse("ghost://session/claude-acp/a+b%2Bc"),
+            Some(Link::Session { id, .. }) if id == "a+b+c"
+        ));
     }
 
     #[test]
