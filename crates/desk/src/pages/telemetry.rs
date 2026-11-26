@@ -133,8 +133,9 @@ impl Desk {
         vec![group("Telemetry", items)]
     }
 
-    /// Ask, as Ghost first opens, how much it may tell: the slider at
-    /// Usage; nothing above Off goes until this is confirmed.
+    /// Ask, as Ghost first opens, how much it may tell: Share at the level
+    /// the slider stands at, or Don't share (Escape too), which is Off;
+    /// nothing above Off goes until Share is pressed.
     pub(crate) fn ask_telemetry(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.settings.telemetry.is_some() {
             return;
@@ -152,19 +153,25 @@ impl Desk {
                     "Ghost can send its makers counts of how it is used, never what you or your agents write, nor paths or names. Choose how much; Settings › Telemetry changes it later.",
                 ))
                 .child(levels(&state, &faces, cx));
-            let desk = desk.clone();
-            alert
-                .title("Help make Ghost better?")
-                .description(about)
-                .ok_text("Done")
-                .on_ok(move |_, _, cx| {
+            let choose = |desk: Entity<Desk>, level: Option<Level>| {
+                move |_: &gpui::ClickEvent, _: &mut Window, cx: &mut gpui::App| {
                     desk.update(cx, |d, cx| {
-                        d.settings.telemetry = Some(level_of(state.read(cx)));
+                        let level = level.unwrap_or_else(|| level_of(d.pages.level.read(cx)));
+                        d.settings.telemetry = Some(level);
                         d.save_settings_on(Host::HERE);
                         cx.notify();
                     });
                     true
-                })
+                }
+            };
+            alert
+                .title("Help make Ghost better?")
+                .description(about)
+                .show_cancel(true)
+                .cancel_text("Don't share")
+                .ok_text("Share")
+                .on_cancel(choose(desk.clone(), Some(Level::Off)))
+                .on_ok(choose(desk.clone(), None))
         });
     }
 }

@@ -187,6 +187,9 @@ fn main() {
             .update(cx, |_, window, cx| {
                 let input = shown.desk.read(cx).composer.input.focus_handle(cx);
                 window.focus(&input, cx);
+                // Asked once the composer has the keys, so the sheet takes
+                // them from it and Escape reaches the sheet.
+                shown.desk.update(cx, |d, cx| d.ask_telemetry(window, cx));
             })
             .expect("the desk");
         cx.activate(true);

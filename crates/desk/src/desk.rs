@@ -640,10 +640,8 @@ impl Desk {
             );
         })
         .detach();
-        // Once the window is up: ask how much Ghost may tell, and count
-        // how it opened.
-        cx.defer_in(window, |this, window, cx| {
-            this.ask_telemetry(window, cx);
+        // Once the window is up: count how it opened.
+        cx.defer_in(window, |this, window, _| {
             let size = window.bounds().size;
             let shown = crate::telemetry::Window {
                 width: f32::from(size.width).round() as u32,
