@@ -14,6 +14,7 @@ mod projects;
 mod scope;
 mod settings;
 mod tasks;
+mod telemetry;
 mod updates;
 mod usage;
 mod voice;
@@ -110,6 +111,10 @@ pub struct Pages {
     pub servers: crate::servers::Servers,
     pub pair_link: Entity<InputState>,
     pub pairing: bool,
+    /// The telemetry level on its slider, and the batch it would send,
+    /// as the server last showed it.
+    pub level: Entity<gpui::component::slider::SliderState>,
+    pub sent: Option<String>,
 }
 
 impl Pages {
@@ -198,6 +203,12 @@ impl Pages {
                     .masked(true)
             }),
             servers: crate::servers::Servers::default(),
+            level: telemetry::slider(
+                settings.telemetry.unwrap_or(crate::telemetry::Level::Usage),
+                window,
+                cx,
+            ),
+            sent: None,
             pair_link: field("ghost://pair?host=…", window, cx),
             pairing: false,
             changes: instructions_field(

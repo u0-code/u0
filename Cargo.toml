@@ -54,6 +54,9 @@ jsonc-parser = { version = "0.34", features = ["serde"] }
 sysinfo = { version = "0.40", default-features = false, features = ["system"] }
 similar = { version = "2.7", default-features = false, features = ["text"] }
 jiff = "1.0.2"
+# The system's language, for telemetry at its most detailed: gpui-kit's
+# dependency already.
+sys-locale = "0.3"
 tempfile = "3.27"
 # A PDF's pages, drawn in Rust: the Files tab's viewer.
 hayro = "0.9"

@@ -100,6 +100,8 @@ struct Shared {
     watched: Arc<Mutex<HashMap<(String, SessionId), String>>>,
     /// Who each key lets in to Ghost's tools (`tools`).
     callers: tools::Callers,
+    /// What is counted, and sent as far as you let it.
+    telemetry: Arc<crate::telemetry::Telemetry>,
 }
 
 impl Shared {
@@ -230,6 +232,10 @@ impl Server {
         }
         let outbox = Arc::new(Outbox::default());
         let kept = outbox.clone();
+        // The tests send nowhere.
+        let endpoint = (!cfg!(test)).then_some(crate::telemetry::ENDPOINT);
+        let telemetry = crate::telemetry::Telemetry::new(&home, endpoint);
+        let counted = telemetry.clone();
         let server = Arc::new(Self {
             sharing: Mutex::default(),
             access: Access::new(&home),
@@ -240,6 +246,7 @@ impl Server {
                 home,
                 send: Arc::new(move |event| {
                     kept.push(&event);
+                    counted.event(&event);
                     send(event);
                 }),
                 agents: Running::default(),
@@ -249,6 +256,7 @@ impl Server {
                 runs: Arc::new(Mutex::new(runs)),
                 watched: Arc::default(),
                 callers: tools::Callers::default(),
+                telemetry,
             },
             installs: Mutex::default(),
             cloning: Mutex::default(),
@@ -258,6 +266,7 @@ impl Server {
         server.shared.schedule();
         server.shared.go_on();
         server.shared.serve_tools();
+        server.shared.telemetry.start();
         server
     }
 
@@ -296,6 +305,7 @@ impl Server {
 
     /// Do what `call` asks.
     pub fn handle(self: &Arc<Self>, call: Call) {
+        self.shared.telemetry.call(&call);
         match call {
             Call::Fetch => self.fetch(),
             Call::Install { entry } => self.install(entry),
@@ -385,6 +395,7 @@ impl Server {
             Call::SignIn { agent, method } => self.authenticate(&agent, method),
             Call::SignOut { agent } => self.logout(&agent),
             Call::Weigh => self.weigh(),
+            Call::Telemetry(ask) => self.shared.telemetry.ask(ask, &*self.shared.send),
             Call::Signal { pid, signal } => self.off(move || {
                 Event::Notice(
                     crate::diagnostics::signal(std::process::id(), pid, &signal)
@@ -1188,14 +1199,24 @@ impl Server {
     fn set_option(&self, id: &str, key: u64, session: SessionId, config: String, value: String) {
         let request = SetSessionConfigOptionRequest::new(
             session,
-            SessionConfigId::new(config),
-            SessionConfigOptionValue::value_id(SessionConfigValueId::new(value)),
+            SessionConfigId::new(config.clone()),
+            SessionConfigOptionValue::value_id(SessionConfigValueId::new(value.clone())),
         );
+        let telemetry = self.shared.telemetry.clone();
         self.ask(id, request, move |r| match r {
-            Ok(r) => Event::Options {
-                key,
-                options: r.config_options,
-            },
+            Ok(r) => {
+                let model = (r.config_options.iter()).any(|o| {
+                    o.id.0.as_ref() == config
+                        && o.category == Some(SessionConfigOptionCategory::Model)
+                });
+                if model {
+                    telemetry.count(|c| crate::telemetry::tally(&mut c.models, &value));
+                }
+                Event::Options {
+                    key,
+                    options: r.config_options,
+                }
+            }
             Err(f) => Event::Refused {
                 key,
                 why: f.message,

@@ -203,6 +203,35 @@ window it is `ghost-server --mcp`; from elsewhere, `ssh host ghost-server
 --mcp`. Such an agent reads (the sessions, what was said, a diff); what
 acts, or asks you, is for a session in Ghost, where Ghost asks you first.
 
+## Telemetry
+
+Ghost tells the people who make it how it is used, as far as you let it,
+in four levels like KDE's: each sends what the one before it does, and
+more. As Ghost first opens it asks, the slider at Usage; Settings ›
+Telemetry changes it, shows the exact JSON of the next batch, and makes
+a new install id. On a server with no window, set `"telemetry": 0` to `3`
+in its `settings.json`.
+
+- **0, Off**: once, at the first launch, never again (not after an
+  update): Ghost's version, commit and channel (stable, nightly, dev), the
+  system (`macos 26`, or `linux`) and the processor. No id.
+- **1, Basic**: each day, that and a random id of this install, the
+  agents switched on (their ACP registry ids and versions), the number of
+  Macs paired, and whether others may control this one.
+- **2, Usage** (the default offered): also the day's counts: sessions by
+  agent, turns, worktrees made, scheduled tasks' turns and workflows' runs,
+  Ghost's tools called by name, pages opened by name, crashes.
+- **3, Detailed**: also the time to open, the memory Ghost holds, the
+  kinds of error (an agent that did not start, a change an agent refused),
+  the models chosen by id, the window's size and zoom, the look and the
+  system's language.
+
+No level sends what you or an agent wrote, a path, the name of a project,
+repository, branch or session, a host name, an email, a token or the
+words of an error. Nothing above level 0 goes before you confirm the
+level. Batches go to a Cloudflare Worker ([telemetry/](telemetry/)),
+which keeps them and the country they came from, not the address.
+
 ## Security
 
 An agent runs as you, on your machine, with whatever its own settings allow.

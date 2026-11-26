@@ -543,6 +543,7 @@ impl Desk {
                 self.pages.processes = (agents, processes);
             }
             Event::Troubles(lines) => self.pages.troubles = lines,
+            Event::Telemetry(batch) => self.pages.sent = Some(batch),
             // What the server says is here: each agent restaged, those
             // that can start started, those not here installed.
             Event::Here(here) => {
@@ -719,6 +720,7 @@ impl Desk {
                 | Event::Forges(_)
                 | Event::Weighed { .. }
                 | Event::Troubles(_)
+                | Event::Telemetry(_)
                 | Event::Shared(_)
                 | Event::Tasks(_)
                 | Event::Workflows { .. }

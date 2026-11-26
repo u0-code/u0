@@ -23,7 +23,8 @@ const map = (value) => (v) =>
   Object.entries(v).every(([k, x]) => NAME.test(k) && value(x));
 
 /** Each field, the level it is sent from, and what it may hold. A
- * field's name is its column's. */
+ * field's name is its column's. A server with no window sends its look
+ * and language empty. */
 const FIELDS = {
   level: [0, of(0, 1, 2, 3)],
   version: [0, like(/^\d{1,4}\.\d{1,4}\.\d{1,4}[0-9A-Za-z.+-]{0,24}$/)],
@@ -31,7 +32,7 @@ const FIELDS = {
   channel: [0, of("stable", "nightly", "dev")],
   os: [0, like(/^(macos \d{1,3}|linux)$/)],
   arch: [0, of("aarch64", "x86_64")],
-  id: [1, like(/^[0-9a-f]{32}$/)],
+  id: [1, like(/^[A-Za-z0-9_-]{22}$/)],
   agents: [1, map(like(NAME))],
   servers: [1, count],
   listening: [1, of(true, false)],
@@ -50,8 +51,8 @@ const FIELDS = {
   width: [3, count],
   height: [3, count],
   zoom: [3, count],
-  look: [3, of("light", "dark", "system")],
-  language: [3, like(/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})?$/)],
+  look: [3, of("light", "dark", "system", "")],
+  language: [3, like(/^([a-z]{2,3}(-[A-Za-z0-9]{2,8})?)?$/)],
 };
 
 /** Whether `b` is a batch: every field of its level, and nothing more. */

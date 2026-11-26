@@ -498,7 +498,18 @@ impl Tools {
     name = "ghost",
     instructions = "Ghost, the app this agent may be running in: the sessions it keeps of your agents, their diffs and pull requests, its scheduled tasks; and the user, asked in this session's thread."
 )]
-impl ServerHandler for Tools {}
+impl ServerHandler for Tools {
+    /// Each call counted by its tool (`telemetry`), then made.
+    async fn call_tool(
+        &self,
+        request: rmcp::model::CallToolRequestParams,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<rmcp::model::CallToolResponse, rmcp::ErrorData> {
+        (self.shared.telemetry).count(|c| crate::telemetry::tally(&mut c.tools, &request.name));
+        let call = rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
+        Self::tool_router().call(call).await
+    }
+}
 
 #[cfg(test)]
 mod tests {

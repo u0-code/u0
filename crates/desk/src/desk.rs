@@ -640,6 +640,27 @@ impl Desk {
             );
         })
         .detach();
+        // Once the window is up: ask how much Ghost may tell, and count
+        // how it opened.
+        cx.defer_in(window, |this, window, cx| {
+            this.ask_telemetry(window, cx);
+            let size = window.bounds().size;
+            let shown = crate::telemetry::Window {
+                width: f32::from(size.width).round() as u32,
+                height: f32::from(size.height).round() as u32,
+                zoom: u32::from(this.settings.scale),
+                look: serde_json::to_value(this.settings.look)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_owned))
+                    .unwrap_or_default(),
+                language: sys_locale::get_locale().unwrap_or_default(),
+                startup_ms: crate::LAUNCHED.elapsed().as_millis() as u64,
+            };
+            this.call(
+                hub::Host::HERE,
+                Call::Telemetry(crate::telemetry::Ask::Window(shown)),
+            );
+        });
         Self::keep_on_quit(cx);
         // This Mac's server in this process is read now; one reached over
         // a link (its service, another Mac), once it is reached.
@@ -1684,7 +1705,18 @@ impl Desk {
         cx: &mut Context<Self>,
     ) {
         let on = self.pages.on;
+        let page = format!("settings/{tab:?}").to_lowercase();
+        self.call(on, Call::Telemetry(crate::telemetry::Ask::Opened(page)));
         match tab {
+            crate::pages::Tab::Telemetry => {
+                let level = self
+                    .settings_on(on)
+                    .telemetry
+                    .unwrap_or(crate::telemetry::Level::Usage);
+                let at = f32::from(u8::from(level));
+                (self.pages.level).update(cx, |s, cx| s.set_value(at, window, cx));
+                self.pages.sent = None;
+            }
             crate::pages::Tab::Sessions => self.measure(),
             crate::pages::Tab::Appearance => self.read_themes(cx),
             crate::pages::Tab::SourceControl => self.call(on, Call::Forges),

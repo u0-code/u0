@@ -148,6 +148,7 @@ crates/core/src/
   diagnostics.rs  the processes Ghost runs, as a tree with CPU and memory; its log's troubles
   path.rs       the PATH your shell sets up, for an app opened from the Dock
   scripts.rs    a repository's own commands, in its ghost.json
+  telemetry.rs  what Ghost tells its makers, by level (0-3): the counts, the daily batch
   when.rs       times as read
   update.rs     Ghost's own updates: the GitHub releases the casks install, put in place
   usage.rs      what agents say they used, read from the records: cost, tokens by
@@ -193,13 +194,15 @@ crates/desk/src/
                 devices: Devices, both ways, and the sheet that asks before pairing,
                 tasks: Scheduled tasks, scope: the project a page's choices are
                 set for,
-                flows: Workflows),
+                flows: Workflows, telemetry: Telemetry, and the sheet that asks
+                as Ghost first opens),
                 the PRs and Issues pages drawn (forge)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   ui.rs, theme.rs, style.rs
   themes.rs     themes in gpui-kit's format: Ghost's, yours, a VS Code theme imported
   fonts.rs, assets.rs   faces, icons
 assets/         fonts, the desk's own icons and the themes it brings, built into the app
+telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf deploy`
 
 ```
 
@@ -295,6 +298,16 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
   Ghost runs `--mcp` with none, and the file's key lets it in to read only.
   What acts, or asks you, asks on the session's permission card
   (`acp::Agent::question`).
+- Telemetry is the server's (`telemetry.rs`), under its own settings'
+  `telemetry`, a level from 0 to 3, none until the first-run sheet is
+  confirmed. Level 0's one batch (the build, the system, the processor; no
+  id) goes once ever, as a home first runs; from 1 up, one batch a day,
+  each level adding to the one below as README.md lists, to
+  `telemetry::ENDPOINT`, the Worker in `telemetry/`. The day's counts are
+  kept in `~/.ghost/telemetry.json` (with the install's random id, from
+  level 1); a batch that does not go is dropped. Only counts and names
+  Ghost or the registry gives go: never what is written, a path, a name of
+  yours, a host or an error's words. The tests send nowhere.
 - `~/.ghost/registry.json`, `icons/` and `agents/` are rebuilt from the
   registry. `logs/` is Ghost's own log, a file a day, the last
   `log_days` kept.

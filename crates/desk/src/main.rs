@@ -31,8 +31,8 @@ mod voice;
 // rest name it alike in every module of the desk.
 use ghost_core::{
     access, acp, diagnostics, forge, git, github, key, link, path, proto, registry, repo, scripts,
-    secrets, server, servers, session, settings, share, store, tasks, tidy, update, usage, when,
-    whole, workflows, writer,
+    secrets, server, servers, session, settings, share, store, tasks, telemetry, tidy, update,
+    usage, when, whole, workflows, writer,
 };
 use keys::{
     About, BringAllToFront, CheckForUpdates, Hide, HideOthers, Minimize, NewSession, OpenSettings,
@@ -44,7 +44,12 @@ use gpui::{
     TitlebarOptions, WindowBounds, WindowOptions, point, px, size,
 };
 
+/// When Ghost was launched: how long it took to open is counted from it.
+static LAUNCHED: std::sync::LazyLock<std::time::Instant> =
+    std::sync::LazyLock::new(std::time::Instant::now);
+
 fn main() {
+    std::sync::LazyLock::force(&LAUNCHED);
     // Ghost's tools, as an agent starts them: no window, and quick.
     ghost_core::mcp::when_asked();
     // Before any thread starts, since it changes the environment.

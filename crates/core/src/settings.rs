@@ -232,6 +232,10 @@ pub struct Settings {
     /// How the sidebar orders a project's sessions, and the projects.
     #[serde(default)]
     pub sort: Sort,
+    /// How much Ghost tells the people who make it (`telemetry`): a level
+    /// from 0 to 3; none until you chose one, as Ghost first opens.
+    #[serde(default)]
+    pub telemetry: Option<crate::telemetry::Level>,
 }
 
 /// How the sidebar orders, as t3code's sort: by your last message (and
@@ -815,6 +819,7 @@ impl Default for Settings {
             resume_at_reset: true,
             tidy_after: None,
             sort: Sort::Used,
+            telemetry: None,
         }
     }
 }

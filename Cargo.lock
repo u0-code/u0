@@ -2276,6 +2276,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shell-words",
+ "sys-locale",
  "tempfile",
  "tokio",
  "tracing",

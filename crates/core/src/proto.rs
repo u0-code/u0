@@ -163,6 +163,8 @@ pub enum Call {
     },
     /// Ghost's processes, and which are the agents running.
     Weigh,
+    /// Something of telemetry: a count from the window, or what is sent.
+    Telemetry(crate::telemetry::Ask),
     /// Send the process `pid`, one of Ghost's, the signal `signal` (TERM,
     /// KILL); answered as a `Notice`.
     Signal {
@@ -572,6 +574,8 @@ pub enum Event {
     },
     /// The warnings and errors in Ghost's log, newest first.
     Troubles(Vec<String>),
+    /// The batch of telemetry that goes next, as JSON, or why none does.
+    Telemetry(String),
     /// What of each agent the registry lists is here, by its id.
     Here(HashMap<String, Here>),
     /// What a CLI of yours says its version is.
@@ -1330,6 +1334,7 @@ mod tests {
             },
             Call::SignOut { agent: "a".into() },
             Call::Weigh,
+            Call::Telemetry(crate::telemetry::Ask::Show(crate::telemetry::Level::Usage)),
             Call::Signal {
                 pid: 7,
                 signal: "TERM".into(),
@@ -1520,6 +1525,7 @@ mod tests {
                 },
             },
             Event::Troubles(vec!["t ERROR x".into()]),
+            Event::Telemetry("{}".into()),
             Event::Here(HashMap::from([(
                 "a".to_owned(),
                 Here {

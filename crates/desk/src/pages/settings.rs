@@ -49,11 +49,12 @@ pub enum Tab {
     Devices,
     Tasks,
     Workflows,
+    Telemetry,
 }
 
 impl Tab {
     /// Each tab, in the order the side list shows them.
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 17] = [
         Self::General,
         Self::Devices,
         Self::Appearance,
@@ -69,6 +70,7 @@ impl Tab {
         Self::Sessions,
         Self::Usage,
         Self::Diagnostics,
+        Self::Telemetry,
         Self::About,
     ];
 
@@ -90,6 +92,7 @@ impl Tab {
             Self::Devices => "Devices",
             Self::Tasks => "Scheduled tasks",
             Self::Workflows => "Workflows",
+            Self::Telemetry => "Telemetry",
         }
     }
 
@@ -111,6 +114,7 @@ impl Tab {
             Self::Devices => "laptop",
             Self::Tasks => "clock",
             Self::Workflows => "list",
+            Self::Telemetry => "gauge",
         }
     }
 
@@ -125,7 +129,7 @@ impl Tab {
             | Self::Workflows
             | Self::Sessions
             | Self::Usage => "Agents",
-            Self::About | Self::Diagnostics => "Ghost",
+            Self::About | Self::Diagnostics | Self::Telemetry => "Ghost",
             _ => "",
         }
     }
@@ -163,6 +167,10 @@ impl Desk {
             Tab::Workflows => paged(
                 "Work in stages, run by Ghost's server as one run that outlives a restart: each step's result is kept as it ends, and a step that fails pauses the run there.",
                 self.flows(w),
+            ),
+            Tab::Telemetry => paged(
+                "What the server these settings are of tells the people who make Ghost, as far as you let it.",
+                self.telemetry_tab(w),
             ),
             Tab::Projects => self.projects_tab(w),
             Tab::Devices => self.devices_tab(w),
