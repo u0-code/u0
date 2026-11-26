@@ -138,7 +138,7 @@ impl Desk {
                                     .flex()
                                     .flex_col()
                                     .justify_center()
-                                    .px(px(2.))
+                                    .px(px(4.))
                                     .child(self.composer_line(cx)),
                             )
                             .children(dictate)
@@ -276,7 +276,10 @@ impl Desk {
                 }
             }))
             .child(
+                // Small: 2 above and below the text, not Medium's 8, so a
+                // line fits inside the buttons' 28 and sits on their middle.
                 Textarea::new(&self.composer.input)
+                    .small()
                     .appearance(false)
                     // ⇧⌘V puts what is pasted in the line, whatever it is.
                     .on_paste(move |item, window, cx| {
