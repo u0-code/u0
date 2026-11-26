@@ -131,7 +131,7 @@ impl Desk {
                             "panel-right",
                             crate::keys::hint(cx, "Show or hide the right column", "right_column"),
                         )
-                        .selected(self.panes.right)
+                        .selected(self.panes.right && self.session().is_some())
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_aside(cx))),
                     );
             }

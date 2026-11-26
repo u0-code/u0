@@ -143,6 +143,10 @@ pub struct Settings {
     /// How wide the sidebar is, in points, as you dragged it.
     #[serde(default = "left")]
     pub left: u32,
+    /// How wide the right column is, in points, as you dragged it: one
+    /// width whatever its tab shows.
+    #[serde(default = "right")]
+    pub right: u32,
     /// What sends what you write.
     #[serde(default)]
     pub send: SendKey,
@@ -585,7 +589,7 @@ impl Width {
             Self::Wide => 880.,
             Self::Full => f32::MAX,
         };
-        (pane - 64.).clamp(240., most)
+        (pane - 64.).clamp(0., most)
     }
 }
 
@@ -614,6 +618,13 @@ pub const LEFT: u32 = 256;
 
 fn left() -> u32 {
     LEFT
+}
+
+/// How wide the right column stands until you drag it.
+pub const RIGHT: u32 = 400;
+
+fn right() -> u32 {
+    RIGHT
 }
 
 /// The sizes the window can be drawn at, in percent, smallest first; ⌘+
@@ -730,6 +741,7 @@ impl Default for Settings {
             send: SendKey::default(),
             paragraphs: false,
             left: left(),
+            right: right(),
             diff_wrap: yes(),
             editor: None,
             no_spacing: false,

@@ -71,7 +71,12 @@ use crate::{
 /// beside it: t3code's.
 const LEFT_LEAST: f32 = 208.;
 const MIDDLE_LEAST: f32 = 640.;
-pub const RIGHT: f32 = 320.;
+/// How narrow the session column may get, at any size or zoom: under it
+/// the columns beside it stop taking room and lie over it instead, the
+/// right one first.
+const THREAD_LEAST: f32 = 480.;
+/// How narrow the right column can be dragged.
+const RIGHT_LEAST: f32 = 280.;
 pub const TOPBAR: f32 = 44.;
 /// Room the window's lights take at the left of the top row.
 const LIGHTS: f32 = 76.;
@@ -569,7 +574,7 @@ impl Desk {
             picker: crate::thread::Picker::default(),
             panes: Panes {
                 left: true,
-                right: true,
+                right: false,
                 whole: false,
             },
             composer,
@@ -1591,14 +1596,19 @@ impl Desk {
         cx.notify();
     }
 
-    /// How wide the right column stands: wider for a file read in it, and
-    /// wider again for its diff side by side.
+    /// How wide the right column stands: as you dragged it, whatever its
+    /// tab shows.
     pub fn right_width(&self) -> f32 {
-        match self.surface() {
-            Some(Surface::Diff) if self.settings.side_by_side => 720.,
-            Some(Surface::Diff | Surface::Terminal | Surface::File(_)) => 560.,
-            _ => RIGHT,
-        }
+        (self.settings.right as f32).max(RIGHT_LEAST)
+    }
+
+    /// The right column's edge dragged to `x`: its width, leaving the
+    /// session column its least.
+    fn drag_right(&mut self, x: f32, window: &Window, cx: &mut Context<Self>) {
+        let width = f32::from(window.viewport_size().width);
+        let most = (width - THREAD_LEAST).max(RIGHT_LEAST);
+        self.settings.right = (width - x).clamp(RIGHT_LEAST, most) as u32;
+        cx.notify();
     }
 
     pub fn home_path() -> Option<PathBuf> {
@@ -1671,17 +1681,20 @@ impl Render for Desk {
         self.show_confirm(window, cx);
         let faces = fonts::faces(cx).clone();
         let lights = lights_room(window);
-        let left = self
-            .left_width()
-            .min(f32::from(window.viewport_size().width) - MIDDLE_LEAST)
-            .max(LEFT_LEAST);
-        let pane = f32::from(window.viewport_size().width)
-            - if self.panes.left { left } else { 0. }
-            - if self.panes.right && self.page == Page::Thread {
-                self.right_width()
-            } else {
-                0.
-            };
+        let width = f32::from(window.viewport_size().width);
+        let left = self.left_width().min(width - MIDDLE_LEAST).max(LEFT_LEAST);
+        let thread_page = self.page == Page::Thread && self.session().is_some();
+        let whole = self.panes.whole && thread_page;
+        // The session column keeps its least, at any size or zoom: a column
+        // beside it that would leave it less lies over it instead, the
+        // right one first.
+        let left_beside = self.panes.left && width - left >= THREAD_LEAST;
+        let right_shown = self.panes.right && thread_page && !whole;
+        let right_beside = right_shown
+            && width - if left_beside { left } else { 0. } - self.right_width() >= THREAD_LEAST;
+        let pane = width
+            - if left_beside { left } else { 0. }
+            - if right_beside { self.right_width() } else { 0. };
         let middle = div()
             .relative()
             .flex()
@@ -1689,6 +1702,8 @@ impl Render for Desk {
             .flex_1()
             .min_w(px(0.))
             .h_full()
+            // Nothing in it paints over the columns beside it.
+            .overflow_hidden()
             // Your picture, faint under the thread and what is beside it.
             .children(self.settings.backdrop.clone().map(|path| {
                 gpui::img(path)
@@ -1711,27 +1726,39 @@ impl Render for Desk {
             Page::Agent(id) => middle.child(self.agent_page(&faces, &id, cx)),
             Page::Forge(_) => middle.child(self.forge_page(&faces, cx)),
         };
-        let whole = self.panes.whole && self.page == Page::Thread && self.session().is_some();
-        let right = match (&self.page, self.panes.right) {
-            (Page::Thread, true) if whole => Some(self.aside(&faces, cell, cx).flex_1()),
-            (Page::Thread, true) if self.session().is_some() => {
+        let right = match &self.page {
+            Page::Thread if whole => Some(self.aside(&faces, cell, cx).flex_1()),
+            Page::Thread if right_beside => {
                 Some(self.aside(&faces, cell, cx).w(px(self.right_width())))
             }
-            (Page::Agent(id), _) => Some(self.about(&faces, id, cx)),
+            Page::Thread if right_shown => Some(over(
+                self.aside(&faces, cell, cx)
+                    .w(px(self.right_width().min(width - 48.)))
+                    .right_0(),
+            )),
+            Page::Agent(id) => Some(self.about(&faces, id, cx)),
             _ => None,
         };
         fonts::with_fallbacks(div())
             .relative()
             .flex()
             .size_full()
-            // The sidebar's edge dragged: its width follows, and is kept
-            // once let go.
+            // A column's edge dragged: its width follows, and is kept once
+            // let go.
             .on_drag_move(cx.listener(
                 |this, e: &gpui::DragMoveEvent<crate::sidebar::LeftEdge>, window, cx| {
                     this.drag_left(f32::from(e.event.position.x), window, cx);
                 },
             ))
             .on_drop(cx.listener(|this, _: &crate::sidebar::LeftEdge, _, _| {
+                this.save_settings();
+            }))
+            .on_drag_move(cx.listener(
+                |this, e: &gpui::DragMoveEvent<crate::aside::RightEdge>, window, cx| {
+                    this.drag_right(f32::from(e.event.position.x), window, cx);
+                },
+            ))
+            .on_drop(cx.listener(|this, _: &crate::aside::RightEdge, _, _| {
                 this.save_settings();
             }))
             // The dictation key let go, which ends talking while it is held.
@@ -1759,11 +1786,14 @@ impl Render for Desk {
             .font_family(faces.ui.clone())
             .text_size(px(BODY))
             .text_color(theme::text())
-            .when(self.panes.left, |d| {
+            .when(left_beside, |d| {
                 d.child(self.sidebar(&faces, lights, left, cx))
             })
             .when(!whole, |d| d.child(middle))
             .children(right)
+            .when(self.panes.left && !left_beside, |d| {
+                d.child(over(self.sidebar(&faces, lights, left, cx).left_0()))
+            })
             // Hidden, the sidebar is dragged back out from the left edge.
             .when(!self.panes.left, |d| {
                 use gpui::component::resizable::{HandleEdge, resize_handle};
@@ -1822,6 +1852,17 @@ impl Desk {
     pub fn edit(&self, path: PathBuf, start: Option<&'static [u8]>) {
         hub::edit(path, self.settings.editor.clone(), start, self.tx.clone());
     }
+}
+
+/// A column lying over the session's where the window has no room for it
+/// beside it: its full height, raised.
+fn over(column: gpui::Div) -> gpui::Div {
+    column
+        .absolute()
+        .top_0()
+        .h_full()
+        .bg(theme::bg())
+        .shadow_lg()
 }
 
 /// The editors Ghost can open a file in, by their command, and their

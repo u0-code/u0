@@ -16,14 +16,22 @@ pub use tabs::{Column, Surface};
 use std::time::SystemTime;
 
 use agent_client_protocol::v1::schema::{ToolCallContent, ToolCallStatus};
+use gpui::component::InteractiveElementExt as _;
 use gpui::component::{
-    Sizable as _, button::Button, input::Input, list::ListItem, menu::PopupMenu, popover::Popover,
-    progress::Progress, scroll::ScrollableElement as _,
+    Sizable as _,
+    button::Button,
+    input::Input,
+    list::ListItem,
+    menu::PopupMenu,
+    popover::Popover,
+    progress::Progress,
+    resizable::{HandleEdge, resize_handle},
+    scroll::ScrollableElement as _,
 };
 use gpui::{Context, Div, Entity, SharedString, div, prelude::*, px};
 
 use crate::{
-    desk::{Desk, RIGHT, TOPBAR, draggable},
+    desk::{Desk, TOPBAR, draggable},
     fonts::Faces,
     registry::{self, Way},
     session::{Session, State},
@@ -35,12 +43,22 @@ use crate::{
 };
 
 /// The column's frame: its width, its line on the left, a top row.
+/// The right column's edge, dragged.
+#[derive(Clone)]
+pub struct RightEdge;
+
+impl gpui::Render for RightEdge {
+    fn render(&mut self, _: &mut gpui::Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+    }
+}
+
 fn frame(top: Div) -> Div {
     div()
+        .relative()
         .flex()
         .flex_col()
         .flex_none()
-        .w(px(RIGHT))
         .h_full()
         .border_l_1()
         .border_color(theme::border())
@@ -165,7 +183,17 @@ impl Desk {
             }
             Some(Surface::Side(key)) => self.side_chat(faces, key, cx).into_any_element(),
         };
-        frame(head).child(body)
+        // Its edge: dragged, its width; double-clicked, as it was at first.
+        frame(head).child(body).child(
+            resize_handle::<RightEdge, RightEdge>("right-edge", gpui::Axis::Horizontal)
+                .inside(HandleEdge::Leading)
+                .on_drag(RightEdge, |edge, _, _, cx| cx.new(|_| edge.clone()))
+                .on_double_click(cx.listener(|this, _, _, cx| {
+                    this.settings.right = crate::settings::RIGHT;
+                    this.save_settings();
+                    cx.notify();
+                })),
+        )
     }
 
     /// The Details tab, as Claude stacks its cards: the context, the plan,
