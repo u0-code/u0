@@ -229,6 +229,22 @@ pub struct Settings {
     /// session checks it out again.
     #[serde(default)]
     pub tidy_after: Option<u32>,
+    /// How the sidebar orders a project's sessions, and the projects.
+    #[serde(default)]
+    pub sort: Sort,
+}
+
+/// How the sidebar orders, as t3code's sort: by your last message (and
+/// a project by its latest), by anything happening, by when it began, or
+/// by name.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Sort {
+    #[default]
+    Used,
+    Updated,
+    Begun,
+    Name,
 }
 
 fn snoozes() -> Vec<String> {
@@ -798,6 +814,7 @@ impl Default for Settings {
             no_tools: Vec::new(),
             resume_at_reset: true,
             tidy_after: None,
+            sort: Sort::Used,
         }
     }
 }

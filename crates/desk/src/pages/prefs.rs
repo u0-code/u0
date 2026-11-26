@@ -301,6 +301,26 @@ impl Desk {
                         vec![
                             item(
                                 w,
+                                "The sidebar sorts by",
+                                "A project's sessions, and the projects: your last message, anything happening, when each began, or name. Pinned ones stay on top.",
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "sort",
+                                        [
+                                            ("Your message", crate::settings::Sort::Used),
+                                            ("Activity", crate::settings::Sort::Updated),
+                                            ("Begun", crate::settings::Sort::Begun),
+                                            ("Name", crate::settings::Sort::Name),
+                                        ],
+                                        d.settings.sort,
+                                        |s, v| s.sort = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
+                            ),
+                            item(
+                                w,
                                 "Look",
                                 "Light and dark keep the same amber for what is going on now.",
                                 |d, _, cx| {

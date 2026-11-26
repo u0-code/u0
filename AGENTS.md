@@ -287,7 +287,8 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
   `log_days` kept.
 - Sessions belong to each agent, which lists them (`session/list`, by
   project). Ghost keeps an index of those it has seen (`sessions.json`:
-  title, pins, archive, worktree, the pull requests and issues linked) and a record of each
+  title, pins, archive, worktree, the pull requests and issues linked,
+  tags) and a record of each
   (`transcripts/<agent>/<id>.jsonl`), so the list and a thread show at
   once. A session with a record is resumed (`session/resume`); one
   without is loaded (`session/load`), and recorded as it comes.

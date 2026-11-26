@@ -26,8 +26,16 @@ use crate::{
     desk::{Desk, Renaming, lists, rank},
     fonts::Weighted as _,
     session::{Session, State},
+    settings::Sort,
     store, theme, ui,
 };
+
+/// A title with its tags after it, as search reads it and a row shows
+/// them: "Fix the build #ci #urgent".
+fn tagged(title: &str, tags: &[String]) -> String {
+    tags.iter()
+        .fold(title.to_owned(), |t, tag| format!("{t} #{tag}"))
+}
 
 /// How many settled sessions show at first, and how many more each time.
 const SETTLED: usize = 10;
@@ -152,7 +160,7 @@ impl Desk {
             || self.search.found.contains(&s.key)
             || rank::session(
                 query,
-                &s.meta.title,
+                &tagged(&s.meta.title, &s.meta.tags),
                 s.git.pr.as_ref().map(|p| p.number),
                 s.branch.as_deref(),
                 &self.project_name(&s.meta.project),
@@ -177,8 +185,27 @@ impl Desk {
                     && s.meta.flags.pinned.is_none()
             })
             .collect();
-        here.sort_by_key(|s| std::cmp::Reverse(lists::used(s)));
+        here.sort_by(|a, b| self.before(a, b));
         here
+    }
+
+    /// Which of `a` and `b` the sidebar lists first, as `settings.sort`
+    /// says: the latest first, or by name.
+    fn before(&self, a: &Session, b: &Session) -> std::cmp::Ordering {
+        match self.settings.sort {
+            Sort::Name => (a.meta.title.to_lowercase()).cmp(&b.meta.title.to_lowercase()),
+            _ => self.sorted_at(b).cmp(&self.sorted_at(a)),
+        }
+    }
+
+    /// The time `s` is ordered by: your last message in it, the last thing
+    /// that happened in it, or when it began.
+    fn sorted_at(&self, s: &Session) -> SystemTime {
+        match self.settings.sort {
+            Sort::Used | Sort::Name => lists::used(s),
+            Sort::Updated => s.meta.updated,
+            Sort::Begun => s.meta.begun,
+        }
     }
 
     /// The tree's rows, and the sessions in the order they are listed.
@@ -228,22 +255,25 @@ impl Desk {
                     .all
                     .iter()
                     .filter(|s| self.listed_under(&s.meta.project) == p)
-                    .map(lists::used)
+                    .map(|s| self.sorted_at(s))
                     .max()
                     .unwrap_or(SystemTime::UNIX_EPOCH);
                 (p, last)
             })
             .collect();
+        // Pinned first; then the latest first, or by name alone.
+        let named = self.settings.sort == Sort::Name;
         projects.sort_by(|(a, at), (b, bt)| {
+            let when = |t: SystemTime| std::cmp::Reverse((!named).then_some(t));
             (
                 !self.prefs(a).pinned,
-                std::cmp::Reverse(*at),
-                self.project_name(a),
+                when(*at),
+                self.project_name(a).to_lowercase(),
             )
                 .cmp(&(
                     !self.prefs(b).pinned,
-                    std::cmp::Reverse(*bt),
-                    self.project_name(b),
+                    when(*bt),
+                    self.project_name(b).to_lowercase(),
                 ))
         });
         for (folder, _) in projects {
@@ -680,6 +710,14 @@ impl Desk {
                         d.child(ui::icon("pin", 12.).flex_none().text_color(theme::faint()))
                     })
                     .child(name)
+                    .when(!s.meta.tags.is_empty(), |d| {
+                        d.child(
+                            ui::text(faces, tagged("", &s.meta.tags).trim().to_owned())
+                                .flex_none()
+                                .text_size(px(crate::style::CAPTION))
+                                .text_color(theme::muted()),
+                        )
+                    })
                     .children(s.git.pr.as_ref().map(|pr| {
                         ui::text(faces, format!("#{}", pr.number))
                             .flex_none()
@@ -1295,6 +1333,28 @@ pub(crate) fn side_tree(window: &mut Window, cx: &mut Context<Desk>) -> Entity<T
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_session_is_found_by_its_tags() {
+        let now = SystemTime::now();
+        let title = tagged("Fix the build", &["ci".into(), "urgent".into()]);
+        assert_eq!(title, "Fix the build #ci #urgent");
+        let found = |typed: &str| {
+            rank::session(
+                &rank::Query::new(typed),
+                &title,
+                None,
+                None,
+                "p",
+                now,
+                now,
+                false,
+            )
+            .is_some()
+        };
+        assert!(found("#urgent"));
+        assert!(!found("#later"));
+    }
 
     #[test]
     fn each_row_reads_back_from_its_id() {

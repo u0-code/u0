@@ -27,6 +27,8 @@ pub enum Sub {
     Snooze,
     /// A pull request or issue of the project, linked to the session.
     Link,
+    /// Tags of the session on screen: those used anywhere, or a new one.
+    Tag,
 }
 
 impl Sub {
@@ -41,6 +43,7 @@ impl Sub {
             Self::Remote => "On another machine",
             Self::Snooze => "Snooze until…",
             Self::Link => "Link a pull request or issue",
+            Self::Tag => "Tag the session",
         }
     }
 
@@ -48,6 +51,7 @@ impl Sub {
     pub(super) fn placeholder(self) -> &'static str {
         match self {
             Self::NewIn | Self::Look | Self::Link => "Search…",
+            Self::Tag => "A tag, or one used before",
             Self::Add => "Enter project path (e.g. ~/projects/my-app)",
             Self::Clone => "Repository URL",
             Self::Make => "Project name",
@@ -273,6 +277,37 @@ impl Desk {
                     Row::new("clock", format!("Until {said}"), Act::Snooze(Later::At(at))),
                 );
                 rows
+            }
+            Sub::Tag => {
+                let on = self
+                    .session()
+                    .map(|s| s.meta.tags.clone())
+                    .unwrap_or_default();
+                let mut all: Vec<String> = (self.sessions.all.iter())
+                    .flat_map(|s| s.meta.tags.iter().cloned())
+                    .collect();
+                all.sort();
+                all.dedup();
+                let word = typed.trim().trim_start_matches('#').to_lowercase();
+                let mut rows: Vec<Row> = all
+                    .into_iter()
+                    .map(|t| Row {
+                        end: on
+                            .contains(&t)
+                            .then(|| ("Tagged".to_owned(), crate::theme::faint())),
+                        ..Row::new("list", format!("#{t}"), Act::Tag(t))
+                    })
+                    .collect();
+                if !word.is_empty() && !word.contains(char::is_whitespace) {
+                    let fresh = !rows.iter().any(|r| r.title == format!("#{word}"));
+                    if fresh {
+                        rows.insert(
+                            0,
+                            Row::new("plus", format!("Tag it #{word}"), Act::Tag(word)),
+                        );
+                    }
+                }
+                return narrowed(rows, typed);
             }
             Sub::Link => {
                 let linked = self

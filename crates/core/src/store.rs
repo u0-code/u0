@@ -94,6 +94,10 @@ pub struct Meta {
     /// t3code's linked items: one it began from, or one you linked.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub links: Vec<Link>,
+    /// Words of yours it is tagged with, as t3code's thread tags: shown
+    /// beside its title, found by search.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 /// A pull request or issue a session is linked to.

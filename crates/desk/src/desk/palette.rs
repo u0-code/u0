@@ -76,6 +76,8 @@ enum Act {
     /// A pull request or issue linked to the session on screen, or
     /// unlinked where it was.
     Link(crate::store::Link),
+    /// A tag put on the session on screen, or taken off where it was.
+    Tag(String),
 }
 
 /// What the palette looks through: everything, the project's files
@@ -506,6 +508,7 @@ impl Desk {
                 rows.push(Row::new("bell", "Mark unread", Act::Unread));
             }
             rows.push(Row::new("bulb", "Ask a side question", Act::Beside));
+            rows.push(Row::new("list", "Tag the session", Act::Sub(Sub::Tag)));
             if s.repo {
                 rows.push(Row::new(
                     "pull-request",
@@ -919,6 +922,16 @@ impl Desk {
             Act::Link(link) => {
                 if let Some(key) = self.current {
                     self.link(key, link);
+                }
+            }
+            Act::Tag(tag) => {
+                if let Some(s) = self.current.and_then(|key| self.sessions.at_mut(key)) {
+                    if let Some(at) = s.meta.tags.iter().position(|t| *t == tag) {
+                        s.meta.tags.remove(at);
+                    } else {
+                        s.meta.tags.push(tag);
+                    }
+                    self.save_index();
                 }
             }
         }
