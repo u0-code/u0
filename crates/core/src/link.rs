@@ -302,7 +302,7 @@ async fn serve(server: &Arc<Server>, stream: TcpStream) -> Result<(), String> {
     let (mut at, resumed) = outbox.resume(hello.since);
     let welcome = Welcome {
         boot: outbox.boot,
-        name: host_name(),
+        name: server_name(server.home()),
         home: server.home().to_path_buf(),
         resumed,
         said: at,
@@ -353,6 +353,19 @@ pub fn host_name() -> String {
         .map(|name| name.trim_end_matches(".local").to_owned())
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "this machine".into())
+}
+
+/// What the Ghost in `home` calls itself to a desk: its machine's name,
+/// and for a home other than `~/.ghost` that home's folder too, so that a
+/// desk holding two Ghosts of one machine tells them apart.
+fn server_name(home: &std::path::Path) -> String {
+    let default = std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".ghost"));
+    match home.file_name() {
+        Some(folder) if default.as_deref() != Some(home) => {
+            format!("{} · {}", host_name(), folder.to_string_lossy())
+        }
+        _ => host_name(),
+    }
 }
 
 /// How a link to a server stands, as the desk is told.
@@ -422,15 +435,17 @@ enum Dial {
 
 type Client = Socket<MaybeTlsStream<TcpStream>>;
 
-/// Reach the server at `url` (`ws://127.0.0.1:…`, or `wss://` through a
-/// tunnel), signing with `key`, from now until the link is let go: each
+/// Reach the server at the address `reach` gives (`ws://127.0.0.1:…`, or
+/// `wss://` through a tunnel), signing with the key it gives, from now
+/// until the link is let go; `reach` is asked off the caller's thread
+/// (the Keychain may ask you first), and where it cannot say, the link is
+/// refused, why. Each
 /// time it is reached its welcome goes to `state`, and each time it
 /// cannot be, or drops, why; it is reached again after a second, then
 /// twice as long each time, up to half a minute. What the server says
 /// goes to `said`.
 pub fn connect(
-    url: String,
-    key: Key,
+    reach: impl FnOnce() -> Result<(String, Key), String> + Send + 'static,
     said: impl Fn(Event) + Send + Sync + 'static,
     state: impl Fn(State) + Send + Sync + 'static,
 ) -> Link {
@@ -439,6 +454,11 @@ pub fn connect(
     let again = Arc::new(Notify::new());
     let woken = again.clone();
     crate::acp::runtime().spawn(async move {
+        let (url, key) = match tokio::task::spawn_blocking(reach).await {
+            Ok(Ok(reached)) => reached,
+            Ok(Err(why)) => return state(State::Refused(why)),
+            Err(e) => return state(State::Refused(e.to_string())),
+        };
         let (mut since, mut wait, mut lost) = (None, FIRST, false);
         while !calls.is_closed() {
             match dial(&url, hello(&key, None, since)).await {
@@ -721,9 +741,9 @@ mod tests {
         let (events, heard) = std_mpsc::channel();
         let (states, stood) = std_mpsc::channel();
         let (events, states) = (Mutex::new(events), Mutex::new(states));
+        let url = format!("ws://127.0.0.1:{port}");
         let link = connect(
-            format!("ws://127.0.0.1:{port}"),
-            key,
+            move || Ok((url, key)),
             move |e| events.lock().unwrap().send(e).unwrap(),
             move |s| {
                 let _ = states.lock().unwrap().send(s);
@@ -891,9 +911,9 @@ mod tests {
         }
         let (states, stood) = std_mpsc::channel();
         let states = Mutex::new(states);
+        let (url, key) = (format!("ws://127.0.0.1:{port}"), Key::read(&kept).unwrap());
         let link = connect(
-            format!("ws://127.0.0.1:{port}"),
-            Key::read(&kept).unwrap(),
+            move || Ok((url, key)),
             |_| {},
             move |s| {
                 let _ = states.lock().unwrap().send(s);
@@ -909,12 +929,11 @@ mod tests {
     fn open(home: &std::path::Path, name: &str) -> Result<Welcome, String> {
         let servers = crate::servers::Servers::load(home).unwrap();
         let server = servers.servers.iter().find(|s| s.name == name).unwrap();
-        let (url, key) = server.reach()?;
+        let server = server.clone();
         let (states, stood) = std_mpsc::channel();
         let states = Mutex::new(states);
         let _link = connect(
-            url,
-            key,
+            move || server.reach(),
             |_| {},
             move |s| {
                 let _ = states.lock().unwrap().send(s);
@@ -946,13 +965,23 @@ mod tests {
         let theirs = crate::servers::Servers::load(home_a.path()).unwrap();
         assert_eq!(theirs.servers[0].key, a_for_b);
         assert!(mine.control && theirs.control);
+        assert_ne!(
+            name, theirs.servers[0].name,
+            "two Ghosts of one machine, told apart"
+        );
         assert!(open(home_b.path(), &name).is_ok(), "B opens A");
-        assert!(open(home_a.path(), &name).is_ok(), "A opens B");
+        assert!(
+            open(home_a.path(), &theirs.servers[0].name).is_ok(),
+            "A opens B"
+        );
         // A lets B go; B still lets A in.
         a.access().revoke(&on_a.devices[0].key);
         let cut = open(home_b.path(), &name).unwrap_err();
         assert!(cut.contains("not paired"), "{cut}");
-        assert!(open(home_a.path(), &name).is_ok(), "A still opens B");
+        assert!(
+            open(home_a.path(), &theirs.servers[0].name).is_ok(),
+            "A still opens B"
+        );
     }
 
     #[test]

@@ -88,8 +88,7 @@ pub struct Machine {
     pub paired: Option<crate::servers::Server>,
     /// What it is called: "This Mac", or the name it gave itself.
     pub name: String,
-    /// None where this Mac has no key to reach it with.
-    pub transport: Option<Transport>,
+    pub transport: Transport,
     pub up: Up,
     /// Ghost's home there: where its worktrees and scratch folders are.
     pub home: PathBuf,
@@ -112,7 +111,7 @@ pub struct Machine {
 }
 
 impl Machine {
-    fn new(host: Host, name: String, transport: Option<Transport>, up: Up) -> Self {
+    fn new(host: Host, name: String, transport: Transport, up: Up) -> Self {
         Self {
             host,
             paired: None,
@@ -156,7 +155,7 @@ impl Machine {
         let server = Server::new(home.to_path_buf(), move |event| {
             let _ = tx.send(Msg::Event(host, event));
         });
-        Self::new(host, String::new(), Some(Transport::Local(server)), Up::On)
+        Self::new(host, String::new(), Transport::Local(server), Up::On)
     }
 
     /// The server the window holds as `host`, of `held`.
@@ -166,47 +165,40 @@ impl Machine {
 
     /// Hold the server paired with `server` as `host`, reaching it.
     pub fn linked(host: Host, server: &crate::servers::Server, tx: &Sender) -> Self {
-        let (transport, up) = match server.reach() {
-            Ok((url, key)) => {
-                let (said, stood) = (tx.clone(), tx.clone());
-                let link = link::connect(
-                    url,
-                    key,
-                    move |event| {
-                        let _ = said.send(Msg::Event(host, event));
-                    },
-                    move |state| {
-                        let _ = stood.send(Msg::Link(host, state));
-                    },
-                );
-                (Some(Transport::Remote(link)), Up::Reaching)
-            }
-            Err(why) => (None, Up::Refused(why)),
-        };
-        let mut m = Self::new(host, server.name.clone(), transport, up);
+        let (said, stood, paired) = (tx.clone(), tx.clone(), server.clone());
+        let link = link::connect(
+            move || paired.reach(),
+            move |event| {
+                let _ = said.send(Msg::Event(host, event));
+            },
+            move |state| {
+                let _ = stood.send(Msg::Link(host, state));
+            },
+        );
+        let transport = Transport::Remote(link);
+        let mut m = Self::new(host, server.name.clone(), transport, Up::Reaching);
         m.paired = Some(server.clone());
         m
     }
 
     pub fn send(&self, call: Call) {
         match &self.transport {
-            Some(Transport::Local(server)) => server.handle(call),
-            Some(Transport::Remote(link)) => link.send(call),
-            None => {}
+            Transport::Local(server) => server.handle(call),
+            Transport::Remote(link) => link.send(call),
         }
     }
 
     /// The server in this process, where this is it.
     pub fn local(&self) -> Option<&std::sync::Arc<Server>> {
         match &self.transport {
-            Some(Transport::Local(server)) => Some(server),
-            _ => None,
+            Transport::Local(server) => Some(server),
+            Transport::Remote(_) => None,
         }
     }
 
     /// Reach it again now, rather than when its wait is over.
     pub fn again(&self) {
-        if let Some(Transport::Remote(link)) = &self.transport {
+        if let Transport::Remote(link) = &self.transport {
             link.again();
         }
     }
@@ -215,12 +207,11 @@ impl Machine {
     /// was asked of one elsewhere has gone to it: as Ghost quits.
     pub fn settle(&self) {
         match &self.transport {
-            Some(Transport::Local(server)) => {
+            Transport::Local(server) => {
                 server.unshare();
                 Server::settle();
             }
-            Some(Transport::Remote(link)) => link.settle(),
-            None => {}
+            Transport::Remote(link) => link.settle(),
         }
     }
 }
