@@ -2,10 +2,10 @@
 //! server what the desk in this process would (each [`Call`]), and is told
 //! what it says (each [`Event`]), as JSON over a WebSocket.
 //!
-//! The server listens on 127.0.0.1 only. What reaches it from elsewhere
-//! comes through a tunnel that brings its own TLS (cloudflared, or an
-//! `ssh -L`), so Ghost holds no certificate and plain `ws://` never leaves
-//! the machine.
+//! The server listens on 127.0.0.1, where a tunnel that brings its own
+//! TLS (cloudflared, or an `ssh -L`) reaches it; and, where you choose,
+//! on a network (`reach`), speaking TLS itself with a certificate the
+//! pairing link pins. Plain `ws://` never leaves the machine.
 //!
 //! The server first says a [`Challenge`], a nonce made for this link; the
 //! desk answers with its [`Hello`]: the protocol it speaks, its public key
@@ -42,6 +42,7 @@ use crate::{
     access::{Access, Turned},
     key::Key,
     proto::{Call, Challenge, Event, Hello, PROTOCOL, Pair, Welcome},
+    reach::Way,
     server::Server,
 };
 
@@ -133,9 +134,14 @@ impl Outbox {
     }
 }
 
-/// Let desks link to `server` through `listener`, for as long as it runs:
-/// each link it let in ends with it.
-pub async fn listen(server: Arc<Server>, listener: TcpListener) {
+/// Let desks link to `server` through `listener`, for as long as it runs,
+/// speaking TLS first where `tls` is given (on a network): each link it
+/// let in ends with it.
+pub async fn listen(
+    server: Arc<Server>,
+    listener: TcpListener,
+    tls: Option<tokio_rustls::TlsAcceptor>,
+) {
     server.outbox().open.store(true, Ordering::Relaxed);
     let mut links = tokio::task::JoinSet::new();
     loop {
@@ -146,9 +152,17 @@ pub async fn listen(server: Arc<Server>, listener: TcpListener) {
             },
             Some(_) = links.join_next() => continue,
         };
-        let server = server.clone();
+        let (server, tls) = (server.clone(), tls.clone());
         links.spawn(async move {
-            if let Err(why) = http(server, stream).await {
+            let ended = match tls {
+                None => http(server, stream).await,
+                Some(tls) => match tokio::time::timeout(WAIT, tls.accept(stream)).await {
+                    Ok(Ok(stream)) => Box::pin(http(server, stream)).await,
+                    Ok(Err(e)) => Err(e.to_string()),
+                    Err(_) => Err("no TLS in time".into()),
+                },
+            };
+            if let Err(why) = ended {
                 tracing::info!("a link ended: {why}");
             }
         });
@@ -161,7 +175,10 @@ const HEAD: usize = 16 << 10;
 /// One connection, as HTTP/1.1 (hyper's): a webhook's call answered, or
 /// a desk's WebSocket upgraded from it and served on this same task, so
 /// that it ends when listening does.
-async fn http(server: Arc<Server>, stream: TcpStream) -> Result<(), String> {
+async fn http<S>(server: Arc<Server>, stream: S) -> Result<(), String>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     use hyper::{Request, body::Incoming, upgrade::OnUpgrade};
     let upgrading: Arc<Mutex<Option<OnUpgrade>>> = Arc::default();
     let (to, of) = (upgrading.clone(), server.clone());
@@ -250,9 +267,9 @@ pub fn serve_here() -> Result<(), String> {
     server.serve()?;
     server.share_as_kept(true);
     let link = server
-        .offer(crate::access::Grant::default())
+        .offer(crate::access::Grant::default(), None)
         .expect("it listens");
-    let (host, _) = pairing(&link).expect("a pairing link reads");
+    let (way, _) = crate::reach::pairing(&link).expect("a pairing link reads");
     // Light on dark, as a terminal mostly is: a camera reads it as dark
     // on light.
     let qr = qr(&link)
@@ -260,7 +277,7 @@ pub fn serve_here() -> Result<(), String> {
         .dark_color(qrcode::render::unicode::Dense1x2::Light)
         .light_color(qrcode::render::unicode::Dense1x2::Dark)
         .build();
-    println!("Ghost serves on ws://{host}");
+    println!("Ghost serves on {}", way.url());
     println!("Pair a desk with it, once, in the next ten minutes: {link}\n{qr}");
     crate::acp::runtime().block_on(async {
         let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
@@ -567,7 +584,7 @@ type Client = Socket<MaybeTlsStream<TcpStream>>;
 /// twice as long each time, up to half a minute. What the server says
 /// goes to `said`.
 pub fn connect(
-    reach: impl FnOnce() -> Result<(String, Key), String> + Send + 'static,
+    reach: impl FnOnce() -> Result<(Way, Key), String> + Send + 'static,
     said: impl Fn(Event) + Send + Sync + 'static,
     state: impl Fn(State) + Send + Sync + 'static,
 ) -> Link {
@@ -576,14 +593,14 @@ pub fn connect(
     let again = Arc::new(Notify::new());
     let woken = again.clone();
     crate::acp::runtime().spawn(async move {
-        let (url, key) = match tokio::task::spawn_blocking(reach).await {
+        let (way, key) = match tokio::task::spawn_blocking(reach).await {
             Ok(Ok(reached)) => reached,
             Ok(Err(why)) => return state(State::Refused(why)),
             Err(e) => return state(State::Refused(e.to_string())),
         };
         let (mut since, mut wait, mut lost) = (None, FIRST, false);
         while !calls.is_closed() {
-            match dial(&url, hello(&key, None, since)).await {
+            match dial(&way, hello(&key, None, since)).await {
                 Ok((mut ws, welcome)) => {
                     since = Some((welcome.boot, welcome.said));
                     wait = FIRST;
@@ -621,11 +638,11 @@ pub fn connect(
     Link { calls: tx, again }
 }
 
-/// Pair with the server at `host` by its one-time `code`, coming in with
+/// Pair with the server `way` by its one-time `code`, coming in with
 /// `key` as this machine; `back`, a pairing link for it to pair back
 /// with. Its welcome, once it has let the key in; the link is let go.
 pub async fn pair(
-    host: &str,
+    way: &Way,
     code: String,
     key: &Key,
     back: Option<String>,
@@ -635,7 +652,7 @@ pub async fn pair(
         device: host_name(),
         back,
     };
-    match dial(&url_of(host), hello(key, Some(pair), None)).await {
+    match dial(way, hello(key, Some(pair), None)).await {
         Ok((mut ws, welcome)) => {
             let _ = ws.close(None).await;
             Ok(Paired {
@@ -685,13 +702,17 @@ fn hello(
     }
 }
 
-/// Reach the server at `url` and say `hello` to its challenge: the
-/// socket, and its welcome.
+/// Reach the server `way` and say `hello` to its challenge: the socket,
+/// and its welcome. Where it pins a certificate, that one alone is
+/// trusted.
 async fn dial(
-    url: &str,
+    way: &Way,
     hello: impl FnOnce(&Challenge) -> Hello,
 ) -> Result<(Client, Welcome), Dial> {
-    let reached = tokio_tungstenite::connect_async_with_config(url, Some(config()), false);
+    let tls = (way.pin.as_deref())
+        .map(|pin| tokio_tungstenite::Connector::Rustls(Arc::new(crate::reach::pinned(pin))));
+    let reached =
+        tokio_tungstenite::connect_async_tls_with_config(way.url(), Some(config()), false, tls);
     let (mut ws, _) = match tokio::time::timeout(WAIT, reached).await {
         Ok(Ok(reached)) => reached,
         Ok(Err(e)) => return Err(Dial::Failed(e.to_string())),
@@ -774,34 +795,6 @@ async fn pump(
     }
 }
 
-/// The address of a server at `host`: on this machine (an `ssh -L`) plain,
-/// anywhere else through a tunnel's TLS.
-pub fn url_of(host: &str) -> String {
-    let here = ["127.0.0.1", "localhost", "[::1]"]
-        .iter()
-        .any(|h| host == *h || host.starts_with(&format!("{h}:")));
-    format!("{}://{host}", if here { "ws" } else { "wss" })
-}
-
-/// The host and code of a pairing link, `ghost://pair?host=…#code`.
-pub fn pairing(link: &str) -> Option<(String, String)> {
-    let url = url::Url::parse(link).ok()?;
-    if url.scheme() != "ghost" || url.host_str() != Some("pair") {
-        return None;
-    }
-    let host = url.query_pairs().find(|(k, _)| k == "host")?.1;
-    let code = url.fragment()?;
-    (!host.is_empty() && !code.is_empty()).then(|| (host.into_owned(), code.to_owned()))
-}
-
-/// The pairing link for `code` at `host`.
-pub fn pairing_link(host: &str, code: &str) -> String {
-    let mut url = url::Url::parse("ghost://pair").expect("a link");
-    url.query_pairs_mut().append_pair("host", host);
-    url.set_fragment(Some(code));
-    url.into()
-}
-
 /// The QR code of the pairing link `link`, for a camera to read off a
 /// screen.
 pub fn qr(link: &str) -> qrcode::QrCode {
@@ -821,7 +814,7 @@ mod tests {
         let rt = crate::acp::runtime();
         let listener = rt.block_on(TcpListener::bind(("127.0.0.1", 0))).unwrap();
         let port = listener.local_addr().unwrap().port();
-        rt.spawn(listen(server.clone(), listener));
+        rt.spawn(listen(server.clone(), listener, None));
         (server, port)
     }
 
@@ -908,21 +901,29 @@ mod tests {
         std_mpsc::Receiver<State>,
     );
 
+    /// The way to the server at `port` on this machine.
+    fn here(port: u16) -> Way {
+        Way {
+            host: format!("127.0.0.1:{port}"),
+            pin: None,
+        }
+    }
+
     /// A desk linked to the server at `port` with `key`, paired first
     /// with `server` where there is one: its link and welcome, what it is
     /// told and how its link stands.
     fn desk(port: u16, key: Key, server: Option<&Server>) -> Result<Desk, String> {
         if let Some(server) = server {
-            let host = format!("127.0.0.1:{port}");
+            let way = here(port);
             let code = server.access().code(crate::access::Grant::default());
-            crate::acp::runtime().block_on(super::pair(&host, code, &key, None))?;
+            crate::acp::runtime().block_on(super::pair(&way, code, &key, None))?;
         }
         let (events, heard) = std_mpsc::channel();
         let (states, stood) = std_mpsc::channel();
         let (events, states) = (Mutex::new(events), Mutex::new(states));
-        let url = format!("ws://127.0.0.1:{port}");
+        let way = here(port);
         let link = connect(
-            move || Ok((url, key)),
+            move || Ok((way, key)),
             move |e| events.lock().unwrap().send(e).unwrap(),
             move |s| {
                 let _ = states.lock().unwrap().send(s);
@@ -978,8 +979,8 @@ mod tests {
 
     /// Say to the server at `port` what `hello` makes of its challenge.
     fn say(port: u16, hello: impl FnOnce(&Challenge) -> Hello) -> Result<Welcome, String> {
-        let url = format!("ws://127.0.0.1:{port}");
-        match crate::acp::runtime().block_on(dial(&url, hello)) {
+        let way = here(port);
+        match crate::acp::runtime().block_on(dial(&way, hello)) {
             Ok((_, welcome)) => Ok(welcome),
             Err(Dial::Refused(why) | Dial::Failed(why) | Dial::Waiting(why)) => Err(why),
         }
@@ -1058,9 +1059,9 @@ mod tests {
     /// makes for `grant`.
     fn pair_as(server: &Server, port: u16, kept: &str, grant: crate::access::Grant) -> Paired {
         let code = server.access().code(grant);
-        let host = format!("127.0.0.1:{port}");
+        let way = here(port);
         crate::acp::runtime()
-            .block_on(pair(&host, code, &key(kept), None))
+            .block_on(pair(&way, code, &key(kept), None))
             .unwrap()
     }
 
@@ -1115,6 +1116,40 @@ mod tests {
     }
 
     #[test]
+    fn over_a_network_a_desk_trusts_the_certificate_its_link_pinned_and_no_other() {
+        let home = tempfile::tempdir().unwrap();
+        let (server, _) = server(home.path());
+        let rt = crate::acp::runtime();
+        // Where it listens on a network, as on 127.0.0.1 for the test.
+        let listener = rt.block_on(TcpListener::bind(("127.0.0.1", 0))).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (tls, pin) = crate::reach::acceptor().unwrap();
+        rt.spawn(listen(server.clone(), listener, Some(tls)));
+        let way = |pin: Option<&str>| Way {
+            host: format!("127.0.0.1:{port}"),
+            pin: pin.map(str::to_owned),
+        };
+        let mine = kept();
+        let code = server.access().code(crate::access::Grant::default());
+        let paired = rt.block_on(pair(&way(Some(&pin)), code, &key(&mine), None));
+        assert!(paired.is_ok(), "{paired:?}");
+        let other = server.access().code(crate::access::Grant::default());
+        let forged = rt.block_on(pair(
+            &way(Some("not-its-pin")),
+            other.clone(),
+            &key(&mine),
+            None,
+        ));
+        assert!(forged.unwrap_err().contains("certificate"));
+        let plain = rt.block_on(pair(&way(None), other.clone(), &key(&mine), None));
+        assert!(plain.is_err(), "no plain WebSocket where it speaks TLS");
+        assert!(
+            server.access().live(&other).is_some(),
+            "the code was not spent"
+        );
+    }
+
+    #[test]
     fn a_device_whose_access_ended_is_turned_away_and_cut_off() {
         let home = tempfile::tempdir().unwrap();
         let (server, port) = server(home.path());
@@ -1149,12 +1184,11 @@ mod tests {
         let rt = crate::acp::runtime();
         let listener = rt.block_on(TcpListener::bind(("127.0.0.1", 0))).unwrap();
         let port = listener.local_addr().unwrap().port();
-        let listening = rt.spawn(listen(server.clone(), listener));
+        let listening = rt.spawn(listen(server.clone(), listener, None));
         let key = Key::generate();
         let kept = key.kept().to_owned();
         let code = server.access().code(crate::access::Grant::default());
-        rt.block_on(pair(&format!("127.0.0.1:{port}"), code, &key, None))
-            .unwrap();
+        rt.block_on(pair(&here(port), code, &key, None)).unwrap();
         // It stops listening, and the port is free again.
         listening.abort();
         let bind = || rt.block_on(TcpListener::bind(("127.0.0.1", port)));
@@ -1163,16 +1197,16 @@ mod tests {
         }
         let (states, stood) = std_mpsc::channel();
         let states = Mutex::new(states);
-        let (url, key) = (format!("ws://127.0.0.1:{port}"), Key::read(&kept).unwrap());
+        let (way, key) = (here(port), Key::read(&kept).unwrap());
         let link = connect(
-            move || Ok((url, key)),
+            move || Ok((way, key)),
             |_| {},
             move |s| {
                 let _ = states.lock().unwrap().send(s);
             },
         );
         assert!(matches!(told(&stood), State::Lost(_)));
-        rt.spawn(listen(server.clone(), bind().unwrap()));
+        rt.spawn(listen(server.clone(), bind().unwrap(), None));
         link.again();
         assert!(matches!(told(&stood), State::Up(w) if !w.resumed));
     }
@@ -1198,14 +1232,14 @@ mod tests {
     fn paired_both_ways_each_opens_the_other_by_its_signature_until_revoked() {
         let (home_a, home_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let ((a, port_a), (b, port_b)) = (server(home_a.path()), server(home_b.path()));
-        let back = pairing_link(
-            &format!("127.0.0.1:{port_b}"),
+        let back = crate::reach::pairing_link(
+            &here(port_b),
             &b.access().code(crate::access::Grant::default()),
         );
         let Paired { name, back, .. } = crate::acp::runtime()
             .block_on(crate::servers::pair(
                 home_b.path(),
-                format!("127.0.0.1:{port_a}"),
+                here(port_a),
                 a.access().code(crate::access::Grant::default()),
                 Key::generate(),
                 Some(back),
@@ -1243,11 +1277,11 @@ mod tests {
     fn a_way_back_that_does_not_reach_leaves_the_pairing_one_way() {
         let (home_a, home_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let (a, port_a) = server(home_a.path());
-        let nowhere = pairing_link("127.0.0.1:1", "c0de");
+        let nowhere = crate::reach::pairing_link(&here(1), "c0de");
         let Paired { name, back, .. } = crate::acp::runtime()
             .block_on(crate::servers::pair(
                 home_b.path(),
-                format!("127.0.0.1:{port_a}"),
+                here(port_a),
                 a.access().code(crate::access::Grant::default()),
                 Key::generate(),
                 Some(nowhere),
@@ -1283,12 +1317,12 @@ mod tests {
         let (Some(Ok(port)), Some((offered, _, _))) = (on.serving, on.link) else {
             panic!("listening, with a link")
         };
-        let (host, code) = pairing(&offered).unwrap();
-        assert_eq!(host, format!("127.0.0.1:{port}"));
+        let (way, code) = crate::reach::pairing(&offered).unwrap();
+        assert_eq!(way, here(port));
         let key = Key::generate();
         let kept = key.kept().to_owned();
         crate::acp::runtime()
-            .block_on(pair(&host, code, &key, None))
+            .block_on(pair(&way, code, &key, None))
             .unwrap();
         let (_link, _, _heard, stood) = desk(port, Key::read(&kept).unwrap(), None).unwrap();
         let spare = server.access().code(crate::access::Grant::default());
@@ -1309,15 +1343,18 @@ mod tests {
     fn the_way_back_is_this_macs_port_for_a_server_here_and_its_tunnel_for_one_elsewhere() {
         let home = tempfile::tempdir().unwrap();
         let (server, shared) = sharing(home.path());
-        let here = server.back_link("127.0.0.1:4317").unwrap();
+        let mine = server.back_link(&here(4317)).unwrap();
         let Some(Ok(port)) = told(&shared).serving else {
             panic!("listening")
         };
-        let (host, code) = pairing(&here).unwrap();
-        assert_eq!(host, format!("127.0.0.1:{port}"));
+        let (way, code) = crate::reach::pairing(&mine).unwrap();
+        assert_eq!(way, here(port));
         assert!(server.access().live(&code).is_some());
         let why = server
-            .back_link("calm-river-1.trycloudflare.com")
+            .back_link(&Way {
+                host: "calm-river-1.trycloudflare.com".into(),
+                pin: None,
+            })
             .unwrap_err();
         assert!(why.contains("tunnel"), "{why}");
     }
@@ -1334,25 +1371,5 @@ mod tests {
         assert_eq!(outbox.resume(Some((outbox.boot + 1, 2))), (3, false));
         outbox.push(&big);
         assert_eq!(outbox.resume(Some((outbox.boot, 0))), (4, false));
-    }
-
-    #[test]
-    fn a_pairing_link_names_the_server_and_its_code() {
-        let link = pairing_link("abc.trycloudflare.com", "c0de");
-        let (host, code) = pairing(&link).unwrap();
-        assert_eq!(url_of(&host), "wss://abc.trycloudflare.com");
-        assert_eq!(code, "c0de");
-        assert_eq!(url_of("127.0.0.1:4317"), "ws://127.0.0.1:4317");
-        assert_eq!(pairing("ghost://pair?host=#x"), None);
-        assert_eq!(pairing("ghost://new?host=h#x"), None);
-    }
-
-    #[test]
-    fn a_host_with_a_port_and_a_code_with_plus_or_percent_come_back_as_given() {
-        let link = pairing_link("127.0.0.1:4317", "a+b%2Fc");
-        assert_eq!(
-            pairing(&link),
-            Some(("127.0.0.1:4317".into(), "a+b%2Fc".into()))
-        );
     }
 }

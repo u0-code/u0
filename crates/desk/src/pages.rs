@@ -114,6 +114,8 @@ pub struct Pages {
     pub pairing: bool,
     /// What the next pairing link made lets in.
     pub grant: crate::access::Grant,
+    /// The way the next pairing link names; none, the best there is.
+    pub route: Option<crate::reach::Route>,
     /// The telemetry level on its slider, and the batch it would send,
     /// as the server last showed it.
     pub level: Entity<gpui::component::slider::SliderState>,
@@ -215,6 +217,7 @@ impl Pages {
             pair_link: field("ghost://pair?host=…", window, cx),
             pairing: false,
             grant: crate::access::Grant::default(),
+            route: None,
             changes: instructions_field(
                 &settings.writer.changes,
                 "As the repository's recent commits do",

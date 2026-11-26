@@ -43,12 +43,10 @@ ring.workspace = true
 ssh-key.workspace = true
 qrcode.workspace = true
 rustls.workspace = true
+tokio-rustls.workspace = true
+rcgen.workspace = true
 ureq.workspace = true
 sysinfo.workspace = true
-
-[features]
-# wss://, for the desk: how a server behind a tunnel is reached.
-tls = ["tokio-tungstenite/rustls-tls-native-roots"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework.workspace = true

@@ -57,6 +57,11 @@ one of two ways:
   tunnel** goes back.
 - **SSH port forwarding**, from the controlling Mac:
   `ssh -L 4317:127.0.0.1:4317 host`, then pair with the `127.0.0.1` link.
+- **A network.** Under **Reach › Listen on**, choose **Tailscale**, or
+  **Every network** (Tailscale too), beside **This Mac**. Ghost then also
+  listens on that network's addresses, on the port after its own (4318
+  by default), and speaks TLS there itself, with a certificate of its own
+  kept in the Keychain. Reach lists each address it is reached at.
 
 **Keep the Mac awake while serving** keeps it reachable with no one at it
 (Ghost runs `caffeinate` while it listens).
@@ -70,8 +75,11 @@ QR code:
 ghost://pair?host=<host>#<code>
 ```
 
-The host is the tunnel's address while the tunnel is up, otherwise
-`127.0.0.1:<port>`. The link works once, for ten minutes.
+The host is the way chosen under **Reached by**: **Best** (the tunnel
+while it is up, then Tailscale, then the local network, then
+`127.0.0.1:<port>`), or one of them. A link on a network also carries
+`pin=`, the SHA-256 of this Mac's certificate, so the device trusts this
+Mac alone there. The link works once, for ten minutes.
 
 Above it, choose what the next link lets in; each choice makes a new
 link at once:
@@ -162,8 +170,8 @@ followed by the link's QR code. Reach it through a tunnel or
 
 | File | Where | Holds |
 |---|---|---|
-| `devices.json` | on the machine controlled | The devices let in (`label`, `key` as `ssh-ed25519 AAAA…`, `scope`: `full` or `read`, `until`: when its access ends, `waiting`: until you let it in, `paired`, `seen`), `port`, and whether it listens (`serve`), runs the tunnel (`tunnel`), keeps awake (`awake`), and a named tunnel (`named`: `{token, host}`). |
-| `servers.json` | on the controlling Mac | The servers paired with (`name`, `host`, `key`: the public half of the key made for it), and `control`. Each private half is in the Keychain under `server/<fingerprint>`. |
+| `devices.json` | on the machine controlled | The devices let in (`label`, `key` as `ssh-ed25519 AAAA…`, `scope`: `full` or `read`, `until`: when its access ends, `waiting`: until you let it in, `paired`, `seen`), `port`, and whether it listens (`serve`) and on which networks (`bind`), runs the tunnel (`tunnel`), keeps awake (`awake`), and a named tunnel (`named`: `{token, host}`). |
+| `servers.json` | on the controlling Mac | The servers paired with (`name`, `host`, `key`: the public half of the key made for it, `pin`: the certificate of one reached on a network), and `control`. Each private half is in the Keychain under `server/<fingerprint>`. |
 
 Both refuse unknown fields. A file that does not read is left alone, and
 until it is fixed or moved away no device comes in (`devices.json`) or
@@ -177,9 +185,8 @@ A named tunnel's token is stored in `devices.json` as plain text.
 
 :::note Coming
 
-Listening on the local network and Tailscale, opening a paired Mac's dev
-server here through its link, and `ghost thread`, `ghost workflow` and
-`ghost doctor` acting over a signed link are being finished and are not in
-the current build yet.
+Opening a paired Mac's dev server here through its link, and
+`ghost thread`, `ghost workflow` and `ghost doctor` acting over a signed
+link are being finished and are not in the current build yet.
 
 :::

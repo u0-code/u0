@@ -224,6 +224,7 @@ fn pair_window(home: &Path) -> Result<(), String> {
                 name: SERVICE.into(),
                 host: format!("127.0.0.1:{port}"),
                 key: key.public(),
+                pin: None,
             },
             &key,
         )

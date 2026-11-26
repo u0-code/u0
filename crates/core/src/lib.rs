@@ -27,6 +27,7 @@ pub mod path;
 pub mod policy;
 pub mod proto;
 pub mod pty;
+pub mod reach;
 pub mod records;
 pub mod registry;
 pub mod repo;

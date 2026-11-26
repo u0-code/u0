@@ -68,6 +68,7 @@ service `Ghost <home>` (so two homes keep apart):
 | `env/<agent>/<NAME>` | An agent's variable marked **Secret**. |
 | `token/<host>` | A token for GitHub, GitLab, Bitbucket, Azure DevOps or Linear. |
 | `server/SHA256:…` | The private half of the key this Mac made for a server it controls (PKCS#8). |
+| `share/tls` | The certificate and key Ghost speaks TLS with on a network. |
 
 Any of these values may be a 1Password reference
 (`op://vault/item/field`); Ghost reads it with 1Password's `op` CLI each
@@ -79,8 +80,9 @@ agent variable or token marked secret cannot be used there.
 ## Remote control
 
 - Ghost listens only on `127.0.0.1`, and only when you turn listening on.
-  Nothing on the network reaches it unless you run a tunnel or forward the
-  port.
+  Nothing on the network reaches it unless you run a tunnel, forward the
+  port, or choose a network under **Listen on**, where it speaks TLS with
+  a certificate the pairing link pins.
 - A device comes in by an Ed25519 key, never a password: it signs a fresh
   nonce on each link. The server holds only public keys.
 - Pairing codes are 128 random bits, used once, valid ten minutes, never

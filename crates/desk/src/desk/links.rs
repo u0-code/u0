@@ -39,7 +39,7 @@ pub enum Link {
         prompt: Option<String>,
     },
     Pair {
-        host: String,
+        way: crate::reach::Way,
         code: String,
     },
     Folder(PathBuf),
@@ -83,8 +83,8 @@ impl Link {
                 prompt: query("prompt"),
             }),
             ("pair", []) => {
-                let (host, code) = crate::link::pairing(text)?;
-                Some(Self::Pair { host, code })
+                let (way, code) = crate::reach::pairing(text)?;
+                Some(Self::Pair { way, code })
             }
             _ => None,
         }
@@ -152,7 +152,7 @@ impl Desk {
         let here = |folder| super::Place::new(crate::hub::Host::HERE, folder);
         match link {
             Link::Folder(folder) => self.add_and_begin(&here(folder), window, cx),
-            Link::Pair { host, code } => Self::ask_pair(host, code, window, cx),
+            Link::Pair { way, code } => Self::ask_pair(way, code, window, cx),
             Link::New {
                 project,
                 agent,
@@ -292,7 +292,10 @@ mod tests {
         assert_eq!(
             Link::parse("ghost://pair?host=127.0.0.1:4317#c0de"),
             Some(Link::Pair {
-                host: "127.0.0.1:4317".into(),
+                way: crate::reach::Way {
+                    host: "127.0.0.1:4317".into(),
+                    pin: None,
+                },
                 code: "c0de".into(),
             })
         );

@@ -1756,6 +1756,8 @@ mod tests {
                     1,
                     crate::access::Grant::default(),
                 )),
+                bind: crate::reach::Bind::Network,
+                routes: Ok(vec![(crate::reach::Route::Lan, "192.168.1.5:4318".into())]),
             })),
             Event::Record {
                 key: 1,

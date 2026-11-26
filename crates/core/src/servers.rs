@@ -15,7 +15,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     key::{self, Key},
-    link, whole,
+    link,
+    reach::Way,
+    whole,
 };
 
 /// Which of the servers a window holds something is on: a number the
@@ -48,6 +50,10 @@ pub struct Server {
     pub host: String,
     /// The public half of this Mac's key for it, `ssh-ed25519 AAAA…`.
     pub key: String,
+    /// The SHA-256 of its certificate, where it is reached over a network
+    /// and speaks TLS itself (`reach`): that one alone is trusted.
+    #[serde(default)]
+    pub pin: Option<String>,
 }
 
 /// Where the private half of the key whose public half is `public` is
@@ -113,28 +119,33 @@ impl Servers {
 
 impl Server {
     /// How to reach it, and the key to come in with.
-    pub fn reach(&self) -> Result<(String, Key), String> {
+    pub fn reach(&self) -> Result<(Way, Key), String> {
         let kept = crate::secrets::get(&account(&self.key))?
             .ok_or("This Mac's key for it is not in the Keychain: pair again")?;
-        Ok((link::url_of(&self.host), Key::read(&kept)?))
+        let way = Way {
+            host: self.host.clone(),
+            pin: self.pin.clone(),
+        };
+        Ok((way, Key::read(&kept)?))
     }
 }
 
-/// Pair with the server at `host` by its one-time `code`, coming in with
+/// Pair with the server `way` by its one-time `code`, coming in with
 /// `key`, and keep it in `home`; `back`, a pairing link of this Mac's for
 /// it to pair back with. What came of it.
 pub async fn pair(
     home: &Path,
-    host: String,
+    way: Way,
     code: String,
     key: Key,
     back: Option<String>,
 ) -> Result<link::Paired, String> {
-    let paired = link::pair(&host, code, &key, back).await?;
+    let paired = link::pair(&way, code, &key, back).await?;
     let server = Server {
         name: paired.name.clone(),
-        host,
+        host: way.host,
         key: key.public(),
+        pin: way.pin,
     };
     Servers::change(home, |s| s.paired(server, &key))?;
     Ok(paired)
@@ -184,12 +195,13 @@ mod tests {
             name: "box".into(),
             host: "127.0.0.1:1".into(),
             key: key.public(),
+            pin: None,
         };
         let kept = server.clone();
         Servers::change(home.path(), |s| s.paired(kept, &key)).unwrap();
-        let (url, again) = server.reach().unwrap();
+        let (way, again) = server.reach().unwrap();
         assert_eq!(
-            (url.as_str(), again.public()),
+            (way.url().as_str(), again.public()),
             ("ws://127.0.0.1:1", key.public())
         );
         let servers = Servers::load(home.path()).unwrap();

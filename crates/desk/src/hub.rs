@@ -223,18 +223,18 @@ impl Machine {
     }
 }
 
-/// Pair with the server at `host` by the one-time `code` with `key`, and
+/// Pair with the server `way` by the one-time `code` with `key`, and
 /// keep it in `home`; `back`, a pairing link for it to pair back with.
 pub fn pair(
     home: PathBuf,
-    host: String,
+    way: crate::reach::Way,
     code: String,
     key: crate::key::Key,
     back: Option<String>,
     tx: Sender,
 ) {
     acp::runtime().spawn(async move {
-        let paired = crate::servers::pair(&home, host, code, key, back).await;
+        let paired = crate::servers::pair(&home, way, code, key, back).await;
         let _ = tx.send(Msg::Paired(paired));
     });
 }

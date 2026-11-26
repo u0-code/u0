@@ -59,7 +59,7 @@ nucleo-matcher = "0.3"
 # JSON with comments and trailing commas, as VS Code writes a theme.
 jsonc-parser = { version = "0.34", features = ["serde"] }
 # The processes Ghost runs, their CPU and memory; this machine's load: Diagnostics.
-sysinfo = { version = "0.40", default-features = false, features = ["system"] }
+sysinfo = { version = "0.40", default-features = false, features = ["system", "network"] }
 similar = { version = "2.7", default-features = false, features = ["text"] }
 # A pull request's patch, as git writes it, read file by file.
 diffy = "0.5"
@@ -98,10 +98,10 @@ security-framework = "3.7"
 # profile sets, read with CFPreferences (the crates security-framework brings).
 core-foundation = "0.10"
 core-foundation-sys = "0.8"
-# Ghost reached from another machine: a WebSocket on 127.0.0.1, behind a
-# tunnel that brings its own TLS; the desk's end speaks TLS to that tunnel
-# (rustls, with ring, as the rest of the build has it).
-tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect"] }
+# Ghost reached from another machine: a WebSocket, through a tunnel that
+# brings its own TLS or over a network with TLS of Ghost's own; the desk's
+# end speaks TLS to either (rustls, with ring, as the rest of the build).
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "rustls-tls-native-roots"] }
 # The one HTTP server where Ghost listens: a desk's WebSocket is upgraded
 # from it, and a webhook's call read by it, within its limits and times.
 hyper = { version = "1.13", default-features = false, features = ["server", "http1"] }
@@ -109,6 +109,10 @@ hyper-util = { version = "0.1.21", default-features = false, features = ["tokio"
 http-body-util = "0.1.5"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+# Ghost reached over the local network or Tailscale: TLS of its own, a
+# certificate made once (rcgen) and pinned by the link a desk pairs with.
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "ring"] }
 # A desk's key: signed and verified with ring (the TLS provider already, and
 # the randomness for keys and pairing codes); written, read and
 # fingerprinted as OpenSSH does by RustCrypto's ssh-key.

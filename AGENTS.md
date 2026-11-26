@@ -126,9 +126,11 @@ crates/core/src/
   mcp.rs        how an agent reaches the tools: `--mcp`, the pipe to them; mcp.json
   proto.rs      the Ghost protocol: Call (desk to server), Event (server to desk);
                 Hello and Welcome, which begin a link
-  link.rs       a server reached from elsewhere: a WebSocket on 127.0.0.1, what
+  link.rs       a server reached from elsewhere: a WebSocket upgraded from hyper, what
                 it said numbered and kept for a desk that comes back; the desk's end
-  access.rs     who may link: devices paired (devices.json), pairing codes
+  access.rs     who may link: devices paired (devices.json), their scopes, pairing codes
+  reach.rs      the ways to a server (127.0.0.1, a network, a tunnel); pairing links;
+                its TLS on a network, its certificate pinned by the link
   key.rs        a desk's Ed25519 key (OpenSSH's form): signing, verifying, fingerprints
   share.rs      sharing this Ghost: listening, the cloudflared tunnel, pairing links,
                 the link a desk gives for its server to pair back with
@@ -299,18 +301,21 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   `~/.ghost/workflows/`, read as they are listed or started; their runs
   are the server's, in `~/.ghost/runs.json`.
 - A secret (an agent's variable marked so, a forge's token) is kept in the
-  macOS Keychain under the service `Ghost <home>`, never in a file;
+  macOS Keychain under the service `Ghost <home>`, never in a file (the
+  server's TLS certificate and key for a network too, `share/tls`);
   `settings.json` names it only.
 - `~/.ghost/devices.json` (on the server) holds the devices paired and
-  how Ghost is shared (listening, on which port, the tunnel, a named
+  how Ghost is shared (listening, on which port, on which networks
+  (`bind`: on the port after it, with TLS), the tunnel, a named
   tunnel's token).
   Each device is `{label, key, scope, until, waiting, paired, seen}`:
   `key` the public half of its Ed25519 key as `authorized_keys` writes
   it (`ssh-ed25519 AAAA…`), shown by its `SHA256:` fingerprint; `scope`
   `full` or `read`; `until` when its access ends; `waiting` until you
   let it in. `~/.ghost/servers.json` (on a desk)
-  holds the servers paired with (`{name, host, key}`, `key` the public
-  half this Mac made for it) and whether this Mac controls others
+  holds the servers paired with (`{name, host, key, pin}`, `key` the public
+  half this Mac made for it, `pin` the SHA-256 of the certificate of one
+  reached on a network) and whether this Mac controls others
   (`control`: on, the window holds each of them beside this Mac's own;
   off, this Mac's alone). One at `127.0.0.1` on this home's own port is
   this Mac's service (`ghost service`), the way to this Mac's own Ghost

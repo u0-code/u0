@@ -43,6 +43,10 @@ pub struct Kept {
     pub tunnel: bool,
     #[serde(default)]
     pub awake: bool,
+    /// Where it listens beyond 127.0.0.1, with TLS of its own, on the
+    /// port after `port`.
+    #[serde(default)]
+    pub bind: crate::reach::Bind,
 }
 
 fn port() -> u16 {
@@ -58,6 +62,7 @@ impl Default for Kept {
             serve: false,
             tunnel: false,
             awake: false,
+            bind: crate::reach::Bind::Here,
         }
     }
 }

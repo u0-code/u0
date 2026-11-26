@@ -144,10 +144,18 @@ Every Mac's Ghost can do both, in **Settings › Devices** (or ⌘K
   `127.0.0.1:4317` only; the world reaches it through a
   [cloudflared](https://github.com/cloudflare/cloudflared) tunnel Ghost
   starts (a quick one, or a named one of yours), or an
-  `ssh -L 4317:127.0.0.1:4317`. It shows a pairing link, and its QR code,
-  that works once, for ten minutes, and the devices paired, each by its
-  key's `SHA256:` fingerprint, with **Revoke**. Turned off, it cuts every
-  device off.
+  `ssh -L 4317:127.0.0.1:4317`. **Listen on** Tailscale, or every
+  network the Mac is on, adds a listener on the next port (4318) where
+  Ghost speaks TLS itself; a link for it pins Ghost's certificate, so a
+  device trusts that Mac alone. It shows a pairing link, and its QR code,
+  that works once, for ten minutes, for the way chosen (this Mac, the
+  local network, Tailscale, the tunnel) and lets in what you chose:
+  **Everything** or **Read only** (it watches sessions, diffs and your
+  projects' files, and changes nothing: the server checks each thing it
+  asks), until revoked or for a day, a week, 30 days, and at once or
+  only once you **Let in** the device it names. The devices paired are
+  listed by their key's `SHA256:` fingerprint, with what each may do,
+  and **Revoke**. Turned off, it cuts every device off.
 - **Control other Macs** (off at first: a Mac controls only itself) puts
   each Mac paired with in this window beside this one: the sidebar has a
   row for each server, this Mac's first, with its projects and sessions

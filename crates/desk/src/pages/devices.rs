@@ -26,6 +26,7 @@ use crate::{
     hub::{Host, Machine, Up},
     key::{self, Key},
     link,
+    reach::{Bind, Route},
     servers::Servers,
     share::{Share, Tunnel},
     ui::{self, Weight},
@@ -100,7 +101,7 @@ impl Desk {
         let about = match &serving {
             None => crate::tr_with("Asking %{on} how it is shared…", &[("on", &on)]),
             Some(Some(Ok(port))) => crate::tr_with(
-                "Listening on 127.0.0.1:%{port}, for a tunnel or an ssh -L to reach. Only a device paired with it comes in.",
+                "Listening on 127.0.0.1:%{port}, and on the networks chosen under Reach. Only a device paired with it comes in.",
                 &[("port", port)],
             ),
             Some(Some(Err(_)) | None) => crate::tr("Off: nothing listens, and no device comes in."),
@@ -198,7 +199,7 @@ impl Desk {
         let choose = |change: fn(&mut Grant), cx: &mut Context<Desk>| -> ui::Pick {
             Box::new(cx.listener(move |this, _, _, cx| {
                 change(&mut this.pages.grant);
-                this.share(Share::Link(this.pages.grant));
+                this.new_link();
                 cx.notify();
             }))
         };
@@ -269,10 +270,36 @@ impl Desk {
                     .checked(grant.ask)
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.pages.grant.ask = !grant.ask;
-                        this.share(Share::Link(this.pages.grant));
+                        this.new_link();
                         cx.notify();
                     }))
                     .into_any_element()
+            },
+        );
+        // Which way the link names: each this Mac is reached by now.
+        let mut kinds: Vec<Route> = (self.pages.shared.as_ref())
+            .and_then(|s| s.routes.as_ref().ok())
+            .map(|r| r.iter().map(|(route, _)| *route).collect())
+            .unwrap_or_default();
+        kinds.dedup();
+        let chosen = self.pages.route;
+        let way = item(
+            w,
+            "Reached by",
+            "The way the link names. One on a network pins this Mac's certificate in the link, so the device trusts this Mac alone.",
+            move |_, _, cx| {
+                let pick = |route: Option<Route>, cx: &mut Context<Desk>| -> ui::Pick {
+                    Box::new(cx.listener(move |this, _, _, cx| {
+                        this.pages.route = route;
+                        this.new_link();
+                        cx.notify();
+                    }))
+                };
+                let mut choices = vec![("Best", chosen.is_none(), pick(None, cx))];
+                for r in &kinds {
+                    choices.push((r.name(), chosen == Some(*r), pick(Some(*r), cx)));
+                }
+                ui::segmented("link-route", choices).into_any_element()
             },
         );
         let renew = |w: &WeakEntity<Desk>, about: &str| {
@@ -282,9 +309,7 @@ impl Desk {
                 about.to_owned(),
                 |_, _, cx| {
                     ui::button("pair", crate::tr("New link"), Weight::Primary)
-                        .on_click(
-                            cx.listener(|this, _, _, _| this.share(Share::Link(this.pages.grant))),
-                        )
+                        .on_click(cx.listener(|this, _, _, _| this.new_link()))
                         .into_any_element()
                 },
             )
@@ -295,6 +320,7 @@ impl Desk {
                 scope,
                 ends,
                 ask,
+                way,
                 renew(
                     w,
                     "The last link was used, or is out of date: make another.",
@@ -308,6 +334,7 @@ impl Desk {
             scope,
             ends,
             ask,
+            way,
             item(
                 w,
                 link.clone(),
@@ -328,11 +355,8 @@ impl Desk {
                             ),
                         )
                         .child(
-                            ui::button("pair", crate::tr("New link"), Weight::Quiet).on_click(
-                                cx.listener(|this, _, _, _| {
-                                    this.share(Share::Link(this.pages.grant));
-                                }),
-                            ),
+                            ui::button("pair", crate::tr("New link"), Weight::Quiet)
+                                .on_click(cx.listener(|this, _, _, _| this.new_link())),
                         )
                         .into_any_element()
                 },
@@ -432,7 +456,51 @@ impl Desk {
                     .into_any_element()
             },
         );
-        vec![tunnel, mode, keep_awake]
+        let bind = shared.bind;
+        let listen = item(
+            w,
+            "Listen on",
+            "Beyond this Mac and its tunnel: Tailscale, or every network it is on, Tailscale too. There Ghost speaks TLS itself, on the port after its own; a device pairs with a link that pins its certificate.",
+            move |_, _, cx| {
+                let pick = |to: Bind, cx: &mut Context<Desk>| -> ui::Pick {
+                    Box::new(cx.listener(move |this, _, _, _| this.share(Share::Bind(to))))
+                };
+                ui::segmented(
+                    "listen-on",
+                    vec![
+                        ("This Mac", bind == Bind::Here, pick(Bind::Here, cx)),
+                        (
+                            "Tailscale",
+                            bind == Bind::Tailscale,
+                            pick(Bind::Tailscale, cx),
+                        ),
+                        (
+                            "Every network",
+                            bind == Bind::Network,
+                            pick(Bind::Network, cx),
+                        ),
+                    ],
+                )
+                .into_any_element()
+            },
+        );
+        let none = |_: &mut Desk, _: &Faces, _: &mut Context<Desk>| div().into_any_element();
+        let routes = match &shared.routes {
+            Err(why) => vec![item(w, "Not on a network", why.clone(), none)],
+            Ok(routes) => (routes.iter())
+                .map(|(route, host)| item(w, route.name(), host.clone(), none))
+                .collect(),
+        };
+        [tunnel, mode, listen]
+            .into_iter()
+            .chain(routes)
+            .chain([keep_awake])
+            .collect()
+    }
+
+    /// Make a new pairing link, as chosen above it.
+    pub(crate) fn new_link(&mut self) {
+        self.share(Share::Link(self.pages.grant, self.pages.route));
     }
 
     /// The devices paired with this Mac, each by its key's fingerprint.
@@ -678,8 +746,8 @@ impl Desk {
     /// Pair with the server whose link is pasted.
     fn pair(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let pasted = self.pages.pair_link.read(cx).value().trim().to_owned();
-        match link::pairing(&pasted) {
-            Some((host, code)) => Self::ask_pair(host, code, window, cx),
+        match crate::reach::pairing(&pasted) {
+            Some((way, code)) => Self::ask_pair(way, code, window, cx),
             None => self.trouble(
                 crate::tr("That is not a pairing link"),
                 Some(crate::tr("It begins ghost://pair").into()),
@@ -689,11 +757,11 @@ impl Desk {
         cx.notify();
     }
 
-    /// Ask before pairing with the server at `host` by `code`, showing the
+    /// Ask before pairing with the server `way` by `code`, showing the
     /// fingerprint of the key this Mac makes for it; and, where this Mac's
     /// own server is in this window, whether it pairs back.
     pub(crate) fn ask_pair(
-        host: String,
+        way: crate::reach::Way,
         code: String,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -702,6 +770,7 @@ impl Desk {
         let key = Key::generate();
         let kept = key.kept().to_owned();
         let print = key::fingerprint(&key.public());
+        let host = way.host.clone();
         let desk = cx.entity();
         // Whether it pairs both ways, as the sheet's box is ticked.
         let ticked = std::rc::Rc::new(std::cell::Cell::new(false));
@@ -737,35 +806,38 @@ impl Desk {
                     ),
                 ));
             }
-            let (desk, host, code, kept) = (desk.clone(), host.clone(), code.clone(), kept.clone());
+            let (desk, way, code, kept) = (desk.clone(), way.clone(), code.clone(), kept.clone());
             alert
                 .title(crate::tr_with("Pair with %{host}?", &[("host", &host)]))
                 .description(about)
                 .ok_text(crate::tr("Pair"))
                 .show_cancel(true)
                 .on_ok(move |_, _, cx| {
-                    desk.update(cx, |d, cx| d.pair_with(&host, &code, &kept, both, cx));
+                    desk.update(cx, |d, cx| d.pair_with(&way, &code, &kept, both, cx));
                     true
                 })
         });
     }
 
-    /// Pair with the server at `host` by `code` with the key kept as
+    /// Pair with the server `way` by `code` with the key kept as
     /// `kept`; `both` ways, if this Mac can be reached back.
     fn pair_with(
         &mut self,
-        host: &str,
+        way: &crate::reach::Way,
         code: &str,
         kept: &str,
         both: bool,
         cx: &mut Context<Self>,
     ) {
         let back = match self.machines[0].local() {
-            Some(server) if both => match server.back_link(host) {
+            Some(server) if both => match server.back_link(way) {
                 Ok(back) => Some(back),
                 Err(why) => {
                     self.trouble(
-                        crate::tr_with("%{host} can't be let control this Mac", &[("host", &host)]),
+                        crate::tr_with(
+                            "%{host} can't be let control this Mac",
+                            &[("host", &way.host)],
+                        ),
                         Some(
                             crate::tr_with(
                                 "%{why} This Mac pairs with it one way only.",
@@ -784,7 +856,7 @@ impl Desk {
         let key = Key::read(kept).expect("a key just made reads");
         crate::hub::pair(
             self.home.clone(),
-            host.to_owned(),
+            way.clone(),
             code.to_owned(),
             key,
             back,

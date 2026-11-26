@@ -41,6 +41,7 @@ description: 从别处的 Mac 使用另一台机器上的 Ghost，用密钥配�
   输入它的主机名和隧道令牌，然后点击 **使用**。**使用快速隧道** 可切换回去。
 - **SSH 端口转发**，在控制方 Mac 上执行：
   `ssh -L 4317:127.0.0.1:4317 host`，然后用 `127.0.0.1` 链接配对。
+- **网络。** 在 **访问方式 › 监听于** 下，除 **这台 Mac** 外选择 **Tailscale** 或 **所有网络**（包括 Tailscale）。此后 Ghost 还会在该网络的地址上、在其自身端口的下一个端口（默认 4318）监听，并在那里自己使用 TLS，证书由它自己生成并保存在钥匙串中。访问方式中会列出访问它的每个地址。
 
 **提供服务时保持 Mac 唤醒** 让这台 Mac 在无人值守时也能被访问（Ghost
 在监听期间运行 `caffeinate`）。
@@ -53,7 +54,7 @@ description: 从别处的 Mac 使用另一台机器上的 Ghost，用密钥配�
 ghost://pair?host=<host>#<code>
 ```
 
-隧道开启时，host 是隧道的地址，否则是 `127.0.0.1:<port>`。该链接只能使用一次，十分钟内有效。
+host 是在 **通过何种方式访问** 下所选的方式：**最佳**（隧道开启时用隧道，其次是 Tailscale、局域网，最后是 `127.0.0.1:<port>`），或其中之一。网络上的链接还带有 `pin=`，即这台 Mac 证书的 SHA-256，使设备在那里只信任这台 Mac。该链接只能使用一次，十分钟内有效。
 
 在链接上方选择下一个链接允许什么；每次选择都会立即生成一个新链接：
 
@@ -111,8 +112,8 @@ Pair a desk with it, once, in the next ten minutes: ghost://pair?host=…
 
 | 文件 | 位置 | 内容 |
 |---|---|---|
-| `devices.json` | 在被控制的机器上 | 允许接入的设备（`label`、`key`（形如 `ssh-ed25519 AAAA…`）、`scope`：`full` 或 `read`、`until`：访问到期时间、`waiting`：直到你允许它进入、`paired`、`seen`）、`port`，以及是否监听（`serve`）、是否运行隧道（`tunnel`）、是否保持唤醒（`awake`），和命名隧道（`named`：`{token, host}`）。 |
-| `servers.json` | 在控制方 Mac 上 | 已配对的服务器（`name`、`host`、`key`：为其生成的密钥的公钥），以及 `control`。每把私钥都保存在钥匙串中的 `server/<fingerprint>` 下。 |
+| `devices.json` | 在被控制的机器上 | 允许接入的设备（`label`、`key`（形如 `ssh-ed25519 AAAA…`）、`scope`：`full` 或 `read`、`until`：访问到期时间、`waiting`：直到你允许它进入、`paired`、`seen`）、`port`，以及是否监听（`serve`）、在哪些网络上监听（`bind`）、是否运行隧道（`tunnel`）、是否保持唤醒（`awake`），和命名隧道（`named`：`{token, host}`）。 |
+| `servers.json` | 在控制方 Mac 上 | 已配对的服务器（`name`、`host`、`key`：为其生成的密钥的公钥、`pin`：通过网络访问的服务器的证书），以及 `control`。每把私钥都保存在钥匙串中的 `server/<fingerprint>` 下。 |
 
 两者都拒绝未知字段。无法读取的文件会保持原样，在修复或移走之前，没有设备能够接入（`devices.json`），也没有服务器能被访问（`servers.json`）；移走后请重新配对。
 
@@ -124,7 +125,7 @@ Pair a desk with it, once, in the next ten minutes: ghost://pair?host=…
 
 :::note 即将推出
 
-在局域网和 Tailscale 上监听，通过连接在本机打开已配对 Mac 的开发服务器，以及通过签名连接执行 `ghost thread`、`ghost workflow` 和
+通过连接在本机打开已配对 Mac 的开发服务器，以及通过签名连接执行 `ghost thread`、`ghost workflow` 和
 `ghost doctor`，这些功能正在完成中，当前版本尚未包含。
 
 :::
