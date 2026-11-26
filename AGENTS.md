@@ -305,7 +305,9 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   `{{header.<name>}}`, marked as data from outside. A hook is
   `signed` unless you turn it off (HMAC-SHA256 of the body, its secret `hook/<token>` in the
   Keychain; else 401), hold `only` rules (`at` is one of `is`; else 204),
-  and runs each delivery its sender names once (200 again);
+  and runs each delivery its sender names, and each signed body (by its
+  SHA-256), once (200 again): what was heard is kept a month in
+  `~/.ghost/heard.json` (`tasks::Heard`), so a restart forgets none;
   `Call::RotateHook` gives it a new token, its secret moved. Nothing holds
   a call made while no server runs. A task on an event (`Schedule::On`)
   runs as a turn ends, or an agent asks you, in a session of yours: not

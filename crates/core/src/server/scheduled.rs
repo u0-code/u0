@@ -232,24 +232,16 @@ impl Shared {
         if !hook.lets(call) {
             return Hooked::Skipped;
         }
-        // A delivery its sender names, and a signed body (by its
-        // signature: one heard again is a replay), runs once.
-        let signed = (call.signature())
-            .filter(|_| hook.signed)
-            .map(|s| format!("{token} {s}"));
-        let seen: Vec<(u64, String)> = (call.delivery().map(str::to_owned).into_iter())
-            .chain(signed)
-            .map(|s| (id, s))
-            .collect();
-        let mut heard = self.deliveries.lock().expect("deliveries");
-        if seen.iter().any(|s| heard.contains(s)) {
-            return Hooked::Again;
+        // A delivery its sender names, and a signed body, runs once.
+        let now = store::secs(std::time::SystemTime::now());
+        match tasks::Heard::hear(&self.home, id, &call.marks(hook.signed), now) {
+            Ok(true) => {}
+            Ok(false) => return Hooked::Again,
+            Err(why) => {
+                tracing::warn!("a webhook was not run: {why}");
+                return Hooked::Again;
+            }
         }
-        heard.extend(seen);
-        while heard.len() > 1000 {
-            heard.pop_front();
-        }
-        drop(heard);
         self.run(id, |prompt| call.fill(prompt));
         Hooked::Ran
     }

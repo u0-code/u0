@@ -227,6 +227,23 @@ impl Call<'_> {
             .find_map(|h| self.header(h))
     }
 
+    /// What tells it from another, heard again: the delivery its sender
+    /// names it by, and, where its hook is `signed` (it was checked to
+    /// be), its body's SHA-256, whatever way its signature was written.
+    pub fn marks(&self, signed: bool) -> Vec<String> {
+        let digest = signed.then(|| {
+            let digest = ring::digest::digest(&ring::digest::SHA256, self.body);
+            (digest.as_ref().iter()).fold("body ".to_owned(), |mut hex, b| {
+                use std::fmt::Write as _;
+                let _ = write!(hex, "{b:02x}");
+                hex
+            })
+        });
+        (self.delivery().map(|d| format!("delivery {d}")).into_iter())
+            .chain(digest)
+            .collect()
+    }
+
     /// The delivery it names itself by, where its sender says one.
     pub fn delivery(&self) -> Option<&str> {
         DELIVERY.iter().find_map(|h| self.header(h))
@@ -357,6 +374,40 @@ pub fn path(home: &Path) -> PathBuf {
 
 /// The tasks kept in `home`; none when there is no file. One that does not
 /// read is refused with why, and nothing is saved over it.
+/// The webhook calls heard (`heard.json`, the server's), so that one sent
+/// again runs nothing, Ghost restarted between or not: each by its task,
+/// a mark of it (`Call::marks`), and when, for [`HEARD_FOR`].
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Heard {
+    pub heard: Vec<(u64, String, u64)>,
+}
+
+/// How long a call heard is kept to be told again.
+pub const HEARD_FOR: u64 = 30 * 86_400;
+
+impl Heard {
+    /// Hear the call to the task `id` known by `marks`, at `now`: whether
+    /// it is new (none of its marks heard within [`HEARD_FOR`]), and so
+    /// now kept.
+    pub fn hear(home: &Path, id: u64, marks: &[String], now: u64) -> Result<bool, String> {
+        static ONE_AT_A_TIME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _one = ONE_AT_A_TIME.lock().expect("heard");
+        let path = home.join("heard.json");
+        let mut kept: Self = whole::read_json(&path)
+            .map_err(|e| format!("{e}. Move it away; until then no webhook runs."))?;
+        kept.heard.retain(|(_, _, at)| at + HEARD_FOR > now);
+        let again = (kept.heard.iter()).any(|(t, m, _)| *t == id && marks.contains(m));
+        if again {
+            return Ok(false);
+        }
+        (kept.heard).extend(marks.iter().map(|m| (id, m.clone(), now)));
+        let text = serde_json::to_vec(&kept).expect("heard serializes");
+        whole::write(&path, &text).map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+}
+
 pub fn load(home: &Path) -> Result<Tasks, String> {
     whole::read_json(&path(home)).map_err(|e| {
         format!("{e}. Move it away to start afresh; until then no task runs or is kept.")
@@ -414,6 +465,36 @@ mod tests {
             days: vec![0, 6],
         };
         assert_eq!(some.said(false), "Sun, Sat at 17:05");
+    }
+
+    #[test]
+    fn a_call_heard_is_heard_again_after_a_restart_and_forgotten_in_a_month() {
+        let home = tempfile::tempdir().unwrap();
+        let headers = vec![("x-github-delivery".to_owned(), "d1".to_owned())];
+        let first = Call {
+            headers,
+            body: b"{}",
+        };
+        let marks = first.marks(true);
+        assert_eq!(marks.len(), 2);
+        assert_eq!(Heard::hear(home.path(), 1, &marks, 100), Ok(true));
+        // Read afresh, as a server started again does.
+        let body_alone = Call {
+            headers: Vec::new(),
+            body: b"{}",
+        };
+        assert_eq!(
+            Heard::hear(home.path(), 1, &body_alone.marks(true), 200),
+            Ok(false)
+        );
+        assert_eq!(
+            Heard::hear(home.path(), 2, &body_alone.marks(true), 200),
+            Ok(true)
+        );
+        let later = 100 + HEARD_FOR;
+        assert_eq!(Heard::hear(home.path(), 1, &marks, later), Ok(true));
+        // Unsigned, a body is not a mark: only its delivery's name is.
+        assert!(body_alone.marks(false).is_empty());
     }
 
     #[test]

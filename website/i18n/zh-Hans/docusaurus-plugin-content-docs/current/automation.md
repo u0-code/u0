@@ -104,7 +104,7 @@ POST /hook/<token>
 - **已签名**（新 Webhook 默认开启）：只有正文用任务的密钥签名的调用才会运行它：正文的 HMAC-SHA256，十六进制，位于 `X-Hub-Signature-256`（`sha256=…`，与 GitHub 的签名方式相同）或 `X-Signature-256` 中。按发送方所持的样子输入密钥；它保存在运行该任务的 Mac 的钥匙串中（`hook/<token>`），并随 **新地址** 一起转移。不签名时，令牌是保护这个地址的唯一手段：任何拿到它的人都能运行该任务。
 - 该地址由 Ghost 监听其他设备的地方提供，所以必须开启监听（**设置 › 设备**，见[远程控制](remote.md)）。表单会显示 `http://127.0.0.1:<port>/hook/<token>`，隧道开启时还会显示 `https://<tunnel host>/hook/<token>`。
 - **仅当** 用于限定哪些调用会运行它：例如 `body.action = opened, closed; header.x-github-event = pull_request` 这样的规则，每条是 JSON 正文的一个字段（`body.<a>.<b>`）或一个请求头（`header.<name>`）以及它可取的值，用 `;` 分隔。每条规则都必须成立。留空时每个调用都会运行它。
-- 发送方命名的投递（`X-GitHub-Delivery`、`X-GitLab-Event-UUID` 或 `X-Delivery-Id`）只运行一次；再次发送时什么也不运行。再次发送的已签名正文同样什么也不运行，无论它声称是哪次投递。
+- 发送方命名的投递（`X-GitHub-Delivery`、`X-GitLab-Event-UUID` 或 `X-Delivery-Id`）只运行一次；再次发送时什么也不运行。再次发送的已签名正文同样什么也不运行，无论它声称是哪次投递、签名以何种方式书写。收到过的调用会在 `<home>/heard.json` 中保留一个月，因此重启也不会忘记。
 - 请求正文（最多 1 MiB）会替换提示中的每个 `{{body}}`，`{{body.<a>.<b>}}` 替换为它的一个字段，`{{header.<name>}}` 替换为一个请求头，每个都用 `<webhook-data untrusted>` … `</webhook-data>` 包起来，让智能体知道它来自外部；发送内容中的结束标记会写成 `<\/…`，因此只有 Ghost 的标记能结束它。它仍可能试图引导智能体：请像对待任何粘贴进来的内容一样看待它。提示中没有它们时，不使用正文。
 - 任务运行时 Ghost 返回 `202 Accepted`；**仅当** 中的某条规则不成立时返回 `204 No Content`；之前已收到过的投递返回 `200 OK`；未按要求签名的调用返回 `401 Unauthorized`；正文过长返回 `413`；令牌未知、任务已暂停，或[策略](reference/policy.md)禁止 Webhook 时，返回 `404 Not Found`。
 - Ghost 未运行时收到的调用不会被保留。

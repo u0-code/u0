@@ -29,6 +29,7 @@ description: Ghost 存储什么、存在哪里、发送什么，以及如何把�
 | `transcripts/<agent>/<id>.jsonl` | 每个会话的记录：你和智能体说过的话，按发生顺序。 |
 | `keybindings.json` | 你的[按键](reference/keybindings.md)。 |
 | `tasks.json`、`runs.json`、`workflows/` | [计划任务、工作流运行记录、你的工作流](automation.md)。 |
+| `heard.json` | 最近一个月收到的 Webhook 调用（投递的名称、已签名正文的 SHA-256），确保每个都不会运行两次。 |
 | `devices.json` | 可以控制这台机器的设备（它们的公钥）、端口、共享设置，以及命名隧道的令牌。 |
 | `servers.json` | 这台 Mac 控制的服务器（其密钥的公钥）。 |
 | `mcp.json` | Ghost 工具的端口，以及供 Ghost 之外的智能体使用的密钥。每次启动时重新生成，只有你可读（0600）。 |

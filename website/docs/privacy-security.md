@@ -38,6 +38,7 @@ Everything is in Ghost's home, `~/.ghost` (or `GHOST_HOME`):
 | `transcripts/<agent>/<id>.jsonl` | The record of each session: what you and the agent said, as it happened. |
 | `keybindings.json` | Your [keys](reference/keybindings.md). |
 | `tasks.json`, `runs.json`, `workflows/` | [Scheduled tasks, workflow runs, your workflows](automation.md). |
+| `heard.json` | The webhook calls heard in the last month (a delivery's name, a signed body's SHA-256), so none runs twice. |
 | `devices.json` | Devices that may control this machine (their public keys), the port, sharing settings and a named tunnel's token. |
 | `servers.json` | The servers this Mac controls (the public halves of its keys). |
 | `mcp.json` | The port of Ghost's tools and the key for agents outside Ghost. Made anew at each start, readable by you alone (0600). |

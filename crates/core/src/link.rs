@@ -1233,10 +1233,11 @@ mod tests {
         )
         .unwrap();
         let (server, port) = server(home.path());
-        let body = "{\"ref\":\"main\"}";
+        // What is sent, signed: changed once, below.
+        let body = std::cell::Cell::new("{\"ref\":\"main\"}");
         let sign = |secret: &str| {
             let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, secret.as_bytes());
-            let tag = ring::hmac::sign(&key, body.as_bytes());
+            let tag = ring::hmac::sign(&key, body.get().as_bytes());
             let hex = tag.as_ref().iter().fold(String::new(), |mut hex, b| {
                 use std::fmt::Write as _;
                 let _ = write!(hex, "{b:02x}");
@@ -1248,8 +1249,9 @@ mod tests {
             let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
             write!(
                 s,
-                "POST /hook/{token} HTTP/1.1\r\nHost: x\r\nX-Hub-Signature-256: {signature}\r\nX-GitHub-Event: {event}\r\nX-GitHub-Delivery: {delivery}\r\nContent-Length: {}\r\n\r\n{body}",
-                body.len()
+                "POST /hook/{token} HTTP/1.1\r\nHost: x\r\nX-Hub-Signature-256: {signature}\r\nX-GitHub-Event: {event}\r\nX-GitHub-Delivery: {delivery}\r\nContent-Length: {}\r\n\r\n{}",
+                body.get().len(),
+                body.get()
             )
             .unwrap();
             let mut answer = String::new();
@@ -1274,9 +1276,17 @@ mod tests {
             })
             .expect("a new address");
         assert_eq!(call("tok", &sign("s3cret"), "push", "d3"), "HTTP/1.1 404");
-        assert_eq!(call(&token, &sign("s3cret"), "push", "d4"), "HTTP/1.1 202");
-        // Signed and sent again, with a delivery of another name: a replay.
+        // The body sent before is a replay at any address of its task.
+        assert_eq!(call(&token, &sign("s3cret"), "push", "d4"), "HTTP/1.1 200");
+        body.set("{\"ref\":\"next\"}");
+        assert_eq!(call(&token, &sign("s3cret"), "push", "d4b"), "HTTP/1.1 202");
+        // Signed and sent again, with a delivery of another name, and its
+        // signature written another way: a replay each.
         assert_eq!(call(&token, &sign("s3cret"), "push", "d5"), "HTTP/1.1 200");
+        let upper = sign("s3cret").to_uppercase().replace("SHA256=", "sha256=");
+        assert_eq!(call(&token, &upper, "push", "d6"), "HTTP/1.1 200");
+        let twice = sign("s3cret").replace("sha256=", "sha256=sha256=");
+        assert_eq!(call(&token, &twice, "push", "d7"), "HTTP/1.1 200");
         assert_eq!(
             crate::secrets::get(&crate::tasks::Hook::secret("tok")),
             Ok(None)

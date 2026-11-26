@@ -145,7 +145,8 @@ POST /hook/<token>
 - A delivery its sender names (`X-GitHub-Delivery`,
   `X-GitLab-Event-UUID` or `X-Delivery-Id`) runs it once; sent again, it
   runs nothing. A signed body sent again runs nothing either, whatever
-  delivery it names.
+  delivery it names and however its signature is written. What was heard
+  is kept for a month in `<home>/heard.json`, so a restart forgets none.
 - The request body (up to 1 MiB) replaces each `{{body}}` in the prompt,
   `{{body.<a>.<b>}}` a field of it and `{{header.<name>}}` a header, each
   wrapped in `<webhook-data untrusted>` … `</webhook-data>` so the agent
