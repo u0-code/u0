@@ -539,6 +539,26 @@ pub enum Format {
     Gif,
     Webp,
     Svg,
+    Bmp,
+    Tiff,
+    Ico,
+}
+
+impl Format {
+    /// The format of the MIME type `mime`; none, not one the desk draws.
+    pub fn of(mime: &str) -> Option<Self> {
+        Some(match mime {
+            "image/png" => Self::Png,
+            "image/jpeg" | "image/jpg" => Self::Jpeg,
+            "image/gif" => Self::Gif,
+            "image/webp" => Self::Webp,
+            "image/svg+xml" => Self::Svg,
+            "image/bmp" => Self::Bmp,
+            "image/tiff" => Self::Tiff,
+            "image/x-icon" | "image/vnd.microsoft.icon" => Self::Ico,
+            _ => return None,
+        })
+    }
 }
 
 /// The picture in `block`, if it is one the desk draws.
@@ -546,7 +566,7 @@ fn image_of(block: &ContentBlock) -> Option<std::sync::Arc<Picture>> {
     let ContentBlock::Image(image) = block else {
         return None;
     };
-    let format = image_format(&image.mime_type)?;
+    let format = Format::of(&image.mime_type)?;
     // Space is passed over and padding may be left off; an agent that
     // writes the URL-safe alphabet is read too.
     let data: String = image.data.split_whitespace().collect();
@@ -561,18 +581,6 @@ fn image_of(block: &ContentBlock) -> Option<std::sync::Arc<Picture>> {
     std::hash::Hash::hash(&bytes, &mut id);
     let id = std::hash::Hasher::finish(&id);
     Some(std::sync::Arc::new(Picture { format, bytes, id }))
-}
-
-/// The format of the MIME type `mime`, where the desk draws it.
-fn image_format(mime: &str) -> Option<Format> {
-    Some(match mime {
-        "image/png" => Format::Png,
-        "image/jpeg" | "image/jpg" => Format::Jpeg,
-        "image/gif" => Format::Gif,
-        "image/webp" => Format::Webp,
-        "image/svg+xml" => Format::Svg,
-        _ => return None,
-    })
 }
 
 impl Session {

@@ -80,6 +80,9 @@ impl gpui::Asset for Decoded {
             Format::Gif => gpui::ImageFormat::Gif,
             Format::Webp => gpui::ImageFormat::Webp,
             Format::Svg => gpui::ImageFormat::Svg,
+            Format::Bmp => gpui::ImageFormat::Bmp,
+            Format::Tiff => gpui::ImageFormat::Tiff,
+            Format::Ico => gpui::ImageFormat::Ico,
         };
         async move {
             gpui::Image::from_bytes(format, picture.bytes.clone())

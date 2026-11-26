@@ -17,7 +17,7 @@ use crate::{
     git,
     proto::Event,
     scripts::{self, Script},
-    session::Begin,
+    session::{Begin, Format},
     settings::Submodules,
 };
 
@@ -439,17 +439,14 @@ pub fn read_file(path: PathBuf) -> Event {
 }
 
 fn body_of(path: &Path, mut bytes: Vec<u8>) -> Result<Body, String> {
-    let ext = path
-        .extension()
-        .map(|e| e.to_string_lossy().to_lowercase())
-        .unwrap_or_default();
-    if matches!(
-        ext.as_str(),
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "ico" | "tiff"
-    ) {
+    let kind = mime_guess::from_path(path).first();
+    if kind
+        .as_ref()
+        .is_some_and(|m| Format::of(m.essence_str()).is_some())
+    {
         return Ok(Body::Image);
     }
-    if ext == "pdf" || bytes.starts_with(b"%PDF-") {
+    if kind.is_some_and(|m| m == mime_guess::mime::APPLICATION_PDF) || bytes.starts_with(b"%PDF-") {
         return pdf_pages(bytes);
     }
     if bytes.iter().take(8192).any(|b| *b == 0) {

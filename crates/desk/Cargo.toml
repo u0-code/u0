@@ -24,6 +24,7 @@ base64.workspace = true
 unicode-width.workspace = true
 shell-words.workspace = true
 url.workspace = true
+mime_guess.workspace = true
 percent-encoding.workspace = true
 which.workspace = true
 nucleo-matcher.workspace = true

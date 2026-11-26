@@ -217,7 +217,7 @@ pub fn capture_window(tx: Sender) {
             .and_then(|_| std::fs::read(&path).ok());
         let _ = std::fs::remove_file(&path);
         Msg::Attached(bytes.map(|bytes| crate::desk::mention::Attached::Image {
-            mime: "image/png".into(),
+            mime: gpui::ImageFormat::Png.mime_type().into(),
             bytes,
         }))
     });
@@ -232,17 +232,23 @@ pub fn is_picture(path: &std::path::Path) -> bool {
     picture_kind(path).is_some()
 }
 
+/// The MIME type a picture in `format` is sent to an agent as; none, a
+/// kind agents do not read.
+pub fn agents_read(format: gpui::ImageFormat) -> Option<&'static str> {
+    use gpui::ImageFormat::{Gif, Jpeg, Png, Webp};
+    matches!(format, Png | Jpeg | Gif | Webp).then(|| format.mime_type())
+}
+
+/// What a photo in HEIC (or HEIF) is taken as, to be made a JPEG.
+const HEIC: &str = "image/heic";
+
 /// The kind of picture `path` holds, by its name; none, not one.
 fn picture_kind(path: &std::path::Path) -> Option<&'static str> {
-    let ext = path.extension()?.to_string_lossy().to_lowercase();
-    Some(match ext.as_str() {
-        "png" => "image/png",
-        "jpg" | "jpeg" => "image/jpeg",
-        "gif" => "image/gif",
-        "webp" => "image/webp",
-        "heic" | "heif" => "image/heic",
-        _ => return None,
-    })
+    let mime = mime_guess::from_path(path).first()?;
+    match mime.essence_str() {
+        "image/heic" | "image/heif" => Some(HEIC),
+        mime => gpui::ImageFormat::from_mime_type(mime).and_then(agents_read),
+    }
 }
 
 /// Read the picture at `path`, for what you write: a photo in HEIC, which
@@ -250,9 +256,9 @@ fn picture_kind(path: &std::path::Path) -> Option<&'static str> {
 /// `sips`), no wider or taller than 2560 points.
 pub fn read_picture(path: PathBuf, tx: Sender) {
     off(tx, move || {
-        let mime = picture_kind(&path).unwrap_or("image/png");
+        let mime = picture_kind(&path).unwrap_or(gpui::ImageFormat::Png.mime_type());
         let big = std::fs::metadata(&path).is_ok_and(|m| m.len() > PICTURE);
-        let read = if mime == "image/heic" || big {
+        let read = if mime == HEIC || big {
             let out =
                 std::env::temp_dir().join(format!("ghost-picture-{}.jpg", std::process::id()));
             let made = std::process::Command::new("sips")
@@ -264,7 +270,7 @@ pub fn read_picture(path: PathBuf, tx: Sender) {
                 .is_ok_and(|o| o.status.success());
             let bytes = made.then(|| std::fs::read(&out).ok()).flatten();
             let _ = std::fs::remove_file(&out);
-            bytes.map(|b| ("image/jpeg", b))
+            bytes.map(|b| (gpui::ImageFormat::Jpeg.mime_type(), b))
         } else {
             std::fs::read(&path).ok().map(|b| (mime, b))
         };

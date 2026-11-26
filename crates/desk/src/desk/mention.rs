@@ -571,12 +571,8 @@ impl Desk {
 
     /// An image pasted in the composer, of a kind an agent reads.
     fn paste_picture(&mut self, image: &gpui::Image, cx: &mut Context<Self>) {
-        let mime = match image.format {
-            gpui::ImageFormat::Png => "image/png",
-            gpui::ImageFormat::Jpeg => "image/jpeg",
-            gpui::ImageFormat::Gif => "image/gif",
-            gpui::ImageFormat::Webp => "image/webp",
-            _ => return,
+        let Some(mime) = hub::agents_read(image.format) else {
+            return;
         };
         self.add_attached(
             Attached::Image {

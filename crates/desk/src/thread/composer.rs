@@ -844,7 +844,11 @@ impl Desk {
                 let (media, title, about) = match a {
                     Attached::Image { mime, bytes } => (
                         AttachmentMedia::new().src(gpui::ImageSource::Image(std::sync::Arc::new(
-                            gpui::Image::from_bytes(picture_format(mime), bytes.clone()),
+                            gpui::Image::from_bytes(
+                                gpui::ImageFormat::from_mime_type(mime)
+                                    .unwrap_or(gpui::ImageFormat::Png),
+                                bytes.clone(),
+                            ),
                         ))),
                         format!("Image {}", n + 1),
                         crate::tidy::shown(bytes.len() as u64),
@@ -1075,14 +1079,4 @@ fn chip_text(faces: &Faces, text: impl Into<SharedString>) -> Div {
         .flex_none()
         .text_size(px(13.))
         .text_color(theme::text2())
-}
-
-/// The format gpui draws an image of the type `mime` in.
-fn picture_format(mime: &str) -> gpui::ImageFormat {
-    match mime {
-        "image/jpeg" => gpui::ImageFormat::Jpeg,
-        "image/gif" => gpui::ImageFormat::Gif,
-        "image/webp" => gpui::ImageFormat::Webp,
-        _ => gpui::ImageFormat::Png,
-    }
 }
