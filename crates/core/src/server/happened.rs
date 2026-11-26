@@ -24,9 +24,9 @@ pub(super) struct Milestone {
     pub agent: String,
     pub session: SessionId,
     pub what: Happened,
-    /// In a session Ghost turns on its own (a task's, a workflow's, one
-    /// an agent said something in): no task runs on it, so none runs on
-    /// its own runs.
+    /// In a turn Ghost began on its own (a task's, a workflow's, one an
+    /// agent said something in): no task runs on it, so none runs on its
+    /// own runs. A turn of yours in the same session is yours.
     #[serde(skip)]
     pub by_ghost: bool,
 }
@@ -58,15 +58,25 @@ pub(super) struct Happenings {
     turning: watch::Sender<HashSet<(String, SessionId)>>,
     /// The last of what happened, the latest last.
     kept: watch::Sender<VecDeque<Milestone>>,
-    /// The sessions Ghost has turned on its own, by agent and id.
+    /// The sessions whose turn going on Ghost began on its own, by agent
+    /// and id.
     ghost: std::sync::Mutex<HashSet<(String, SessionId)>>,
 }
 
 impl Happenings {
-    /// A turn begins in the session `id` of `agent`.
-    pub fn begin(&self, agent: &str, id: &SessionId) {
+    /// A turn begins in the session `id` of `agent`: one Ghost began on
+    /// its own (`by_ghost`), or yours.
+    pub fn begin(&self, agent: &str, id: &SessionId, by_ghost: bool) {
+        let on = (agent.to_owned(), id.clone());
+        let mut ghost = self.ghost.lock().expect("ghost");
+        if by_ghost {
+            ghost.insert(on.clone());
+        } else {
+            ghost.remove(&on);
+        }
+        drop(ghost);
         self.turning.send_modify(|t| {
-            t.insert((agent.to_owned(), id.clone()));
+            t.insert(on);
         });
     }
 
@@ -76,11 +86,7 @@ impl Happenings {
             t.remove(&(agent.to_owned(), id.clone()));
         });
         self.happened(agent, id, Happened::TurnEnded(how));
-    }
-
-    /// The session `id` of `agent` is turned by Ghost on its own.
-    pub fn by_ghost(&self, agent: &str, id: &SessionId) {
-        (self.ghost.lock().expect("ghost")).insert((agent.to_owned(), id.clone()));
+        (self.ghost.lock().expect("ghost")).remove(&(agent.to_owned(), id.clone()));
     }
 
     /// What tells each time something happens.
@@ -148,7 +154,7 @@ mod tests {
     fn a_turn_is_waited_on_until_it_ends_and_what_happened_is_told_after_a_number() {
         let h = std::sync::Arc::new(Happenings::default());
         let id = SessionId::new("s1");
-        h.begin("a", &id);
+        h.begin("a", &id, false);
         assert!(h.busy("a", &id));
         assert!(!block(h.idle("a", &id, Duration::from_millis(50))));
         let later = h.clone();
@@ -168,5 +174,19 @@ mod tests {
         }
         let (_, lost) = block(h.after(1, Duration::ZERO));
         assert!(lost, "more happened than is kept");
+    }
+
+    #[test]
+    fn only_a_turn_ghost_began_is_marked_ghosts_and_a_later_one_of_yours_is_not() {
+        let h = Happenings::default();
+        let id = SessionId::new("s1");
+        h.begin("a", &id, true);
+        h.happened("a", &id, Happened::Asks("May I?".into()));
+        h.end("a", &id, "end_turn".into());
+        h.begin("a", &id, false);
+        h.end("a", &id, "end_turn".into());
+        let (said, _) = block(h.after(0, Duration::ZERO));
+        let marked: Vec<bool> = said.iter().map(|m| m.by_ghost).collect();
+        assert_eq!(marked, [true, true, false]);
     }
 }

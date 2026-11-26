@@ -375,7 +375,7 @@ mod tests {
             let _ = tx.send(e);
         });
         let (mine, ghosts) = (SessionId::new("s1"), SessionId::new("s2"));
-        server.shared.happened.by_ghost("a", &ghosts);
+        server.shared.happened.begin("a", &ghosts, true);
         server.shared.happened.end("a", &ghosts, "end_turn".into());
         server.shared.happened.end("a", &mine, "end_turn".into());
         let runs = until(&rx, |r| r.state == State::Asking);

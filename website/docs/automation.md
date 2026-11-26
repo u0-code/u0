@@ -50,8 +50,10 @@ How runs behave:
 A task **On an event** runs as something happens in a session of yours:
 **A turn ends**, or **An agent asks** you something. **In this task's
 project alone** limits it to sessions in the task's project. It runs only
-on sessions you started, never on one Ghost turned on its own (a task's
-or a workflow's), so no task runs on its own runs. `{{event}}` in the
+on your turns, never on a turn Ghost began on its own (a task's, a
+workflow's, or one an agent said in another session), so no task runs on
+its own runs. A session an agent once said something in is still yours:
+your next turn there runs the task again. `{{event}}` in the
 prompt is what happened, marked as data from outside (`<event
 untrusted>`).
 

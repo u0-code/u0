@@ -247,7 +247,7 @@ impl Shared {
     }
 
     /// Run each task, not paused, that runs on what `m` says happened: in
-    /// a session Ghost did not turn on its own, and in the task's project
+    /// a turn Ghost did not begin on its own, and in the task's project
     /// where it says so. Its prompt is told what happened where it says
     /// `{{event}}`, marked as data from outside.
     fn on(&self, m: &Milestone) {
@@ -520,7 +520,6 @@ impl Shared {
             None => (self.open(&agent, task).await.map_err(|e| (None, e))?, true),
         };
         let id = meta.id.clone().expect("a session opened has an id");
-        self.happened.by_ghost(&task.agent, &id);
         opened(&id);
         let failed = |why: String| (Some(id.clone()), why);
         // The desk is told, with what was said in it so far, read after all
@@ -550,7 +549,7 @@ impl Shared {
             ],
         );
         let on = (task.agent.clone(), id.clone());
-        self.happened.begin(&on.0, &on.1);
+        self.happened.begin(&on.0, &on.1, true);
         let said = agent
             .request(PromptRequest::new(
                 id.clone(),

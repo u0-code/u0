@@ -1106,7 +1106,7 @@ impl Server {
     /// end.
     fn prompt(&self, id: &str, key: u64, session: SessionId, content: Vec<ContentBlock>) {
         let (happened, agent, on) = (self.shared.happened.clone(), id.to_owned(), session.clone());
-        happened.begin(&agent, &on);
+        happened.begin(&agent, &on, false);
         self.ask(id, PromptRequest::new(session, content), move |r| {
             happened.end(
                 &agent,
