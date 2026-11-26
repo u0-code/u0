@@ -228,36 +228,26 @@ impl Desk {
     /// pages (its agents, projects, tasks, sharing, what it keeps) the
     /// settings show: each server's are that server's, saved there. The
     /// window's own (its look, its keys) are this Mac's whichever it is.
-    fn server_pick(&self, cx: &mut Context<Self>) -> Option<gpui::component::popover::Popover> {
-        use gpui::component::Selectable as _;
+    fn server_pick(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         if self.machines.len() < 2 {
             return None;
         }
-        let name = self.machine(self.pages.on).map(|m| m.name.clone())?;
-        let trigger = ui::opener("settings-server")
-            .selected(self.popup == crate::desk::Popup::Server)
-            .child(ui::icon("server", 14.))
-            .child(format!("On {name}"))
-            .child(ui::icon("chevron-down", 11.).text_color(theme::faint()));
-        Some(self.menu(
-            crate::desk::Popup::Server,
-            trigger,
-            |d, menu, desk, _| {
-                let items = d.machines.iter().map(|m| {
-                    let host = m.host;
-                    Desk::menu_item(desk, m.name.clone(), move |this, window, cx| {
+        let choices = (self.machines.iter())
+            .map(|m| {
+                let (host, desk) = (m.host, cx.entity());
+                let pick: ui::Pick = Box::new(move |_, window, cx| {
+                    desk.update(cx, |this, cx| {
                         this.pages.on = host;
                         this.pages.project = None;
                         this.pages.scope = None;
                         this.tab_shown(this.pages.tab, window, cx);
                         cx.notify();
-                    })
-                    .checked(m.host == d.pages.on)
+                    });
                 });
-                items.fold(menu.min_w(px(200.)), gpui::component::menu::PopupMenu::item)
-            },
-            cx,
-        ))
+                (m.name.clone(), m.host == self.pages.on, pick)
+            })
+            .collect();
+        Some(ui::segmented("settings-server", choices))
     }
 
     /// The agents of the registry: switched on and off, installed.

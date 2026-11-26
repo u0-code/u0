@@ -127,11 +127,15 @@ impl Desk {
         }
         for s in self.to_pick_up() {
             let key = s.key;
+            let title = ui::fit(&s.meta.title, 40);
             steps.push(
                 row(
                     SharedString::from(format!("step-pick-{key}")),
                     "reply",
-                    format!("Pick up {}", ui::fit(&s.meta.title, 40)),
+                    match self.server_chip(s.host) {
+                        Some(on) => format!("Pick up {title} · {on}"),
+                        None => format!("Pick up {title}"),
+                    },
                     asks(s),
                 )
                 .on_click(cx.listener(move |this, _, window, cx| this.show(key, window, cx))),

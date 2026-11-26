@@ -35,11 +35,15 @@ impl Desk {
                         .collect();
                 }
                 for meta in index.sessions {
-                    let key = self.sessions.take_key();
                     if let Some(id) = &meta.id {
                         let at = (host, meta.agent.clone(), id.clone());
                         self.kept.insert(at, meta.clone());
+                        // On the desk already: its server came back.
+                        if self.sessions.by_id(host, &meta.agent, id).is_some() {
+                            continue;
+                        }
                     }
+                    let key = self.sessions.take_key();
                     self.sessions.all.push(Session::stored(key, host, meta));
                     self.subagents_back(key);
                 }

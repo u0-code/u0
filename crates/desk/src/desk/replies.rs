@@ -235,10 +235,18 @@ impl Desk {
         }
     }
 
-    /// What the desk has of the server `host` let go, and read from it
-    /// again: as it is first reached, and as it comes back restarted.
-    /// Drafts begun there stay.
+    /// What the desk has of the server `host` read from it again: as it is
+    /// first reached, and as it comes back restarted. Its sessions on the
+    /// desk stay, those that were open closed (their agents went with the
+    /// server), to be opened again when written in.
     pub(crate) fn afresh(&mut self, host: Host) {
+        for s in self.sessions.all.iter_mut().filter(|s| s.host == host) {
+            if !matches!(s.state, State::Draft | State::Closed) {
+                s.state = State::Closed;
+                s.pending = None;
+                s.since = None;
+            }
+        }
         self.forget_host(host, false);
         self.call(host, Call::Watch);
         if host == Host::HERE {
@@ -248,12 +256,12 @@ impl Desk {
         self.look_here(host);
     }
 
-    /// Let go of what the desk has of the server `host`: its sessions
-    /// (all of them, or, `drafts` kept, those it has already), agents and
-    /// projects read.
-    pub(crate) fn forget_host(&mut self, host: Host, drafts: bool) {
+    /// Let go of what the desk has of the server `host`: its agents, what
+    /// it read of its projects and its terminals; and, `sessions`, its
+    /// sessions too.
+    pub(crate) fn forget_host(&mut self, host: Host, sessions: bool) {
         let gone: Vec<u64> = (self.sessions.all.iter())
-            .filter(|s| s.host == host && (drafts || s.meta.id.is_some()))
+            .filter(|s| s.host == host && sessions)
             .map(|s| s.key)
             .collect();
         self.sessions.all.retain(|s| !gone.contains(&s.key));

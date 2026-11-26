@@ -148,8 +148,6 @@ pub enum Popup {
     TaskProject,
     /// The project Settings' choices a project may hold are set for.
     Scope,
-    /// The server the settings' pages of a server's own are of.
-    Server,
 }
 
 /// Which side columns show.
