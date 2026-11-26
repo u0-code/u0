@@ -20,6 +20,7 @@ pub mod http;
 pub mod key;
 pub mod link;
 pub mod logs;
+pub mod mcp;
 pub mod path;
 pub mod proto;
 pub mod pty;

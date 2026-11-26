@@ -3,6 +3,7 @@
 //! elsewhere over a link (`ghost_core::link`).
 
 fn main() {
+    ghost_core::mcp::when_asked();
     ghost_core::path::widen();
     let kept = ghost_core::settings::Settings::load(&ghost_core::settings::home()).0;
     ghost_core::logs::start(kept.log_days);

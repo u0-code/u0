@@ -106,7 +106,9 @@ crates/core/src/
   registry.rs   the ACP registry, installing an agent, starting one
   server.rs     the agents running, held by id; the store's one writer; each Call
                 handled, answered as Events; server/scheduled: the scheduled tasks run;
-                server/flows: the workflows' runs, step by step
+                server/flows: the workflows' runs, step by step; server/tools: Ghost's
+                tools, the one MCP server (rmcp), given to each session it opens
+  mcp.rs        how an agent reaches the tools: `--mcp`, the pipe to them; mcp.json
   proto.rs      the Ghost protocol: Call (desk to server), Event (server to desk);
                 Hello and Welcome, which begin a link
   link.rs       a server reached from elsewhere: a WebSocket on 127.0.0.1, what
@@ -202,6 +204,7 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
 | Anything over HTTP | `http::get`, `http::call`, `http::download` (ureq), off the window's thread |
 | An agent's logo | `Desk::mark_of` and `ui::mark` |
 | Anything git | `git.rs`, in the server: a `proto::Call` handled with `repo.rs` |
+| A tool for agents | a `#[tool]` in `server/tools.rs`, over what the server already does for a `Call`; one that acts calls `Tools::allowed` first |
 | Text written for you (a title, a commit message, ...) | `Desk::ask_writer` with a `writer::Ask`: the writer agent, in a session of its own |
 | A widget (switch, button, menu, ...) | `gpui::component` (gpui-kit, which the desk names `gpui`), coloured by `theme::kit` |
 | A menu opened from a trigger | `Desk::menu`: gpui-kit's Popover, held open by `Desk::popup` |
@@ -242,6 +245,14 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
 - A desk on a server elsewhere reads that server's `settings.json` (in
   its `Welcome`) and saves it there (`Call::SaveSettings`); what an agent
   needs before it starts is the server's to say (`Event::Here`).
+- Ghost's tools (`server/tools`) listen on `127.0.0.1` at a port
+  `~/.ghost/mcp.json` names, with a key only that file holds (mode 0600),
+  both made anew as the server starts. A session is given them through
+  ACP's `mcpServers` as this program run with `--mcp`, with a key of its
+  own (`GHOST_MCP_KEY`) that says which session calls; an agent outside
+  Ghost runs `--mcp` with none, and the file's key lets it in to read only.
+  What acts, or asks you, asks on the session's permission card
+  (`acp::Agent::question`).
 - `~/.ghost/registry.json`, `icons/` and `agents/` are rebuilt from the
   registry. `logs/` is Ghost's own log, a file a day, the last
   `log_days` kept.

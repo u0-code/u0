@@ -314,14 +314,15 @@ impl Shared {
         });
         Ok(Done {
             name: name.clone(),
-            result: self.answer_of(&agent, &said).await,
+            result: self.said_in(&agent, &said, true).await,
             session: Some((agent, said)),
         })
     }
 
-    /// What the agent said in the last turn of the session `id`, as its
-    /// record has it.
-    async fn answer_of(&self, agent: &str, id: &SessionId) -> String {
+    /// What was said in the session `id`, as its record has it: what the
+    /// agent said in its last turn (`last`), or all of it, with what you
+    /// said led by "You:".
+    pub(super) async fn said_in(&self, agent: &str, id: &SessionId, last: bool) -> String {
         let path = self.records.path(agent, id);
         let (tx, rx) = tokio::sync::oneshot::channel();
         store::queue(Job::Then(Box::new(move || {
@@ -329,14 +330,17 @@ impl Shared {
         })));
         let mut thread = Session::new(0, agent, std::path::PathBuf::new());
         thread.replay(rx.await.ok().flatten().unwrap_or_default());
-        let last = thread
-            .items
-            .iter()
-            .rposition(|i| matches!(i, Item::You(_)))
-            .unwrap_or(0);
-        (thread.items[last..].iter())
+        let from = if last {
+            (thread.items.iter())
+                .rposition(|i| matches!(i, Item::You(_)))
+                .map_or(0, |at| at + 1)
+        } else {
+            0
+        };
+        (thread.items[from..].iter())
             .filter_map(|i| match i {
-                Item::Agent(text) => Some(text.as_str()),
+                Item::You(text) => Some(format!("You: {text}")),
+                Item::Agent(text) => Some(text.clone()),
                 _ => None,
             })
             .collect::<Vec<_>>()

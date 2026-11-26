@@ -29,26 +29,6 @@ const TICK: Duration = Duration::from_secs(20);
 const PR_TICKS: u32 = 6;
 
 impl Server {
-    /// Keep `task` as it is now: a new one (id 0) is given the next id. Its
-    /// next run is worked out again from its schedule.
-    pub(super) fn set_task(&self, mut task: Task) {
-        let now = store::secs(std::time::SystemTime::now());
-        task.next = task.schedule.next(now);
-        self.shared.change_tasks(|all| {
-            if let Some(t) = (all.tasks.iter_mut()).find(|t| t.id == task.id && task.id != 0) {
-                // What only its runs know is the server's.
-                (task.last, task.runs) = (t.last.take(), t.runs);
-                if task.session.is_none() {
-                    task.session.clone_from(&t.session);
-                }
-                *t = task;
-            } else {
-                task.id = all.tasks.iter().map(|t| t.id).max().unwrap_or(0) + 1;
-                all.tasks.push(task);
-            }
-        });
-    }
-
     pub(super) fn drop_task(&self, id: u64) {
         self.shared
             .change_tasks(|all| all.tasks.retain(|t| t.id != id));
@@ -66,6 +46,26 @@ impl Server {
 }
 
 impl Shared {
+    /// Keep `task` as it is now: a new one (id 0) is given the next id. Its
+    /// next run is worked out again from its schedule.
+    pub(super) fn set_task(&self, mut task: Task) {
+        let now = store::secs(std::time::SystemTime::now());
+        task.next = task.schedule.next(now);
+        self.change_tasks(|all| {
+            if let Some(t) = (all.tasks.iter_mut()).find(|t| t.id == task.id && task.id != 0) {
+                // What only its runs know is the server's.
+                (task.last, task.runs) = (t.last.take(), t.runs);
+                if task.session.is_none() {
+                    task.session.clone_from(&t.session);
+                }
+                *t = task;
+            } else {
+                task.id = all.tasks.iter().map(|t| t.id).max().unwrap_or(0) + 1;
+                all.tasks.push(task);
+            }
+        });
+    }
+
     /// Look for tasks due every [`TICK`], from now on.
     pub(super) fn schedule(&self) {
         let this = self.clone();
@@ -392,11 +392,11 @@ impl Shared {
             session.meta.folder.clone_from(&made.path);
             session.meta.worktree = Some(made);
         }
-        let opened = agent
-            .request(NewSessionRequest::new(session.meta.folder.clone()))
-            .await
-            .map_err(|f| f.message)?;
+        let (tools, given) = self.tools(&task.agent, None);
+        let request = NewSessionRequest::new(session.meta.folder.clone()).mcp_servers(given);
+        let opened = agent.request(request).await.map_err(|f| f.message)?;
         let id = opened.session_id.clone();
+        self.bind(&tools, id.clone());
         self.records.open(&task.agent, id.clone());
         choose_model(agent, &id, opened.config_options, task.model.clone())
             .await
@@ -437,8 +437,10 @@ impl Shared {
             .ok_or_else(|| failed("Its session is no longer kept".into()))?;
         if !self.records.is_open(&task.agent, &id) {
             self.records.open(&task.agent, id.clone());
+            let (_, given) = self.tools(&task.agent, Some(id.clone()));
             let request = ResumeSessionRequest::new(id.clone(), meta.folder.clone())
-                .additional_directories(meta.also.clone());
+                .additional_directories(meta.also.clone())
+                .mcp_servers(given);
             if let Err(f) = agent.request(request).await {
                 return Err(failed(f.message));
             }

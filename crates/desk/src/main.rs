@@ -46,6 +46,8 @@ use gpui::{
 };
 
 fn main() {
+    // Ghost's tools, as an agent starts them: no window, and quick.
+    ghost_core::mcp::when_asked();
     // Before any thread starts, since it changes the environment.
     path::widen();
     let kept = settings::Settings::load(&settings::home()).0;

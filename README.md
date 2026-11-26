@@ -31,6 +31,7 @@ folder and a task, and follow it the way you would in its own app.
 | **Installs what is missing** | Click an agent that is not on this machine and install it there: its release is downloaded and kept in u0's home; one published as an npm or Python package is installed there with npm or uv. What is installed runs as it is; the registry's newest is installed when an agent is missing, or fails as an older version. |
 | **One thread for every agent** | What you said, what the agent said, each tool call as a row that opens to its diff or its output, the questions it asks before it acts, its plan. The same rendering whichever agent it is. |
 | **Their own harness, untouched** | Each agent runs as its own program, with its own tools, its own sign-in and its own sessions. u0 offers it no file system or terminal of its own, so it works exactly as it would in its CLI. |
+| **Ghost's tools, given to them** | Each session is given one MCP server of Ghost's: the sessions kept and what was said in them, what is not committed, a task handed to an agent in a session of its own (its answer back), a pull request opened, a task scheduled, a question put to you in the thread. What acts asks you first, on the same card the agent's own questions use. |
 | **Their own choices under your hand** | The agent's modes (read-only, ask first, auto), its models and how hard it thinks, as the agent itself lists them. |
 | **What the session came to** | Down the right: the files it changed with lines added and removed, its plan, the commands it ran, how full its context is. |
 | **A worktree of its own** | In a git repository a session can work in its own worktree, on a new branch, and leave your folder as it is. |
@@ -148,6 +149,23 @@ sessions, files, git and terminals, as if you sat at it.
 
 A link that drops (a laptop shut, a network changed) is reached again, and
 what was said meanwhile is told then.
+
+## Ghost's tools in another agent
+
+An agent Ghost did not start (Claude Code or Codex in your terminal) can
+read what Ghost keeps through the same MCP server, while Ghost runs:
+
+```bash
+claude mcp add ghost -- /Applications/Ghost.app/Contents/MacOS/ghost-desk --mcp
+codex mcp add ghost -- /Applications/Ghost.app/Contents/MacOS/ghost-desk --mcp
+```
+
+`--mcp` speaks MCP on its standard input and output and passes it to the
+Ghost running with the same home (`GHOST_HOME`), on `127.0.0.1`, with a
+key in `~/.ghost/mcp.json` that only you can read. On a machine with no
+window it is `ghost-server --mcp`; from elsewhere, `ssh host ghost-server
+--mcp`. Such an agent reads (the sessions, what was said, a diff); what
+acts, or asks you, is for a session in Ghost, where Ghost asks you first.
 
 ## Security
 

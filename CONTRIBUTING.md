@@ -54,7 +54,8 @@ on every commit.
 ## What will not be merged
 
 - **An agent of Ghost's own.** Ghost runs other agents; it has no model
-  client, no prompts and no tools to give them.
+  client and no prompts, and gives them no tools but its one MCP server
+  (`server/tools.rs`).
 - **A second copy of what the protocol or the registry says.** Wire shapes
   are the ACP schema crate's; the list of agents is the registry's.
 - **A secret in a tracked file**, or Ghost reading an agent's credentials.

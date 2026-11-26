@@ -51,6 +51,7 @@ use crate::{
 
 mod flows;
 mod scheduled;
+mod tools;
 
 /// Where what the server says goes.
 type Send = Arc<dyn Fn(Event) + std::marker::Send + Sync>;
@@ -97,6 +98,8 @@ struct Shared {
     /// What each watched pull request last stood at, by its session's
     /// agent and id (`scheduled::Shared::watch_prs`).
     watched: Arc<Mutex<HashMap<(String, SessionId), String>>>,
+    /// Who each key lets in to Ghost's tools (`tools`).
+    callers: tools::Callers,
 }
 
 impl Shared {
@@ -245,6 +248,7 @@ impl Server {
                 tasks: Arc::new(Mutex::new(tasks)),
                 runs: Arc::new(Mutex::new(runs)),
                 watched: Arc::default(),
+                callers: tools::Callers::default(),
             },
             installs: Mutex::default(),
             cloning: Mutex::default(),
@@ -253,6 +257,7 @@ impl Server {
         server.share_as_kept(false);
         server.shared.schedule();
         server.shared.go_on();
+        server.shared.serve_tools();
         server
     }
 
@@ -411,7 +416,7 @@ impl Server {
             }
             Call::SaveSettings(settings) => settings.save(&self.shared.home),
             Call::Share(share) => self.share(share),
-            Call::SetTask(task) => self.set_task(task),
+            Call::SetTask(task) => self.shared.set_task(task),
             Call::DropTask(id) => self.drop_task(id),
             Call::RunTask(id) => self.run_task(id),
             Call::Workflows => self.say_flows(),
@@ -804,11 +809,15 @@ impl Server {
     /// Open a new session of the agent `id` in `folder`, with the folders
     /// `also` beside it.
     fn open(&self, id: &str, key: u64, folder: PathBuf, also: Vec<PathBuf>) {
-        let request = NewSessionRequest::new(folder).additional_directories(also);
-        let (records, agent) = (self.shared.records.clone(), id.to_owned());
+        let (tools, given) = self.shared.tools(id, None);
+        let request = NewSessionRequest::new(folder)
+            .additional_directories(also)
+            .mcp_servers(given);
+        let (shared, agent) = (self.shared.clone(), id.to_owned());
         self.ask(id, request, move |r| {
             if let Ok(r) = &r {
-                records.open(&agent, r.session_id.clone());
+                shared.records.open(&agent, r.session_id.clone());
+                shared.bind(&tools, r.session_id.clone());
             }
             Event::Opened {
                 key,
@@ -917,13 +926,16 @@ impl Server {
         // What it says from now on is written: on a load, all that was
         // said in it.
         self.shared.records.open(id, session.clone());
+        let (_, given) = self.shared.tools(id, Some(session.clone()));
         let loaded = move |result| Event::Loaded {
             key,
             resumed,
             result,
         };
         if resumed {
-            let request = ResumeSessionRequest::new(session, folder).additional_directories(also);
+            let request = ResumeSessionRequest::new(session, folder)
+                .additional_directories(also)
+                .mcp_servers(given);
             self.ask(id, request, move |r| {
                 loaded(r.map(|r| Opened {
                     modes: r.modes,
@@ -931,7 +943,9 @@ impl Server {
                 }))
             });
         } else {
-            let request = LoadSessionRequest::new(session, folder).additional_directories(also);
+            let request = LoadSessionRequest::new(session, folder)
+                .additional_directories(also)
+                .mcp_servers(given);
             self.ask(id, request, move |r| {
                 loaded(r.map(|r| Opened {
                     modes: r.modes,
@@ -983,16 +997,18 @@ impl Server {
         folder: PathBuf,
         upto: Option<(usize, MessageId)>,
     ) {
-        let mut request = ForkSessionRequest::new(session, folder);
+        let (tools, given) = self.shared.tools(id, None);
+        let mut request = ForkSessionRequest::new(session, folder).mcp_servers(given);
         if let Some((_, last)) = &upto {
             let point = serde_json::json!({"air": {"fork": {"version": 1, "messageId": last}}});
             request = request.meta(serde_json::Map::from_iter([("jetbrains".into(), point)]));
         }
         let at = upto.map(|(at, _)| at);
-        let (records, agent) = (self.shared.records.clone(), id.to_owned());
+        let (shared, agent) = (self.shared.clone(), id.to_owned());
         self.ask(id, request, move |r| {
             if let Ok(r) = &r {
-                records.open(&agent, r.session_id.clone());
+                shared.records.open(&agent, r.session_id.clone());
+                shared.bind(&tools, r.session_id.clone());
             }
             Event::Forked {
                 from,
@@ -1308,7 +1324,7 @@ mod tests {
     use super::*;
 
     /// A server for `home`, and what it says.
-    fn server(home: &std::path::Path) -> (Arc<Server>, mpsc::Receiver<Event>) {
+    pub(super) fn server(home: &std::path::Path) -> (Arc<Server>, mpsc::Receiver<Event>) {
         let (tx, rx) = mpsc::channel();
         let server = Server::new(home.to_path_buf(), move |e| {
             let _ = tx.send(e);

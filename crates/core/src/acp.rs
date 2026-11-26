@@ -161,10 +161,12 @@ impl Answer {
     }
 }
 
-/// Where the answer to a question goes back.
+/// Where the answer to a question goes back: to the agent, or to Ghost,
+/// which asked one of its own in the agent's session.
 enum Waiting {
     Permission(Responder<RequestPermissionResponse, V1>),
     Form(Responder<CreateElicitationResponse, V1>),
+    Ghost(oneshot::Sender<Answer>),
 }
 
 /// Questions the agent asked that wait for a person, by the number the desk
@@ -175,6 +177,8 @@ type Asked = Arc<Mutex<HashMap<u64, Waiting>>>;
 pub struct Agent {
     connection: ConnectionTo<agent_client_protocol::Agent>,
     asked: Asked,
+    /// The number the next question is known by.
+    ticket: Arc<AtomicU64>,
     pid: Option<u32>,
 }
 
@@ -241,12 +245,12 @@ impl Agent {
 
         let said = Arc::new(said);
         let asked = Asked::default();
+        let ticket = Arc::new(AtomicU64::new(1));
+        let (form_ticket, own_ticket) = (ticket.clone(), ticket.clone());
         let (connected, connection) = oneshot::channel();
         let (updates, questions, waiting) = (said.clone(), said.clone(), asked.clone());
         let (forms, form_waiting) = (said.clone(), asked.clone());
         runtime().spawn(async move {
-            let ticket = Arc::new(AtomicU64::new(1));
-            let form_ticket = ticket.clone();
             let _ = Client
                 .v1()
                 .name("ghost")
@@ -312,6 +316,7 @@ impl Agent {
         Ok(Self {
             connection,
             asked,
+            ticket: own_ticket,
             pid,
         })
     }
@@ -326,10 +331,24 @@ impl Agent {
         let _ = self.connection.send_notification(cancel);
     }
 
-    /// Answer the question the agent asked under `id`.
+    /// A question of Ghost's own in one of the agent's sessions: the number
+    /// it is asked under, counted with the agent's own so that it is
+    /// answered as theirs are ([`Agent::respond`]), and where the answer
+    /// comes.
+    pub fn question(&self) -> (u64, oneshot::Receiver<Answer>) {
+        let id = self.ticket.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = oneshot::channel();
+        (self.asked.lock().expect("asked")).insert(id, Waiting::Ghost(tx));
+        (id, rx)
+    }
+
+    /// Answer the question asked under `id`.
     pub fn respond(&self, id: u64, answer: Answer) {
         let waiting = self.asked.lock().expect("asked").remove(&id);
         match (waiting, answer) {
+            (Some(Waiting::Ghost(tx)), answer) => {
+                let _ = tx.send(answer);
+            }
             (Some(Waiting::Permission(r)), Answer::Permission(outcome)) => {
                 let _ = r.respond(RequestPermissionResponse::new(outcome));
             }
