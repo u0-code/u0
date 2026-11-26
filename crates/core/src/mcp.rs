@@ -21,10 +21,7 @@
 //! own, signed in as the window is: there it acts as that Mac's scope
 //! lets it.
 
-use std::{
-    io::Write as _,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _};
@@ -72,11 +69,10 @@ pub(crate) fn door(home: &Path) -> Result<Door, String> {
 /// Write `door` in `home`, readable by you alone: whole, so that whoever
 /// reads it finds the door before or the door after, never part of one.
 pub(crate) fn open(home: &Path, door: &Door) -> std::io::Result<()> {
-    std::fs::create_dir_all(home)?;
-    // A temporary file is made readable by you alone.
-    let mut file = tempfile::NamedTempFile::new_in(home)?;
-    file.write_all(&serde_json::to_vec(door).expect("the door serializes"))?;
-    file.persist(path(home)).map(drop).map_err(|e| e.error)
+    crate::whole::write(
+        &path(home),
+        &serde_json::to_vec(door).expect("the door serializes"),
+    )
 }
 
 /// Be the pipe of `ghost --mcp`: pass what is said on the standard input
@@ -132,7 +128,7 @@ fn pipe_on(name: &str) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::BufRead as _;
+    use std::io::{BufRead as _, Write as _};
 
     use super::*;
 

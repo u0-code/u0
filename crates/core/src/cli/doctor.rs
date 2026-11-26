@@ -41,9 +41,7 @@ pub fn doctor(home: &Path) -> (String, bool) {
             .map_err(Clone::clone),
     );
     // A server runs with this home where its tools' door answers.
-    let door = std::fs::read_to_string(mcp::path(home))
-        .ok()
-        .and_then(|t| serde_json::from_str::<mcp::Door>(&t).ok());
+    let door = mcp::door(home).ok();
     check(
         "Ghost running",
         match door {
