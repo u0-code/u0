@@ -143,6 +143,9 @@ impl Desk {
         s.repo = repo;
         s.scripts = scripts;
         if s.state == State::Draft {
+            if repo {
+                self.refresh_diffs(key);
+            }
             return;
         }
         // A session in one of Ghost's worktrees works there again.
@@ -175,6 +178,8 @@ impl Desk {
         if !calls.is_empty() {
             let host = s.host;
             self.call(host, Call::Place { key, calls });
+            // An edit made: the Diff tab shows it now, not at the turn's end.
+            self.refresh_diffs(key);
         }
     }
 
@@ -187,9 +192,11 @@ impl Desk {
             return;
         }
         let no_spacing = self.settings.no_spacing;
+        // Once a turn is checkpointed, what it shows is what changed since.
         let call = Call::Uncommitted {
             dir: s.meta.folder.clone(),
             key,
+            since: s.first().map(str::to_owned),
             no_spacing,
         };
         self.call(s.host, call);

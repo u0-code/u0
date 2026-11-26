@@ -373,6 +373,7 @@ impl Desk {
                 Call::Uncommitted {
                     dir,
                     key,
+                    since: None,
                     no_spacing,
                 },
             );

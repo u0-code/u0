@@ -343,7 +343,7 @@ impl Tools {
     #[tool]
     async fn read_diff(&self, Parameters(ask): Parameters<ReadDiff>) -> Result<String, String> {
         let folder = self.folder(ask.folder)?;
-        let diffs = tokio::task::spawn_blocking(move || git::uncommitted(&folder, false))
+        let diffs = tokio::task::spawn_blocking(move || git::uncommitted(&folder, None, false))
             .await
             .map_err(|e| e.to_string())??;
         Ok(if diffs.is_empty() {

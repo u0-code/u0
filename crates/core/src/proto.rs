@@ -259,10 +259,12 @@ pub enum Call {
     ReadProject {
         folder: PathBuf,
     },
-    /// What is not committed in `dir`.
+    /// What is not committed in `dir`, or what changed there since the
+    /// session's first checkpoint, `since`.
     Uncommitted {
         dir: PathBuf,
         key: u64,
+        since: Option<String>,
         no_spacing: bool,
     },
     /// What changed in `scope` where the session `key` works.
@@ -921,6 +923,7 @@ mod tests {
             Call::Uncommitted {
                 dir: dir.clone(),
                 key: 1,
+                since: Some("abc".into()),
                 no_spacing: true,
             },
             Call::ScopeDiff {

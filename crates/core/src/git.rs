@@ -325,12 +325,19 @@ pub fn checkpoint(dir: &Path, name: &str) -> Result<String, String> {
 }
 
 /// What is not committed in `dir`, untracked files with it, against the
-/// commit it is on: read through a commit no ref keeps, so your index is
-/// left alone.
-pub fn uncommitted(dir: &Path, no_spacing: bool) -> Result<Vec<FileDiff>, String> {
+/// commit it is on, or against the checkpoint `since`: read through a
+/// commit no ref keeps, so your index is left alone.
+pub fn uncommitted(
+    dir: &Path,
+    since: Option<&str>,
+    no_spacing: bool,
+) -> Result<Vec<FileDiff>, String> {
     let now = snapshot(dir, "uncommitted")?;
-    let base = git(dir, &["rev-parse", "--verify", "--quiet", "HEAD"], None)
-        .unwrap_or_else(|_| EMPTY_TREE.to_owned());
+    let base = match since {
+        Some(c) => c.to_owned(),
+        None => git(dir, &["rev-parse", "--verify", "--quiet", "HEAD"], None)
+            .unwrap_or_else(|_| EMPTY_TREE.to_owned()),
+    };
     diff(dir, &base, &now, no_spacing)
 }
 
@@ -1279,7 +1286,7 @@ mod tests {
         let dir = repo("uncommitted");
         std::fs::write(dir.join("a.txt"), "one\n2\nthree\n").unwrap();
         std::fs::write(dir.join("b.txt"), "new\n").unwrap();
-        let files = uncommitted(&dir, false).unwrap();
+        let files = uncommitted(&dir, None, false).unwrap();
         let mut paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
         paths.sort_unstable();
         assert_eq!(paths, ["a.txt", "b.txt"]);
@@ -1288,6 +1295,18 @@ mod tests {
             ""
         );
         assert_eq!(git(&dir, &["for-each-ref", REFS], None).unwrap(), "");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn what_changed_since_a_checkpoint_leaves_out_what_was_there_before_it() {
+        let dir = repo("since");
+        std::fs::write(dir.join("a.txt"), "one\n2\nthree\n").unwrap();
+        let first = checkpoint(&dir, "s2/0-before").unwrap();
+        std::fs::write(dir.join("b.txt"), "new\n").unwrap();
+        let files = uncommitted(&dir, Some(&first), false).unwrap();
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(paths, ["b.txt"]);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -533,10 +533,11 @@ impl Server {
             Call::Uncommitted {
                 dir,
                 key,
+                since,
                 no_spacing,
             } => self.off(move || Event::Uncommitted {
                 key,
-                result: git::uncommitted(&dir, no_spacing),
+                result: git::uncommitted(&dir, since.as_deref(), no_spacing),
             }),
             Call::ScopeDiff {
                 dir,

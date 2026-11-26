@@ -426,9 +426,7 @@ impl Desk {
                 }
             }
             Event::Uncommitted { key, result } => {
-                if let Some(s) = self.sessions.at_mut(key)
-                    && s.turns.is_empty()
-                {
+                if let Some(s) = self.sessions.at_mut(key) {
                     match result {
                         Ok(files) => s.total = Some(files),
                         Err(why) => {
