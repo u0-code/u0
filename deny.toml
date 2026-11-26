@@ -43,6 +43,11 @@ allow = [
     "0BSD",
 ]
 confidence-threshold = 0.9
+# The certificates rustls-platform-verifier carries where there is no
+# system to ask (wasm32), which Ghost is never built for.
+exceptions = [
+    { allow = ["CDLA-Permissive-2.0"], crate = "webpki-root-certs" },
+]
 
 [bans]
 # Two versions of one crate are a cost, not an error.

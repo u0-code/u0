@@ -14,9 +14,9 @@
 //! (an agent's own CLI, such as Codex's) is the newest it allows as it is
 //! installed, not what a runner's cache once fetched. What is installed
 //! runs; the registry's newest is installed only when an agent is not
-//! here, or fails as an older version (`Desk::install_due`). The
-//! downloading and unpacking is done by `curl`, `unzip` and `tar`, which
-//! macOS and Linux have.
+//! here, or fails as an older version (`Desk::install_due`). An archive is
+//! downloaded by `http`, and unpacked by `unzip` and `tar`, which macOS and
+//! Linux have.
 
 use std::{
     collections::BTreeMap,
@@ -376,20 +376,23 @@ pub fn icon_path(home: &Path, id: &str) -> PathBuf {
 /// logo. Blocking. A logo that cannot be read is left out: the agent is
 /// drawn with its initial.
 pub fn fetch(home: &Path) -> Result<Registry, String> {
-    let out = run(Command::new("curl").args(["-fsSL", "--max-time", "30", URL]))?;
+    let out = crate::http::get(URL, &[])?;
     let registry: Registry =
         serde_json::from_slice(&out).map_err(|e| format!("the registry could not be read: {e}"))?;
     whole::write(&home.join("registry.json"), &out)
         .map_err(|e| format!("the registry could not be kept: {e}"))?;
     let _ = std::fs::create_dir_all(home.join("icons"));
-    let mut curl = Command::new("curl");
-    curl.args(["-sSL", "--max-time", "60", "--parallel"]);
-    for e in &registry.agents {
-        if let Some(url) = &e.icon {
-            curl.arg(url).arg("-o").arg(icon_path(home, &e.id));
+    std::thread::scope(|each| {
+        for e in &registry.agents {
+            if let Some(url) = &e.icon {
+                each.spawn(move || {
+                    if let Ok(logo) = crate::http::get(url, &[]) {
+                        let _ = whole::write(&icon_path(home, &e.id), &logo);
+                    }
+                });
+            }
         }
-    }
-    let _ = curl.output();
+    });
     Ok(registry.with_logos(home))
 }
 
@@ -633,7 +636,7 @@ pub fn install(entry: &Entry, home: &Path, say: Say, stop: &AtomicBool) -> Resul
     let name = b.archive.rsplit('/').next().unwrap_or("archive");
     let archive = staging.join(name);
 
-    if let Err(e) = download(&b.archive, &archive, say, stop) {
+    if let Err(e) = crate::http::download(&b.archive, &archive, say, stop) {
         let _ = std::fs::remove_dir_all(&staging);
         return Err(e);
     }
@@ -684,61 +687,6 @@ pub fn install(entry: &Entry, home: &Path, say: Say, stop: &AtomicBool) -> Resul
     Ok(())
 }
 
-/// Download `url` to `to` with `curl`, saying how many megabytes have come
-/// of how many, until it is done or `stop` is set.
-pub(crate) fn download(url: &str, to: &Path, say: Say, stop: &AtomicBool) -> Result<(), String> {
-    let mb = |n: u64| n as f64 / 1_048_576.;
-    // The size, from the headers of the last answer after redirects.
-    let total = Command::new("curl")
-        .args(["-sIL", "--max-time", "30", url])
-        .output()
-        .ok()
-        .and_then(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .filter_map(|l| {
-                    let (k, v) = l.split_once(':')?;
-                    k.eq_ignore_ascii_case("content-length")
-                        .then(|| v.trim().parse::<u64>().ok())?
-                })
-                .next_back()
-        })
-        .filter(|n| *n > 0);
-    let mut child = Command::new("curl")
-        .args(["-fsSL", "--max-time", "1800", "-o"])
-        .arg(to)
-        .arg(url)
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("curl could not be started: {e}"))?;
-    loop {
-        if stop.load(Ordering::Relaxed) {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(CANCELLED.into());
-        }
-        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
-            if status.success() {
-                return Ok(());
-            }
-            let mut said = String::new();
-            if let Some(mut err) = child.stderr.take() {
-                let _ = std::io::Read::read_to_string(&mut err, &mut said);
-            }
-            return Err(format!("the download failed: {}", said.trim()));
-        }
-        let got = std::fs::metadata(to).map_or(0, |m| m.len());
-        match total {
-            Some(total) => say(
-                &format!("Downloading · {:.1} of {:.1} MB", mb(got), mb(total)),
-                Some((got as f64 / total as f64).min(1.) as f32),
-            ),
-            None => say(&format!("Downloading · {:.1} MB", mb(got)), None),
-        }
-        std::thread::sleep(std::time::Duration::from_millis(250));
-    }
-}
-
 /// Run a command to its end; its output, or what it said went wrong.
 pub(crate) fn run(command: &mut Command) -> Result<Vec<u8>, String> {
     let program = command.get_program().to_string_lossy().into_owned();
@@ -756,6 +704,25 @@ pub(crate) fn run(command: &mut Command) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `body`, served over HTTP on this machine to each who asks: its URL.
+    fn serve(body: Vec<u8>) -> String {
+        use std::io::{Read as _, Write as _};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let at = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for mut asked in listener.incoming().flatten() {
+                let _ = asked.read(&mut [0; 4096]);
+                let _ = write!(
+                    asked,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                let _ = asked.write_all(&body);
+            }
+        });
+        format!("http://{at}/agent.tar.gz")
+    }
 
     fn entry(json: &str) -> Entry {
         serde_json::from_str(json).unwrap()
@@ -852,11 +819,11 @@ mod tests {
             .status()
             .unwrap();
         assert!(made.success());
+        let url = serve(std::fs::read(&archive).unwrap());
         let at = |version: &str| {
             entry(&format!(
-                r#"{{"id":"a","name":"A","version":"{version}","distribution":{{"binary":{{"{}":{{"archive":"file://{}","cmd":"./agent"}}}}}}}}"#,
+                r#"{{"id":"a","name":"A","version":"{version}","distribution":{{"binary":{{"{}":{{"archive":"{url}","cmd":"./agent"}}}}}}}}"#,
                 platform(),
-                archive.display()
             ))
         };
         let stop = AtomicBool::new(false);
@@ -884,7 +851,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let home = home.path();
         let e = entry(&format!(
-            r#"{{"id":"b","name":"B","version":"1","distribution":{{"binary":{{"{}":{{"archive":"file:///nowhere/agent.tar.gz","cmd":"./agent"}}}}}}}}"#,
+            r#"{{"id":"b","name":"B","version":"1","distribution":{{"binary":{{"{}":{{"archive":"http://127.0.0.1:1/agent.tar.gz","cmd":"./agent"}}}}}}}}"#,
             platform()
         ));
         let stop = AtomicBool::new(true);

@@ -43,6 +43,10 @@ jiff = "1.0.2"
 tempfile = "3.27"
 # A PDF's pages, drawn in Rust: the Files tab's viewer.
 hayro = "0.9"
+# The one HTTP client: the registry and its archives, the forges' APIs, the
+# updater. TLS is rustls with ring, as the rest of the build has it, and
+# certificates are checked as the system checks them.
+ureq = { version = "3.5", default-features = false, features = ["rustls-no-provider", "platform-verifier", "gzip"] }
 # Which release of Ghost is newer: the updater.
 semver = "1.0"
 # The macOS Keychain, where secrets are kept: the crate rustls already

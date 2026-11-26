@@ -133,11 +133,9 @@ fn raw(host: Host, url: &str) -> Result<String, String> {
 }
 
 /// What `method` at `url` of `host`'s API answers, sent `body` and the
-/// token you gave for the host. The token goes to curl on its standard
-/// input, never on its command line.
+/// token you gave for the host.
 fn call(host: Host, method: &str, url: &str, body: Option<&Value>) -> Result<Vec<u8>, String> {
     use base64::Engine as _;
-    use std::io::Write as _;
     let auth = host.token().map(|t| match host {
         Host::Linear => t,
         Host::Bitbucket if !t.contains(':') => format!("Bearer {t}"),
@@ -151,55 +149,26 @@ fn call(host: Host, method: &str, url: &str, body: Option<&Value>) -> Result<Vec
         ),
         Host::GitHub | Host::GitLab => format!("Bearer {t}"),
     });
-    let mut curl = std::process::Command::new("curl");
-    curl.args([
-        "-sS",
-        "-L",
-        "--fail-with-body",
-        "--max-time",
-        "30",
-        "-X",
-        method,
-    ])
-    .args(["-K", "-", "-H", "Accept: application/json"]);
-    if let Some(body) = body {
-        curl.args([
-            "-H",
-            "Content-Type: application/json",
-            "--data-binary",
-            &body.to_string(),
-        ]);
+    let mut headers = vec![("Accept", "application/json")];
+    if let Some(auth) = &auth {
+        headers.push(("Authorization", auth));
     }
-    let mut child = curl
-        .arg(url)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("curl could not be started: {e}"))?;
-    let config = auth.map_or_else(String::new, |a| {
-        format!(
-            "header = \"Authorization: {}\"\n",
-            a.replace('\\', "\\\\").replace('"', "\\\"")
-        )
-    });
-    child
-        .stdin
-        .take()
-        .expect("piped")
-        .write_all(config.as_bytes())
-        .map_err(|e| e.to_string())?;
-    let out = child.wait_with_output().map_err(|e| e.to_string())?;
-    if out.status.success() {
-        return Ok(out.stdout);
+    if body.is_some() {
+        headers.push(("Content-Type", "application/json"));
     }
-    let said: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);
+    let body = body.map(|b| b.to_string().into_bytes());
+    let (ok, out) = crate::http::call(method, url, &headers, body)
+        .map_err(|e| format!("{}: {e}", host.name()))?;
+    if ok {
+        return Ok(out);
+    }
+    let said: Value = serde_json::from_slice(&out).unwrap_or(Value::Null);
     // What the host said went wrong, as each says it.
     let why = ["/message", "/error/message", "/error", "/errors/0/message"]
         .iter()
         .map(|p| text(&said, p))
         .find(|w| !w.is_empty())
-        .unwrap_or_else(|| String::from_utf8_lossy(&out.stderr).trim().to_owned());
+        .unwrap_or_else(|| String::from_utf8_lossy(&out).trim().to_owned());
     Err(format!("{}: {why}", host.name()))
 }
 

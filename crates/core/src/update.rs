@@ -7,8 +7,7 @@
 //!
 //! The updater crates were weighed: `self_update` replaces a lone binary,
 //! not an app bundle, and `cargo-packager-updater` needs a signed manifest
-//! per channel that the releases do not publish; both bring an HTTP client
-//! beside the `curl` Ghost already downloads agents with.
+//! per channel that the releases do not publish.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -16,7 +15,7 @@ use std::sync::atomic::AtomicBool;
 
 use serde::{Deserialize, Serialize};
 
-use crate::registry::{Say, download, run};
+use crate::registry::{Say, run};
 
 /// The repository's releases, newest first.
 const RELEASES: &str = "https://api.github.com/repos/u0-code/u0/releases";
@@ -72,14 +71,7 @@ struct Asset {
 /// The newest build on `channel`, when it is not this one. Reads GitHub;
 /// blocking.
 pub fn check(channel: Channel) -> Result<Option<Found>, String> {
-    let out = run(Command::new("curl").args([
-        "-fsSL",
-        "--max-time",
-        "30",
-        "-H",
-        "Accept: application/vnd.github+json",
-        RELEASES,
-    ]))?;
+    let out = crate::http::get(RELEASES, &[("Accept", "application/vnd.github+json")])?;
     let releases: Vec<Release> =
         serde_json::from_slice(&out).map_err(|e| format!("GitHub's answer did not read: {e}"))?;
     Ok(newer(&releases, channel, VERSION, COMMIT))
@@ -148,7 +140,7 @@ pub fn install(
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let zip = dir.join("Ghost.zip");
-    download(&found.url, &zip, say, stop)?;
+    crate::http::download(&found.url, &zip, say, stop)?;
     say("Unpacking", None);
     run(Command::new("ditto")
         .arg("-x")

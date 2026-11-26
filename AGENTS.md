@@ -125,6 +125,7 @@ crates/core/src/
   session.rs    a session: its thread built from session/update; its turns' checkpoints
   git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR
   github.rs     a project's pull requests and issues as gh lists, reads and changes them
+  http.rs       the one HTTP client (ureq): the registry, its archives, the forges, updates
   forge.rs      the hosts of code and issues: their CLIs, your tokens for them, credits on merge
   forge/        GitLab, Bitbucket and Azure DevOps over their APIs; Linear's issues
   settings.rs   ~/.ghost/settings.json and the home
@@ -198,6 +199,7 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
 | Atomic file write | `whole::write`, off the window's thread: `store::queue(Job::Write)` for the desk's own files |
 | Where Ghost keeps its files | `settings::home()` |
 | A program on the PATH | `registry::which` |
+| Anything over HTTP | `http::get`, `http::call`, `http::download` (ureq), off the window's thread |
 | An agent's logo | `Desk::mark_of` and `ui::mark` |
 | Anything git | `git.rs`, in the server: a `proto::Call` handled with `repo.rs` |
 | Text written for you (a title, a commit message, ...) | `Desk::ask_writer` with a `writer::Ask`: the writer agent, in a session of its own |
