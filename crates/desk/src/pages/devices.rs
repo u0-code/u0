@@ -57,37 +57,43 @@ fn qr(link: &str) -> gpui::Img {
 }
 
 /// What a pairing link made for `grant` lets in, said in a phrase.
-fn granted(grant: Grant) -> String {
+fn granted(grant: Grant) -> SharedString {
     let what = match grant.scope {
-        Scope::Full => "everything",
-        Scope::Read => "read only",
+        Scope::Full => crate::tr("everything"),
+        Scope::Read => crate::tr("read only"),
     };
     let long = match grant.days {
-        None => "until revoked".to_owned(),
-        Some(1) => "for a day".to_owned(),
-        Some(d) => format!("for {d} days"),
+        None => crate::tr("until revoked"),
+        Some(1) => crate::tr("for a day"),
+        Some(d) => crate::tr_with("for %{days} days", &[("days", &d)]),
     };
-    let asked = if grant.ask {
-        ", once you let it in"
+    let said = if grant.ask {
+        "For a device: %{what}, %{long}, once you let it in"
     } else {
-        ""
+        "For a device: %{what}, %{long}"
     };
-    format!("For a device: {what}, {long}{asked}")
+    crate::tr_with(said, &[("what", &what), ("long", &long)])
 }
 
 /// What a device paired may do, and until when, said in a phrase.
 fn standing(d: &crate::access::Device) -> String {
     let what = match d.scope {
-        Scope::Full => "Everything",
-        Scope::Read => "Read only",
+        Scope::Full => crate::tr("Everything"),
+        Scope::Read => crate::tr("Read only"),
     };
-    let until = d.until.map_or_else(String::new, |u| {
-        format!(
-            ", until {}",
-            when::said_at(crate::store::time(u), std::time::SystemTime::now(), false)
-        )
-    });
-    format!("{what}{until}")
+    let Some(until) = d.until else {
+        return what.to_string();
+    };
+    let when = when::said_at(
+        crate::store::time(until),
+        std::time::SystemTime::now(),
+        false,
+    );
+    crate::tr_with(
+        "%{what}, until %{when}",
+        &[("what", &what), ("when", &when)],
+    )
+    .to_string()
 }
 
 impl Desk {
@@ -210,19 +216,21 @@ impl Desk {
         };
         let scope = item(
             w,
-            "What it may do",
-            "Read only: it watches sessions, diffs and your projects' files, and changes nothing. Its calls are checked here, on this Mac.",
+            crate::tr("What it may do"),
+            crate::tr(
+                "Read only: it watches sessions, diffs and your projects' files, and changes nothing. Its calls are checked here, on this Mac.",
+            ),
             move |_, _, cx| {
                 ui::segmented(
                     "grant-scope",
                     vec![
                         (
-                            "Everything",
+                            crate::tr("Everything"),
                             grant.scope == Scope::Full,
                             choose(|g| g.scope = Scope::Full, cx),
                         ),
                         (
-                            "Read only",
+                            crate::tr("Read only"),
                             grant.scope == Scope::Read,
                             choose(|g| g.scope = Scope::Read, cx),
                         ),
@@ -233,29 +241,29 @@ impl Desk {
         );
         let ends = item(
             w,
-            "For how long",
-            "After that it is turned away, and pairs again with a new link.",
+            crate::tr("For how long"),
+            crate::tr("After that it is turned away, and pairs again with a new link."),
             move |_, _, cx| {
                 ui::segmented(
                     "grant-days",
                     vec![
                         (
-                            "Until revoked",
+                            crate::tr("Until revoked"),
                             grant.days.is_none(),
                             choose(|g| g.days = None, cx),
                         ),
                         (
-                            "A day",
+                            crate::tr("A day"),
                             grant.days == Some(1),
                             choose(|g| g.days = Some(1), cx),
                         ),
                         (
-                            "A week",
+                            crate::tr("A week"),
                             grant.days == Some(7),
                             choose(|g| g.days = Some(7), cx),
                         ),
                         (
-                            "30 days",
+                            crate::tr("30 days"),
                             grant.days == Some(30),
                             choose(|g| g.days = Some(30), cx),
                         ),
@@ -266,11 +274,13 @@ impl Desk {
         );
         let ask = item(
             w,
-            "Ask me before letting it in",
-            "The device pairs, then waits under Devices that control this Mac until you let it in: for a link you send someone.",
+            crate::tr("Ask me before letting it in"),
+            crate::tr(
+                "The device pairs, then waits under Devices that control this Mac until you let it in: for a link you send someone.",
+            ),
             move |_, _, cx| {
                 Switch::new("grant-ask")
-                    .accessibility_label("Ask me before letting it in")
+                    .accessibility_label(crate::tr("Ask me before letting it in"))
                     .small()
                     .checked(grant.ask)
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -311,8 +321,10 @@ impl Desk {
         let chosen = self.pages.route;
         let way = item(
             w,
-            "Reached by",
-            "The way the link names. One on a network pins this Mac's certificate in the link, so the device trusts this Mac alone.",
+            crate::tr("Reached by"),
+            crate::tr(
+                "The way the link names. One on a network pins this Mac's certificate in the link, so the device trusts this Mac alone.",
+            ),
             move |_, _, cx| {
                 let pick = |route: Option<Route>, cx: &mut Context<Desk>| -> ui::Pick {
                     Box::new(cx.listener(move |this, _, _, cx| {
@@ -321,9 +333,9 @@ impl Desk {
                         cx.notify();
                     }))
                 };
-                let mut choices = vec![("Best", chosen.is_none(), pick(None, cx))];
+                let mut choices = vec![(crate::tr("Best"), chosen.is_none(), pick(None, cx))];
                 for r in &kinds {
-                    choices.push((r.name(), chosen == Some(*r), pick(Some(*r), cx)));
+                    choices.push((crate::tr(r.name()), chosen == Some(*r), pick(Some(*r), cx)));
                 }
                 ui::segmented("link-route", choices).into_any_element()
             },
@@ -490,8 +502,10 @@ impl Desk {
         let bind = shared.bind;
         let listen = item(
             w,
-            "Listen on",
-            "Beyond this Mac and its tunnel: Tailscale, or every network it is on, Tailscale too. There Ghost speaks TLS itself, on the port after its own; a device pairs with a link that pins its certificate.",
+            crate::tr("Listen on"),
+            crate::tr(
+                "Beyond this Mac and its tunnel: Tailscale, or every network it is on, Tailscale too. There Ghost speaks TLS itself, on the port after its own; a device pairs with a link that pins its certificate.",
+            ),
             move |_, _, cx| {
                 let pick = |to: Bind, cx: &mut Context<Desk>| -> ui::Pick {
                     Box::new(cx.listener(move |this, _, _, _| this.share(Share::Bind(to))))
@@ -499,14 +513,18 @@ impl Desk {
                 ui::segmented(
                     "listen-on",
                     vec![
-                        ("This Mac", bind == Bind::Here, pick(Bind::Here, cx)),
                         (
-                            "Tailscale",
+                            crate::tr("This Mac"),
+                            bind == Bind::Here,
+                            pick(Bind::Here, cx),
+                        ),
+                        (
+                            crate::tr("Tailscale"),
                             bind == Bind::Tailscale,
                             pick(Bind::Tailscale, cx),
                         ),
                         (
-                            "Every network",
+                            crate::tr("Every network"),
                             bind == Bind::Network,
                             pick(Bind::Network, cx),
                         ),
@@ -517,9 +535,9 @@ impl Desk {
         );
         let none = |_: &mut Desk, _: &Faces, _: &mut Context<Desk>| div().into_any_element();
         let routes = match &shared.routes {
-            Err(why) => vec![item(w, "Not on a network", why.clone(), none)],
+            Err(why) => vec![item(w, crate::tr("Not on a network"), why.clone(), none)],
             Ok(routes) => (routes.iter())
-                .map(|(route, host)| item(w, route.name(), host.clone(), none))
+                .map(|(route, host)| item(w, crate::tr(route.name()), host.clone(), none))
                 .collect(),
         };
         [tunnel, mode, listen]

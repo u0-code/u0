@@ -181,7 +181,10 @@ impl Desk {
                             .update(cx, |i, cx| i.set_value("", window, cx));
                         match back {
                             None if waiting => self.done(
-                                format!("Paired with {name}: it comes into this window once it is let in there, under Settings › Devices"),
+                                crate::tr_with(
+                                    "Paired with %{name}: it comes into this window once it is let in there, under Settings › Devices",
+                                    &[("name", &name)],
+                                ),
                                 None,
                             ),
                             None => self.done(

@@ -259,8 +259,10 @@ impl Desk {
             ),
             item(
                 w,
-                "Each run",
-                "Says its prompt to the agent, or begins a workflow with it as the input.",
+                crate::tr("Each run"),
+                crate::tr(
+                    "Says its prompt to the agent, or begins a workflow with it as the input.",
+                ),
                 |d, _, cx| d.task_flow_pick(cx).into_any_element(),
             ),
             item(w, crate::tr("Schedule"), "", |d, faces, cx| {
@@ -470,13 +472,21 @@ impl Desk {
                     .child(ui::segmented(
                         "task-moment",
                         vec![
-                            ("A turn ends", moment == Moment::TurnEnded, on(Moment::TurnEnded, cx)),
-                            ("An agent asks", moment == Moment::Asks, on(Moment::Asks, cx)),
+                            (
+                                crate::tr("A turn ends"),
+                                moment == Moment::TurnEnded,
+                                on(Moment::TurnEnded, cx),
+                            ),
+                            (
+                                crate::tr("An agent asks"),
+                                moment == Moment::Asks,
+                                on(Moment::Asks, cx),
+                            ),
                         ],
                     ))
                     .child(
                         gpui::component::switch::Switch::new("task-here")
-                            .label("In this task's project alone")
+                            .label(crate::tr("In this task's project alone"))
                             .small()
                             .checked(here)
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -490,7 +500,7 @@ impl Desk {
                     )
                     .child(ui::fine(
                         faces,
-                        "In a session of yours, not one Ghost turns on its own (a task's, a workflow's), so that no task runs on its own runs. {{event}} in what it says is what happened, marked as data from outside.",
+                        crate::tr("In a session of yours, not one Ghost turns on its own (a task's, a workflow's), so that no task runs on its own runs. {{event}} in what it says is what happened, marked as data from outside."),
                     ))
             }
         };
@@ -549,7 +559,10 @@ impl Desk {
         let flow = (self.tasks.draft.as_ref()).and_then(|d| d.task.workflow.clone());
         let trigger = ui::opener("task-flow")
             .selected(self.popup == Popup::TaskFlow)
-            .child(flow.map_or_else(|| "Says its prompt".to_owned(), |f| format!("Begins {f}")));
+            .child(flow.map_or_else(
+                || crate::tr("Says its prompt"),
+                |f| crate::tr_with("Begins %{workflow}", &[("workflow", &f)]),
+            ));
         self.menu(
             Popup::TaskFlow,
             trigger,
@@ -563,11 +576,12 @@ impl Desk {
                         cx.notify();
                     }
                 };
-                let says =
-                    Self::menu_item(desk, "Says its prompt", pick(None)).checked(chosen.is_none());
+                let says = Self::menu_item(desk, crate::tr("Says its prompt"), pick(None))
+                    .checked(chosen.is_none());
                 let flows = (d.flows.list.iter().filter_map(|f| f.as_ref().ok())).map(|f| {
                     let name = f.name.clone();
-                    Self::menu_item(desk, format!("Begins {name}"), pick(Some(name.clone())))
+                    let begins = crate::tr_with("Begins %{workflow}", &[("workflow", &name)]);
+                    Self::menu_item(desk, begins, pick(Some(name.clone())))
                         .checked(chosen.as_ref() == Some(&name))
                 });
                 std::iter::once(says)

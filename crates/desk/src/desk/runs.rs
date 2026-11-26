@@ -163,7 +163,11 @@ impl Desk {
                     m.forwards.push(forward);
                 }
             }
-            Err(why) => self.trouble(format!("Couldn't open {address} here"), Some(why), None),
+            Err(why) => self.trouble(
+                crate::tr_with("Couldn't open %{address} here", &[("address", &address)]),
+                Some(why),
+                None,
+            ),
         }
     }
 
