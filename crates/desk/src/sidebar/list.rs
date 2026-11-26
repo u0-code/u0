@@ -313,9 +313,10 @@ impl Desk {
         let faces = crate::fonts::faces(cx).clone();
         let id = entry.item().id.clone();
         // Rows stand a little apart, so that the ground of one lit (hovered,
-        // chosen) never runs into the next.
+        // chosen) never runs into the next: 36 from one to the next, as
+        // t3code's.
         let item = ListItem::new(SharedString::from(format!("row-{id}")))
-            .h(px(34.))
+            .h(px(32.))
             .my(px(2.))
             .px(px(10.))
             .rounded(px(8.));
@@ -534,6 +535,9 @@ impl Desk {
         let status = lists::status(s);
         let now = SystemTime::now();
         let title = s.shown_title().to_owned();
+        // Not begun: marked as a draft, as t3code marks one, not as a
+        // session with an agent's answer and a time.
+        let draft = s.state == State::Draft && s.items.is_empty();
         // It recedes while it works or waits, and once read and finished.
         let wants = status.is_some_and(|st| st != lists::Status::Working);
         let name = if self.renaming == Some(Renaming::Session { key, here: false }) {
@@ -562,6 +566,7 @@ impl Desk {
             (None, Some(st)) => ui::text(faces, st.word())
                 .text_size(px(crate::style::CAPTION))
                 .text_color(st.color()),
+            (None, None) if draft => ui::fine(faces, "Draft"),
             (None, None) => ui::fine(faces, compact(lists::used(s), now)),
         };
         // On hover: put it away a while, or done; back, on a shelf.
@@ -663,7 +668,13 @@ impl Desk {
                             .flex_none()
                             .opacity(if open { 1. } else { 0.5 })
                             .group_hover(group.clone(), |st| st.opacity(1.))
-                            .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.)),
+                            .child(if draft {
+                                ui::icon("square-pen", 16.)
+                                    .text_color(theme::accent())
+                                    .into_any_element()
+                            } else {
+                                ui::mark(faces, &self.mark_of(&s.meta.agent), 16.)
+                            }),
                     )
                     .when(pinned, |d| {
                         d.child(ui::icon("pin", 12.).flex_none().text_color(theme::faint()))
