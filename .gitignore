@@ -10,3 +10,7 @@
 /run
 /bench/
 /ghostd.toml
+# The telemetry Worker's tools and what they build.
+/telemetry/node_modules/
+/telemetry/.cloudflare/
+/telemetry/.wrangler/

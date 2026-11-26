@@ -1,0 +1,34 @@
+# ghost-telemetry
+
+The Cloudflare Worker that takes the batches Ghost sends
+(`crates/core/src/telemetry.rs`; what each level sends is in the main
+README). It checks each batch field by field, refuses one with a field
+it does not know or a value of the wrong shape, and keeps it as a row of
+the D1 database `ghost-telemetry` (`schema.sql`): the batch and the
+country Cloudflare saw it from, nothing else of the request.
+
+Deploy it with Cloudflare's `cf` CLI, logged in:
+
+```sh
+cd telemetry
+npm ci
+npx cf deploy        # provisions the D1 database the first time
+cf d1 list           # its id, for the commands below
+cf d1 query <id> --sql="$(cat schema.sql)"
+```
+
+## Reading it
+
+```sh
+# The versions in use this week: installs by version and channel.
+cf d1 query <id> --sql "SELECT version, channel, count(DISTINCT id) AS installs, count(*) AS batches FROM batches WHERE at > datetime('now', '-7 days') GROUP BY version, channel ORDER BY installs DESC"
+
+# The agents used this week, by the installs that use each.
+cf d1 query <id> --sql "SELECT a.key AS agent, count(DISTINCT b.id) AS installs FROM batches b, json_each(b.agents) a WHERE b.at > datetime('now', '-7 days') GROUP BY agent ORDER BY installs DESC"
+
+# How far installs let Ghost see: the level each sent last this week, and
+# the first launches (level 0, sent once and with no id).
+cf d1 query <id> --sql "SELECT level, count(*) AS installs FROM (SELECT id, max(level) AS level FROM batches WHERE level > 0 AND at > datetime('now', '-7 days') GROUP BY id) GROUP BY level UNION ALL SELECT 'first launches', count(*) FROM batches WHERE level = 0 AND at > datetime('now', '-7 days')"
+```
+
+A row is deleted as any is: `cf d1 query <id> --sql "DELETE FROM batches WHERE ..."`.
