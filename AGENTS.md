@@ -89,6 +89,10 @@ no HTML rendered from what an agent says (Markdown is the thread's format).
   needs it". The pull request carries screenshots of the component, before
   and after where it shows. Meanwhile Ghost takes the fix from a fork through
   `[patch.crates-io]`, and drops the patch once upstream releases it.
+- gpui itself is the exception: Zed takes no gpui pull requests for use
+  outside Zed. A change to gpui stays on the owner's fork
+  (`mizorewww/zed`), which Ghost patches from; never a pull request to
+  `zed-industries/zed`.
 - Anything else a crate already does (a PDF view, a parser, a format) comes
   from that crate.
 
