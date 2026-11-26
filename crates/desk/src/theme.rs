@@ -403,6 +403,8 @@ pub fn kit(cx: &mut App) {
         c.link_active = link();
         c.list_hover = row_hover();
         c.list_active = row_open();
-        c.overlay = bg().opacity(0.64);
+        // Behind a dialog the window dims to 64 % (t3code's): black over
+        // it, since the ground's own colour over the ground changes nothing.
+        c.overlay = gpui::black().opacity(if light { 0.24 } else { 0.36 });
     });
 }

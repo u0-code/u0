@@ -371,6 +371,7 @@ impl Desk {
                     .margin_top((window.viewport_size().height * 0.1).max(px(52.)))
                     .p_0()
                     .rounded(px(16.))
+                    .border_color(theme::text().opacity(0.08))
                     .close_button(false)
                     .keyboard(false)
                     .overlay_closable(true)
@@ -1109,6 +1110,9 @@ fn row_view(faces: &Faces, row: &Row) -> gpui::Div {
                     div()
                         .text_size(px(14.))
                         .line_height(px(20.))
+                        // Regular, as t3code's: only what was typed stands
+                        // out, and a project's name.
+                        .font_weight(gpui::FontWeight::NORMAL)
                         // A file's letters typed stand out of the rest.
                         .text_color(if matches!(row.act, Act::File(_)) && !row.bold.is_empty() {
                             theme::muted()
@@ -1171,7 +1175,10 @@ fn foot(through: Through, page: bool) -> gpui::Div {
             .flex()
             .items_center()
             .gap(px(4.))
-            .children(keys.iter().map(|k| Kbd::label(*k)))
+            .children(
+                keys.iter()
+                    .map(|k| Kbd::label(*k).text_size(px(12.)).py(px(4.))),
+            )
             .child(div().ml(px(2.)).child(what))
     };
     let (enter, esc) = match through {
