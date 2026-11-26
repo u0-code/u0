@@ -5,16 +5,40 @@ description: How an organisation sets, locks and limits Ghost on a machine.
 
 # Managed policy
 
-An administrator can give a machine a policy: a JSON file that sets
-Ghost's settings, locks some of them, and limits what Ghost may do. Ghost
-reads it once, as it starts.
+An administrator can give a machine a policy that sets Ghost's
+settings, locks some of them, and limits what Ghost may do. Ghost reads it
+once, as it starts.
 
-| System | Where the policy is read from |
+| System | Where the policy comes from |
 |---|---|
-| macOS | `/Library/Application Support/Ghost/policy.json` |
-| Linux | `/etc/ghost/policy.json` |
+| macOS | A configuration profile for the preference domain `local.ghost.desk` (Ghost.app's bundle identifier). |
+| Linux | The file `/etc/ghost/policy.json`. |
 
-Both places are writable only by an administrator.
+Both are set only by an administrator, and both have the same keys.
+
+## On a Mac: a configuration profile
+
+[`policy/ghost.mobileconfig`](https://github.com/u0-code/u0/blob/main/policy/ghost.mobileconfig)
+in Ghost's repository is an example profile that names every key, with a
+comment on each. To use it:
+
+1. Change its values, and give the profile and its payload identifiers
+   and UUIDs of your own.
+2. Deploy it from your MDM, as a custom profile or as a Custom Settings
+   payload for the domain `local.ghost.desk`; or install it by hand in
+   **System Settings › General › Device Management**.
+
+The profile's payload holds the keys below (`organization`,
+`support_url`, `settings`, `limits`) as property-list values: a string,
+a number, true or false, an array or a dict, as the JSON below has
+them. A date or data value is an error.
+
+Ghost reads them with CFPreferences, and counts only values a profile
+**forces**: a value written with `defaults write` is not a policy.
+
+## On Linux: policy.json
+
+`/etc/ghost/policy.json` holds the same keys as JSON (below).
 
 ## Format
 
@@ -69,15 +93,9 @@ left out limits nothing.
 
 ## When the policy does not read
 
-A policy that is not valid JSON, has a key Ghost does not know, names a
-setting that does not exist, or gives a value of the wrong type keeps the
-settings from loading at all: Ghost starts on its defaults, says what is
+A policy that does not read (a `policy.json` that is not valid JSON, a
+profile with a date or data value), has a key Ghost does not know, names
+a setting that does not exist, or gives a value of the wrong type keeps
+the settings from loading at all: Ghost starts on its defaults, says what is
 wrong, and saves nothing until the policy is fixed. Nothing runs half
 governed.
-
-:::note Coming
-
-On macOS, policies are moving to configuration profiles (MDM). This page
-will describe them once that lands; the Linux file stays as it is.
-
-:::
