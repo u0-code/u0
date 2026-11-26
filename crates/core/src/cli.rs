@@ -1,8 +1,9 @@
 //! The `ghost` command's words, as t3code's `t3` has them: Ghost's server
 //! with no window (`serve`), kept running from login by launchd
 //! (`service`), and what this home holds (`status`, `sessions`, `tasks`).
-//! A folder named opens in Ghost: that is the script the desk puts on the
-//! PATH, which hands every other word here.
+//! A folder named opens in Ghost. One parser (clap's) reads them all:
+//! the script the desk puts on the PATH hands it everything, marked as a
+//! terminal's (`--shell`), and an agent's `--mcp` is read here too.
 
 use std::{
     fmt::Write as _,
@@ -14,38 +15,90 @@ use ssh_key::sha2::{Digest as _, Sha256};
 
 use crate::{access, key::Key, servers, settings, store, tasks, when};
 
-const HELP: &str = "\
-ghost <folder>…            open each folder in Ghost, as a project (none: this one)
-ghost serve                Ghost's server with no window, for desks elsewhere to pair with
-ghost service install      run that server from login (launchd), the window opening on it
-ghost service uninstall    stop it, and take it out of login
-ghost service status       whether it is installed and running, and where it logs
-ghost status               this home: the agents on, the server, the tasks, the service
-ghost sessions             the sessions kept, the latest first
-ghost tasks                the scheduled tasks, and when each runs next
-ghost --version            this build: its version, commit and channel";
+/// The `ghost` command, as clap reads it: its words, or folders to open.
+#[derive(Debug, clap::Parser)]
+#[command(
+    name = "ghost",
+    about = "Ghost from a terminal: each folder named opens in Ghost, as a project (none: this one); or one of these words."
+)]
+struct Cli {
+    /// Ghost's tools on the standard input and output, for an agent.
+    #[arg(long, hide = true)]
+    mcp: bool,
+    /// With --mcp: the tools of the server this Mac is paired with by
+    /// this name.
+    #[arg(long, hide = true, requires = "mcp")]
+    on: Option<String>,
+    /// Said by the script on the PATH: run from a terminal, not by macOS.
+    #[arg(long, hide = true)]
+    shell: bool,
+    #[command(subcommand)]
+    word: Option<Word>,
+    /// Folders to open in Ghost, as projects.
+    folders: Vec<PathBuf>,
+}
 
-/// Do what the command line asks, and exit, when it names one of the
-/// words above; else go on to open the window.
+#[derive(Debug, clap::Subcommand)]
+enum Word {
+    /// Ghost's server with no window, for desks elsewhere to pair with.
+    Serve,
+    /// That server run from login by launchd, the window opening on it.
+    Service {
+        #[command(subcommand)]
+        what: Service,
+    },
+    /// This home: the agents on, the server, the tasks, the service.
+    Status,
+    /// The sessions kept, the latest first.
+    Sessions,
+    /// The scheduled tasks, and when each runs next.
+    Tasks,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum Service {
+    /// Run it from login.
+    Install,
+    /// Stop it, and take it out of login.
+    Uninstall,
+    /// Whether it is installed and running, and where it logs.
+    Status,
+}
+
+/// Do what the command line asks, and exit, where it names a word, or is
+/// a terminal's; else (macOS starting the app) go on to open the window.
 pub fn when_asked() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let Some(word) = args.first() else { return };
-    let home = settings::home();
-    let done = match word.as_str() {
-        "serve" => crate::link::serve_here(),
-        "service" => service(&home, args.get(1).map(String::as_str)),
-        "status" => status(&home).map(|s| print!("{s}")),
-        "sessions" => sessions(&home).map(|s| print!("{s}")),
-        "tasks" => tasks_of(&home).map(|s| print!("{s}")),
-        "version" | "--version" | "-V" => {
-            println!("{}", crate::update::this_build());
-            Ok(())
+    use clap::{CommandFactory as _, FromArgMatches as _};
+    let command = Cli::command()
+        .bin_name("ghost")
+        .version(crate::update::this_build());
+    let shell = std::env::args().any(|a| a == "--shell");
+    let cli = match command
+        .try_get_matches()
+        .and_then(|m| Cli::from_arg_matches(&m))
+    {
+        Ok(cli) => cli,
+        // Help, the version, and what does not read, from a terminal.
+        Err(e) if shell || !e.use_stderr() => e.exit(),
+        Err(_) => return,
+    };
+    let done = if cli.mcp {
+        crate::mcp::pipe(cli.on.as_deref())
+    } else if let Some(word) = cli.word {
+        crate::path::widen();
+        let home = settings::home();
+        crate::logs::start(settings::Settings::load(&home).0.log_days);
+        match word {
+            Word::Serve => crate::link::serve_here(),
+            Word::Service { what } => service(&home, &what),
+            Word::Status => status(&home).map(|s| print!("{s}")),
+            Word::Sessions => sessions(&home).map(|s| print!("{s}")),
+            Word::Tasks => tasks_of(&home).map(|s| print!("{s}")),
         }
-        "help" | "--help" | "-h" => {
-            println!("{HELP}");
-            Ok(())
-        }
-        _ => return,
+    } else if cli.shell {
+        open(&cli.folders)
+    } else {
+        return;
     };
     match done {
         Ok(()) => std::process::exit(0),
@@ -54,6 +107,27 @@ pub fn when_asked() {
             std::process::exit(1)
         }
     }
+}
+
+/// Open each of `folders` (none: this one) in Ghost, as a project, through
+/// macOS, which hands it to the Ghost running or starts one.
+fn open(folders: &[PathBuf]) -> Result<(), String> {
+    let here = [PathBuf::from(".")];
+    for folder in if folders.is_empty() {
+        &here[..]
+    } else {
+        folders
+    } {
+        let opened = Command::new("open")
+            .args(["-b", crate::update::IDENTIFIER])
+            .arg(folder)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if !opened.success() {
+            return Err(format!("{} did not open", folder.display()));
+        }
+    }
+    Ok(())
 }
 
 /// The launchd label of the service of `home`: Ghost's own, or one of
@@ -146,15 +220,15 @@ fn standing(label: &str) -> Option<String> {
     ))
 }
 
-fn service(home: &Path, word: Option<&str>) -> Result<(), String> {
+fn service(home: &Path, what: &Service) -> Result<(), String> {
     if !cfg!(target_os = "macos") {
         return Err("The service is launchd's, on macOS; elsewhere run `ghost serve` under your own supervisor (systemd, ...).".into());
     }
     let label = label(home);
     let plist = plist_of(&label)?;
     let log = home.join("logs").join("service.log");
-    match word {
-        Some("install") => {
+    match what {
+        Service::Install => {
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
             std::fs::create_dir_all(home.join("logs")).map_err(|e| e.to_string())?;
             pair_window(home)?;
@@ -168,7 +242,7 @@ fn service(home: &Path, word: Option<&str>) -> Result<(), String> {
             );
             Ok(())
         }
-        Some("uninstall") => {
+        Service::Uninstall => {
             let _ = launchctl(&["bootout", &format!("{}/{label}", domain()?)]);
             let _ = std::fs::remove_file(&plist);
             unpair_window(home)?;
@@ -177,7 +251,7 @@ fn service(home: &Path, word: Option<&str>) -> Result<(), String> {
             );
             Ok(())
         }
-        Some("status") => {
+        Service::Status => {
             let installed = plist.is_file();
             let state = standing(&label).unwrap_or_else(|| "not loaded".into());
             println!(
@@ -191,7 +265,6 @@ fn service(home: &Path, word: Option<&str>) -> Result<(), String> {
             );
             Ok(())
         }
-        _ => Err("ghost service install | uninstall | status".into()),
     }
 }
 
@@ -332,6 +405,32 @@ fn tasks_of(home: &Path) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_parser_reads_the_words_the_folders_and_an_agents_mcp() {
+        use clap::Parser as _;
+        let read = |args: &[&str]| {
+            Cli::try_parse_from(std::iter::once("ghost").chain(args.iter().copied()))
+        };
+        let cli = read(&["--shell", "service", "install"]).unwrap();
+        assert!(
+            cli.shell
+                && matches!(
+                    cli.word,
+                    Some(Word::Service {
+                        what: Service::Install
+                    })
+                )
+        );
+        let cli = read(&["--shell", "a", "b"]).unwrap();
+        assert_eq!(cli.folders, [PathBuf::from("a"), PathBuf::from("b")]);
+        let cli = read(&["--mcp", "--on", "box"]).unwrap();
+        assert!(cli.mcp && cli.on.as_deref() == Some("box"));
+        assert!(read(&["--on", "box"]).is_err(), "--on is --mcp's");
+        // What macOS may pass an app it starts does not read: the window
+        // opens.
+        assert!(read(&["-psn_0_12345"]).is_err());
+    }
 
     #[test]
     fn each_home_has_a_service_of_its_own() {

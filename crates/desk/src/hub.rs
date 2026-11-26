@@ -436,13 +436,12 @@ pub fn write(path: PathBuf, text: String, tx: Sender) {
     });
 }
 
-/// The `ghost` command, as t3code's `t3`: its words (`ghost help`) said
-/// to this program (`cli`); else each folder named (none, the one you
-/// are in) opened in Ghost as a project, through macOS, which hands it to
-/// the Ghost running or starts one.
+/// The `ghost` command, as t3code's `t3`: all it is given said to this
+/// program, marked as a terminal's (`cli`), which reads the words and
+/// opens the folders named.
 fn command(exe: &std::path::Path) -> String {
     format!(
-        "#!/bin/sh\n# Ghost from a terminal: ghost help.\ncase \"$1\" in\n  serve|service|status|sessions|tasks|help|--help|-h) exec '{}' \"$@\" ;;\nesac\n[ $# -eq 0 ] && set -- .\nfor f in \"$@\"; do open -b local.ghost.desk \"$f\" || exit; done\n",
+        "#!/bin/sh\n# Ghost from a terminal: ghost --help.\nexec '{}' --shell \"$@\"\n",
         exe.display().to_string().replace('\'', "'\\''")
     )
 }

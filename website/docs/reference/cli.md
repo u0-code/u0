@@ -34,13 +34,12 @@ so; add it in your shell's profile.
 | `ghost status` | This home: the agents switched on, whether the server listens, the service, the scheduled tasks. |
 | `ghost sessions` | The sessions kept (not archived), the latest first: how long ago, the agent, the project and the title. |
 | `ghost tasks` | The scheduled tasks: number, schedule, next run and title. |
-| `ghost help` | The list above. |
+| `ghost help`, `ghost --help` | The list above; `ghost <command> --help` says more of one. |
 
 `ghost-server` takes the same words (`ghost-server status`, …). With none,
-it serves, as `ghost serve` does. `ghost-server --version` (or
-`ghost-desk --version` inside the app bundle) prints the build: its
-version, commit and channel. The `ghost` script passes only the words in
-the table to Ghost, so call the program itself for `--version`.
+it serves, as `ghost serve` does. `ghost --version` (or
+`ghost-server --version`) prints the build: its version, commit and
+channel. A word Ghost does not know is refused, with what it takes.
 
 ## The launchd service
 

@@ -56,14 +56,13 @@ static LAUNCHED: std::sync::LazyLock<std::time::Instant> =
 
 fn main() {
     std::sync::LazyLock::force(&LAUNCHED);
-    // Ghost's tools, as an agent starts them: no window, and quick.
-    ghost_core::mcp::when_asked();
+    // The command's words (`ghost serve`, `ghost service`, ...) and
+    // Ghost's tools as an agent starts them (`--mcp`): no window.
+    ghost_core::cli::when_asked();
     // Before any thread starts, since it changes the environment.
     path::widen();
     let kept = settings::Settings::load(&settings::home()).0;
     ghost_core::logs::start(kept.log_days);
-    // The command's words (`ghost serve`, `ghost service`, ...): no window.
-    ghost_core::cli::when_asked();
 
     // The links and folders macOS opens Ghost with (`ghost://`, `ghost
     // <folder>`), held until the window is up to take them.

@@ -141,8 +141,8 @@ crates/core/src/
                 `Host`, which of a window's servers something is on
   logs.rs       what Ghost logs, and where
   bin/          ghost-server: the server with no window
-  cli.rs        the `ghost` command's words: serve, service (a launchd agent per
-                home, the window paired with it), status, sessions, tasks
+  cli.rs        the `ghost` command, read by clap: serve, service (a launchd agent per
+                home, the window paired with it), status, sessions, tasks; --mcp; folders
   records.rs    the record of each session open with its agent, written as it comes
   repo.rs       what is asked of a project's folder and its git: each a Call, one Event;
                 a file read for the viewer (a PDF's pages drawn by hayro)

@@ -30,9 +30,9 @@ description: ghost 命令、ghost-server 和 --mcp。
 | `ghost status` | 此主目录的情况：已开启的智能体、服务器是否在监听、服务、计划任务。 |
 | `ghost sessions` | 保留的（未归档的）会话，最新的在前：多久之前、智能体、项目和标题。 |
 | `ghost tasks` | 计划任务：编号、计划、下次运行时间和标题。 |
-| `ghost help` | 上面的列表。 |
+| `ghost help`、`ghost --help` | 上面的列表；`ghost <command> --help` 会详细说明某个命令。 |
 
-`ghost-server` 接受相同的子命令（`ghost-server status` 等）。不带任何子命令时，它会像 `ghost serve` 一样提供服务。`ghost-server --version`（或应用包中的 `ghost-desk --version`）会打印构建信息：版本、提交和渠道。`ghost` 脚本只把表中的子命令传给 Ghost，因此要查看 `--version`，请直接调用程序本身。
+`ghost-server` 接受相同的子命令（`ghost-server status` 等）。不带任何子命令时，它会像 `ghost serve` 一样提供服务。`ghost --version`（或 `ghost-server --version`）会打印构建信息：版本、提交和渠道。Ghost 不认识的子命令会被拒绝，并说明它接受什么。
 
 ## launchd 服务 {#the-launchd-service}
 

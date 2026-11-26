@@ -31,7 +31,7 @@ const ASSET: &str = "macos-arm64.zip";
 
 /// The identifier Ghost.app is signed with (`bundle.sh`'s
 /// `CFBundleIdentifier`).
-const IDENTIFIER: &str = "local.ghost.desk";
+pub(crate) const IDENTIFIER: &str = "local.ghost.desk";
 
 /// This build's version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

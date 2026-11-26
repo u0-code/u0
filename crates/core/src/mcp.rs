@@ -52,30 +52,14 @@ pub(crate) fn open(home: &Path, door: &Door) -> std::io::Result<()> {
     file.persist(path(home)).map(drop).map_err(|e| e.error)
 }
 
-/// Where the program was started as `ghost --mcp`, be the pipe, and end
-/// with it.
-pub fn when_asked() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().map(String::as_str) == Some("--mcp") {
-        let piped = match args.get(1..) {
-            Some([on, name]) if on == "--on" => pipe_on(name),
-            _ => pipe(),
-        };
-        let code = piped.map_or_else(
-            |why| {
-                eprintln!("{why}");
-                1
-            },
-            |()| 0,
-        );
-        std::process::exit(code);
+/// Be the pipe of `ghost --mcp`: pass what is said on the standard input
+/// to the tools of the server of the home this runs with, after the
+/// session's key (or the door's), or to those of the server paired with as
+/// `on`; and what they say back to the standard output, until either ends.
+pub(crate) fn pipe(on: Option<&str>) -> Result<(), String> {
+    if let Some(name) = on {
+        return pipe_on(name);
     }
-}
-
-/// Pass what is said on the standard input to the server of the home this
-/// runs with, after the session's key (or the door's), and what it says
-/// back to the standard output, until either ends.
-fn pipe() -> Result<(), String> {
     let home = crate::settings::home();
     let door: Door = std::fs::read_to_string(path(&home))
         .map_err(|e| e.to_string())
