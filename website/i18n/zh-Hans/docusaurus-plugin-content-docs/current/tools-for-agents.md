@@ -36,7 +36,7 @@ Ghost 打开会话时，通过 ACP 的 `mcpServers` 把服务器作为一个要�
 | `organize_session` | 整理 Ghost 保存的一个会话（`agent`、`session`）：`pin` 置顶或取消置顶，`archive` 归档或恢复，给它一个 `title`，设置它的 `tags`。每个窗口都会立刻显示这一变化。 | Ghost 中的会话；先在那个会话中询问你 |
 | `wait_for_turn` | 等到会话中正在进行的一轮结束（`seconds`，未给出时为十分钟，最多一小时），并返回其智能体在最后一轮中说的话。 | 任何智能体 |
 | `interrupt_session` | 停止会话中正在进行的一轮。 | Ghost 中的会话；先在那个会话中询问你 |
-| `events` | Ghost 运行的会话中发生的事（一轮结束、智能体向你提问），每件都有编号：用最后一个编号（`after`）再次调用以继续跟进，带 `seconds` 则等待新事发生。`missed` 表示其中有些已不再保留。 | 任何智能体 |
+| `events` | Ghost 运行的会话中发生的事（一轮结束、智能体向你提问），每件都有编号；指定了 `agent`、`session` 或 `project` 时只给出与之相关的。用返回的 `last`（作为 `after`）再次调用以继续跟进，带 `seconds` 则等待能通过筛选的新事发生。`missed` 表示其中有些已不再保留。 | 任何智能体 |
 | `list_projects` | 你的项目：它们的文件夹，与侧边栏列出的一致。 | 任何智能体 |
 | `add_project` | 把一个 `folder`（完整路径）设为你的项目，排在列表最前；连到那个 Ghost 的每个窗口都会立刻显示它。不能是根目录、你的主文件夹或包含它的文件夹，也不能是 Ghost 的主目录或其中的文件夹。 | Ghost 中的会话；先询问你 |
 | `search_sessions` | 标题或其中所说内容包含 `query`（不分大小写）的会话，最新的在前，格式与 `list_sessions` 相同。 | 任何智能体 |
@@ -63,6 +63,8 @@ Ghost 打开会话时，通过 ACP 的 `mcpServers` 把服务器作为一个要�
 | `list_worktrees` | Ghost 为某个项目创建、位于其工作树文件夹中的工作树：每个的仓库、路径和分支。 | 任何智能体 |
 | `make_worktree` | 像新会话那样为项目创建一个工作树：从远程的默认分支开始，分支以 `about` 命名；返回它的路径和分支。 | Ghost 中的会话；先询问你 |
 | `remove_worktree` | 移除 Ghost 创建的一个工作树（`path`），除非有 Ghost 会话在其中工作，或其中有未提交的内容；它的分支会保留。 | Ghost 中的会话；先询问你 |
+
+智能体不必一再调用 `events`：通过 `ghost --mcp` 连接的智能体可以订阅资源 `ghost://events`（MCP 的 `subscriptions/listen`），每当有事发生，Ghost 都会告诉它（`notifications/resources/updated`），它再调用 `events` 即可。读取这个资源，得到的是最近发生的事。通过 HTTP 时每个请求各自独立，所以无从订阅。
 
 ### 访问级别 {#access-levels}
 

@@ -33,6 +33,7 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 
 mod devices;
+mod events;
 mod flows;
 mod forge;
 mod issues;
@@ -98,6 +99,9 @@ const EACH_TIME: [&str; 4] = [
     "change_task",
     "remove_worktree",
 ];
+
+/// What Ghost's MCP server says it is, to an agent that connects.
+const INSTRUCTIONS: &str = "Ghost, the app this agent may be running in: the sessions it keeps of your agents, your projects and what is found in them, their diffs, worktrees, pull requests, checks and issues, its workflows and scheduled tasks, the simulators and emulators where it runs; and the user, asked in this session's thread. Subscribe to ghost://events to be told when something happens in the sessions, then call events.";
 
 /// Why a call is not made: the key it came in with lets no one in now.
 const LET_GO: &str =
@@ -302,6 +306,7 @@ impl Tools {
             + Self::forge_router()
             + Self::issue_router()
             + Self::session_router()
+            + Self::event_router()
             + Self::flow_router()
             + Self::worktree_router()
     }
@@ -423,18 +428,6 @@ struct WaitFor {
     session: String,
     /// The most to wait, in seconds (an hour at most); none, ten minutes.
     seconds: Option<u64>,
-}
-
-#[derive(Deserialize, schemars::JsonSchema)]
-struct Since {
-    /// What happened after this number, as the last call said; none, all
-    /// that is kept.
-    #[serde(default)]
-    after: u64,
-    /// How long to wait, in seconds (an hour at most), for something to
-    /// happen; none, not at all.
-    #[serde(default)]
-    seconds: u64,
 }
 
 /// The longest a tool waits.
@@ -693,18 +686,6 @@ impl Tools {
         }
     }
 
-    /// What happened in the sessions Ghost runs after a number (a turn
-    /// ended, an agent asks the user), the latest last, each numbered:
-    /// call again with the last number to follow on; with `seconds`,
-    /// waiting that long for something to. `missed` says some of what
-    /// happened since is no longer kept.
-    #[tool]
-    async fn events(&self, Parameters(ask): Parameters<Since>) -> Result<String, String> {
-        let most = std::time::Duration::from_secs(ask.seconds).min(MOST);
-        let (happened, missed) = self.shared.happened.after(ask.after, most).await;
-        said(&serde_json::json!({"happened": happened, "missed": missed}))
-    }
-
     /// Ask the user a question in this session's thread, and wait for the
     /// answer.
     #[tool]
@@ -743,12 +724,71 @@ impl Tools {
     clippy::unused_async_trait_impl,
     reason = "rmcp's tool_handler writes the methods it makes async"
 )]
-#[tool_handler(
-    name = "ghost",
-    router = Self::every(),
-    instructions = "Ghost, the app this agent may be running in: the sessions it keeps of your agents, your projects and what is found in them, their diffs, worktrees, pull requests, checks and issues, its workflows and scheduled tasks, the simulators and emulators where it runs; and the user, asked in this session's thread."
-)]
+#[tool_handler(router = Self::every())]
 impl ServerHandler for Tools {
+    /// Its tools, and one resource, what happened (`events::EVENTS`),
+    /// which may be subscribed to.
+    fn get_info(&self) -> rmcp::model::ServerConfig {
+        let can = rmcp::model::ServerCapabilities::builder()
+            .enable_tools()
+            .enable_resources()
+            .enable_resources_subscribe()
+            .build();
+        rmcp::model::ServerConfig::new(can)
+            .with_server_info(rmcp::model::Implementation::new(
+                "ghost",
+                env!("CARGO_PKG_VERSION"),
+            ))
+            .with_instructions(INSTRUCTIONS.to_owned())
+    }
+
+    async fn list_resources(
+        &self,
+        _: Option<rmcp::model::PaginatedRequestParams>,
+        _: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<rmcp::model::ListResourcesResult, rmcp::ErrorData> {
+        let events = rmcp::model::Resource::new(events::EVENTS, "events").with_description(
+            "What happened in the sessions Ghost runs; subscribed to, it says each time something does",
+        );
+        Ok(rmcp::model::ListResourcesResult::with_all_items(vec![
+            events,
+        ]))
+    }
+
+    async fn read_resource(
+        &self,
+        request: rmcp::model::ReadResourceRequestParams,
+        _: rmcp::service::RequestContext<rmcp::RoleServer>,
+    ) -> Result<rmcp::model::ReadResourceResponse, rmcp::ErrorData> {
+        if self.caller().is_none() {
+            return Err(rmcp::ErrorData::invalid_request(LET_GO, None));
+        }
+        if request.uri != events::EVENTS {
+            return Err(rmcp::ErrorData::resource_not_found(
+                "No such resource",
+                None,
+            ));
+        }
+        Ok(self.latest().into())
+    }
+
+    /// What happened, alone, may be listened to.
+    fn accepted_subscription_filter(
+        &self,
+        _: &rmcp::model::SubscriptionFilter,
+    ) -> Option<rmcp::model::SubscriptionFilter> {
+        let events =
+            rmcp::model::SubscriptionFilter::builder().resource_subscription(events::EVENTS);
+        Some(events.build())
+    }
+
+    async fn listen(
+        &self,
+        context: rmcp::service::SubscriptionContext,
+    ) -> Result<(), rmcp::ErrorData> {
+        self.listen_events(context).await
+    }
+
     /// Each call made while its key still lets it in, as each request
     /// over HTTP is: a connection made with a key since replaced (New
     /// key) or let go calls nothing more. Each counted by its tool
@@ -803,6 +843,18 @@ pub(super) mod tests {
         /// In at the door of the server of `home` with `key` (none, the
         /// door's own: an agent outside Ghost), and past MCP's hello.
         pub(in crate::server) fn new(home: &std::path::Path, key: Option<&str>) -> Self {
+            let mut client = Self::keyed(home, key);
+            let hello = json!({"protocolVersion": "2025-06-18", "capabilities": {},
+                "clientInfo": {"name": "stand-in", "version": "1"}});
+            client.ask("initialize", &hello);
+            client.reply();
+            client.say(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
+            client
+        }
+
+        /// In at the door, past its proof alone: as a client of MCP's
+        /// 2026-07-28, which says hello with each request.
+        pub(in crate::server) fn keyed(home: &std::path::Path, key: Option<&str>) -> Self {
             let door = door(home);
             let mut out = std::net::TcpStream::connect(("127.0.0.1", door.port)).unwrap();
             out.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
@@ -811,17 +863,23 @@ pub(super) mod tests {
             lines.read_line(&mut nonce).unwrap();
             let key = key.unwrap_or(&door.key);
             writeln!(out, "{}", mcp::proof(key, door.port, nonce.trim_end())).unwrap();
-            let mut client = Self {
+            Self {
                 lines,
                 out,
                 asked: 0,
-            };
-            let hello = json!({"protocolVersion": "2025-06-18", "capabilities": {},
-                "clientInfo": {"name": "stand-in", "version": "1"}});
-            client.ask("initialize", &hello);
-            client.reply();
-            client.say(&json!({"jsonrpc": "2.0", "method": "notifications/initialized"}));
-            client
+            }
+        }
+
+        /// The next notification it hears of `method`.
+        fn told(&mut self, method: &str) -> Value {
+            loop {
+                let mut line = String::new();
+                self.lines.read_line(&mut line).unwrap();
+                let said: Value = serde_json::from_str(&line).unwrap();
+                if said["method"] == json!(method) {
+                    return said;
+                }
+            }
         }
 
         fn say(&mut self, message: &Value) {
@@ -1475,5 +1533,46 @@ esac; done"#;
                 .any(|m| m["what"] == json!({"turn_ended": "end_turn"})
                     && m["session"] == json!("s1"))
         );
+    }
+
+    #[test]
+    fn a_subscriber_to_events_is_told_each_time_something_happens() {
+        let home = tempfile::tempdir().unwrap();
+        let (server, _said) = server(home.path());
+        let mut listener = Client::keyed(home.path(), None);
+        let hello = json!({"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientCapabilities": {}});
+        listener.ask(
+            "subscriptions/listen",
+            &json!({"_meta": hello, "notifications": {"resourceSubscriptions": ["ghost://events"]}}),
+        );
+        let heard = listener.told("notifications/subscriptions/acknowledged");
+        assert_eq!(
+            heard["params"]["notifications"]["resourceSubscriptions"],
+            json!(["ghost://events"])
+        );
+        let asks = crate::server::happened::Happened::Asks("May I?".into());
+        (server.shared.happened).happened("a", &SessionId::new("s1"), asks);
+        let updated = listener.told("notifications/resources/updated");
+        assert_eq!(updated["params"]["uri"], json!("ghost://events"));
+        // Read, it is the latest of what happened.
+        let mut reader = Client::new(home.path(), None);
+        reader.ask("resources/read", &json!({"uri": "ghost://events"}));
+        let read = reader.reply();
+        let text = read["result"]["contents"][0]["text"].as_str().unwrap();
+        assert!(text.contains("May I?"), "{text}");
+        // And the events tool lets through only those of a session named.
+        reader.call("events", &json!({"after": 0, "session": "other"}));
+        let (none, _) = reader.result();
+        let none: Value = serde_json::from_str(&none).unwrap();
+        assert_eq!(
+            (none["happened"].as_array().unwrap().len(), &none["last"]),
+            (0, &json!(1))
+        );
+        reader.call(
+            "events",
+            &json!({"after": 0, "session": "s1", "agent": "a"}),
+        );
+        assert!(reader.result().0.contains("May I?"));
     }
 }

@@ -64,7 +64,7 @@ in **Settings › Agents** and switch them off. That agent's id is added to
 | `organize_session` | Organise a session Ghost keeps (`agent`, `session`): `pin` it or take its pin off, `archive` or restore it, give it a `title`, set its `tags`. Every window shows the change at once. | Sessions in Ghost; asks you first, in that session |
 | `wait_for_turn` | Wait until the turn going on in a session ends (`seconds`, ten minutes if none, an hour at most), and give back what its agent said in its last turn. | Any agent |
 | `interrupt_session` | Stop the turn going on in a session. | Sessions in Ghost; asks you first, in that session |
-| `events` | What happened in the sessions Ghost runs (a turn ended, an agent asks you), each numbered: call again with the last number (`after`) to follow on, and with `seconds` to wait for something to happen. `missed` says some of it is no longer kept. | Any agent |
+| `events` | What happened in the sessions Ghost runs (a turn ended, an agent asks you), each numbered; only that of an `agent`, a `session` or a `project` where you name one. Call again with `last` (as `after`) to follow on, and with `seconds` to wait for something the filters let through. `missed` says some of it is no longer kept. | Any agent |
 | `list_projects` | Your projects: their folders, as the sidebar lists them. | Any agent |
 | `add_project` | Make a `folder` (its whole path) one of your projects, first in the list; every window open on that Ghost shows it at once. Not the root, your home folder or a folder holding it, nor Ghost's home or a folder in it. | Sessions in Ghost; asks you first |
 | `search_sessions` | The sessions whose title, or what was said in them, holds `query` (case aside), the latest first, as `list_sessions` gives them. | Any agent |
@@ -91,6 +91,13 @@ in **Settings › Agents** and switch them off. That agent's id is added to
 | `list_worktrees` | The worktrees Ghost made of a project, in its worktrees' folders: each one's repository, path and branch. | Any agent |
 | `make_worktree` | Make a worktree of a project as a new session's is made, from the remote's default branch, on a branch named for `about`: its path and branch. | Sessions in Ghost; asks you first |
 | `remove_worktree` | Take away a worktree Ghost made (`path`), unless a session of Ghost's works in it or it holds what is not committed; its branch stays. | Sessions in Ghost; asks you first |
+
+Rather than call `events` again and again, an agent connected through
+`ghost --mcp` can subscribe to the resource `ghost://events` (MCP's
+`subscriptions/listen`): Ghost tells it each time something happens
+(`notifications/resources/updated`), and it calls `events` then. Read, the
+resource is the latest of what happened. Over HTTP each request stands
+alone, so there is nothing to subscribe on.
 
 ### Access levels
 
