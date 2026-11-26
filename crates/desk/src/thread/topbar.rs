@@ -180,14 +180,22 @@ impl Desk {
             );
         }
         let (key, pr) = (s.key, s.git.pr.is_some());
-        if s.meta.id.is_some() {
-            for (id, name) in self.others(&s.meta.agent) {
-                menu = menu.item(Self::menu_item(
-                    desk,
-                    format!("Continue with {name}"),
-                    move |this, window, cx| this.hand_off(key, &id, window, cx),
-                ));
-            }
+        let others = if s.meta.id.is_some() {
+            self.others(&s.meta.agent)
+        } else {
+            Vec::new()
+        };
+        // The agents to go on with are a group of their own, not more ways
+        // to show the transcript.
+        if !others.is_empty() {
+            menu = menu.separator();
+        }
+        for (id, name) in others {
+            menu = menu.item(Self::menu_item(
+                desk,
+                format!("Continue with {name}"),
+                move |this, window, cx| this.hand_off(key, &id, window, cx),
+            ));
         }
         menu = menu
             .separator()
