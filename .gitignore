@@ -14,3 +14,7 @@
 /telemetry/node_modules/
 /telemetry/.cloudflare/
 /telemetry/.wrangler/
+# The user guide's tools and what they build (website/, `just site`).
+/website/node_modules/
+/website/build/
+/website/.docusaurus/

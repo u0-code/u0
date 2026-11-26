@@ -23,6 +23,11 @@ test:
 docs:
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
 
+# The user guide in website/, both languages, as CI builds it (needs Node;
+# not part of `check`). A broken link or anchor fails it.
+site:
+    cd website && npm ci && npm run build
+
 # Licences, advisories and sources of every dependency (needs cargo-deny).
 deny:
     cargo deny check
