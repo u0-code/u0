@@ -91,11 +91,7 @@ pub fn duplicate(home: &Path, config: &ThemeConfig, name: &str) -> (PathBuf, Vec
 /// of yours, under `name`, written in the colours Ghost reads from a theme.
 pub fn own(home: &Path, name: &str, dark: bool) -> (PathBuf, Vec<u8>) {
     use crate::theme as t;
-    let hex = |c: gpui::Hsla| {
-        let c = gpui::Rgba::from(c);
-        let byte = |v: f32| (v * 255.).round() as u8;
-        format!("#{:02x}{:02x}{:02x}", byte(c.r), byte(c.g), byte(c.b))
-    };
+    use gpui::component::Colorize as _;
     let colors: Map<String, Value> = [
         ("background", t::bg()),
         ("foreground", t::text()),
@@ -116,7 +112,7 @@ pub fn own(home: &Path, name: &str, dark: bool) -> (PathBuf, Vec<u8>) {
         ("base.yellow", t::code_number()),
     ]
     .into_iter()
-    .map(|(k, c)| (k.to_owned(), json!(hex(c))))
+    .map(|(k, c)| (k.to_owned(), json!(c.to_hex())))
     .collect();
     let mode = if dark { "dark" } else { "light" };
     file(
