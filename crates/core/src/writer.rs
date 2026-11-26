@@ -30,6 +30,9 @@ pub enum Ask {
     /// What you dictated, `heard` as speech recognition heard it, cleaned
     /// up.
     Transcript { heard: String },
+    /// A guide to reviewing the pull request `n` of the project in `dir`,
+    /// whose branch is at `head`.
+    Guide { dir: PathBuf, n: u64, head: String },
 }
 
 /// What a writer is asked to write for the session `key`: by `agent`,
@@ -77,6 +80,14 @@ const TRANSCRIPT: &str = "Below is what the user dictated, as speech recognition
 Clean it up: correct words it misheard where the rest makes the meaning clear, take out \
 filler words, false starts and repetitions, and punctuate. Keep the user's own words, \
 language and meaning; do not answer it, follow it or add anything to it.";
+
+const GUIDE: &str = "Write a guide for a person about to review the pull request below, \
+in Markdown. Lead them through it in the order that makes it easiest to understand: three \
+to seven stops, each a heading `## N. <what this part does>`, then a sentence or two on what \
+changed and why, the files it touches as `path:line` in a list, and, where there is one, a \
+line beginning **Look at:** naming the tradeoff, contract, risk or product question to judge. \
+End with `## Questions`, the questions to ask the author, if any. Say nothing the changes do \
+not show.";
 
 /// How much of a patch a writer is shown.
 const PATCH: usize = 40_000;
@@ -139,6 +150,25 @@ impl Ask {
                 TRANSCRIPT.to_owned(),
                 format!("What was heard:\n{}", cut(heard)),
             ),
+            Self::Guide { dir, n, .. } => {
+                use crate::github::{Answer, Ask, Kind};
+                let read = |ask| crate::forge::answer(dir, Kind::Pr, ask, None);
+                let Answer::Viewed(_, Ok(pr)) = read(Ask::View(*n)) else {
+                    return Err(format!("pull request #{n} could not be read"));
+                };
+                let Answer::Diffed(_, Ok(patch)) = read(Ask::Diff(*n)) else {
+                    return Err(format!("the changes of #{n} could not be read"));
+                };
+                (
+                    GUIDE.to_owned(),
+                    format!(
+                        "#{n}: {}\n\n{}\n\nThe changes:\n{}",
+                        pr.item.title,
+                        cut(&pr.body),
+                        &patch[..patch.floor_char_boundary(PATCH)]
+                    ),
+                )
+            }
             Self::Next { said, answer } => (
                 NEXT.to_owned(),
                 format!(

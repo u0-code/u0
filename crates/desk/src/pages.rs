@@ -6,9 +6,10 @@
 mod devices;
 mod diagnostics;
 mod flows;
-mod forge;
+pub(crate) mod forge;
 mod hosts;
 mod looks;
+pub(crate) mod pr;
 mod prefs;
 mod projects;
 mod scope;

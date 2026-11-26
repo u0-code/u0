@@ -79,6 +79,29 @@ pub struct Detail {
     pub conflicts: bool,
     /// The commit its branch is at, to tell when it moved.
     pub head: String,
+    /// The conversations on its lines.
+    pub threads: Vec<Thread>,
+}
+
+/// A conversation on a line of a pull request: where (its line on the new
+/// side; none where the line is gone), whether it is resolved or its line
+/// has changed since, and what was said, first to last.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Thread {
+    pub id: String,
+    pub path: String,
+    pub line: Option<u64>,
+    pub resolved: bool,
+    pub outdated: bool,
+    pub said: Vec<Said>,
+}
+
+/// A comment on a line of a pull request's new side, in a review.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Line {
+    pub path: String,
+    pub line: u64,
+    pub body: String,
 }
 
 /// What is asked of a project's pull requests or issues.
@@ -126,10 +149,22 @@ pub enum Act {
     Ready,
     Draft,
     Comment(String),
-    /// approve, request-changes or comment, with words.
+    /// approve, request-changes or comment, with words, and comments on
+    /// its lines.
     Review {
         verdict: String,
         body: String,
+        lines: Vec<Line>,
+    },
+    /// Answer the conversation `thread`.
+    Reply {
+        thread: String,
+        body: String,
+    },
+    /// Resolve the conversation `thread`, or open it again.
+    Resolve {
+        thread: String,
+        resolved: bool,
     },
     Edit {
         title: String,
@@ -198,7 +233,27 @@ pub fn answer(dir: &Path, kind: Kind, ask: Ask) -> Answer {
             Answer::Viewed(
                 n,
                 read.and_then(|t| serde_json::from_str::<Raw>(&t).map_err(|e| e.to_string()))
-                    .map(|raw| Box::new(raw.detail())),
+                    .and_then(|raw| {
+                        let mut d = raw.detail();
+                        if kind == Kind::Pr {
+                            let n = format!("n={n}");
+                            let query = format!("query={THREADS}");
+                            let said = gh(&[
+                                "api",
+                                "graphql",
+                                "-F",
+                                "owner={owner}",
+                                "-F",
+                                "name={repo}",
+                                "-F",
+                                &n,
+                                "-f",
+                                &query,
+                            ])?;
+                            d.threads = threads(&said)?;
+                        }
+                        Ok(Box::new(d))
+                    }),
             )
         }
         Ask::Diff(n) => Answer::Diffed(n, gh(&["pr", "diff", &n.to_string()])),
@@ -251,6 +306,35 @@ pub fn answer(dir: &Path, kind: Kind, ask: Ask) -> Answer {
         }
         Ask::Templates => Answer::Templates(templates(dir)),
     }
+}
+
+/// GitHub's query for a pull request's conversations on its lines.
+const THREADS: &str = "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved isOutdated path line comments(first:100){nodes{author{login} body createdAt}}}}}}}";
+
+/// The conversations in what GitHub answered `THREADS`.
+fn threads(said: &str) -> Result<Vec<Thread>, String> {
+    use crate::forge::text;
+    let v: serde_json::Value = serde_json::from_str(said).map_err(|e| e.to_string())?;
+    let all = |v: &serde_json::Value, p: &str| {
+        v.pointer(p)
+            .and_then(serde_json::Value::as_array)
+            .cloned()
+            .unwrap_or_default()
+    };
+    Ok(all(&v, "/data/repository/pullRequest/reviewThreads/nodes")
+        .iter()
+        .map(|t| Thread {
+            id: text(t, "/id"),
+            path: text(t, "/path"),
+            line: t["line"].as_u64(),
+            resolved: t["isResolved"].as_bool().unwrap_or(false),
+            outdated: t["isOutdated"].as_bool().unwrap_or(false),
+            said: all(t, "/comments/nodes")
+                .iter()
+                .map(|c| crate::forge::said(c, "/author/login", "/createdAt", "commented", "/body"))
+                .collect(),
+        })
+        .collect())
 }
 
 /// How many of a failed run's last lines are shown.
@@ -317,8 +401,67 @@ fn act_args(kind: Kind, n: &str, act: &Act) -> Vec<String> {
         Act::Ready => words(&["pr", "ready", n]),
         Act::Draft => words(&["pr", "ready", n, "--undo"]),
         Act::Comment(body) => words(&[k, "comment", n, "--body", body]),
-        Act::Review { verdict, body } => {
-            words(&["pr", "review", n, &format!("--{verdict}"), "--body", body])
+        Act::Review {
+            verdict,
+            body,
+            lines,
+        } => {
+            let event = match verdict.as_str() {
+                "approve" => "APPROVE",
+                "request-changes" => "REQUEST_CHANGES",
+                _ => "COMMENT",
+            };
+            let mut a = words(&[
+                "api",
+                &format!("repos/{{owner}}/{{repo}}/pulls/{n}/reviews"),
+                "--method",
+                "POST",
+                "-f",
+                &format!("event={event}"),
+                "-f",
+                &format!("body={body}"),
+            ]);
+            // gh starts another object in the array at each field it has.
+            for l in lines {
+                a.extend([
+                    "-f".into(),
+                    format!("comments[][path]={}", l.path),
+                    "-F".into(),
+                    format!("comments[][line]={}", l.line),
+                    "-f".into(),
+                    "comments[][side]=RIGHT".into(),
+                    "-f".into(),
+                    format!("comments[][body]={}", l.body),
+                ]);
+            }
+            a
+        }
+        Act::Reply { thread, body } => words(&[
+            "api",
+            "graphql",
+            "-f",
+            &format!("id={thread}"),
+            "-f",
+            &format!("body={body}"),
+            "-f",
+            "query=mutation($id:ID!,$body:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$id,body:$body}){comment{id}}}",
+        ]),
+        Act::Resolve { thread, resolved } => {
+            let verb = if *resolved {
+                "resolveReviewThread"
+            } else {
+                "unresolveReviewThread"
+            };
+            words(&[
+                "api",
+                "graphql",
+                "-f",
+                &format!("id={thread}"),
+                "-f",
+                &format!(
+                    "query=mutation($id:ID!){{{verb}(input:{{threadId:$id}}){{thread{{id}}}}}}"
+                ),
+            ])
         }
         Act::Edit { title, body } => words(&[k, "edit", n, "--title", title, "--body", body]),
         Act::Label(label) => words(&[k, "edit", n, "--add-label", label]),
@@ -549,6 +692,7 @@ impl Raw {
             reviewers,
             conflicts,
             head,
+            threads: Vec::new(),
         }
     }
 }
@@ -619,6 +763,65 @@ mod tests {
         assert_eq!(
             act_args(Kind::Pr, "7", &Act::Draft),
             ["pr", "ready", "7", "--undo"]
+        );
+    }
+
+    #[test]
+    fn a_review_with_comments_on_lines_is_one_call_each_comment_an_object() {
+        let line = |path: &str, line, body: &str| Line {
+            path: path.into(),
+            line,
+            body: body.into(),
+        };
+        let review = Act::Review {
+            verdict: "request-changes".into(),
+            body: "Two things".into(),
+            lines: vec![line("src/a.rs", 3, "why?"), line("src/b.rs", 9, "typo")],
+        };
+        let args = act_args(Kind::Pr, "7", &review);
+        assert_eq!(args[1], "repos/{owner}/{repo}/pulls/7/reviews");
+        assert!(args.contains(&"event=REQUEST_CHANGES".to_owned()));
+        let fields: Vec<&str> = (args.iter())
+            .filter(|a| a.starts_with("comments"))
+            .map(String::as_str)
+            .collect();
+        assert_eq!(
+            fields,
+            [
+                "comments[][path]=src/a.rs",
+                "comments[][line]=3",
+                "comments[][side]=RIGHT",
+                "comments[][body]=why?",
+                "comments[][path]=src/b.rs",
+                "comments[][line]=9",
+                "comments[][side]=RIGHT",
+                "comments[][body]=typo",
+            ]
+        );
+        let reopen = Act::Resolve {
+            thread: "T1".into(),
+            resolved: false,
+        };
+        let args = act_args(Kind::Pr, "7", &reopen);
+        assert!(args.last().unwrap().contains("unresolveReviewThread"));
+    }
+
+    #[test]
+    fn a_pull_requests_conversations_read_with_where_they_are_and_who_said_what() {
+        let said = r#"{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
+            {"id":"T1","isResolved":false,"isOutdated":false,"path":"src/a.rs","line":3,
+             "comments":{"nodes":[{"author":{"login":"ann"},"body":"why?","createdAt":"t1"},
+                                  {"author":{"login":"bo"},"body":"because","createdAt":"t2"}]}},
+            {"id":"T2","isResolved":true,"isOutdated":true,"path":"src/b.rs","line":null,
+             "comments":{"nodes":[]}}]}}}}}"#;
+        let read = threads(said).unwrap();
+        assert_eq!(
+            (read[0].line, read[0].said[1].who.as_str()),
+            (Some(3), "bo")
+        );
+        assert_eq!(
+            (read[1].line, read[1].resolved, read[1].outdated),
+            (None, true, true)
         );
     }
 }

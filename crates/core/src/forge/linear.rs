@@ -154,6 +154,7 @@ fn detail(v: &Value) -> Detail {
         reviewers: Vec::new(),
         conflicts: false,
         head: String::new(),
+        threads: Vec::new(),
     }
 }
 

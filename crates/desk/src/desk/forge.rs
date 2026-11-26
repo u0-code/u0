@@ -4,10 +4,14 @@
 //! it (`core::github`).
 
 use gpui::component::{
+    IndexPath,
     diff::{DiffFile, DiffState},
     input::{InputEvent, InputState, TextareaState},
+    list::{ListDelegate, ListItem, ListState},
 };
-use gpui::{AppContext as _, Context, Entity, Window};
+use gpui::{
+    App, AppContext as _, Context, Entity, ParentElement as _, Styled as _, WeakEntity, Window, px,
+};
 
 use super::{Desk, Page};
 use crate::{
@@ -23,6 +27,8 @@ pub enum Tab {
     Summary,
     Timeline,
     Code,
+    Threads,
+    Guide,
 }
 
 /// Your part in them, as GitHub's search says it.
@@ -46,12 +52,16 @@ pub struct Forge {
     pub state: &'static str,
     pub part: usize,
     pub search: Entity<InputState>,
-    pub list: Option<Result<Vec<Item>, String>>,
+    /// What was listed, drawn as gpui-kit's List.
+    pub rows: Entity<ListState<Rows>>,
     pub chosen: Option<u64>,
     pub detail: Option<Result<Box<Detail>, String>>,
     pub tab: Tab,
     pub newest: bool,
     pub diff: Entity<DiffState>,
+    /// The patch of the one read, held until it is read: what you viewed
+    /// of it is known by its address.
+    pub patch: Option<String>,
     pub line: Entity<TextareaState>,
     pub who: Entity<InputState>,
     pub title: Entity<InputState>,
@@ -61,17 +71,184 @@ pub struct Forge {
     pub doing: Option<String>,
     /// The Linear team the project's issues are read from, as typed.
     pub team: Entity<InputState>,
-    /// The project's labels and the people who can review or be
-    /// assigned, offered under the line to name one.
-    pub candidates: Option<(super::Place, Vec<String>, Vec<String>)>,
+    /// The project whose labels and people are offered, and those offered
+    /// under the line to name one, as gpui-kit's List.
+    pub candidates: Option<super::Place>,
+    pub offered: Entity<ListState<Offered>>,
     /// What a failed run of the checks printed, by the run's id.
     pub log: Option<(String, Result<String, String>)>,
     /// The repository's templates for a new issue: name and body.
     pub templates: Vec<(String, String)>,
+    /// The pull request read, as it is reviewed (`desk::pr`).
+    pub pr: super::pr::Review,
 }
 
+/// The list of pull requests or issues, as gpui-kit's List asks for it:
+/// what was listed (none while it is read), and the desk it is chosen on.
+pub struct Rows {
+    pub list: Option<Result<Vec<Item>, String>>,
+    desk: WeakEntity<Desk>,
+    selected: Option<usize>,
+}
+
+impl Rows {
+    /// Those listed, none while they are read.
+    pub fn items(&self) -> &[Item] {
+        match &self.list {
+            Some(Ok(items)) => items,
+            _ => &[],
+        }
+    }
+}
+
+impl ListDelegate for Rows {
+    type Item = ListItem;
+
+    fn items_count(&self, _: usize, _: &App) -> usize {
+        self.items().len()
+    }
+
+    fn render_item(
+        &mut self,
+        ix: IndexPath,
+        _: &mut Window,
+        cx: &mut Context<ListState<Self>>,
+    ) -> Option<ListItem> {
+        let item = self.items().get(ix.row)?;
+        let (under, _) = crate::pages::pr::stack(item, self.items());
+        Some(
+            // A virtual list measures a row at its narrowest, where words
+            // wrap: its height is said instead.
+            ListItem::new(ix.row)
+                .h(px(68.))
+                .child(crate::pages::forge::row(
+                    crate::fonts::faces(cx),
+                    item,
+                    under,
+                )),
+        )
+    }
+
+    fn set_selected_index(
+        &mut self,
+        ix: Option<IndexPath>,
+        _: &mut Window,
+        _: &mut Context<ListState<Self>>,
+    ) {
+        self.selected = ix.map(|ix| ix.row);
+    }
+
+    fn confirm(&mut self, _: bool, _: &mut Window, cx: &mut Context<ListState<Self>>) {
+        let Some(n) = (self.selected)
+            .and_then(|ix| self.items().get(ix))
+            .map(|i| i.number)
+        else {
+            return;
+        };
+        if let Some(desk) = self.desk.upgrade() {
+            cx.defer(move |cx| desk.update(cx, |d, cx| d.read_forge(n, cx)));
+        }
+    }
+
+    fn loading(&self, _: &App) -> bool {
+        self.list.is_none()
+    }
+
+    fn render_empty(
+        &mut self,
+        _: &mut Window,
+        _: &mut Context<ListState<Self>>,
+    ) -> impl gpui::IntoElement {
+        use gpui::ParentElement as _;
+        use gpui::component::empty::{Empty, EmptyDescription, EmptyHeader};
+        let said = match &self.list {
+            Some(Err(e)) => format!("Couldn't list them: {e}"),
+            _ => "None here.".to_owned(),
+        };
+        Empty::new().header(EmptyHeader::new().description(EmptyDescription::new().child(said)))
+    }
+}
+
+/// The project's labels and the people who can review or be assigned (each
+/// true for a label), offered under the line to name one as it is typed.
+pub struct Offered {
+    all: Vec<(bool, String)>,
+    shown: Vec<usize>,
+    selected: Option<usize>,
+    desk: WeakEntity<Desk>,
+}
+
+impl ListDelegate for Offered {
+    type Item = ListItem;
+
+    fn perform_search(
+        &mut self,
+        query: &str,
+        _: &mut Window,
+        _: &mut Context<ListState<Self>>,
+    ) -> gpui::Task<()> {
+        let typed = query.trim().trim_start_matches('@').to_lowercase();
+        self.shown = (0..self.all.len())
+            .filter(|n| !typed.is_empty() && self.all[*n].1.to_lowercase().contains(&typed))
+            .take(CANDIDATES)
+            .collect();
+        gpui::Task::ready(())
+    }
+
+    fn items_count(&self, _: usize, _: &App) -> usize {
+        self.shown.len()
+    }
+
+    fn render_item(
+        &mut self,
+        ix: IndexPath,
+        _: &mut Window,
+        _: &mut Context<ListState<Self>>,
+    ) -> Option<ListItem> {
+        let (label, name) = self.all.get(*self.shown.get(ix.row)?)?;
+        let word = if *label {
+            format!("Label {name}")
+        } else {
+            format!("@{name}")
+        };
+        Some(ListItem::new(ix.row).child(word))
+    }
+
+    fn set_selected_index(
+        &mut self,
+        ix: Option<IndexPath>,
+        _: &mut Window,
+        _: &mut Context<ListState<Self>>,
+    ) {
+        self.selected = ix.map(|ix| ix.row);
+    }
+
+    fn confirm(&mut self, _: bool, window: &mut Window, cx: &mut Context<ListState<Self>>) {
+        let Some((label, name)) = (self.selected)
+            .and_then(|ix| self.shown.get(ix))
+            .and_then(|n| self.all.get(*n))
+            .cloned()
+        else {
+            return;
+        };
+        let Some(desk) = self.desk.upgrade() else {
+            return;
+        };
+        window.defer(cx, move |window, cx| {
+            desk.update(cx, |d, cx| {
+                let who = d.forge.who.clone();
+                who.update(cx, |i, cx| i.set_value(name.clone(), window, cx));
+                d.add_person_or_label(usize::from(!label), window, cx);
+            });
+        });
+    }
+}
+
+/// How many labels and people are offered at once.
+const CANDIDATES: usize = 12;
+
 impl Forge {
-    pub(super) fn new(window: &mut Window, cx: &mut Context<Desk>) -> Self {
+    pub(super) fn new(home: &std::path::Path, window: &mut Window, cx: &mut Context<Desk>) -> Self {
         let search = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Search: label:bug, author:someone, words")
         });
@@ -81,11 +258,15 @@ impl Forge {
             }
         })
         .detach();
-        // What is typed to name a label or a person narrows those offered.
         let who =
             cx.new(|cx| InputState::new(window, cx).placeholder("A label, or someone's login"));
-        cx.subscribe(&who, |_: &mut Desk, _, _: &InputEvent, cx| cx.notify())
-            .detach();
+        let offered = Offered {
+            all: Vec::new(),
+            shown: Vec::new(),
+            selected: None,
+            desk: cx.entity().downgrade(),
+        };
+        let offered = cx.new(|cx| ListState::new(offered, window, cx));
         let team = cx.new(|cx| InputState::new(window, cx).placeholder("Linear team"));
 
         cx.subscribe(&team, |this: &mut Desk, _, e: &InputEvent, cx| {
@@ -94,18 +275,29 @@ impl Forge {
             }
         })
         .detach();
+        let desk = cx.entity().downgrade();
+        let rows = cx.new(|cx| {
+            let rows = Rows {
+                list: None,
+                desk,
+                selected: None,
+            };
+            ListState::new(rows, window, cx)
+        });
+        let pr = super::pr::Review::new(home, window, cx);
         Self {
             kind: Kind::Pr,
             folder: None,
             state: "open",
             part: 0,
             search,
-            list: None,
+            rows,
             chosen: None,
             detail: None,
             tab: Tab::Summary,
             newest: false,
             diff: cx.new(|cx| DiffState::new([], cx)),
+            patch: None,
             line: cx.new(|cx| {
                 TextareaState::new(window, cx)
                     .auto_grow(2, 10)
@@ -123,8 +315,10 @@ impl Forge {
             doing: None,
             team,
             candidates: None,
+            offered,
             log: None,
             templates: Vec::new(),
+            pr,
         }
     }
 }
@@ -183,9 +377,64 @@ impl Desk {
         let search = format!("{} {words}", PARTS[self.forge.part].1)
             .trim()
             .to_owned();
-        self.forge.list = None;
+        self.forge.rows.update(cx, |r, cx| {
+            r.delegate_mut().list = None;
+            cx.notify();
+        });
         let state = self.forge.state.to_owned();
         self.ask_forge(self.forge.kind, Ask::List { state, search });
+        cx.notify();
+    }
+
+    /// Show the view `v` saved.
+    pub(crate) fn show_view(
+        &mut self,
+        v: &crate::settings::SavedView,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let f = &mut self.forge;
+        f.state = ["open", "closed", "merged", "all"]
+            .into_iter()
+            .find(|s| *s == v.state)
+            .unwrap_or("open");
+        f.part = PARTS.iter().position(|p| p.1 == v.part).unwrap_or(0);
+        let search = v.search.clone();
+        f.search.update(cx, |i, cx| i.set_value(search, window, cx));
+        self.list_forge(cx);
+    }
+
+    /// Save the view shown, named by what it shows: its state, your part,
+    /// and the words searched.
+    pub(crate) fn save_view(&mut self, cx: &mut Context<Self>) {
+        let f = &self.forge;
+        let search = f.search.read(cx).value().trim().to_owned();
+        let (part_name, part) = PARTS[f.part];
+        let mut name = vec![crate::pages::forge::state_word(f.state).to_owned()];
+        if !part.is_empty() {
+            name.push(part_name.to_owned());
+        }
+        if !search.is_empty() {
+            name.push(search.clone());
+        }
+        let view = crate::settings::SavedView {
+            name: name.join(" · "),
+            kind: f.kind,
+            state: f.state.to_owned(),
+            part: part.to_owned(),
+            search,
+        };
+        let views = &mut self.settings.views;
+        views.retain(|v| !(v.kind == view.kind && v.name == view.name));
+        views.push(view);
+        self.save_settings_on(crate::hub::Host::HERE);
+        cx.notify();
+    }
+
+    pub(crate) fn remove_view(&mut self, name: &str, cx: &mut Context<Self>) {
+        let kind = self.forge.kind;
+        (self.settings.views).retain(|v| !(v.kind == kind && v.name == name));
+        self.save_settings_on(crate::hub::Host::HERE);
         cx.notify();
     }
 
@@ -214,11 +463,15 @@ impl Desk {
 
     /// Read the one numbered `n` whole, and a pull request's changes.
     pub fn read_forge(&mut self, n: u64, cx: &mut Context<Self>) {
+        if self.forge.chosen != Some(n) {
+            self.pr_changed();
+        }
         self.forge.chosen = Some(n);
         self.forge.log = None;
-        if self.forge.candidates.as_ref().map(|c| &c.0) != self.forge.folder.as_ref() {
+        if self.forge.candidates.as_ref() != self.forge.folder.as_ref() {
             self.ask_forge(self.forge.kind, Ask::Candidates);
         }
+        self.forge.patch = None;
         self.forge.detail = None;
         self.forge.editing = false;
         self.forge.creating = false;
@@ -233,9 +486,13 @@ impl Desk {
 
     /// Do `act` to the one read.
     pub fn act_forge(&mut self, act: Act, cx: &mut Context<Self>) {
-        let Some(n) = self.forge.chosen else {
-            return;
-        };
+        if let Some(n) = self.forge.chosen {
+            self.act_on(n, act, cx);
+        }
+    }
+
+    /// Do `act` to the one numbered `n`.
+    pub fn act_on(&mut self, n: u64, act: Act, cx: &mut Context<Self>) {
         self.forge.doing = Some(
             format!("{act:?}")
                 .split(['(', ' ', '{'])
@@ -256,18 +513,21 @@ impl Desk {
         cx: &mut Context<Self>,
     ) {
         let body = self.forge.line.read(cx).value().trim().to_owned();
-        if body.is_empty() && verdict != Some("approve") {
+        let lines = std::mem::take(&mut self.forge.pr.lines);
+        if body.is_empty() && lines.is_empty() && verdict != Some("approve") {
             return;
         }
         self.forge
             .line
             .update(cx, |l, cx| l.set_value("", window, cx));
-        let act = match verdict {
-            Some(v) => Act::Review {
-                verdict: v.to_owned(),
+        // Comments on lines go out as a review, with the words beside them.
+        let act = match (verdict, lines.is_empty()) {
+            (None, true) => Act::Comment(body),
+            (v, _) => Act::Review {
+                verdict: v.unwrap_or("comment").to_owned(),
                 body,
+                lines,
             },
-            None => Act::Comment(body),
         };
         self.act_forge(act, cx);
     }
@@ -422,22 +682,47 @@ impl Desk {
         folder: &super::Place,
         kind: Kind,
         answer: Answer,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if self.forge.folder.as_ref() != Some(folder) || self.forge.kind != kind {
             return;
         }
         match answer {
-            Answer::Listed(list) => self.forge.list = Some(list),
+            Answer::Listed(list) => {
+                let at = (list.as_ref().ok())
+                    .and_then(|l| l.iter().position(|i| Some(i.number) == self.forge.chosen));
+                self.forge.rows.update(cx, |r, cx| {
+                    r.delegate_mut().list = Some(list);
+                    r.set_selected_index(at.map(|row| IndexPath::default().row(row)), window, cx);
+                    cx.notify();
+                });
+            }
             Answer::Viewed(n, detail) if self.forge.chosen == Some(n) => {
                 self.forge.detail = Some(detail);
+                if let Some(patch) = self.forge.patch.take() {
+                    self.pr_patch(&patch, cx);
+                }
             }
             Answer::Diffed(n, Ok(patch)) if self.forge.chosen == Some(n) => {
                 let parsed = DiffFile::parse(&patch).unwrap_or_default();
                 self.forge.diff.update(cx, |d, cx| d.set_files(parsed, cx));
+                // What you viewed is known by the pull request's address,
+                // once it is read.
+                if matches!(self.forge.detail, Some(Ok(_))) {
+                    self.pr_patch(&patch, cx);
+                } else {
+                    self.forge.patch = Some(patch);
+                }
             }
             Answer::Candidates(Ok((labels, people))) => {
-                self.forge.candidates = Some((folder.clone(), labels, people));
+                self.forge.candidates = Some(folder.clone());
+                let all = (labels.into_iter().map(|l| (true, l)))
+                    .chain(people.into_iter().map(|p| (false, p)))
+                    .collect();
+                self.forge
+                    .offered
+                    .update(cx, |o, _| o.delegate_mut().all = all);
             }
             Answer::Logged(run, log) => self.forge.log = Some((run, log)),
             Answer::Templates(templates) => self.forge.templates = templates,

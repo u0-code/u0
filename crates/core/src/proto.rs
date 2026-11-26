@@ -973,6 +973,7 @@ mod tests {
                     crate::github::Act::Review {
                         verdict: "approve".into(),
                         body: "fine".into(),
+                        lines: Vec::new(),
                     },
                 ),
                 linear: Some("ENG".into()),

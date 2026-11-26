@@ -50,6 +50,7 @@ pub(crate) mod updates;
 
 pub use lists::{Later, Renaming};
 pub mod flows;
+pub(crate) mod pr;
 mod replies;
 mod send;
 pub mod tasks;
@@ -140,6 +141,7 @@ pub enum Popup {
     ForgeProject,
     /// What can be done with the pull request or issue read.
     ForgeActions,
+    ForgeViews,
     /// A scheduled task's menu, by its id.
     Task(u64),
     /// The agent and model of the task being written.
@@ -621,7 +623,7 @@ impl Desk {
             columns: HashMap::new(),
             side_line,
             viewer: Viewer::new(window, cx),
-            forge: forge::Forge::new(window, cx),
+            forge: forge::Forge::new(&settings::home(), window, cx),
             tab_scroll: gpui::ScrollHandle::new(),
             edits: std::cell::RefCell::default(),
             search: lists::Search::new(window, cx),

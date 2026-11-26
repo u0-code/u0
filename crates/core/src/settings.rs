@@ -236,6 +236,22 @@ pub struct Settings {
     /// from 0 to 3; none until you chose one, as Ghost first opens.
     #[serde(default)]
     pub telemetry: Option<crate::telemetry::Level>,
+    /// The PRs and Issues pages' views you saved, as t3code's saved views.
+    #[serde(default)]
+    pub views: Vec<SavedView>,
+}
+
+/// A view of the PRs or Issues page you saved: its name, which page, the
+/// state and your part in them (as GitHub's search says it, `author:@me`),
+/// and the words searched.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SavedView {
+    pub name: String,
+    pub kind: crate::github::Kind,
+    pub state: String,
+    pub part: String,
+    pub search: String,
 }
 
 /// How the sidebar orders, as t3code's sort: by your last message (and
@@ -820,6 +836,7 @@ impl Default for Settings {
             tidy_after: None,
             sort: Sort::Used,
             telemetry: None,
+            views: Vec::new(),
         }
     }
 }

@@ -3,13 +3,16 @@
 
 use gpui::component::{
     Sizable as _,
-    diff::Diff,
     input::{Input, Textarea},
-    menu::PopupMenu,
+    list::List,
+    menu::ContextMenuExt as _,
     scroll::ScrollableElement as _,
     tab::{Tab as KitTab, TabBar},
+    tag::Tag,
 };
-use gpui::{Context, Div, Entity, SharedString, div, prelude::*, px};
+use gpui::{Context, Div, SharedString, div, prelude::*, px};
+
+mod menus;
 
 use crate::{
     desk::{
@@ -22,12 +25,6 @@ use crate::{
     ui::{self, Weight},
     when,
 };
-
-/// How many labels, and how many people, are offered to add at once.
-const CANDIDATES: usize = 12;
-
-/// What a line of the "⋯" menu does.
-type Act3 = Box<dyn Fn(&mut Desk, &mut gpui::Window, &mut Context<Desk>)>;
 
 /// A state's colour: open green, merged violet-blue, closed coral, a
 /// draft muted.
@@ -45,7 +42,7 @@ fn when_of(text: &str) -> String {
 }
 
 /// A state as the filter says it, in sentence case as its neighbours.
-fn state_word(state: &str) -> &'static str {
+pub fn state_word(state: &str) -> &'static str {
     match state {
         "open" => "Open",
         "closed" => "Closed",
@@ -117,6 +114,19 @@ impl Desk {
             .child(ui::segmented("forge-state", state_picks))
             .child(ui::segmented("forge-part", part_picks))
             .child(
+                self.menu(
+                    Popup::ForgeViews,
+                    ui::opener("forge-views")
+                        .h(px(26.))
+                        .px(px(8.))
+                        .child(ui::text(faces, "Views").text_size(px(crate::style::LABEL)))
+                        .child(ui::icon("chevron-down", 10.).text_color(theme::faint())),
+                    |d, menu, desk, _| d.forge_views(menu, desk),
+                    cx,
+                )
+                .anchor(gpui::Anchor::TopLeft),
+            )
+            .child(
                 div()
                     .flex_1()
                     .min_w(px(160.))
@@ -135,22 +145,21 @@ impl Desk {
                     .size(px(26.))
                     .on_click(cx.listener(|this, _, _, cx| this.list_forge(cx))),
             );
-        let list = match &f.list {
-            None => div().p(px(16.)).child(ui::fine(faces, "Reading…")),
-            Some(Err(e)) => div()
-                .p(px(16.))
-                .child(ui::fine(faces, format!("Couldn't list them: {e}"))),
-            Some(Ok(items)) if items.is_empty() => {
-                div().p(px(16.)).child(ui::fine(faces, "None here."))
-            }
-            Some(Ok(items)) => {
-                let mut rows = div().flex().flex_col().p(px(6.));
-                for item in items {
-                    rows = rows.child(self.forge_row(faces, item, cx));
+        // A row's menu: what can be done with the one right-clicked.
+        let (desk, rows) = (cx.entity(), f.rows.clone());
+        let list = div()
+            .id("forge-rows")
+            .size_full()
+            .child(List::new(&f.rows).p(px(6.)))
+            .context_menu(move |menu, _, cx| {
+                let rows = rows.read(cx);
+                let item = (rows.right_clicked_index())
+                    .and_then(|ix| rows.delegate().items().get(ix.row).cloned());
+                match item {
+                    Some(item) => desk.read(cx).forge_menu(&item, menu, &desk),
+                    None => menu,
                 }
-                rows
-            }
-        };
+            });
         let side = if f.creating {
             self.forge_form(faces, "New issue", "Create", cx)
         } else {
@@ -169,85 +178,57 @@ impl Desk {
                     .min_h(px(0.))
                     .child(
                         div()
-                            .id("forge-list")
                             .w(px(400.))
                             .flex_none()
                             .h_full()
                             .border_r_1()
                             .border_color(theme::border())
-                            .child(list)
-                            .overflow_y_scrollbar(),
+                            .child(list),
                     )
                     .child(side),
             )
     }
+}
 
-    /// The projects a page can be of.
-    fn forge_projects(&self, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
-        for folder in self.projects() {
-            let on = self.forge.folder.as_ref() == Some(&folder);
-            let name = self.project_on(&folder);
-            menu = menu.item(
-                Self::menu_item(desk, name, move |this, window, cx| {
-                    this.forge.folder = Some(folder.clone());
-                    this.forge.chosen = None;
-                    this.forge.detail = None;
-                    this.show_team(window, cx);
-                    this.list_forge(cx);
-                })
-                .checked(on),
-            );
-        }
-        menu.min_w(px(240.))
+/// One in the list: its state, number and title; who, its branch (and the
+/// pull request it is stacked on, `under`), when; its labels, checks, review
+/// and comments.
+pub fn row(faces: &Faces, item: &Item, under: Option<u64>) -> Div {
+    let n = item.number;
+    let (passed, failed, going) = item.checks;
+    let mut meta = vec![format!("#{n}"), item.author.clone(), when_of(&item.updated)];
+    if !item.branch.is_empty() {
+        meta.insert(2, item.branch.clone());
     }
-
-    /// One in the list: its state, number and title; who, its branch, when;
-    /// its labels, checks, review and comments.
-    fn forge_row(&self, faces: &Faces, item: &Item, cx: &mut Context<Self>) -> impl IntoElement {
-        let n = item.number;
-        let on = self.forge.chosen == Some(n);
-        let (passed, failed, going) = item.checks;
-        let mut meta = vec![format!("#{n}"), item.author.clone(), when_of(&item.updated)];
-        if !item.branch.is_empty() {
-            meta.insert(2, item.branch.clone());
-        }
-        div()
-            .id(SharedString::from(format!("forge-row-{n}")))
-            .flex()
-            .gap(px(10.))
-            .px(px(10.))
-            .py(px(8.))
-            .rounded(px(8.))
-            .cursor_pointer()
-            .when(on, |d| d.bg(theme::panel2()))
-            .when(!on, |d| d.hover(|st| st.bg(theme::hover())))
-            .child(div().mt(px(6.)).child(ui::dot(tint(item))))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(3.))
-                    .flex_1()
-                    .min_w(px(0.))
-                    .child(ui::one_line(
-                        ui::text(faces, item.title.clone()).text_size(px(crate::style::LABEL)),
-                    ))
-                    .child(ui::one_line(ui::fine(faces, meta.join(" · "))))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_wrap()
-                            .gap(px(6.))
-                            .children(item.labels.iter().map(|l| {
-                                ui::fine(faces, l.clone())
-                                    .px(px(6.))
-                                    .rounded(px(6.))
-                                    .bg(theme::panel2())
-                            }))
-                            .when(passed + failed + going > 0, |d| {
-                                d.child(
-                                    ui::fine(faces, format!("✓{passed}")).text_color(theme::ok()),
-                                )
+    if let Some(under) = under {
+        meta.insert(3, format!("on #{under}"));
+    }
+    div()
+        .flex()
+        .gap(px(10.))
+        .w_full()
+        .child(div().mt(px(6.)).child(ui::dot(tint(item))))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(3.))
+                .flex_1()
+                .min_w(px(0.))
+                .child(ui::one_line(
+                    ui::text(faces, item.title.clone()).text_size(px(crate::style::LABEL)),
+                ))
+                .child(ui::one_line(ui::fine(faces, meta.join(" · "))))
+                .child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap(px(6.))
+                        .children(
+                            (item.labels.iter()).map(|l| Tag::secondary().small().child(l.clone())),
+                        )
+                        .when(passed + failed + going > 0, |d| {
+                            d.child(ui::fine(faces, format!("✓{passed}")).text_color(theme::ok()))
                                 .when(failed > 0, |d| {
                                     d.child(
                                         ui::fine(faces, format!("✗{failed}"))
@@ -260,18 +241,18 @@ impl Desk {
                                             .text_color(theme::accent()),
                                     )
                                 })
-                            })
-                            .when(!item.review.is_empty(), |d| {
-                                d.child(ui::fine(faces, item.review.clone()))
-                            })
-                            .when(item.comments > 0, |d| {
-                                d.child(ui::fine(faces, format!("{} said", item.comments)))
-                            }),
-                    ),
-            )
-            .on_click(cx.listener(move |this, _, _, cx| this.read_forge(n, cx)))
-    }
+                        })
+                        .when(!item.review.is_empty(), |d| {
+                            d.child(ui::fine(faces, item.review.clone()))
+                        })
+                        .when(item.comments > 0, |d| {
+                            d.child(ui::fine(faces, format!("{} said", item.comments)))
+                        }),
+                ),
+        )
+}
 
+impl Desk {
     /// The one read: its head and what can be done with it, its tabs, and
     /// the line to say something.
     fn forge_detail(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
@@ -323,7 +304,7 @@ impl Desk {
                             .h(px(26.))
                             .on_click(move |_, _, cx| cx.open_url(&url)),
                     )
-                    .child(self.forge_actions(d, cx)),
+                    .child(self.forge_actions(&d.item, cx)),
             )
             .child(
                 div()
@@ -361,6 +342,8 @@ impl Desk {
                 ("Summary", Tab::Summary),
                 ("Timeline", Tab::Timeline),
                 ("Code", Tab::Code),
+                ("Conversations", Tab::Threads),
+                ("Guide", Tab::Guide),
             ],
             Kind::Issue => &[("Summary", Tab::Summary), ("Timeline", Tab::Timeline)],
         };
@@ -386,6 +369,13 @@ impl Desk {
                     })),
             )
             .child(div().flex_1())
+            .when(f.tab == Tab::Code && !f.pr.files.is_empty(), |el| {
+                let seen = (f.pr.files.iter()).filter(|file| self.viewed(file)).count();
+                el.child(ui::fine(
+                    faces,
+                    format!("{seen} of {} viewed", f.pr.files.len()),
+                ))
+            })
             .when(f.tab == Tab::Timeline, |d| {
                 d.child(
                     ui::button(
@@ -408,11 +398,21 @@ impl Desk {
             Tab::Code if f.kind == Kind::Pr => div()
                 .flex_1()
                 .min_h(px(0.))
-                .child(
-                    Diff::new(&f.diff)
-                        .size_full()
-                        .soft_wrap(self.settings.diff_wrap),
-                )
+                .child(self.pr_code(d, cx))
+                .into_any_element(),
+            Tab::Threads if f.kind == Kind::Pr => div()
+                .id("forge-threads")
+                .flex_1()
+                .min_h(px(0.))
+                .child(self.pr_threads(faces, d, cx))
+                .overflow_y_scrollbar()
+                .into_any_element(),
+            Tab::Guide if f.kind == Kind::Pr => div()
+                .id("forge-guide")
+                .flex_1()
+                .min_h(px(0.))
+                .child(self.pr_guide(faces, d, cx))
+                .overflow_y_scrollbar()
                 .into_any_element(),
             Tab::Timeline => {
                 let mut said: Vec<_> = d.said.iter().collect();
@@ -557,14 +557,47 @@ impl Desk {
             .child(row("Labels", none(&d.item.labels)))
             .child(row("Assignees", none(&d.assignees)))
             .when(kind == Kind::Pr, |el| {
+                let listed = self.forge.rows.read(cx).delegate().items();
+                let (under, over) = super::pr::stack(&d.item, listed);
+                let numbers = |ns: Vec<u64>| {
+                    ns.iter()
+                        .map(|n| format!("#{n}"))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
                 el.child(row("Reviewers", none(&d.reviewers)))
+                    .when(under.is_some() || !over.is_empty(), |el| {
+                        let mut said = Vec::new();
+                        if let Some(n) = under {
+                            said.push(format!("on #{n}"));
+                        }
+                        if !over.is_empty() {
+                            said.push(format!("{} on it", numbers(over)));
+                        }
+                        el.child(row("Stack", said.join("; ")))
+                    })
+                    .when(!self.forge.pr.files.is_empty(), |el| {
+                        el.child(
+                            div()
+                                .flex()
+                                .gap(px(10.))
+                                .child(ui::fine(faces, "Changes").w(px(80.)).flex_none())
+                                .child(super::pr::breakdown(&self.forge.pr.files)),
+                        )
+                    })
             })
             .child(
                 div()
                     .flex()
                     .items_center()
                     .gap(px(6.))
-                    .child(div().w(px(240.)).child(Input::new(&self.forge.who).small()))
+                    .child(
+                        div().w(px(240.)).child(
+                            Input::new(&self.forge.who)
+                                .list(&self.forge.offered)
+                                .small(),
+                        ),
+                    )
                     .child(
                         ui::button("add-label", "Add label", Weight::Quiet)
                             .h(px(24.))
@@ -588,7 +621,6 @@ impl Desk {
                         })),
                     ),
             )
-            .children(self.forge_candidates(faces, d, cx))
             .when(!d.checks.is_empty(), |el| {
                 el.child(ui::label(faces, "Checks")).child(checks)
             })
@@ -615,55 +647,9 @@ impl Desk {
             })
     }
 
-    /// The labels not on it yet, and the people, that answer what is on
-    /// the line to name one: each added with a click.
-    fn forge_candidates(&self, faces: &Faces, d: &Detail, cx: &mut Context<Self>) -> Option<Div> {
-        let (_, labels, people) = self.forge.candidates.as_ref()?;
-        let typed = self.forge.who.read(cx).value().trim().to_lowercase();
-        let pr = self.forge.kind == Kind::Pr;
-        let offered = |all: &[String], has: &[String]| -> Vec<String> {
-            all.iter()
-                .filter(|c| !has.contains(c) && c.to_lowercase().contains(&typed))
-                .take(CANDIDATES)
-                .cloned()
-                .collect()
-        };
-        let labels = offered(labels, &d.item.labels);
-        let people = offered(people, if pr { &d.reviewers } else { &d.assignees });
-        if labels.is_empty() && people.is_empty() {
-            return None;
-        }
-        let chip = |id: String, word: String, act: Act| {
-            ui::button(SharedString::from(id), word, Weight::Quiet)
-                .h(px(22.))
-                .on_click(cx.listener(move |this, _, _, cx| this.act_forge(act.clone(), cx)))
-        };
-        Some(
-            div()
-                .flex()
-                .flex_wrap()
-                .items_center()
-                .gap(px(4.))
-                .child(ui::fine(faces, "Add"))
-                .children(
-                    labels
-                        .into_iter()
-                        .map(|l| chip(format!("cand-label-{l}"), format!("＋{l}"), Act::Label(l))),
-                )
-                .children(people.into_iter().map(|p| {
-                    let act = if pr {
-                        Act::Reviewer(p.clone())
-                    } else {
-                        Act::Assignee(p.clone())
-                    };
-                    chip(format!("cand-person-{p}"), format!("@{p}"), act)
-                })),
-        )
-    }
-
     /// Add what is on the line as a label (`0`), or as a reviewer or
     /// assignee.
-    fn add_person_or_label(
+    pub(crate) fn add_person_or_label(
         &mut self,
         what: usize,
         window: &mut gpui::Window,
@@ -691,136 +677,10 @@ impl Desk {
         self.act_forge(act, cx);
     }
 
-    /// What can be done with the one read, under its "⋯".
-    fn forge_actions(
-        &self,
-        d: &Detail,
-        cx: &mut Context<Self>,
-    ) -> gpui::component::popover::Popover {
-        let trigger =
-            ui::icon_button("forge-actions", "dots", "What can be done with it").size(px(26.));
-        let detail = d.clone();
-        self.menu(
-            Popup::ForgeActions,
-            trigger,
-            move |d, menu, desk, _| d.forge_menu(&detail, menu, desk),
-            cx,
-        )
-        .anchor(gpui::Anchor::TopRight)
-    }
-
-    fn forge_menu(&self, d: &Detail, menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
-        let item = &d.item;
-        let (open, pr) = (item.state == "open", self.forge.kind == Kind::Pr);
-        let folder = self.forge.folder.clone().unwrap_or_default();
-        let mut rows = Vec::new();
-        let mut entry = |label: String, act: Act3| {
-            rows.push(Self::menu_item(desk, label, move |this, window, cx| {
-                act(this, window, cx);
-            }));
-        };
-        let merge = |how: &'static str, auto: bool| -> Act3 {
-            Box::new(move |d, _, cx| {
-                d.act_forge(
-                    Act::Merge {
-                        how: how.into(),
-                        auto,
-                        delete: true,
-                        uncredit: d.settings_in(d.forge.folder.as_ref()).uncredit,
-                    },
-                    cx,
-                );
-            })
-        };
-        if pr && open {
-            entry("Squash and merge".into(), merge("squash", false));
-            entry("Merge".into(), merge("merge", false));
-            entry("Rebase and merge".into(), merge("rebase", false));
-            entry(
-                "Merge when its checks pass".into(),
-                merge(
-                    self.settings_in(self.forge.folder.as_ref()).merge.gh(),
-                    true,
-                ),
-            );
-            entry(
-                if item.draft {
-                    "Ready for review"
-                } else {
-                    "Convert to draft"
-                }
-                .into(),
-                if item.draft {
-                    Box::new(|d, _, cx| d.act_forge(Act::Ready, cx))
-                } else {
-                    Box::new(|d, _, cx| d.act_forge(Act::Draft, cx))
-                },
-            );
-        }
-        if open {
-            entry(
-                "Close".into(),
-                Box::new(|d, _, cx| d.act_forge(Act::Close, cx)),
-            );
-        } else if item.state == "closed" {
-            entry(
-                "Reopen".into(),
-                Box::new(|d, _, cx| d.act_forge(Act::Reopen, cx)),
-            );
-        }
-        entry(
-            "Edit title and description".into(),
-            Box::new(|d, window, cx| d.edit_forge(false, window, cx)),
-        );
-        let (n, title) = (item.number, item.title.clone());
-        if pr {
-            let (f2, t2) = (folder.clone(), title.clone());
-            entry(
-                "A session on it, in a worktree".into(),
-                Box::new(move |d, window, cx| {
-                    d.start_from_pr(f2.clone(), n, t2.clone(), false, window, cx);
-                }),
-            );
-            let (f3, t3) = (folder.clone(), title.clone());
-            entry(
-                "A session on it, checked out here".into(),
-                Box::new(move |d, window, cx| {
-                    d.start_from_pr(f3.clone(), n, t3.clone(), true, window, cx);
-                }),
-            );
-            entry(
-                "Copy the checkout command".into(),
-                Box::new(move |_, _, cx| {
-                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(format!(
-                        "gh pr checkout {n}"
-                    )));
-                }),
-            );
-            entry(
-                "Load new commits".into(),
-                Box::new(move |d, _, cx| d.read_forge(n, cx)),
-            );
-        } else {
-            let (f2, t2) = (folder.clone(), title.clone());
-            entry(
-                "A session about it".into(),
-                Box::new(move |d, window, cx| {
-                    d.start_from_issue(f2.clone(), n, &t2, false, window, cx);
-                }),
-            );
-            entry(
-                "Triage it".into(),
-                Box::new(move |d, window, cx| {
-                    d.start_from_issue(folder.clone(), n, &title, true, window, cx);
-                }),
-            );
-        }
-        rows.into_iter().fold(menu.min_w(px(240.)), PopupMenu::item)
-    }
-
     /// The line to say something on the one read, and its buttons.
     fn forge_say(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let pr = self.forge.kind == Kind::Pr;
+        let lines = self.forge.pr.lines.len();
         div()
             .flex()
             .flex_col()
@@ -860,7 +720,16 @@ impl Desk {
                         )
                     })
                     .child(
-                        ui::button("say-comment", "Comment", Weight::Primary).on_click(
+                        ui::button(
+                            "say-comment",
+                            if lines > 0 {
+                                format!("Comment with {lines} on lines")
+                            } else {
+                                "Comment".to_owned()
+                            },
+                            Weight::Primary,
+                        )
+                        .on_click(
                             cx.listener(|this, _, window, cx| this.say_forge(None, window, cx)),
                         ),
                     ),

@@ -185,7 +185,7 @@ fn escape(words: &str) -> String {
 }
 
 /// The string at `pointer` in `v`; empty where there is none.
-fn text(v: &Value, pointer: &str) -> String {
+pub(crate) fn text(v: &Value, pointer: &str) -> String {
     match v.pointer(pointer) {
         Some(Value::String(s)) => s.clone(),
         Some(Value::Number(n)) => n.to_string(),
@@ -220,7 +220,7 @@ fn items(answer: Result<Value, String>, item: fn(&Value) -> Item) -> Result<Vec<
 }
 
 /// Something said, read from `v` at the pointers given.
-fn said(v: &Value, who: &str, when: &str, how: &str, body: &str) -> Said {
+pub(crate) fn said(v: &Value, who: &str, when: &str, how: &str, body: &str) -> Said {
     Said {
         who: text(v, who),
         when: text(v, when),

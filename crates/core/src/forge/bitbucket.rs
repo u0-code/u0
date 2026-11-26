@@ -7,7 +7,7 @@ use std::fmt::Write as _;
 use serde_json::{Value, json};
 
 use super::{Host, api, int, items, list, said, text, words};
-use crate::github::{Act, Answer, Ask, Detail, Item, Kind};
+use crate::github::{Act, Answer, Ask, Detail, Item, Kind, Thread};
 
 /// Answer `ask` of the repository at `path` (workspace/repository).
 pub fn answer(path: &str, kind: Kind, ask: Ask) -> Answer {
@@ -78,8 +78,23 @@ pub fn answer(path: &str, kind: Kind, ask: Ask) -> Answer {
                     &format!("{at}/comments"),
                     Some(json!({"content": {"raw": body}})),
                 ),
-                Act::Review { verdict, body } => {
-                    let said = if body.is_empty() {
+                Act::Review {
+                    verdict,
+                    body,
+                    lines,
+                } => {
+                    let placed = lines.iter().try_for_each(|l| {
+                        call(
+                            "POST",
+                            &format!("{at}/comments"),
+                            Some(json!({"content": {"raw": l.body},
+                                "inline": {"path": l.path, "to": l.line}})),
+                        )
+                        .map(drop)
+                    });
+                    let said = if let Err(e) = placed {
+                        Err(e)
+                    } else if body.is_empty() {
                         Ok(Value::Null)
                     } else {
                         call(
@@ -98,6 +113,18 @@ pub fn answer(path: &str, kind: Kind, ask: Ask) -> Answer {
                     "PUT",
                     &at,
                     Some(json!({"title": title, "description": body})),
+                ),
+                Act::Reply { thread, body } => call(
+                    "POST",
+                    &format!("{at}/comments"),
+                    Some(
+                        json!({"content": {"raw": body}, "parent": {"id": thread.parse::<u64>().unwrap_or(0)}}),
+                    ),
+                ),
+                Act::Resolve { thread, resolved } => call(
+                    if resolved { "POST" } else { "DELETE" },
+                    &format!("{at}/comments/{thread}/resolve"),
+                    None,
                 ),
                 _ => Err("Bitbucket takes this on its own page".into()),
             };
@@ -144,25 +171,58 @@ fn item(v: &Value) -> Item {
 
 /// One read whole, with its `comments`.
 fn detail(v: &Value, comments: &Value) -> Detail {
+    let all: Vec<&Value> = (comments.pointer("/values").and_then(Value::as_array))
+        .into_iter()
+        .flatten()
+        .filter(|c| !c["deleted"].as_bool().unwrap_or(false))
+        .collect();
+    // A reply's thread is that of the comment it answers, first to last.
+    let parent = |c: &Value| int(c, "/parent/id");
+    let root = |c: &Value| {
+        let (mut id, mut up) = (int(c, "/id"), parent(c));
+        while up != 0 {
+            id = up;
+            up = all
+                .iter()
+                .find(|p| int(p, "/id") == up)
+                .map_or(0, |p| parent(p));
+        }
+        id
+    };
+    let one = |c: &Value| {
+        said(
+            c,
+            "/user/display_name",
+            "/created_on",
+            "commented",
+            "/content/raw",
+        )
+    };
+    let mut threads: Vec<Thread> = Vec::new();
+    let mut plain = Vec::new();
+    for c in &all {
+        let top = root(c);
+        let first = all.iter().find(|p| int(p, "/id") == top).unwrap_or(c);
+        if first["inline"].is_null() {
+            plain.push(one(c));
+        } else if let Some(t) = threads.iter_mut().find(|t| t.id == top.to_string()) {
+            t.said.push(one(c));
+        } else {
+            threads.push(Thread {
+                id: top.to_string(),
+                path: text(first, "/inline/path"),
+                line: first.pointer("/inline/to").and_then(Value::as_u64),
+                resolved: !first["resolution"].is_null(),
+                outdated: false,
+                said: vec![one(c)],
+            });
+        }
+    }
     Detail {
         item: item(v),
         body: text(v, "/description"),
-        said: comments
-            .pointer("/values")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter(|c| !c["deleted"].as_bool().unwrap_or(false))
-            .map(|c| {
-                said(
-                    c,
-                    "/user/display_name",
-                    "/created_on",
-                    "commented",
-                    "/content/raw",
-                )
-            })
-            .collect(),
+        said: plain,
+        threads,
         checks: Vec::new(),
         assignees: Vec::new(),
         reviewers: list(v, "/reviewers", "/display_name"),
@@ -183,9 +243,18 @@ mod tests {
             "destination": {"branch": {"name": "main"}}, "comment_count": 1,
             "participants": [{"approved": true}], "reviewers": [{"display_name": "Bo"}],
             "description": "why"});
-        let comments = json!({"values": [{"user": {"display_name": "Cy"}, "created_on": "t",
-            "content": {"raw": "ok"}, "deleted": false}]});
+        let comments = json!({"values": [{"id": 1, "user": {"display_name": "Cy"}, "created_on": "t",
+            "content": {"raw": "ok"}, "deleted": false},
+            {"id": 2, "user": {"display_name": "Bo"}, "content": {"raw": "why?"},
+             "inline": {"path": "a.rs", "to": 4}, "resolution": {"type": "resolved"}},
+            {"id": 3, "user": {"display_name": "Ann"}, "content": {"raw": "because"}, "parent": {"id": 2}}]});
         let d = detail(&v, &comments);
+        assert_eq!(d.said.len(), 1);
+        let t = &d.threads[0];
+        assert_eq!(
+            (t.id.as_str(), t.line, t.resolved, t.said.len()),
+            ("2", Some(4), true, 2)
+        );
         assert_eq!(
             (d.item.state.as_str(), d.item.review.as_str()),
             ("closed", "approved")

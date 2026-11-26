@@ -17,12 +17,23 @@ use crate::{
 impl Desk {
     /// Have the writer write what `ask` asks for the session `key`: now,
     /// or once its agent runs.
+    /// A guide to a pull request is written for the PRs page's project,
+    /// not a session's.
     pub(crate) fn ask_writer(&mut self, key: u64, ask: Ask) {
-        let Some(s) = self.sessions.at(key) else {
-            return;
+        let (host, own) = match (&ask, self.sessions.at(key)) {
+            (Ask::Guide { .. }, _) => {
+                let Some(p) = self.forge.folder.clone() else {
+                    return;
+                };
+                let Some(agent) = self.agent_for(&p) else {
+                    return;
+                };
+                (p.host, agent)
+            }
+            (_, Some(s)) => (s.host, s.meta.agent.clone()),
+            (_, None) => return,
         };
-        let host = s.host;
-        let agent = self.writer_of(s);
+        let agent = self.writer_on(host, own);
         let w = &self.settings_on(host).writer;
         let model = (w.agent.as_ref() == Some(&agent))
             .then(|| w.model.clone())
@@ -30,7 +41,7 @@ impl Desk {
         let yours = match &ask {
             Ask::Title { .. } => w.titles.clone(),
             Ask::Branch { .. } => w.branches.clone(),
-            Ask::Commit { .. } | Ask::Pr { .. } => w.changes.clone(),
+            Ask::Commit { .. } | Ask::Pr { .. } | Ask::Guide { .. } => w.changes.clone(),
             Ask::Next { .. } => String::new(),
             Ask::Transcript { .. } => w.transcripts.clone(),
         };
@@ -56,9 +67,15 @@ impl Desk {
     /// The agent that writes for `s`: the writer chosen on its server,
     /// while it is switched on there, or else its own.
     pub(crate) fn writer_of(&self, s: &crate::session::Session) -> String {
-        (self.settings_on(s.host).writer.agent.clone())
-            .filter(|a| self.slot(s.host, a).is_some())
-            .unwrap_or_else(|| s.meta.agent.clone())
+        self.writer_on(s.host, s.meta.agent.clone())
+    }
+
+    /// The agent that writes on `host`: the writer chosen there, while it
+    /// is switched on, or else `own`.
+    fn writer_on(&self, host: crate::hub::Host, own: String) -> String {
+        (self.settings_on(host).writer.agent.clone())
+            .filter(|a| self.slot(host, a).is_some())
+            .unwrap_or(own)
     }
 
     /// Have the writer title the session `key` again, from what you said
@@ -121,6 +138,11 @@ impl Desk {
                 s.git.step = None;
             }
         }
+        if let Ask::Guide { n, head, .. } = ask {
+            self.guide_written(n, head, result);
+            cx.notify();
+            return;
+        }
         let text = match result {
             // A suggestion that did not come is no news.
             Err(_) if matches!(ask, Ask::Next { .. }) => return,
@@ -136,6 +158,7 @@ impl Desk {
                     Ask::Pr { .. } => "the pull request",
                     Ask::Next { .. } => "what to say next",
                     Ask::Transcript { .. } => "what you dictated, cleaned up",
+                    Ask::Guide { .. } => "the review guide",
                 };
                 self.trouble(format!("The writer couldn't write {what}"), Some(why), None);
                 return;
@@ -200,6 +223,7 @@ impl Desk {
                 }
             }
             Ask::Transcript { heard } => self.cleaned(&heard, &text, window, cx),
+            Ask::Guide { .. } => {}
         }
         cx.notify();
     }

@@ -8,7 +8,7 @@ use std::path::Path;
 use serde_json::{Value, json};
 
 use super::{Host, api, int, items, list, said, text};
-use crate::github::{Act, Answer, Ask, Detail, Item, Kind};
+use crate::github::{Act, Answer, Ask, Detail, Item, Kind, Said, Thread};
 
 /// A repository on Azure DevOps: its organisation, project and name.
 pub struct Repo {
@@ -153,10 +153,51 @@ pub fn answer(dir: &Path, repo: &Repo, kind: Kind, ask: Ask) -> Answer {
                         })),
                     )
                 }),
-                Act::Comment(body) | Act::Review { body, .. } => call(
+                Act::Comment(body) => call(
                     "POST",
                     &format!("{at}/threads"),
                     Some(json!({"comments": [{"content": body, "commentType": 1}], "status": 1})),
+                ),
+                // Azure DevOps votes by reviewer: a review is its words and
+                // its comments on lines, each a thread of its own.
+                Act::Review { body, lines, .. } => lines
+                    .iter()
+                    .try_for_each(|l| {
+                        let place = json!({"line": l.line, "offset": 1});
+                        call(
+                            "POST",
+                            &format!("{at}/threads"),
+                            Some(json!({
+                                "comments": [{"content": l.body, "commentType": 1}],
+                                "status": 1,
+                                "threadContext": {
+                                    "filePath": format!("/{}", l.path),
+                                    "rightFileStart": place,
+                                    "rightFileEnd": place,
+                                },
+                            })),
+                        )
+                        .map(drop)
+                    })
+                    .and_then(|()| {
+                        if body.is_empty() {
+                            return Ok(Value::Null);
+                        }
+                        call(
+                            "POST",
+                            &format!("{at}/threads"),
+                            Some(json!({"comments": [{"content": body, "commentType": 1}], "status": 1})),
+                        )
+                    }),
+                Act::Reply { thread, body } => call(
+                    "POST",
+                    &format!("{at}/threads/{thread}/comments"),
+                    Some(json!({"content": body, "parentCommentId": 1, "commentType": 1})),
+                ),
+                Act::Resolve { thread, resolved } => call(
+                    "PATCH",
+                    &format!("{at}/threads/{thread}"),
+                    Some(json!({"status": if resolved { "fixed" } else { "active" }})),
                 ),
                 Act::Edit { title, body } => call(
                     "PATCH",
@@ -215,21 +256,39 @@ fn item(v: &Value) -> Item {
 /// One read whole, with what people said in its `threads` (the system's
 /// own notes left out).
 fn detail(v: &Value, threads: &Value) -> Detail {
-    let said: Vec<_> = threads
-        .pointer("/value")
+    let (on_lines, rest): (Vec<&Value>, Vec<&Value>) = (threads.pointer("/value"))
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .flat_map(|t| t["comments"].as_array().cloned().unwrap_or_default())
-        .filter(|c| c["commentType"] == "text")
-        .map(|c| {
-            said(
-                &c,
-                "/author/displayName",
-                "/publishedDate",
-                "commented",
-                "/content",
-            )
+        .partition(|t| !t["threadContext"].is_null());
+    let comments = |t: &Value| -> Vec<Said> {
+        (t["comments"].as_array().into_iter().flatten())
+            .filter(|c| c["commentType"] == "text")
+            .map(|c| {
+                said(
+                    c,
+                    "/author/displayName",
+                    "/publishedDate",
+                    "commented",
+                    "/content",
+                )
+            })
+            .collect()
+    };
+    let said: Vec<_> = rest.iter().flat_map(|t| comments(t)).collect();
+    let threads = on_lines
+        .iter()
+        .map(|t| Thread {
+            id: text(t, "/id"),
+            path: text(t, "/threadContext/filePath")
+                .trim_start_matches('/')
+                .to_owned(),
+            line: t
+                .pointer("/threadContext/rightFileStart/line")
+                .and_then(Value::as_u64),
+            resolved: !matches!(text(t, "/status").as_str(), "active" | "pending"),
+            outdated: false,
+            said: comments(t),
         })
         .collect();
     let mut item = item(v);
@@ -243,6 +302,7 @@ fn detail(v: &Value, threads: &Value) -> Detail {
         reviewers: list(v, "/reviewers", "/displayName"),
         conflicts: text(v, "/mergeStatus") == "conflicts",
         head: text(v, "/lastMergeSourceCommit/commitId"),
+        threads,
     }
 }
 
@@ -274,12 +334,19 @@ mod tests {
             "mergeStatus": "conflicts"});
         let threads = json!({"value": [{"comments": [
             {"author": {"displayName": "Bo"}, "content": "ok", "publishedDate": "t", "commentType": "text"},
-            {"author": {"displayName": "Bot"}, "content": "voted", "publishedDate": "t", "commentType": "system"}]}]});
+            {"author": {"displayName": "Bot"}, "content": "voted", "publishedDate": "t", "commentType": "system"}]},
+            {"id": 9, "status": "fixed", "threadContext": {"filePath": "/src/a.rs", "rightFileStart": {"line": 4}},
+             "comments": [{"author": {"displayName": "Cy"}, "content": "why?", "publishedDate": "t", "commentType": "text"}]}]});
         let d = detail(&v, &threads);
         assert_eq!(
             (d.item.branch.as_str(), d.item.review.as_str()),
             ("fix", "changes requested")
         );
         assert_eq!((d.item.comments, d.conflicts), (1, true));
+        let t = &d.threads[0];
+        assert_eq!(
+            (t.id.as_str(), t.path.as_str(), t.line, t.resolved),
+            ("9", "src/a.rs", Some(4), true)
+        );
     }
 }

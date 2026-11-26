@@ -133,6 +133,8 @@ crates/core/src/
   session.rs    a session: its thread built from session/update; its turns' checkpoints
   git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR
   github.rs     a project's pull requests and issues as gh lists, reads and changes them
+                (their conversations on lines, reviews with comments on lines)
+  review.rs     a pull request's files from its patch: what kind each is, a mark of its changes
   http.rs       the one HTTP client (ureq): the registry, its archives, the forges, updates
   forge.rs      the hosts of code and issues: their CLIs, your tokens for them, credits on merge
   forge/        GitLab, Bitbucket and Azure DevOps over their APIs; Linear's issues
@@ -173,7 +175,8 @@ crates/desk/src/
                 palette (its pages: a new session in, the look, adding a
                 project), rank (what is typed, found), agents, send, turns,
                 replies, notices, writing, dictation, updates, forge (the
-                PRs and Issues pages), links (the ghost:// links and folders
+                PRs and Issues pages), pr (a pull request reviewed: files
+                viewed, ~/.ghost/viewed.json; lines commented; its guide), links (the ghost:// links and folders
                 macOS opens Ghost with), looks (themes chosen, made, removed),
                 tasks (the scheduled tasks, the one written, a task's turn),
                 flows (the workflows and their runs)
@@ -196,7 +199,8 @@ crates/desk/src/
                 set for,
                 flows: Workflows, telemetry: Telemetry, and the sheet that asks
                 as Ghost first opens),
-                the PRs and Issues pages drawn (forge)
+                the PRs and Issues pages drawn (forge, its menus forge/menus;
+                a pull request reviewed, pr)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   ui.rs, theme.rs, style.rs
   themes.rs     themes in gpui-kit's format: Ghost's, yours, a VS Code theme imported
@@ -239,6 +243,9 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   (`over`, a sparse settings.json of the keys `Settings::PROJECT` names;
   any other key refuses the file) and what its new sessions of each agent
   begin with (`last`: the options and mode last chosen).
+- `~/.ghost/viewed.json` (the desk's) holds the files of each pull
+  request you marked viewed, by its address, each with a mark of its
+  changes (`review::File::mark`): a file that changes since shows unviewed.
 - `~/.ghost/tasks.json` holds the scheduled tasks; the server writes it
   and runs them (`Call::SetTask`, `Event::Tasks`), each run a session kept
   in the index like any other. A task on a webhook (`Schedule::Hook`) runs

@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use super::{api, int, items, list, said, text, words};
 
-use crate::github::{Act, Answer, Ask, Check, Detail, Item, Kind};
+use crate::github::{Act, Answer, Ask, Check, Detail, Item, Kind, Said, Thread};
 
 /// Answer `ask` of the project at `path` on the GitLab at `host`.
 pub fn answer(host: &str, path: &str, kind: Kind, ask: Ask) -> Answer {
@@ -48,7 +48,7 @@ pub fn answer(host: &str, path: &str, kind: Kind, ask: Ask) -> Answer {
             call("GET", &format!("/{n}"), None).map(|one| {
                 // GitLab shows notes only to someone signed in: without a
                 // token, it reads with none.
-                let notes = call("GET", &format!("/{n}/notes?sort=asc&per_page=100"), None)
+                let notes = call("GET", &format!("/{n}/discussions?per_page=100"), None)
                     .unwrap_or_default();
                 Box::new(detail(&one, &notes))
             }),
@@ -91,8 +91,39 @@ pub fn answer(host: &str, path: &str, kind: Kind, ask: Ask) -> Answer {
                     &format!("{at}/notes"),
                     Some(json!({ "body": body })),
                 ),
-                Act::Review { verdict, body } => {
-                    let said = if body.is_empty() {
+                Act::Review {
+                    verdict,
+                    body,
+                    lines,
+                } => {
+                    // Each comment on a line a discussion of its own, placed
+                    // by the commits the merge request's diff is between.
+                    let placed = if lines.is_empty() {
+                        Ok(Value::Null)
+                    } else {
+                        call("GET", &at, None).and_then(|one| {
+                            let refs = &one["diff_refs"];
+                            for l in &lines {
+                                call(
+                                    "POST",
+                                    &format!("{at}/discussions"),
+                                    Some(json!({"body": l.body, "position": {
+                                        "position_type": "text",
+                                        "base_sha": refs["base_sha"],
+                                        "start_sha": refs["start_sha"],
+                                        "head_sha": refs["head_sha"],
+                                        "old_path": l.path,
+                                        "new_path": l.path,
+                                        "new_line": l.line,
+                                    }})),
+                                )?;
+                            }
+                            Ok(Value::Null)
+                        })
+                    };
+                    let said = if let Err(e) = placed {
+                        Err(e)
+                    } else if body.is_empty() {
                         Ok(Value::Null)
                     } else {
                         call(
@@ -110,6 +141,16 @@ pub fn answer(host: &str, path: &str, kind: Kind, ask: Ask) -> Answer {
                     "PUT",
                     &at,
                     Some(json!({"title": title, "description": body})),
+                ),
+                Act::Reply { thread, body } => call(
+                    "POST",
+                    &format!("{at}/discussions/{thread}/notes"),
+                    Some(json!({ "body": body })),
+                ),
+                Act::Resolve { thread, resolved } => call(
+                    "PUT",
+                    &format!("{at}/discussions/{thread}"),
+                    Some(json!({ "resolved": resolved })),
                 ),
                 Act::Label(label) => call("PUT", &at, Some(json!({ "add_labels": label }))),
                 Act::Reviewer(_) | Act::Assignee(_) | Act::Checkout | Act::Rerun(_) => {
@@ -165,19 +206,36 @@ fn item(v: &Value) -> Item {
     }
 }
 
-/// One read whole, with what was said on it (`notes`, GitLab's own notes
-/// of what changed left out).
-fn detail(v: &Value, notes: &Value) -> Detail {
+/// One read whole, with what was said on it in its `discussions`: those on
+/// a line its threads, the rest said on it (GitLab's own notes of what
+/// changed left out).
+fn detail(v: &Value, discussions: &Value) -> Detail {
     let pipeline = text(v, "/head_pipeline/status");
+    let (on_lines, rest): (Vec<&Value>, Vec<&Value>) = (discussions.as_array().into_iter())
+        .flatten()
+        .partition(|d| !d.pointer("/notes/0/position").is_none_or(Value::is_null));
+    let notes = |d: &Value| -> Vec<Said> {
+        (d["notes"].as_array().into_iter().flatten())
+            .filter(|n| !n["system"].as_bool().unwrap_or(false))
+            .map(|n| said(n, "/author/username", "/created_at", "commented", "/body"))
+            .collect()
+    };
     Detail {
         item: item(v),
         body: text(v, "/description"),
-        said: notes
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|n| !n["system"].as_bool().unwrap_or(false))
-            .map(|n| said(n, "/author/username", "/created_at", "commented", "/body"))
+        said: rest.iter().flat_map(|d| notes(d)).collect(),
+        threads: on_lines
+            .iter()
+            .map(|d| Thread {
+                id: text(d, "/id"),
+                path: text(d, "/notes/0/position/new_path"),
+                line: d
+                    .pointer("/notes/0/position/new_line")
+                    .and_then(Value::as_u64),
+                resolved: d.pointer("/notes/0/resolved").and_then(Value::as_bool) == Some(true),
+                outdated: false,
+                said: notes(d),
+            })
             .collect(),
         checks: (!pipeline.is_empty())
             .then(|| Check {
@@ -234,9 +292,17 @@ mod tests {
             "detailed_merge_status": "not_approved", "user_notes_count": 2,
             "head_pipeline": {"status": "failed", "web_url": "p"}, "has_conflicts": true,
             "description": "why", "sha": "abc", "assignees": [{"username": "bo"}], "reviewers": []});
-        let notes = json!([{"author": {"username": "cy"}, "body": "ok", "created_at": "t", "system": false},
-            {"author": {"username": "cy"}, "body": "added 1 commit", "created_at": "t", "system": true}]);
+        let notes = json!([
+            {"id": "d1", "notes": [{"author": {"username": "cy"}, "body": "ok", "created_at": "t", "system": false}]},
+            {"id": "d2", "notes": [{"author": {"username": "cy"}, "body": "added 1 commit", "created_at": "t", "system": true}]},
+            {"id": "d3", "notes": [{"author": {"username": "bo"}, "body": "why?", "created_at": "t", "system": false,
+                "resolved": true, "position": {"new_path": "a.rs", "new_line": 4}}]}]);
         let d = detail(&v, &notes);
+        assert_eq!(
+            (d.threads.len(), d.threads[0].id.as_str(), d.threads[0].line),
+            (1, "d3", Some(4))
+        );
+        assert!(d.threads[0].resolved);
         assert_eq!(
             (d.item.number, d.item.state.as_str(), d.item.draft),
             (7, "open", true)
