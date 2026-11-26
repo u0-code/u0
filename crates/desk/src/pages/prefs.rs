@@ -1038,7 +1038,7 @@ pub(super) fn item(
 ) -> SettingItem {
     let w = w.clone();
     let about: SharedString = about.into();
-    SettingItem::new(
+    let item = SettingItem::new(
         name,
         SettingField::render(move |_, _, cx| {
             w.update(cx, |d, cx| {
@@ -1047,8 +1047,13 @@ pub(super) fn item(
             })
             .unwrap_or_else(|_| div().into_any_element())
         }),
-    )
-    .description(about)
+    );
+    // One with nothing more to say has no empty line under its name.
+    if about.is_empty() {
+        item
+    } else {
+        item.description(about)
+    }
 }
 
 /// What the desk, `w`, draws whole as one setting, found by `words`.
