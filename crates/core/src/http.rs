@@ -20,7 +20,10 @@ use ureq::{
     tls::{RootCerts, TlsConfig},
 };
 
-use crate::registry::{CANCELLED, Say};
+use crate::{
+    registry::{CANCELLED, Say},
+    tidy::shown,
+};
 
 /// What a request may take, whole, but a download.
 const QUICK: Duration = Duration::from_secs(30);
@@ -103,7 +106,6 @@ pub fn download(url: &str, to: &Path, say: Say, stop: &AtomicBool) -> Result<(),
     let total = answer.body().content_length().filter(|n| *n > 0);
     let mut from = answer.into_body().into_reader();
     let mut file = std::fs::File::create(to).map_err(|e| format!("{}: {e}", to.display()))?;
-    let mb = |n: u64| n as f64 / 1_048_576.;
     let mut chunk = vec![0; 64 << 10];
     let (mut got, mut said) = (0, None::<Instant>);
     loop {
@@ -124,10 +126,10 @@ pub fn download(url: &str, to: &Path, say: Say, stop: &AtomicBool) -> Result<(),
         said = Some(Instant::now());
         match total {
             Some(total) => say(
-                &format!("Downloading · {:.1} of {:.1} MB", mb(got), mb(total)),
+                &format!("Downloading · {} of {}", shown(got), shown(total)),
                 Some((got as f64 / total as f64).min(1.) as f32),
             ),
-            None => say(&format!("Downloading · {:.1} MB", mb(got)), None),
+            None => say(&format!("Downloading · {}", shown(got)), None),
         }
     }
 }

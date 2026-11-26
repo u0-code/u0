@@ -847,7 +847,7 @@ impl Desk {
                             gpui::Image::from_bytes(picture_format(mime), bytes.clone()),
                         ))),
                         format!("Image {}", n + 1),
-                        size(bytes.len() as u64),
+                        crate::tidy::shown(bytes.len() as u64),
                     ),
                     Attached::File(path) => (
                         AttachmentMedia::new().child(ui::icon("file", 16.)),
@@ -856,7 +856,7 @@ impl Desk {
                             |f| f.to_string_lossy().into_owned(),
                         ),
                         std::fs::metadata(path)
-                            .map(|m| size(m.len()))
+                            .map(|m| crate::tidy::shown(m.len()))
                             .unwrap_or_default(),
                     ),
                     Attached::Text(kind, t) => (
@@ -1075,15 +1075,6 @@ fn chip_text(faces: &Faces, text: impl Into<SharedString>) -> Div {
         .flex_none()
         .text_size(px(13.))
         .text_color(theme::text2())
-}
-
-/// A number of bytes as people read it.
-fn size(bytes: u64) -> String {
-    match bytes {
-        b if b < 1024 => format!("{b} B"),
-        b if b < 1024 * 1024 => format!("{} KB", b / 1024),
-        b => format!("{:.1} MB", b as f64 / (1024. * 1024.)),
-    }
 }
 
 /// The format gpui draws an image of the type `mime` in.

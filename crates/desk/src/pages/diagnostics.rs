@@ -46,10 +46,10 @@ impl Desk {
     /// The Diagnostics tab: this Mac, Ghost's processes, the log's troubles.
     pub(super) fn diagnostics(&self, w: &WeakEntity<Desk>) -> Vec<SettingGroup> {
         let processes = &self.pages.processes.1;
-        let memory = processes.memory / (1 << 30);
-        let held: u64 = processes.procs.iter().map(|p| p.kb).sum::<u64>() / 1024;
+        let memory = crate::tidy::shown(processes.memory);
+        let held = crate::tidy::shown(processes.procs.iter().map(|p| p.kb * 1024).sum());
         let mac = format!(
-            "Load {} on {} cores, {memory} GB of memory; Ghost's processes hold {held} MB.",
+            "Load {} on {} cores, {memory} of memory; Ghost's processes hold {held}.",
             processes.load, processes.cores
         );
         let words = &["processes", "diagnostics", "cpu", "memory"];
@@ -116,7 +116,11 @@ impl Desk {
                     None => entry.item().label.to_string(),
                 };
                 let about = p.map_or_else(String::new, |p| {
-                    format!("{pid} · {:.1}% CPU · {} MB", p.cpu, p.kb / 1024)
+                    format!(
+                        "{pid} · {:.1}% CPU · {}",
+                        p.cpu,
+                        crate::tidy::shown(p.kb * 1024)
+                    )
                 });
                 let stop = desk.clone();
                 let control = match agent {
