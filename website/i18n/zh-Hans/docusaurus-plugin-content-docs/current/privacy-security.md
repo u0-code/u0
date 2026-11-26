@@ -71,7 +71,7 @@ description: Ghost 存储什么、存在哪里、发送什么，以及如何把�
 
 ## Webhook {#webhooks}
 
-Webhook 任务的地址只受其随机令牌保护：任何拥有该地址的人都可以运行该任务。Webhook 的请求体会向智能体标明为不可信内容。见[自动化](automation.md#webhooks)。
+Webhook 任务默认需要签名，除非你关闭它：只有用其密钥签名的调用才会运行它。不签名时，它的地址只受随机令牌保护：任何拥有该地址的人都可以运行该任务。只读设备永远不会得知 Webhook 的地址，也不会得知配对链接。Webhook 的请求体会向智能体标明为不可信内容。见[自动化](automation.md#webhooks)。
 
 ## 报告漏洞 {#reporting-a-vulnerability}
 

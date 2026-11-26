@@ -300,8 +300,8 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   in the index like any other. A task on a webhook (`Schedule::Hook`) runs
   when `POST /hook/<token>` reaches the link's listener (and its tunnel),
   what it sent put where the prompt says `{{body}}`, `{{body.<a>.<b>}}`,
-  `{{header.<name>}}`, marked as data from outside. A hook may be
-  `signed` (HMAC-SHA256 of the body, its secret `hook/<token>` in the
+  `{{header.<name>}}`, marked as data from outside. A hook is
+  `signed` unless you turn it off (HMAC-SHA256 of the body, its secret `hook/<token>` in the
   Keychain; else 401), hold `only` rules (`at` is one of `is`; else 204),
   and runs each delivery its sender names once (200 again);
   `Call::RotateHook` gives it a new token, its secret moved. Nothing holds
@@ -346,7 +346,10 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   link is checked against its device's scope before it is handled
   (`Access::allows`): a `read` device makes only calls that read
   (`Call::reads`, which names every call), and only of what lies, by
-  its real path, in a project or a worktree. Revoke removes the key and
+  its real path, in a project or a worktree. What a link is told is
+  told as its scope may hear it: a `read` device is never sent a
+  webhook's token (`Event::for_reader`) nor a pairing link, which goes
+  only to the desk that asked for it (`Event::Offered`). Revoke removes the key and
   closes its links, as an access ended does; turning listening off
   closes every link and withdraws the codes made.
 - Pairing both ways is two pairings, each by a code and a signature: the

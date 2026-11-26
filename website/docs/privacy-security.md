@@ -100,8 +100,10 @@ tunnel's token is stored in `devices.json` in plain text.
 
 ## Webhooks
 
-A webhook task's address is protected only by its random token: anyone
-who has the address can run the task. Webhook bodies are marked to the
+A webhook task is signed unless you turn it off: only a call signed with
+its secret runs it. Unsigned, its address is protected only by its random
+token: anyone who has the address can run the task. A device that may
+only read is never told a webhook's address, nor a pairing link. Webhook bodies are marked to the
 agent as untrusted. See [Automation](automation.md#webhooks).
 
 ## Reporting a vulnerability

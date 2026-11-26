@@ -72,9 +72,13 @@ pub struct Outbox {
     open: AtomicBool,
 }
 
+/// A frame as every link is sent it, and as a device that may only read
+/// is, where that differs (`Event::for_reader`).
+type Frame = (u64, Utf8Bytes, Option<Utf8Bytes>);
+
 #[derive(Default)]
 struct Frames {
-    kept: VecDeque<(u64, Utf8Bytes)>,
+    kept: VecDeque<Frame>,
     bytes: usize,
     last: u64,
 }
@@ -97,29 +101,35 @@ impl Outbox {
             return;
         }
         let json = serde_json::to_string(event).expect("an event serializes");
+        let read =
+            (event.for_reader()).map(|e| serde_json::to_string(&e).expect("an event serializes"));
         let mut f = self.frames.lock().expect("outbox");
         f.last += 1;
         let n = f.last;
         let frame = Utf8Bytes::from(format!("[{n},{json}]"));
-        f.bytes += frame.len();
-        f.kept.push_back((n, frame));
+        let read = read.map(|json| Utf8Bytes::from(format!("[{n},{json}]")));
+        f.bytes += frame.len() + read.as_ref().map_or(0, |r| r.len());
+        f.kept.push_back((n, frame, read));
         while f.bytes > KEPT
-            && let Some((_, old)) = f.kept.pop_front()
+            && let Some((_, old, read)) = f.kept.pop_front()
         {
-            f.bytes -= old.len();
+            f.bytes -= old.len() + read.as_ref().map_or(0, |r| r.len());
         }
         self.said.send_replace(f.last);
     }
 
-    /// What was said after the number `since`; none where some of it is
-    /// no longer kept.
-    fn after(&self, since: u64) -> Option<Vec<(u64, Utf8Bytes)>> {
+    /// What was said after the number `since`, as a device of `scope` is
+    /// told it; none where some of it is no longer kept.
+    fn after(&self, since: u64, scope: Scope) -> Option<Vec<(u64, Utf8Bytes)>> {
         let f = self.frames.lock().expect("outbox");
-        let first = f.kept.front().map_or(f.last + 1, |(n, _)| *n);
+        let first = f.kept.front().map_or(f.last + 1, |(n, _, _)| *n);
         (since + 1 >= first && since <= f.last).then(|| {
             (f.kept.iter())
-                .filter(|(n, _)| *n > since)
-                .cloned()
+                .filter(|(n, _, _)| *n > since)
+                .map(|(n, all, read)| match (scope, read) {
+                    (Scope::Read, Some(read)) => (*n, read.clone()),
+                    _ => (*n, all.clone()),
+                })
                 .collect()
         })
     }
@@ -128,7 +138,9 @@ impl Outbox {
     /// where all after that is kept (resumed); else after all said so far.
     fn resume(&self, since: Option<(u64, u64)>) -> (u64, bool) {
         match since {
-            Some((boot, n)) if boot == self.boot && self.after(n).is_some() => (n, true),
+            Some((boot, n)) if boot == self.boot && self.after(n, Scope::Read).is_some() => {
+                (n, true)
+            }
             _ => (self.frames.lock().expect("outbox").last, false),
         }
     }
@@ -670,7 +682,7 @@ async fn serve(server: &Arc<Server>, mut ws: Upgraded) -> Result<(), String> {
                 Some(Ok(_)) => {}
             },
             _ = said.changed() => {
-                let Some(frames) = outbox.after(at) else {
+                let Some(frames) = outbox.after(at, scope) else {
                     return refuse(ws, "Too much was missed; come back afresh").await;
                 };
                 for (n, frame) in frames {
@@ -1824,6 +1836,38 @@ esac; done"#;
             said.iter().all(|e| !e.contains(&code)),
             "no code reached it"
         );
+    }
+
+    #[test]
+    fn a_device_that_may_only_read_is_never_told_a_webhooks_address() {
+        let home = tempfile::tempdir().unwrap();
+        let (server, port) = server(home.path());
+        let read = crate::access::Grant {
+            scope: crate::access::Scope::Read,
+            ..crate::access::Grant::default()
+        };
+        let watcher = kept();
+        pair_as(&server, port, &watcher, read);
+        let (_watching, _, theirs, _) = desk(port, key(&watcher), None).unwrap();
+        let (_owning, _, mine, _) = desk(port, Key::generate(), Some(&server)).unwrap();
+        let task: crate::tasks::Task = serde_json::from_value(serde_json::json!({
+            "id": 0, "title": "On a push", "prompt": "Look", "agent": "a",
+            "project": home.path(),
+            "schedule": {"hook": {"token": "s3cr3t-t0ken", "signed": false}}}))
+        .unwrap();
+        server.handle(Call::SetTask(task));
+        let tasks = |rx: &std_mpsc::Receiver<Event>| loop {
+            if let Event::Tasks(Ok(tasks)) = told(rx) {
+                break serde_json::to_string(&tasks).unwrap();
+            }
+        };
+        assert!(tasks(&mine).contains("s3cr3t-t0ken"));
+        let seen = tasks(&theirs);
+        assert!(
+            seen.contains("On a push") && !seen.contains("s3cr3t-t0ken"),
+            "{seen}"
+        );
+        assert!(crate::tasks::Hook::new().signed, "a new webhook is signed");
     }
 
     #[test]

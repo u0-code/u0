@@ -944,6 +944,25 @@ pub enum Event {
     },
 }
 
+impl Event {
+    /// This event as a device that may only read is told it, where it
+    /// carries what would let one act: a webhook task's address (its
+    /// token) taken out. None where it carries nothing such.
+    pub fn for_reader(&self) -> Option<Self> {
+        match self {
+            Self::Tasks(Ok(tasks)) => Some(Self::Tasks(Ok((tasks.iter().cloned())
+                .map(|mut t| {
+                    if let tasks::Schedule::Hook(hook) = &mut t.schedule {
+                        hook.token.clear();
+                    }
+                    t
+                })
+                .collect()))),
+            _ => None,
+        }
+    }
+}
+
 /// The version of what is said over a link (`link`): a desk and a server
 /// that speak another are refused, each told to update.
 pub const PROTOCOL: u32 = 5;

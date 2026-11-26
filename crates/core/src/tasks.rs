@@ -152,11 +152,12 @@ pub enum Hooked {
 const DELIVERY: [&str; 3] = ["x-github-delivery", "x-gitlab-event-uuid", "x-delivery-id"];
 
 impl Hook {
-    /// A new address, unsigned, for every call.
+    /// A new address, signed: a call runs it only with its secret's
+    /// signature, unless you turn signing off.
     pub fn new() -> Self {
         Self {
             token: crate::access::random::<16>(),
-            signed: false,
+            signed: true,
             only: Vec::new(),
         }
     }

@@ -101,7 +101,7 @@ POST /hook/<token>
 ```
 
 - 令牌是你选择 **通过 Webhook** 时生成的 22 个随机字符。**新地址** 会给任务一个新的令牌：旧地址不再运行它。
-- **已签名**：只有正文用任务的密钥签名的调用才会运行它：正文的 HMAC-SHA256，十六进制，位于 `X-Hub-Signature-256`（`sha256=…`，与 GitHub 的签名方式相同）或 `X-Signature-256` 中。按发送方所持的样子输入密钥；它保存在运行该任务的 Mac 的钥匙串中（`hook/<token>`），并随 **新地址** 一起转移。不签名时，令牌是保护这个地址的唯一手段：任何拿到它的人都能运行该任务。
+- **已签名**（新 Webhook 默认开启）：只有正文用任务的密钥签名的调用才会运行它：正文的 HMAC-SHA256，十六进制，位于 `X-Hub-Signature-256`（`sha256=…`，与 GitHub 的签名方式相同）或 `X-Signature-256` 中。按发送方所持的样子输入密钥；它保存在运行该任务的 Mac 的钥匙串中（`hook/<token>`），并随 **新地址** 一起转移。不签名时，令牌是保护这个地址的唯一手段：任何拿到它的人都能运行该任务。
 - 该地址由 Ghost 监听其他设备的地方提供，所以必须开启监听（**设置 › 设备**，见[远程控制](remote.md)）。表单会显示 `http://127.0.0.1:<port>/hook/<token>`，隧道开启时还会显示 `https://<tunnel host>/hook/<token>`。
 - **仅当** 用于限定哪些调用会运行它：例如 `body.action = opened, closed; header.x-github-event = pull_request` 这样的规则，每条是 JSON 正文的一个字段（`body.<a>.<b>`）或一个请求头（`header.<name>`）以及它可取的值，用 `;` 分隔。每条规则都必须成立。留空时每个调用都会运行它。
 - 发送方命名的投递（`X-GitHub-Delivery`、`X-GitLab-Event-UUID` 或 `X-Delivery-Id`）只运行一次；再次发送时什么也不运行。

@@ -125,7 +125,7 @@ POST /hook/<token>
 - The token is 22 random characters made when you choose **On webhook**.
   **New address** gives the task a new one: the old address runs it no
   more.
-- **Signed**: only a call whose body is signed with the task's secret
+- **Signed** (on for a new webhook): only a call whose body is signed with the task's secret
   runs it: the body's HMAC-SHA256, in hex, in `X-Hub-Signature-256`
   (`sha256=…`, as GitHub signs) or `X-Signature-256`. Type the secret as
   the sender has it; it is kept in the Keychain of the Mac the task runs
