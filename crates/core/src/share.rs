@@ -1,8 +1,10 @@
 //! Sharing this Ghost with desks on other machines: listening on
 //! 127.0.0.1 (`link`), a cloudflared tunnel that brings the world to it,
 //! the links a device pairs with and the devices paired (`access`), and
-//! keeping the Mac awake while it serves. What Settings › Sharing & access
-//! shows and changes, from this machine's desk or a paired one.
+//! keeping the Mac awake while it serves. What Settings › Devices shows
+//! and changes under "Let other devices control this Mac", from this
+//! machine's desk or a paired one; and the link a desk pairing elsewhere
+//! gives for that server to pair back with.
 //!
 //! The tunnel is cloudflared, found on the PATH and run as a child: a
 //! quick tunnel (no account; an address of its own each time it starts,
@@ -19,7 +21,7 @@ use tokio::io::AsyncBufReadExt as _;
 
 use crate::{
     access::{Device, Named},
-    link::{self, PORT},
+    link,
     proto::Event,
     server::Server,
 };
@@ -29,7 +31,8 @@ use crate::{
 pub enum Share {
     /// How it stands: answered, as each change is, with [`Event::Shared`].
     Look,
-    /// Listen, or stop, now and each time Ghost starts.
+    /// Listen, now and each time Ghost starts, with a new pairing link;
+    /// or stop, cutting off each device linked.
     Serve(bool),
     /// Run the tunnel, or stop it, now and each time Ghost starts.
     Tunnel(bool),
@@ -37,8 +40,6 @@ pub enum Share {
     Named(Option<Named>),
     /// Keep the Mac awake while serving.
     Awake(bool),
-    /// Make a pairing link.
-    Pair,
     /// Unpair the device known by this public key.
     Revoke(String),
 }
@@ -78,7 +79,8 @@ type Pid = Arc<Mutex<Option<u32>>>;
 /// What runs for sharing.
 #[derive(Default)]
 pub struct Sharing {
-    listening: Option<Result<tokio::task::JoinHandle<()>, String>>,
+    /// Listening, and on what port; or why not.
+    listening: Option<Result<(tokio::task::JoinHandle<()>, u16), String>>,
     tunnel: Arc<Mutex<Tunnel>>,
     /// The task that holds cloudflared, and its process.
     cloudflared: Option<(tokio::task::JoinHandle<()>, Pid)>,
@@ -95,12 +97,21 @@ impl Drop for Sharing {
 
 impl Sharing {
     fn stop_listening(&mut self) {
-        if let Some(Ok(listening)) = self.listening.take() {
+        if let Some(Ok((listening, _))) = self.listening.take() {
             listening.abort();
         }
+        self.link = None;
         if let Some(mut c) = self.caffeinate.take() {
             let _ = c.kill();
             let _ = c.wait();
+        }
+    }
+
+    /// The port listened on, if it is.
+    fn port(&self) -> Option<u16> {
+        match self.listening {
+            Some(Ok((_, port))) => Some(port),
+            _ => None,
         }
     }
 
@@ -125,11 +136,15 @@ impl Server {
             Share::Serve(on) => {
                 access.change(|k| k.serve = on);
                 if on {
-                    self.share_as_kept(true);
+                    if self.sharing().port().is_none() {
+                        self.share_as_kept(true);
+                    }
+                    self.offer();
                 } else {
                     let mut sharing = self.sharing();
                     sharing.stop_tunnel();
                     sharing.stop_listening();
+                    access.withdraw();
                 }
             }
             Share::Tunnel(on) => {
@@ -145,17 +160,64 @@ impl Server {
                 access.change(|k| k.awake = on);
                 self.stay_awake();
             }
-            Share::Pair => {
-                let host = match &*self.sharing().tunnel.lock().expect("tunnel") {
-                    Tunnel::Up(host) => host.clone(),
-                    _ => format!("127.0.0.1:{PORT}"),
-                };
-                let made = crate::store::secs(std::time::SystemTime::now());
-                self.sharing().link = Some((link::pairing_link(&host, &access.code()), made));
-            }
             Share::Revoke(key) => access.revoke(&key),
         }
         self.say_shared();
+    }
+
+    /// Offer a new pairing link, at the tunnel's address once it is up,
+    /// else at 127.0.0.1; none where Ghost does not listen.
+    pub fn offer(&self) -> Option<String> {
+        let mut sharing = self.sharing();
+        let port = sharing.port()?;
+        let host = match &*sharing.tunnel.lock().expect("tunnel") {
+            Tunnel::Up(host) => host.clone(),
+            _ => format!("127.0.0.1:{port}"),
+        };
+        let link = link::pairing_link(&host, &self.access().code());
+        let made = crate::store::secs(std::time::SystemTime::now());
+        sharing.link = Some((link.clone(), made));
+        Some(link)
+    }
+
+    /// A pairing link for the server at `toward`, which this Mac's desk is
+    /// pairing with, to pair back with this one by: reached as `toward`
+    /// is, at 127.0.0.1 or through this Mac's own tunnel. It listens from
+    /// now on; or why there is no way back.
+    pub fn back_link(self: &Arc<Self>, toward: &str) -> Result<String, String> {
+        if self.sharing().port().is_none() {
+            self.access().change(|k| k.serve = true);
+            self.share_as_kept(true);
+            self.say_shared();
+        }
+        let sharing = self.sharing();
+        let port = match &sharing.listening {
+            Some(Ok((_, port))) => *port,
+            Some(Err(why)) => return Err(why.clone()),
+            None => return Err("This Mac does not listen".into()),
+        };
+        let host = if link::url_of(toward).starts_with("ws:") {
+            format!("127.0.0.1:{port}")
+        } else if let Tunnel::Up(host) = &*sharing.tunnel.lock().expect("tunnel") {
+            host.clone()
+        } else {
+            return Err(format!(
+                "{toward} can reach this Mac only through a tunnel of this Mac's own, and it is not up. Start it in Settings › Devices, then pair again."
+            ));
+        };
+        Ok(link::pairing_link(&host, &self.access().code()))
+    }
+
+    /// Pair back with the desk that gave `back` as it paired: a key made
+    /// for it, and it kept as a Mac this one can open. The key's public
+    /// half, or why not.
+    pub async fn pair_back(&self, back: &str) -> Result<String, String> {
+        let (host, code) = link::pairing(back).ok_or("Its link to pair back with does not read")?;
+        let key = crate::key::Key::generate();
+        let public = key.public();
+        crate::servers::pair(self.home(), host, code, key, None).await?;
+        self.say_shared();
+        Ok(public)
     }
 
     /// Share as Ghost was last left sharing; `serve`, listen whatever it
@@ -177,18 +239,23 @@ impl Server {
     /// Listen on 127.0.0.1, unless it does already.
     pub fn serve(self: &Arc<Self>) -> Result<(), String> {
         let mut sharing = self.sharing();
-        if let Some(Ok(_)) = sharing.listening {
+        if sharing.port().is_some() {
             return Ok(());
         }
-        let bound = std::net::TcpListener::bind(("127.0.0.1", PORT))
+        let port = self.access().kept().map_or(4317, |k| k.port);
+        let bound = std::net::TcpListener::bind(("127.0.0.1", port))
             .and_then(|l| l.set_nonblocking(true).map(|()| l))
-            .map_err(|e| format!("Ghost could not listen on 127.0.0.1:{PORT}: {e}"));
+            .map_err(|e| format!("Ghost could not listen on 127.0.0.1:{port}: {e}"));
         let listening = bound.and_then(|l| {
+            let port = l.local_addr().map_err(|e| e.to_string())?.port();
             let _in_runtime = crate::acp::runtime().enter();
-            tokio::net::TcpListener::from_std(l).map_err(|e| e.to_string())
+            let l = tokio::net::TcpListener::from_std(l).map_err(|e| e.to_string())?;
+            Ok((
+                crate::acp::runtime().spawn(link::listen(self.clone(), l)),
+                port,
+            ))
         });
-        sharing.listening =
-            Some(listening.map(|l| crate::acp::runtime().spawn(link::listen(self.clone(), l))));
+        sharing.listening = Some(listening);
         let result = match &sharing.listening {
             Some(Err(why)) => Err(why.clone()),
             _ => Ok(()),
@@ -203,6 +270,7 @@ impl Server {
     fn tunnel(self: &Arc<Self>) {
         let mut sharing = self.sharing();
         sharing.stop_tunnel();
+        let Some(port) = sharing.port() else { return };
         let Some(cloudflared) = which::which("cloudflared").ok() else {
             *sharing.tunnel.lock().expect("tunnel") =
                 Tunnel::Down("cloudflared is not installed: brew install cloudflared".into());
@@ -213,7 +281,7 @@ impl Server {
         command.args(["tunnel", "--no-autoupdate"]);
         match &named {
             Some(n) => command.arg("run").env("TUNNEL_TOKEN", &n.token),
-            None => command.args(["--url", &format!("http://127.0.0.1:{PORT}")]),
+            None => command.args(["--url", &format!("http://127.0.0.1:{port}")]),
         };
         command
             .stdin(Stdio::null())
@@ -270,7 +338,7 @@ impl Server {
     fn stay_awake(&self) {
         let awake = self.access().kept().is_ok_and(|k| k.awake);
         let mut sharing = self.sharing();
-        let serving = matches!(sharing.listening, Some(Ok(_)));
+        let serving = sharing.port().is_some();
         match (&sharing.caffeinate, awake && serving) {
             (None, true) => {
                 sharing.caffeinate = which::which("caffeinate").ok().and_then(|c| {
@@ -297,7 +365,7 @@ impl Server {
             let kept = self.access().kept();
             Shared {
                 serving: (sharing.listening.as_ref())
-                    .map(|l| l.as_ref().map(|_| PORT).map_err(Clone::clone)),
+                    .map(|l| l.as_ref().map(|(_, port)| *port).map_err(Clone::clone)),
                 tunnel: sharing.tunnel.lock().expect("tunnel").clone(),
                 named: (kept.as_ref().ok())
                     .and_then(|k| k.named.as_ref())

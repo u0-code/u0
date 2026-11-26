@@ -129,23 +129,30 @@ self-signed certificate stops that: in Keychain Access, Certificate Assistant
 The Ghost on one machine can be used from a Mac elsewhere: its agents,
 sessions, files, git and terminals, as if you sat at it.
 
-- On the machine with the agents, **Settings › Sharing & access** lets
-  other machines reach it. It listens on `127.0.0.1:4317` only; the world
-  reaches it through a [cloudflared](https://github.com/cloudflare/cloudflared)
-  tunnel Ghost starts (a quick one, or a named one of yours), or an
-  `ssh -L 4317:127.0.0.1:4317`. **Create link** makes a pairing link, and
-  its QR code, that works once, for ten minutes.
-- On the other Mac, open the link, or paste it in **Settings › Connections**.
-  That Mac makes an Ed25519 key for the server, keeps its private half in
-  its Keychain and sends only the public half; it shows the key's
-  `SHA256:` fingerprint, as the server's list of devices does. From then on
-  it comes in by signing a nonce the server makes for each link, so no
-  secret crosses the wire or sits on the server. **Open** restarts the
-  window on that server; **Revoke** on the server removes the key and cuts
-  the device off.
-- With no window (a Linux box, say): `ghost-server`, or
-  `ghost-desk --serve`, prints a pairing link for `127.0.0.1`, and its QR
-  code, as it starts.
+Every Mac's Ghost can do both, in **Settings › Devices** (or ⌘K
+"Pair a device" / "Show pairing code", and the Ghost menu):
+
+- **Let other devices control this Mac** (off at first) makes it listen on
+  `127.0.0.1:4317` only; the world reaches it through a
+  [cloudflared](https://github.com/cloudflare/cloudflared) tunnel Ghost
+  starts (a quick one, or a named one of yours), or an
+  `ssh -L 4317:127.0.0.1:4317`. It shows a pairing link, and its QR code,
+  that works once, for ten minutes, and the devices paired, each by its
+  key's `SHA256:` fingerprint, with **Revoke**. Turned off, it cuts every
+  device off.
+- **Control other Macs** (off at first: a Mac controls only itself) lists
+  the Macs paired with, **Open** (the window restarts on that Mac) and
+  **Forget**, and takes a pasted link; opening a `ghost://pair` link does
+  the same. This Mac makes an Ed25519 key for the other, keeps its
+  private half in its Keychain and sends only the public half. From then
+  on it comes in by signing a nonce the server makes for each link, so no
+  secret crosses the wire or sits on the server.
+- **Also let it control this Mac**, ticked as you pair, pairs both ways
+  at once: the other Mac pairs back with a key of its own, by a one-time
+  code this Mac makes, at `127.0.0.1` or through this Mac's own tunnel.
+  Where it cannot reach this Mac, the pairing stays one way and says why.
+- With no window (a Linux box, say): `ghost-server` prints a pairing link
+  for `127.0.0.1`, and its QR code, as it starts.
 
 A link that drops (a laptop shut, a network changed) is reached again, and
 what was said meanwhile is told then.

@@ -115,7 +115,10 @@ crates/core/src/
                 it said numbered and kept for a desk that comes back; the desk's end
   access.rs     who may link: devices paired (devices.json), pairing codes
   key.rs        a desk's Ed25519 key (OpenSSH's form): signing, verifying, fingerprints
-  share.rs      sharing this Ghost: listening, the cloudflared tunnel, pairing links
+  share.rs      sharing this Ghost: listening, the cloudflared tunnel, pairing links,
+                the link a desk gives for its server to pair back with
+  servers.rs    the servers elsewhere this Mac is paired with (servers.json),
+                pairing with one; whether this Mac controls others at all
   logs.rs       what Ghost logs, and where
   bin/          ghost-server: the server with no window
   records.rs    the record of each session open with its agent, written as it comes
@@ -150,7 +153,6 @@ crates/desk/src/
   terminal.rs   a terminal of yours: its screen (its shell is the server's)
   hub.rs        the Transport to the server (here, or elsewhere over a link);
                 the window's own work, back as Msg
-  servers.rs    the servers elsewhere this Mac is paired with (servers.json)
   hub/          agent (each agent's slot, as the desk sees it)
   sessions.rs   the sessions on the desk, by key and by the agent's id; what agents say of them
   macos.rs      what Ghost asks of macOS: icon, badge, dictation, a notification's
@@ -181,7 +183,8 @@ crates/desk/src/
   pages/        the settings dialog, gpui-kit's Settings, a page a tab (settings, prefs, projects, writing,
                 usage, voice: dictation's settings, updates: on About, hosts:
                 Source control, looks: Appearance's themes, diagnostics,
-                sharing: Sharing & access and Connections, tasks: Scheduled tasks,
+                devices: Devices, both ways, and the sheet that asks before pairing,
+                tasks: Scheduled tasks,
                 flows: Workflows),
                 the PRs and Issues pages drawn (forge)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
@@ -228,20 +231,33 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
   macOS Keychain under the service `Ghost <home>`, never in a file;
   `settings.json` names it only.
 - `~/.ghost/devices.json` (on the server) holds the devices paired and
-  how Ghost is shared (listening, the tunnel, a named tunnel's token).
+  how Ghost is shared (listening, on which port, the tunnel, a named
+  tunnel's token).
   Each device is `{label, key, paired, seen}`: `key` the public half of
   its Ed25519 key as `authorized_keys` writes it (`ssh-ed25519 AAAA…`),
   shown by its `SHA256:` fingerprint. `~/.ghost/servers.json` (on a desk)
   holds the servers paired with (`{name, host, key}`, `key` the public
-  half this Mac made for it) and the one the window opens on; each
-  private half is a secret (`server/<name>`, PKCS#8). Both are
+  half this Mac made for it), whether this Mac controls others
+  (`control`; off, the window opens on this Mac only) and the one the
+  window opens on; each private half is a secret (`server/<its
+  fingerprint>`, PKCS#8). The desk and the server (pairing back) both
+  change it through `Servers::change`. Both are
   `deny_unknown_fields`, and left alone when they do not read: a file from
   before keys is refused with a word to pair again.
 - A desk comes in by signature, never by a secret: the server's first
   word on each link is a nonce (`Challenge`), and the desk signs
   `ghost link <PROTOCOL>\n<nonce>` with its key for that server. A
   pairing code (128 bits, ten minutes, once) is what lets a new key in;
-  Revoke removes the key and closes its links.
+  Revoke removes the key and closes its links; turning listening off
+  closes every link and withdraws the codes made.
+- Pairing both ways is two pairings, each by a code and a signature: the
+  desk's `Pair` carries a pairing link of its own server's (`back`), and
+  the server, having let the desk's key in, makes a key of its own and
+  pairs with that link before its `Welcome`, which says how that went.
+  The way back is reached as the way there: at 127.0.0.1 for a server
+  reached there, else through the desk's own tunnel; with none, the
+  pairing stays one way and says why. A window on another Mac keeps this
+  Mac's server listening, if it lets others control it.
 - A desk on a server elsewhere reads that server's `settings.json` (in
   its `Welcome`) and saves it there (`Call::SaveSettings`); what an agent
   needs before it starts is the server's to say (`Event::Here`).
@@ -283,10 +299,10 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
 
 - Never point a test or experiment at `~/.ghost`: set `GHOST_HOME` to a
   temporary directory.
-- A server and a desk on one machine each take a `GHOST_HOME` of their
-  own: `GHOST_HOME=… ghost-desk --serve`, and the desk pairs with the link
-  it prints. Only one listens on 127.0.0.1:4317 at a time. A test of the
-  Keychain uses a service of its own and removes what it kept.
+- Two Ghosts on one machine each take a `GHOST_HOME` of their own, and
+  a `port` of their own in its `devices.json` (4317 unless set). A test
+  of the Keychain uses a service of its own and removes what it kept;
+  the unit tests keep secrets in memory, never in the Keychain.
 - Agents do not launch the GUI. A check against a real agent drives
   `acp.rs` and `registry.rs` from a test run by hand with a temporary
   `GHOST_HOME`, and sends no prompt unless the user asked: a prompt spends

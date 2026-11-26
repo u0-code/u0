@@ -17,7 +17,6 @@ mod keys;
 mod macos;
 mod markdown;
 mod pages;
-mod servers;
 mod sessions;
 mod sidebar;
 mod style;
@@ -32,8 +31,8 @@ mod voice;
 // rest name it alike in every module of the desk.
 use ghost_core::{
     access, acp, diagnostics, forge, git, github, key, link, path, proto, registry, remote, repo,
-    scripts, secrets, server, session, settings, share, store, tasks, tidy, update, when, whole,
-    workflows, writer,
+    scripts, secrets, server, servers, session, settings, share, store, tasks, tidy, update, when,
+    whole, workflows, writer,
 };
 use keys::{
     About, BringAllToFront, CheckForUpdates, Hide, HideOthers, Minimize, NewSession, OpenSettings,
@@ -52,14 +51,6 @@ fn main() {
     path::widen();
     let kept = settings::Settings::load(&settings::home()).0;
     ghost_core::logs::start(kept.log_days);
-    // A server for desks elsewhere, with no window of its own.
-    if std::env::args().any(|a| a == "--serve") {
-        if let Err(why) = ghost_core::link::serve_here() {
-            eprintln!("{why}");
-            std::process::exit(1);
-        }
-        return;
-    }
 
     // The links and folders macOS opens Ghost with (`ghost://`, `ghost
     // <folder>`), held until the window is up to take them.
@@ -83,6 +74,8 @@ fn main() {
                 MenuItem::action("Check for Updates…", CheckForUpdates),
                 MenuItem::separator(),
                 MenuItem::action("Settings…", OpenSettings),
+                MenuItem::action("Pair a Device…", keys::PairDevice),
+                MenuItem::action("Show Pairing Code…", keys::ShowPairingCode),
                 MenuItem::separator(),
                 MenuItem::os_submenu("Services", SystemMenuType::Services),
                 MenuItem::separator(),

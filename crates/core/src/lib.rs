@@ -31,6 +31,7 @@ pub mod repo;
 pub mod scripts;
 pub mod secrets;
 pub mod server;
+pub mod servers;
 pub mod session;
 pub mod settings;
 pub mod share;

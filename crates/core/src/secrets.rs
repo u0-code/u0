@@ -3,7 +3,8 @@
 //! Ghost's, under a service named for Ghost's home, so that a home made for
 //! a test keeps its own. A value, kept there or written in the settings,
 //! may instead be a 1Password reference (`op://vault/item/field`), which the
-//! `op` CLI reads each time it is used.
+//! `op` CLI reads each time it is used. A test keeps its secrets in
+//! memory (`memory`), so that no test touches your Keychain.
 
 use std::collections::BTreeMap;
 
@@ -19,19 +20,19 @@ pub fn env_account(agent: &str, name: &str) -> String {
 
 /// The secret kept as `account`; none where nothing is.
 pub fn get(account: &str) -> Result<Option<String>, String> {
-    keychain::get(&service(), account)
+    store::get(&service(), account)
 }
 
 /// The accounts something is kept as.
 pub fn kept() -> Vec<String> {
-    keychain::accounts(&service())
+    store::accounts(&service())
 }
 
 /// Keep `value` as `account`, or, with none, keep nothing there.
 pub fn set(account: &str, value: Option<&str>) -> Result<(), String> {
     match value {
-        Some(v) => keychain::set(&service(), account, v),
-        None => keychain::remove(&service(), account),
+        Some(v) => store::set(&service(), account, v),
+        None => store::remove(&service(), account),
     }
 }
 
@@ -66,6 +67,48 @@ pub fn env(
             Ok((name.clone(), resolve(value)?))
         })
         .collect()
+}
+
+#[cfg(not(test))]
+use keychain as store;
+#[cfg(test)]
+use memory as store;
+
+/// What a test keeps in place of the Keychain.
+#[cfg(test)]
+mod memory {
+    use std::{collections::BTreeMap, sync::Mutex};
+
+    type Kept = BTreeMap<(String, String), String>;
+    static KEPT: Mutex<Kept> = Mutex::new(BTreeMap::new());
+
+    fn kept() -> std::sync::MutexGuard<'static, Kept> {
+        KEPT.lock().expect("secrets")
+    }
+
+    #[expect(clippy::unnecessary_wraps, reason = "as the Keychain's answers")]
+    pub fn get(service: &str, account: &str) -> Result<Option<String>, String> {
+        Ok(kept().get(&(service.into(), account.into())).cloned())
+    }
+
+    #[expect(clippy::unnecessary_wraps, reason = "as the Keychain's answers")]
+    pub fn set(service: &str, account: &str, value: &str) -> Result<(), String> {
+        kept().insert((service.into(), account.into()), value.into());
+        Ok(())
+    }
+
+    #[expect(clippy::unnecessary_wraps, reason = "as the Keychain's answers")]
+    pub fn remove(service: &str, account: &str) -> Result<(), String> {
+        kept().remove(&(service.into(), account.into()));
+        Ok(())
+    }
+
+    pub fn accounts(service: &str) -> Vec<String> {
+        (kept().keys())
+            .filter(|(s, _)| s == service)
+            .map(|(_, a)| a.clone())
+            .collect()
+    }
 }
 
 #[cfg(target_os = "macos")]

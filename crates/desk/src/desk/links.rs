@@ -9,7 +9,8 @@
 //! - `ghost://session/<agent>/<id>?prompt=<text>`: that session, and with
 //!   a prompt, it written there (asked first over what you were writing).
 //! - `ghost://pair?host=<host>#<code>`: pair with the Ghost there, as
-//!   Settings › Sharing & access made the link; asked first.
+//!   Settings › Devices made the link; asked first, and whether to pair
+//!   both ways.
 //! - `file:///path/to/folder`: the folder as a project, and a session in it.
 //!
 //! A prompt is what someone else wrote: characters that do not show

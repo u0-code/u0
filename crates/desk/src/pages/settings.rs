@@ -48,16 +48,16 @@ pub enum Tab {
     Projects,
     SourceControl,
     Diagnostics,
-    Sharing,
-    Connections,
+    Devices,
     Tasks,
     Workflows,
 }
 
 impl Tab {
     /// Each tab, in the order the side list shows them.
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 16] = [
         Self::General,
+        Self::Devices,
         Self::Appearance,
         Self::Chat,
         Self::Keyboard,
@@ -70,8 +70,6 @@ impl Tab {
         Self::Workflows,
         Self::Sessions,
         Self::Usage,
-        Self::Sharing,
-        Self::Connections,
         Self::Diagnostics,
         Self::About,
     ];
@@ -91,8 +89,7 @@ impl Tab {
             Self::About => "About",
             Self::SourceControl => "Source control",
             Self::Diagnostics => "Diagnostics",
-            Self::Sharing => "Sharing & access",
-            Self::Connections => "Connections",
+            Self::Devices => "Devices",
             Self::Tasks => "Scheduled tasks",
             Self::Workflows => "Workflows",
         }
@@ -113,8 +110,7 @@ impl Tab {
             Self::About => "ghost",
             Self::SourceControl => "branch",
             Self::Diagnostics => "gauge",
-            Self::Sharing => "globe",
-            Self::Connections => "server",
+            Self::Devices => "laptop",
             Self::Tasks => "clock",
             Self::Workflows => "list",
         }
@@ -131,7 +127,6 @@ impl Tab {
             | Self::Workflows
             | Self::Sessions
             | Self::Usage => "Agents",
-            Self::Sharing | Self::Connections => "Machines",
             Self::About | Self::Diagnostics => "Ghost",
             _ => "",
         }
@@ -190,8 +185,7 @@ impl Desk {
                 |d, faces, cx| d.flows_tab(faces, cx).into_any_element(),
             ),
             Tab::Projects => self.projects_tab(w),
-            Tab::Sharing => self.sharing_tab(w),
-            Tab::Connections => self.connections_tab(w),
+            Tab::Devices => self.devices_tab(w),
             _ => self
                 .own_tab(tab, w, cx)
                 .unwrap_or_else(|| SettingPage::new(tab.title())),

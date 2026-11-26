@@ -23,10 +23,14 @@ use crate::{key, proto::Hello, whole};
 const CODE_LIFE: Duration = Duration::from_mins(10);
 
 /// What `devices.json` holds.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Kept {
     pub devices: Vec<Device>,
+    /// The port Ghost listens on, on 127.0.0.1: another for a second
+    /// Ghost on one machine, each with a home of its own.
+    #[serde(default = "port")]
+    pub port: u16,
     /// A named tunnel of yours (cloudflared), to be reached by the same
     /// address each time; none, a quick one with an address of its own.
     #[serde(default)]
@@ -39,6 +43,23 @@ pub struct Kept {
     pub tunnel: bool,
     #[serde(default)]
     pub awake: bool,
+}
+
+fn port() -> u16 {
+    4317
+}
+
+impl Default for Kept {
+    fn default() -> Self {
+        Self {
+            devices: Vec::new(),
+            port: port(),
+            named: None,
+            serve: false,
+            tunnel: false,
+            awake: false,
+        }
+    }
 }
 
 /// A device paired with this Ghost.
@@ -125,6 +146,11 @@ impl Access {
         codes.retain(|(_, made)| made.elapsed() < CODE_LIFE);
         codes.push((code.clone(), Instant::now()));
         code
+    }
+
+    /// Let in no key by a code made so far.
+    pub fn withdraw(&self) {
+        self.codes.lock().expect("codes").clear();
     }
 
     /// Whether the pairing code `code` is still good.
@@ -224,6 +250,7 @@ mod tests {
             pair: code.map(|code| Pair {
                 code,
                 device: "laptop".into(),
+                back: None,
             }),
             since: None,
         }

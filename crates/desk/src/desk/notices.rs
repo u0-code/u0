@@ -46,6 +46,8 @@ pub enum Way {
     Update,
     /// A clone that failed, of the address into the folder, to try again.
     Clone(String, std::path::PathBuf),
+    /// Ghost opened again, on the server it is on.
+    Reopen,
 }
 
 impl Desk {
@@ -135,6 +137,7 @@ impl Desk {
             Some(Way::Undo) => "Undo",
             Some(Way::Update) => "See",
             Some(Way::Clone(..)) => "Retry",
+            Some(Way::Reopen) => "Reload",
             None if n.trouble => "Copy details",
             None => return note,
         };
@@ -150,6 +153,7 @@ impl Desk {
                 Some(Way::Undo) => d.take_back(cx),
                 Some(Way::Update) => d.open_tab(crate::pages::Tab::About, window, cx),
                 Some(Way::Clone(url, dir)) => d.clone_into(url, dir, cx),
+                Some(Way::Reopen) => d.reopen(window, cx),
                 None => cx.write_to_clipboard(ClipboardItem::new_string(details.clone())),
             });
         };

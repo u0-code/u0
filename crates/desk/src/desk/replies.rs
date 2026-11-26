@@ -150,16 +150,30 @@ impl Desk {
             Msg::Link(state) => self.linked(state, window, cx),
             Msg::Paired(paired) => {
                 self.pages.pairing = false;
-                match paired.and_then(|(server, kept)| {
-                    let name = server.name.clone();
-                    self.pages.servers.paired(server, &kept).map(|()| name)
-                }) {
-                    Ok(name) => {
-                        self.keep_servers();
+                self.read_servers();
+                match paired {
+                    Ok((name, back)) => {
                         self.pages
                             .pair_link
                             .update(cx, |i, cx| i.set_value("", window, cx));
-                        self.done(format!("Paired with {name}: open it in Connections"), None);
+                        match back {
+                            None => self.done(
+                                format!("Paired with {name}: open it in Settings › Devices"),
+                                None,
+                            ),
+                            Some(Ok(theirs)) => self.done(
+                                format!(
+                                    "Paired with {name} both ways: it controls this Mac with the key {}",
+                                    crate::key::fingerprint(&theirs)
+                                ),
+                                None,
+                            ),
+                            Some(Err(why)) => self.trouble(
+                                format!("Paired with {name} one way only"),
+                                Some(format!("It could not reach this Mac back: {why}")),
+                                None,
+                            ),
+                        }
                     }
                     Err(why) => self.trouble("Couldn't pair", Some(why), None),
                 }
@@ -179,6 +193,14 @@ impl Desk {
                 self.trouble(format!("Lost {name}; reaching it again"), Some(why), None);
             }
             State::Back => self.done(format!("Back on {name}"), None),
+            // Opened again, this Mac's own server would restart too, and
+            // cut off the devices controlling it, which may be the one
+            // this window is on: asked, not done.
+            State::Afresh if self.transport.serves() => self.trouble(
+                format!("{name} restarted: what it said meanwhile is not here"),
+                Some("Reload to see it as it is now.".into()),
+                Some(super::notices::Way::Reopen),
+            ),
             State::Afresh => self.reopen(window, cx),
             State::Refused(why) => {
                 self.trouble(format!("{name} turned this Mac away"), Some(why), None);
@@ -513,7 +535,11 @@ impl Desk {
                 }
             }
             Event::Index(index) => self.keep_from(index),
-            Event::Shared(shared) => self.pages.shared = Some(*shared),
+            Event::Shared(shared) => {
+                self.pages.shared = Some(*shared);
+                // A server here may have paired back with a Mac.
+                self.read_servers();
+            }
             Event::Record { key, events } => self.record_read(key, events),
             Event::Spent(spent) => self.spent = spent.into_iter().collect(),
             Event::Found { query, keys } => {

@@ -44,9 +44,10 @@ pub enum Msg {
     Update(crate::desk::updates::Update),
     /// How the link to the server elsewhere stands.
     Link(link::State),
-    /// A server paired with, and the private half of the key this Mac
-    /// paired with, as it is kept; or why not.
-    Paired(Result<(crate::servers::Server, String), String>),
+    /// The name of a server paired with, and how it paired back, if
+    /// asked to: the public half of its key for this Mac, or why not; or
+    /// why it did not pair.
+    Paired(Result<(String, Option<Result<String, String>>), String>),
 }
 
 pub type Sender = mpsc::UnboundedSender<Msg>;
@@ -59,15 +60,22 @@ pub enum Transport {
     /// for on the ACP runtime).
     Local(std::sync::Arc<Server>),
     /// A server on another machine, by its name, over a link (`link`),
-    /// and Ghost's home there.
-    Remote(link::Link, String, std::path::PathBuf),
+    /// and Ghost's home there; and this Mac's own, while it lets other
+    /// devices control it, serving them with no window.
+    Remote(
+        link::Link,
+        String,
+        std::path::PathBuf,
+        Option<std::sync::Arc<Server>>,
+    ),
 }
 
 impl Transport {
     /// The server the window opens on (`servers.json`), saying what it
     /// has to say to `tx`, with its settings as its home has them (or why
     /// they do not read). One that cannot be reached is said to be so, and
-    /// the window opens on this Mac's own.
+    /// the window opens on this Mac's own. Open elsewhere, this Mac still
+    /// serves the devices that control it, if it lets them.
     pub fn open(home: &std::path::Path, tx: &Sender) -> (Self, (Settings, Option<String>)) {
         let servers = crate::servers::Servers::load(home);
         if let Ok(Some(server)) = servers.as_ref().map(crate::servers::Servers::opened) {
@@ -78,7 +86,10 @@ impl Transport {
                         Ok(s) => (*s, None),
                         Err(why) => (Settings::default(), Some(why)),
                     };
-                    return (Self::Remote(link, name, welcome.home), settings);
+                    let serving = crate::access::Access::new(home).kept();
+                    let here = (serving.is_ok_and(|k| k.serve))
+                        .then(|| Server::new(home.to_path_buf(), |_| {}));
+                    return (Self::Remote(link, name, welcome.home, here), settings);
                 }
                 Err(why) => {
                     let _ = tx.send(Msg::Notice(Err((
@@ -110,7 +121,6 @@ impl Transport {
         acp::runtime().block_on(link::connect(
             url,
             key,
-            None,
             move |event| {
                 let _ = said.send(Msg::Event(event));
             },
@@ -132,15 +142,21 @@ impl Transport {
     pub fn home_there<'a>(&'a self, home: &'a std::path::Path) -> &'a std::path::Path {
         match self {
             Self::Local(_) => home,
-            Self::Remote(.., there) => there,
+            Self::Remote(_, _, there, _) => there,
         }
+    }
+
+    /// Whether this Mac serves devices that control it while the window
+    /// is elsewhere.
+    pub fn serves(&self) -> bool {
+        matches!(self, Self::Remote(.., Some(_)))
     }
 
     /// The name of the server elsewhere the window is on; none, this Mac.
     pub fn elsewhere(&self) -> Option<&str> {
         match self {
             Self::Local(_) => None,
-            Self::Remote(_, name, _) => Some(name),
+            Self::Remote(_, name, ..) => Some(name),
         }
     }
 
@@ -152,31 +168,30 @@ impl Transport {
                 server.unshare();
                 Server::settle();
             }
-            Self::Remote(link, ..) => link.settle(),
+            Self::Remote(link, .., here) => {
+                if let Some(server) = here {
+                    server.unshare();
+                    Server::settle();
+                }
+                link.settle();
+            }
         }
     }
 }
 
-/// Pair with the server at `host` by the one-time `code`: link to it as
-/// this Mac, with `key`, and let go once it has let the key in.
-pub fn pair(host: String, code: String, key: crate::key::Key, tx: Sender) {
+/// Pair with the server at `host` by the one-time `code` with `key`, and
+/// keep it in `home`; `back`, a pairing link for it to pair back with.
+pub fn pair(
+    home: PathBuf,
+    host: String,
+    code: String,
+    key: crate::key::Key,
+    back: Option<String>,
+    tx: Sender,
+) {
     acp::runtime().spawn(async move {
-        let paired = async {
-            let pair = crate::proto::Pair {
-                code,
-                device: link::host_name(),
-            };
-            let (public, kept) = (key.public(), key.kept().to_owned());
-            let url = link::url_of(&host);
-            let (_, welcome) = link::connect(url, key, Some(pair), |_| {}, |_| {}).await?;
-            let server = crate::servers::Server {
-                name: welcome.name,
-                host,
-                key: public,
-            };
-            Ok((server, kept))
-        };
-        let _ = tx.send(Msg::Paired(paired.await));
+        let paired = crate::servers::pair(&home, host, code, key, back).await;
+        let _ = tx.send(Msg::Paired(paired));
     });
 }
 

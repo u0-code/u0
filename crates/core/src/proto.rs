@@ -771,7 +771,7 @@ pub enum Event {
 
 /// The version of what is said over a link (`link`): a desk and a server
 /// that speak another are refused, each told to update.
-pub const PROTOCOL: u32 = 2;
+pub const PROTOCOL: u32 = 3;
 
 /// The first thing a server says over a link: a nonce made for it, for
 /// the desk to sign (`key`).
@@ -801,6 +801,9 @@ pub struct Hello {
 pub struct Pair {
     pub code: String,
     pub device: String,
+    /// A pairing link of the device's own, for the server to pair back
+    /// with: so that each can control the other.
+    pub back: Option<String>,
 }
 
 /// The server's answer to [`Hello`], after which each thing it says is
@@ -822,6 +825,9 @@ pub struct Welcome {
     /// The server's settings, as its home has them, or why they do not
     /// read.
     pub settings: Result<Box<crate::settings::Settings>, String>,
+    /// As a desk pairs with a link to pair back with: the public half of
+    /// the key the server paired back with, or why it could not.
+    pub back: Option<Result<String, String>>,
 }
 
 /// What a session loaded or resumed starts with.

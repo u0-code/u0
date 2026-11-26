@@ -328,6 +328,7 @@ fn icon_of(name: &str) -> &'static str {
         "previous_area" | "previous_terminal" => "arrow-left",
         "go_to_file" => "file",
         "search_words" => "text-search",
+        "pair_device" | "show_pairing_code" => "laptop",
         _ => "chevron-right",
     }
 }

@@ -91,14 +91,16 @@ actions!(
         StopSpeaking,
         CheckForUpdates,
         ZoomWindow,
-        BringAllToFront
+        BringAllToFront,
+        PairDevice,
+        ShowPairingCode
     ]
 );
 
 /// Each action a binding of yours can name: its name, what it does, and
 /// the action. The keys page lists them in this order.
 type Make = fn() -> Box<dyn Action>;
-pub const ACTIONS: [(&str, &str, Make); 50] = [
+pub const ACTIONS: [(&str, &str, Make); 52] = [
     ("palette", "Go to anything", || Box::new(Palette)),
     ("new_session", "New session", || Box::new(NewSession)),
     ("new_here", "New session in this project", || {
@@ -205,6 +207,14 @@ pub const ACTIONS: [(&str, &str, Make); 50] = [
     ("check_for_updates", "Check for updates", || {
         Box::new(CheckForUpdates)
     }),
+    ("pair_device", "Pair a device: control another Mac", || {
+        Box::new(PairDevice)
+    }),
+    (
+        "show_pairing_code",
+        "Show pairing code: let another device control this Mac",
+        || Box::new(ShowPairingCode),
+    ),
 ];
 
 /// The Keyboard page's groups, as t3code's: each action named in one;
@@ -652,6 +662,15 @@ pub fn handle(cx: &mut App, shown: &Shown) {
     });
     on::<StartSpeaking>(cx, shown, |d, _, cx| d.read_aloud(cx));
     on::<CheckForUpdates>(cx, shown, Desk::check_update_shown);
+    on::<PairDevice>(cx, shown, |d, window, cx| {
+        d.set_control(true, window, cx);
+        d.open_tab(Tab::Devices, window, cx);
+        d.pages.pair_link.update(cx, |i, cx| i.focus(window, cx));
+    });
+    on::<ShowPairingCode>(cx, shown, |d, window, cx| {
+        d.share(crate::share::Share::Serve(true));
+        d.open_tab(Tab::Devices, window, cx);
+    });
     on::<ZoomWindow>(cx, shown, |_, window, _| window.zoom_window());
     cx.on_action(|_: &BringAllToFront, cx| cx.activate(true));
     cx.on_action(|_: &StopSpeaking, _| crate::voice::stop_speaking());

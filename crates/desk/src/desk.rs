@@ -1419,10 +1419,10 @@ impl Desk {
             crate::pages::Tab::SourceControl => self.transport.send(crate::proto::Call::Forges),
             crate::pages::Tab::Usage => self.read_spent(),
             crate::pages::Tab::Diagnostics => self.diagnose(),
-            crate::pages::Tab::Sharing => {
+            crate::pages::Tab::Devices => {
                 self.transport.send(Call::Share(crate::share::Share::Look));
+                self.read_servers();
             }
-            crate::pages::Tab::Connections => self.read_servers(),
             crate::pages::Tab::Workflows => self.read_flows(window, cx),
             _ => {}
         }
