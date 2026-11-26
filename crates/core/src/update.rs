@@ -5,9 +5,15 @@
 //! Ghost.app, and puts it in place of the one running, which is opened
 //! again once Ghost has quit.
 //!
+//! Before it is put in place, the Ghost.app downloaded must be sealed by
+//! its signature, whole and unchanged, and be Ghost (`codesign --verify
+//! --deep --strict`, against Ghost's identifier).
+//!
 //! The updater crates were weighed: `self_update` replaces a lone binary,
 //! not an app bundle, and `cargo-packager-updater` needs a signed manifest
-//! per channel that the releases do not publish.
+//! per channel that the releases do not publish. Once the release workflow
+//! signs a `latest.json` for each channel (minisign), that crate is the
+//! updater, and this module goes.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -22,6 +28,10 @@ const RELEASES: &str = "https://api.github.com/repos/u0-code/u0/releases";
 
 /// What the macOS build is called among a release's files.
 const ASSET: &str = "macos-arm64.zip";
+
+/// The identifier Ghost.app is signed with (`bundle.sh`'s
+/// `CFBundleIdentifier`).
+const IDENTIFIER: &str = "local.ghost.desk";
 
 /// This build's version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -151,6 +161,12 @@ pub fn install(
     if !new.join("Contents/MacOS/ghost-desk").is_file() {
         return Err("the download holds no Ghost.app".to_owned());
     }
+    say("Checking its signature", None);
+    run(Command::new("codesign")
+        .args(["--verify", "--deep", "--strict"])
+        .arg(format!("-R=identifier \"{IDENTIFIER}\""))
+        .arg(&new))
+    .map_err(|e| format!("the download is not a Ghost.app sealed by its signature: {e}"))?;
     let old = dir.join("Ghost before.app");
     std::fs::rename(app, &old).map_err(|e| format!("{} could not be moved: {e}", app.display()))?;
     if let Err(e) = std::fs::rename(&new, app) {
