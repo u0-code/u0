@@ -424,16 +424,18 @@ pub enum Detail {
     Servers,
     Terminals,
     Lineage,
+    Linked,
 }
 
 impl Detail {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::Context,
         Self::Plan,
         Self::Background,
         Self::Servers,
         Self::Terminals,
         Self::Lineage,
+        Self::Linked,
     ];
 
     /// The head its section goes under.
@@ -445,6 +447,7 @@ impl Detail {
             Self::Servers => "Servers",
             Self::Terminals => "Terminals",
             Self::Lineage => "Lineage",
+            Self::Linked => "Linked",
         }
     }
 }

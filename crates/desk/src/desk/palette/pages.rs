@@ -12,6 +12,7 @@ use gpui::{Context, Keystroke, Window};
 use super::{Act, Desk, Lead, Row, rank};
 use crate::desk::Later;
 use crate::settings::Look;
+use crate::{github::Kind, store::Link};
 
 /// A page of the palette.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +25,8 @@ pub enum Sub {
     Remote,
     /// Until when the sessions in `Palette::snoozing` are out of the way.
     Snooze,
+    /// A pull request or issue of the project, linked to the session.
+    Link,
 }
 
 impl Sub {
@@ -37,13 +40,14 @@ impl Sub {
             Self::Make => "New project",
             Self::Remote => "On another machine",
             Self::Snooze => "Snooze until…",
+            Self::Link => "Link a pull request or issue",
         }
     }
 
     /// What its line to type in asks for.
     pub(super) fn placeholder(self) -> &'static str {
         match self {
-            Self::NewIn | Self::Look => "Search…",
+            Self::NewIn | Self::Look | Self::Link => "Search…",
             Self::Add => "Enter project path (e.g. ~/projects/my-app)",
             Self::Clone => "Repository URL",
             Self::Make => "Project name",
@@ -269,6 +273,38 @@ impl Desk {
                     Row::new("clock", format!("Until {said}"), Act::Snooze(Later::At(at))),
                 );
                 rows
+            }
+            Sub::Link => {
+                let linked = self
+                    .session()
+                    .map(|s| s.meta.links.clone())
+                    .unwrap_or_default();
+                let rows = self
+                    .github_rows()
+                    .into_iter()
+                    .flat_map(|(_, rows)| rows)
+                    .filter_map(|row| {
+                        let (kind, n, title) = match &row.act {
+                            Act::FromPr(_, n, t) => (Kind::Pr, *n, t.clone()),
+                            Act::FromIssue(_, n, t) => (Kind::Issue, *n, t.clone()),
+                            _ => return None,
+                        };
+                        let link = Link {
+                            kind,
+                            number: n,
+                            title,
+                        };
+                        Some(Row {
+                            end: linked
+                                .contains(&link)
+                                .then(|| ("Linked".to_owned(), crate::theme::faint())),
+                            sub: None,
+                            act: Act::Link(link),
+                            ..row
+                        })
+                    })
+                    .collect();
+                return narrowed(rows, typed);
             }
             Sub::Look => {
                 let rows = [

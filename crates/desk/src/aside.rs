@@ -217,6 +217,55 @@ impl Desk {
             .when(shown(Detail::Lineage), |d| {
                 d.children(self.lineage(faces, s, cx))
             })
+            .when(shown(Detail::Linked), |d| {
+                d.children(Self::linked_items(faces, s, cx))
+            })
+    }
+
+    /// The pull requests and issues `s` is linked to, as t3code's Linked
+    /// items: each opens on its page, and can be unlinked. None with none.
+    fn linked_items(faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
+        if s.meta.links.is_empty() {
+            return None;
+        }
+        let mut sec = section(faces, Detail::Linked.head(), None);
+        for (n, link) in s.meta.links.iter().enumerate() {
+            let (kind, number, key) = (link.kind, link.number, s.key);
+            let (icon, word) = match kind {
+                crate::github::Kind::Pr => ("pull-request", "Pull request"),
+                crate::github::Kind::Issue => ("circle-dot", "Issue"),
+            };
+            let gone = link.clone();
+            sec = sec.child(
+                frow()
+                    .group("linked-row")
+                    .child(
+                        div()
+                            .id(SharedString::from(format!("linked-{n}")))
+                            .flex()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .items_center()
+                            .gap(px(8.))
+                            .cursor_pointer()
+                            .child(ui::icon(icon, 14.).text_color(theme::muted()))
+                            .child(fine_mono(faces, format!("#{number}")))
+                            .child(ui::one_line(ui::text(faces, link.title.clone())).flex_1())
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.show_item(kind, number, window, cx);
+                            })),
+                    )
+                    .child(fine(faces, word))
+                    .child(
+                        ui::icon_button(SharedString::from(format!("unlink-{n}")), "x", "Unlink")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.link(key, gone.clone());
+                                cx.notify();
+                            })),
+                    ),
+            );
+        }
+        Some(sec)
     }
 
     /// The sessions `s` is kin to, as t3code's Lineage: the one it was

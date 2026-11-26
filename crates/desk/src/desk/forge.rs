@@ -16,6 +16,7 @@ use crate::{
     github::{Act, Answer, Ask, Detail, Item, Kind},
     proto::Call,
     session::State,
+    store::Link,
 };
 
 /// A page's tab for the one read: what it is, what was said, its changes.
@@ -335,10 +336,16 @@ impl Desk {
         if let Some(key) = self.current
             && let Some(s) = self.sessions.at_mut(key)
             && s.state == State::Draft
-            && !here
         {
-            s.wants_worktree = true;
-            s.begin = Some(crate::session::Begin::Pr(n, title));
+            s.meta.links = vec![Link {
+                kind: Kind::Pr,
+                number: n,
+                title: title.clone(),
+            }];
+            if !here {
+                s.wants_worktree = true;
+                s.begin = Some(crate::session::Begin::Pr(n, title));
+            }
         }
     }
 
@@ -354,6 +361,13 @@ impl Desk {
         cx: &mut Context<Self>,
     ) {
         self.new_in(folder, window, cx);
+        if let Some(s) = self.current.and_then(|key| self.sessions.at_mut(key)) {
+            s.meta.links = vec![Link {
+                kind: Kind::Issue,
+                number: n,
+                title: title.to_owned(),
+            }];
+        }
         let line = if triage {
             format!(
                 "Triage issue #{n}: {title}\n\nRead it (gh issue view {n} --comments), find where in the code it comes from and why, and say how to fix it and how big the fix is. Change nothing yet."
@@ -364,9 +378,34 @@ impl Desk {
         self.put_line(&line, window, cx);
     }
 
+    /// Link `link` to the session `key`, or unlink it where it was.
+    pub fn link(&mut self, key: u64, link: Link) {
+        let Some(s) = self.sessions.at_mut(key) else {
+            return;
+        };
+        if let Some(at) = s.meta.links.iter().position(|l| *l == link) {
+            s.meta.links.remove(at);
+        } else {
+            s.meta.links.push(link);
+        }
+        self.save_index();
+    }
+
     /// Show the pull request `n` of the session's project on the PRs page,
     /// when the session works in a repository: true when it does.
     pub fn show_pr(&mut self, n: u64, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        self.show_item(Kind::Pr, n, window, cx)
+    }
+
+    /// Show the pull request or issue `n` of the session's project on its
+    /// page, when the session works in a repository: true when it does.
+    pub fn show_item(
+        &mut self,
+        kind: Kind,
+        n: u64,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
         let Some(folder) = self
             .session()
             .filter(|s| s.repo)
@@ -375,11 +414,11 @@ impl Desk {
             return false;
         };
         self.forge.folder = Some(folder);
-        self.forge.kind = Kind::Pr;
+        self.forge.kind = kind;
         self.forge.state = "all";
         self.list_forge(cx);
         self.read_forge(n, cx);
-        self.open_page(Page::Forge(Kind::Pr), window, cx);
+        self.open_page(Page::Forge(kind), window, cx);
         true
     }
 

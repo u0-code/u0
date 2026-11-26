@@ -90,6 +90,19 @@ pub struct Meta {
     /// kept with it, and they open from its thread after a restart.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub subagents: Vec<(String, String)>,
+    /// The pull requests and issues of its project it is linked to, as
+    /// t3code's linked items: one it began from, or one you linked.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub links: Vec<Link>,
+}
+
+/// A pull request or issue a session is linked to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Link {
+    pub kind: crate::github::Kind,
+    pub number: u64,
+    pub title: String,
 }
 
 /// An id the index always has, though a session has none until opened.

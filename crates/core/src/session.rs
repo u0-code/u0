@@ -846,6 +846,7 @@ impl Session {
                 watch: None,
                 also: Vec::new(),
                 subagents: Vec::new(),
+                links: Vec::new(),
             },
             branch: None,
             repo: false,

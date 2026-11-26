@@ -192,16 +192,26 @@ impl Shared {
                     return;
                 };
                 let Some(id) = meta.id.clone() else { return };
-                if Some(pr.number) != meta.watch || pr.state != "open" {
+                let at = (meta.agent.clone(), id.clone());
+                let turning = this.turning.lock().expect("turning").contains(&at);
+                let ours = Some(pr.number) == meta.watch;
+                if !ours || pr.state != "open" {
+                    // One merged or closed is said once the turn going on
+                    // is over, and the watch ends with it.
+                    if ours && turning {
+                        return;
+                    }
                     this.change_index(|index| {
                         if let Some(m) = index.sessions.iter_mut().find(|m| super::same(m, &meta)) {
                             m.watch = None;
                         }
                     });
+                    if ours {
+                        let _ = this.turn_with(&wake(&meta, id, settled(&pr)), |_| {}).await;
+                    }
                     return;
                 }
                 let now = watched(&pr);
-                let at = (meta.agent.clone(), id.clone());
                 let was = this
                     .watched
                     .lock()
@@ -210,7 +220,7 @@ impl Shared {
                 let Some(said) = was.and_then(|was| woken(&was, &now, &pr)) else {
                     return;
                 };
-                if this.turning.lock().expect("turning").contains(&at) {
+                if turning {
                     // Said once the turn going on is over: looked at again.
                     this.watched
                         .lock()
@@ -218,24 +228,7 @@ impl Shared {
                         .insert(at, was_of(&now));
                     return;
                 }
-                let task = Task {
-                    id: 0,
-                    title: meta.title.clone(),
-                    prompt: said,
-                    agent: meta.agent.clone(),
-                    model: None,
-                    mode: None,
-                    project: meta.project.clone(),
-                    schedule: tasks::Schedule::Every(0),
-                    paused: false,
-                    same: true,
-                    worktree: false,
-                    session: Some(id),
-                    next: None,
-                    last: None,
-                    runs: 0,
-                };
-                let _ = this.turn_with(&task, |_| {}).await;
+                let _ = this.turn_with(&wake(&meta, id, said), |_| {}).await;
             });
         }
     }
@@ -473,6 +466,40 @@ fn was_of(now: &str) -> String {
 /// What to say in a session that watches `pr`, which stood at `was` and
 /// stands at `now`: its checks finished, or a review came in; nothing
 /// where neither happened.
+/// A turn said in the watching session `meta`, `id`, saying `said`.
+fn wake(meta: &Meta, id: SessionId, said: String) -> Task {
+    Task {
+        id: 0,
+        title: meta.title.clone(),
+        prompt: said,
+        agent: meta.agent.clone(),
+        model: None,
+        mode: None,
+        project: meta.project.clone(),
+        schedule: tasks::Schedule::Every(0),
+        paused: false,
+        same: true,
+        worktree: false,
+        session: Some(id),
+        next: None,
+        last: None,
+        runs: 0,
+    }
+}
+
+/// What a watched pull request merged or closed says to its session.
+fn settled(pr: &git::Pr) -> String {
+    let how = if pr.state == "merged" {
+        "was merged"
+    } else {
+        "was closed without merging"
+    };
+    format!(
+        "Pull request #{n} {how}. Look at where that leaves the work (gh pr view {n}) and tidy up or carry on from there.",
+        n = pr.number
+    )
+}
+
 fn woken(was: &str, now: &str, pr: &git::Pr) -> Option<String> {
     let (checks_was, review_was) = was.split_once('|')?;
     let (checks, review) = now.split_once('|')?;
@@ -526,6 +553,17 @@ mod tests {
         assert!(said.starts_with("A review came in on pull request #7: changes_requested."));
         // One woken on while a turn went on is woken on again after.
         assert!(woken(&was_of(&watched(&done)), &watched(&done), &done).is_some());
+        // Merged, or closed, it says which.
+        let merged = git::Pr {
+            state: "merged".into(),
+            ..done.clone()
+        };
+        assert!(settled(&merged).starts_with("Pull request #7 was merged."));
+        let closed = git::Pr {
+            state: "closed".into(),
+            ..done
+        };
+        assert!(settled(&closed).starts_with("Pull request #7 was closed without merging."));
     }
 
     use std::sync::mpsc;

@@ -73,6 +73,9 @@ enum Act {
     /// A new session in a project about an issue: its number and title
     /// begin what you write.
     FromIssue(PathBuf, u64, String),
+    /// A pull request or issue linked to the session on screen, or
+    /// unlinked where it was.
+    Link(crate::store::Link),
 }
 
 /// What the palette looks through: everything, the project's files
@@ -503,6 +506,13 @@ impl Desk {
                 rows.push(Row::new("bell", "Mark unread", Act::Unread));
             }
             rows.push(Row::new("bulb", "Ask a side question", Act::Beside));
+            if s.repo {
+                rows.push(Row::new(
+                    "pull-request",
+                    "Link a pull request or issue",
+                    Act::Sub(Sub::Link),
+                ));
+            }
             if !matches!(s.state, State::Working | State::Opening) {
                 rows.push(Row::new("archive", "Archive the session", Act::Archive));
                 rows.push(Row::new("trash", "Delete the session", Act::Delete));
@@ -905,6 +915,11 @@ impl Desk {
             }
             Act::FromIssue(folder, n, title) => {
                 self.start_from_issue(folder, n, &title, false, window, cx);
+            }
+            Act::Link(link) => {
+                if let Some(key) = self.current {
+                    self.link(key, link);
+                }
             }
         }
         cx.notify();
