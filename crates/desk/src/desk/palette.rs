@@ -15,7 +15,7 @@ use gpui::{
 };
 
 use gpui::component::{
-    IndexPath, WindowExt as _,
+    IndexPath, Sizable as _, WindowExt as _,
     command::{Command, CommandGroup, CommandItem, CommandState},
     kbd::Kbd,
 };
@@ -953,7 +953,10 @@ impl Desk {
             Through::Files => ("Search files…", "No matching files."),
             Through::Words => ("Search the project's files…", "No matching words."),
         };
+        // The line you search with as a palette on its own has it: 44
+        // high, its text and icon 16.
         let mut command = Command::new(&self.palette.state)
+            .large()
             .filterable(false)
             .bordered(false)
             .placeholder(placeholder)
