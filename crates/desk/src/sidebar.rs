@@ -138,6 +138,7 @@ impl Desk {
                 )
                 .flex_1()
         } else {
+            let focus = gpui::Focusable::focus_handle(self.side.read(cx), cx);
             div()
                 .flex_1()
                 .min_h(px(0.))
@@ -148,8 +149,9 @@ impl Desk {
                     }
                 }))
                 .child(
-                    tree(&self.side, move |_, entry, _, _, cx| {
-                        desk.read(cx).side_row(entry, &desk, cx)
+                    tree(&self.side, move |_, entry, chosen, window, cx| {
+                        let focused = focus.contains_focused(window, cx);
+                        desk.read(cx).side_row(entry, chosen, focused, &desk, cx)
                     })
                     .context_menu(move |_, entry, menu, window, cx| {
                         let id = entry.item().id.clone();

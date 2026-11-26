@@ -1675,7 +1675,7 @@ impl Render for Desk {
         self.sync_diff(cx);
         self.sync_files(cx);
         self.read_projects();
-        self.sync_side(cx);
+        self.sync_side(window, cx);
         // ⌘ let go where the desk did not hear it (over a dialog): the
         // sessions' numbers go.
         if self.numbers_shown && !window.modifiers().platform {

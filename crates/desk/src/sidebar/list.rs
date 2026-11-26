@@ -108,14 +108,20 @@ pub fn compact(t: SystemTime, now: SystemTime) -> String {
 }
 
 impl Desk {
-    /// Give the sidebar's tree its rows, where they changed; the row open
-    /// is the session on screen.
-    pub(crate) fn sync_side(&mut self, cx: &mut Context<Self>) {
+    /// Give the sidebar's tree its rows, where they changed; the row
+    /// chosen is the session on screen, but while the keys move it.
+    pub(crate) fn sync_side(&mut self, window: &Window, cx: &mut Context<Self>) {
         let (items, order) = self.side_items(cx);
         let mut drawn = String::new();
         shape(&items, &mut drawn);
         let current = self.current;
-        if drawn != self.side_shape || current != self.side_current {
+        let away = {
+            let tree = self.side.read(cx);
+            let open = current.and_then(|k| tree.index_of(&Row::Session(k).id()));
+            !gpui::Focusable::focus_handle(tree, cx).contains_focused(window, cx)
+                && tree.selected_index() != open
+        };
+        if drawn != self.side_shape || current != self.side_current || away {
             let reshaped = drawn != self.side_shape;
             self.side_shape = drawn;
             self.side_current = current;
@@ -338,10 +344,19 @@ impl Desk {
         (items, order)
     }
 
-    /// A row of the tree, drawn from what the desk knows now.
-    pub(crate) fn side_row(&self, entry: &TreeEntry, desk: &Entity<Self>, cx: &App) -> ListItem {
+    /// A row of the tree, drawn from what the desk knows now. `chosen`:
+    /// the row the keys move from; `focused`: the tree has the keys.
+    pub(crate) fn side_row(
+        &self,
+        entry: &TreeEntry,
+        chosen: bool,
+        focused: bool,
+        desk: &Entity<Self>,
+        cx: &App,
+    ) -> ListItem {
         let faces = crate::fonts::faces(cx).clone();
         let id = entry.item().id.clone();
+        let open = matches!(Row::of(&id), Some(Row::Session(k)) if self.current == Some(k));
         // Rows stand a little apart, so that the ground of one lit (hovered,
         // chosen) never runs into the next: 36 from one to the next, as
         // t3code's.
@@ -349,7 +364,22 @@ impl Desk {
             .h(px(32.))
             .my(px(2.))
             .px(px(10.))
-            .rounded(px(8.));
+            .rounded(px(8.))
+            // The session open keeps the open row's ground wherever the
+            // keys are (gpui-kit gives it to the row they move from too).
+            .when(open, |i| i.bg(theme::row_open()))
+            // While the tree has the keys, the row they move from is ringed,
+            // over the whole row.
+            .when(chosen && focused, |i| {
+                i.suffix(|_, _| {
+                    div()
+                        .absolute()
+                        .inset_0()
+                        .rounded(px(8.))
+                        .border_2()
+                        .border_color(theme::faint())
+                })
+            });
         match Row::of(&id) {
             Some(Row::Project(folder)) => self.project_row(&faces, item, &folder, entry, desk),
             Some(Row::Session(key)) => match self.sessions.at(key) {
