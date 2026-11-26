@@ -533,11 +533,7 @@ impl Desk {
         let group = SharedString::from(format!("srow-{key}"));
         let status = lists::status(s);
         let now = SystemTime::now();
-        let title = if s.state == State::Draft && s.items.is_empty() {
-            "New session".to_owned()
-        } else {
-            s.meta.title.clone()
-        };
+        let title = s.shown_title().to_owned();
         // It recedes while it works or waits, and once read and finished.
         let wants = status.is_some_and(|st| st != lists::Status::Working);
         let name = if self.renaming == Some(Renaming::Session { key, here: false }) {

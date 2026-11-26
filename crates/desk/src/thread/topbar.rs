@@ -59,11 +59,7 @@ impl Desk {
                     // The title alone, as Claude sets it: a click renames
                     // it where it is, its caret opens the session's menu.
                     let new = s.items.is_empty();
-                    let shown = if new {
-                        "New session".to_owned()
-                    } else {
-                        s.meta.title.clone()
-                    };
+                    let shown = s.shown_title().to_owned();
                     let key = s.key;
                     let here = Renaming::Session { key, here: true };
                     let named: gpui::AnyElement = if self.renaming.as_ref() == Some(&here) {

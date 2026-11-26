@@ -481,7 +481,7 @@ impl Desk {
                 "{} \u{201c}{}\u{201d}",
                 u.what.word(),
                 (self.sessions.at(*key))
-                    .map(|s| crate::ui::fit(&s.meta.title, 32))
+                    .map(|s| crate::ui::fit(s.shown_title(), 32))
                     .unwrap_or_default()
             ),
             all => format!("{} {} sessions", u.what.word(), all.len()),

@@ -350,6 +350,10 @@ pub fn kit(cx: &mut App) {
         t.font_size = px(crate::style::BODY);
         t.radius = px(8.);
         t.radius_lg = px(12.);
+        // Notices sit at the foot, clear of the composer, not over the
+        // controls at the top of a column.
+        t.notification.placement = gpui::Anchor::BottomRight;
+        t.notification.margins.bottom = px(96.);
         let c = &mut t.colors;
         c.background = bg();
         c.foreground = text();

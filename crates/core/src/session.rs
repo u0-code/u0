@@ -1326,6 +1326,16 @@ impl Session {
         }
     }
 
+    /// Its title as it is shown and said: "New session" for one not begun,
+    /// whose title is only its folder's name till you write in it.
+    pub fn shown_title(&self) -> &str {
+        if self.state == State::Draft && self.items.is_empty() {
+            "New session"
+        } else {
+            &self.meta.title
+        }
+    }
+
     /// Whether something the agent asked waits on you: a permission, a
     /// form, a page.
     pub fn asks(&self) -> bool {
