@@ -110,7 +110,7 @@ impl Desk {
                             .items_end()
                             .gap(px(4.))
                             .px(px(7.))
-                            .py(px(8.))
+                            .py(px(LINE_PAD))
                             .child(self.add_menu(s, cx))
                             .child(
                                 div()
@@ -475,6 +475,8 @@ impl Desk {
                 .slot(&s.meta.agent)
                 .and_then(crate::hub::Slot::caps)
                 .is_some_and(|k| k.session_capabilities.additional_directories.is_some());
+        // From a button inside the box: 4 points over the box's top edge,
+        // not over the button's.
         over_line(self.menu(
             Popup::Add,
             button,
@@ -505,6 +507,7 @@ impl Desk {
             },
             cx,
         ))
+        .offset(px(4. + LINE_PAD + 1.))
     }
 
     /// Send, once something is written; while a turn goes on, as it will
@@ -1064,6 +1067,10 @@ impl Desk {
 pub(super) fn over_box(menu: Popover, corner: gpui::Anchor) -> Popover {
     menu.anchor(corner).offset(px(4.))
 }
+
+/// Room above and below the line in the box: with the line's 28 and the
+/// border, the box is Claude's 44 high.
+const LINE_PAD: f32 = 7.;
 
 /// A menu of the composer's at its left.
 pub(super) fn over_line(menu: Popover) -> Popover {
