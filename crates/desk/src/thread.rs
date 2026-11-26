@@ -32,7 +32,12 @@ use agent_client_protocol::v1::schema::{
     SessionConfigSelectOptions, ToolCallContent, ToolCallStatus, ToolKind,
 };
 use gpui::component::{
-    button::Button, input::Textarea, popover::Popover, scroll::ScrollableElement as _,
+    bubble::{Bubble, BubbleContent, BubbleVariant},
+    button::Button,
+    input::Textarea,
+    message::MessageAlignment,
+    popover::Popover,
+    scroll::ScrollableElement as _,
 };
 use gpui::{AnyElement, Context, Div, SharedString, Stateful, div, prelude::*, px};
 
@@ -792,20 +797,25 @@ impl Desk {
                     .gap(px(4.))
                     .group(group)
                     .child(
-                        div()
-                            .font_family(faces.ui.clone())
-                            .text_color(theme::text())
+                        Bubble::new()
+                            .alignment(MessageAlignment::End)
+                            .with_variant(BubbleVariant::Secondary)
+                            .max_w(px(520.))
+                            .content(
+                                BubbleContent::new()
+                                    .font_family(faces.ui.clone())
+                                    .text_color(theme::text())
+                                    .bg(theme::bubble())
+                                    .px(px(16.))
+                                    .py(px(12.))
+                                    .rounded(px(BUBBLE_RADIUS))
+                                    .text_size(px(14.))
+                                    .line_height(px(21.)),
+                            )
                             .child(gpui::base::SelectableText::new(
                                 SharedString::from(format!("{key}-you-words")),
                                 shown,
-                            ))
-                            .max_w(px(520.))
-                            .px(px(16.))
-                            .py(px(12.))
-                            .rounded(px(BUBBLE_RADIUS))
-                            .bg(theme::bubble())
-                            .text_size(px(14.))
-                            .line_height(px(21.)),
+                            )),
                     )
                     .when(long, |d| {
                         d.child(
