@@ -1,13 +1,12 @@
 //! The thread as gpui-kit's `MessageScroller`, a list drawn only where it is
 //! seen: a session of a thousand items lays out the few on screen. The
 //! list is kept in step with the session's rows, measured again only from
-//! the first that changed, and follows its foot while it is read there. Over it, find (⌘F) and a map of the session's turns down
-//! its right edge, both of which bring a row into view, opening what folds
-//! it away.
+//! the first that changed, and follows its foot while it is read there. Over it, find (⌘F), which brings a row into view, opening what folds
+//! it away; ⌃⇧↑ and ⌃⇧↓ go from one thing you said to the next.
 
 use gpui::{
     AnyElement, App, Context, Div, Entity, SharedString, StyleRefinement, Window, div, prelude::*,
-    px, relative,
+    px,
 };
 
 use gpui::component::input::{Input, InputEvent, InputState};
@@ -241,20 +240,26 @@ impl Desk {
         }
     }
 
-    /// The thread as a list, with find over it and the map of its turns
+    /// The thread as a list, with find over it and the kit's scrollbar
     /// beside it.
     pub(crate) fn thread_list(&self, column: f32, cx: &mut Context<Self>) -> Div {
         let this = cx.entity().downgrade();
-        // Rows are spaced by themselves, and the turn map stands where a
-        // scrollbar would.
+        // Rows are spaced by themselves. The way to the end floats over the
+        // prose on a raised ground of its own, so text never runs under a
+        // bare arrow.
         let list = MessageScroller::new("thread", self.list.clone(), move |ix, window, cx| {
             this.update(cx, |desk, cx| desk.line(ix, column, window, cx))
                 .unwrap_or_else(|_| div().into_any_element())
         })
-        .scrollbar(false)
         .with_list_style(StyleRefinement::default().p_0())
         .with_row_style(StyleRefinement::default().p_0())
         .with_jump_button_label("To the end")
+        .with_jump_button_style(
+            StyleRefinement::default()
+                .bg(theme::panel())
+                .border_color(theme::border2())
+                .shadow_md(),
+        )
         .size_full();
         let faces = fonts::faces(cx).clone();
         div()
@@ -267,7 +272,6 @@ impl Desk {
             .children(self.family_tabs(cx))
             .children(self.find.open.then(|| self.find_bar(&faces, cx)))
             .child(div().flex_1().min_h(px(0.)).child(list))
-            .children(self.session().map(|s| Self::turn_map(s, cx)))
     }
 
     /// Tabs over the thread: the session's, and one for each subagent at
@@ -574,37 +578,5 @@ impl Desk {
                         .on_click(cx.listener(|this, _, window, cx| this.toggle_find(window, cx))),
                 ),
         )
-    }
-
-    /// A map of the session down the thread's right edge: a mark for each
-    /// thing you said, where it falls in the session; a click goes there.
-    fn turn_map(s: &Session, cx: &mut Context<Self>) -> Div {
-        let n = s.items.len().max(1);
-        let mut map = div()
-            .absolute()
-            .top(px(8.))
-            .bottom(px(8.))
-            .right(px(6.))
-            .w(px(10.));
-        for (i, item) in s.items.iter().enumerate() {
-            let Item::You(text) = item else { continue };
-            let at = i as f32 / n as f32;
-            map = map.child(
-                div()
-                    .id(SharedString::from(format!("map-{i}")))
-                    .absolute()
-                    .top(relative(at))
-                    .left(px(1.))
-                    .w(px(8.))
-                    .h(px(3.))
-                    .rounded(px(1.5))
-                    .bg(theme::faint())
-                    .cursor_pointer()
-                    .hover(|st| st.bg(theme::text()))
-                    .tooltip(ui::tip(format!("{} · ⌃⇧↑ ⌃⇧↓", ui::fit(text, 60))))
-                    .on_click(cx.listener(move |this, _, _, cx| this.reveal_item(i, cx))),
-            );
-        }
-        map
     }
 }
