@@ -132,6 +132,8 @@ impl Shared {
         mut launch: acp::Launch,
         env: BTreeMap<String, Option<String>>,
     ) -> Result<(Arc<Agent>, Started), Error> {
+        crate::policy::allows(crate::policy::Limit::Agent(agent))
+            .map_err(|why| Error::internal_error().data(why))?;
         let of = agent.to_owned();
         // Read from the Keychain, or 1Password, which may ask you first.
         let vars = tokio::task::spawn_blocking(move || crate::secrets::env(&of, &env)).await;

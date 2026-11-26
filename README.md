@@ -252,12 +252,24 @@ manages it.
     "telemetry": { "value": 0, "locked": true },
     "check_updates": { "value": false, "locked": true },
     "branch_prefix": { "value": "corp/", "locked": false }
+  },
+  "limits": {
+    "agents": ["claude-acp", "codex-acp"],
+    "remote": false,
+    "tunnel": false,
+    "webhooks": false
   }
 }
 ```
 
-A policy that does not read, or names something that is not a setting,
-keeps the settings from loading until it is put right.
+`limits` are what no setting can undo, enforced by the server: only the
+agents named start (by their registry id), no other device links to this
+Mac (Ghost does not listen), no cloudflared tunnel runs, no webhook task
+runs. A limit left out limits nothing.
+
+A policy that does not read, names something that is not a setting, or a
+limit Ghost does not know, keeps the settings from loading until it is
+put right.
 
 ## Security
 

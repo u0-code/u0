@@ -161,8 +161,12 @@ impl Shared {
     /// Run the task `id`: its run marked going, its next one set, and the
     /// turn said; then how it went kept.
     /// Run the webhook task of `token` with what its caller sent, `body`:
-    /// whether there is one, not paused.
+    /// whether there is one, not paused, and the policy lets webhooks run.
     fn hook(&self, token: &str, body: &str) -> bool {
+        if let Err(why) = crate::policy::allows(crate::policy::Limit::Webhooks) {
+            tracing::info!("a webhook was not run: {why}");
+            return false;
+        }
         let id = (tasks::load(&self.home).ok())
             .and_then(|all| {
                 all.tasks

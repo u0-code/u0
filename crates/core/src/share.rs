@@ -235,16 +235,18 @@ impl Server {
         sharing.stop_listening();
     }
 
-    /// Listen on 127.0.0.1, unless it does already.
+    /// Listen on 127.0.0.1, unless it does already, or the policy forbids.
     pub fn serve(self: &Arc<Self>) -> Result<(), String> {
         let mut sharing = self.sharing();
         if sharing.port().is_some() {
             return Ok(());
         }
         let port = self.access().kept().map_or(4317, |k| k.port);
-        let bound = std::net::TcpListener::bind(("127.0.0.1", port))
-            .and_then(|l| l.set_nonblocking(true).map(|()| l))
-            .map_err(|e| format!("Ghost could not listen on 127.0.0.1:{port}: {e}"));
+        let bound = crate::policy::allows(crate::policy::Limit::Remote).and_then(|()| {
+            std::net::TcpListener::bind(("127.0.0.1", port))
+                .and_then(|l| l.set_nonblocking(true).map(|()| l))
+                .map_err(|e| format!("Ghost could not listen on 127.0.0.1:{port}: {e}"))
+        });
         let listening = bound.and_then(|l| {
             let port = l.local_addr().map_err(|e| e.to_string())?.port();
             let _in_runtime = crate::acp::runtime().enter();
@@ -270,6 +272,10 @@ impl Server {
         let mut sharing = self.sharing();
         sharing.stop_tunnel();
         let Some(port) = sharing.port() else { return };
+        if let Err(why) = crate::policy::allows(crate::policy::Limit::Tunnel) {
+            *sharing.tunnel.lock().expect("tunnel") = Tunnel::Down(why);
+            return;
+        }
         let Some(cloudflared) = which::which("cloudflared").ok() else {
             *sharing.tunnel.lock().expect("tunnel") =
                 Tunnel::Down("cloudflared is not installed: brew install cloudflared".into());

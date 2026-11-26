@@ -154,7 +154,7 @@ crates/core/src/
   forge/        GitLab, Bitbucket and Azure DevOps over their APIs; Linear's issues
   settings.rs   ~/.ghost/settings.json and the home
   policy.rs     an organisation's policy (/Library/Application Support/Ghost/policy.json):
-                settings set as defaults or locked
+                settings set as defaults or locked; limits the server enforces
   secrets.rs    what is kept secret: in the macOS Keychain, or a 1Password reference
   store.rs      sessions.json and each session's record; the writer thread
   tasks.rs      scheduled tasks: a prompt, its agent and project, its schedule (tasks.json)
@@ -276,6 +276,9 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   `settings.json` as defaults or locked, applied in `Settings::load`; a
   locked control is disabled and says who manages it. One that does not
   read keeps the settings from loading, as a settings file that does not.
+  Its `limits` (agents allowed, remote, tunnel, webhooks) are checked
+  with `policy::allows` where the server does the thing: an agent
+  launched, listening, the tunnel, a webhook run.
 - `~/.ghost/tasks.json` holds the scheduled tasks; the server writes it
   and runs them (`Call::SetTask`, `Event::Tasks`), each run a session kept
   in the index like any other. A task on a webhook (`Schedule::Hook`) runs
