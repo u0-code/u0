@@ -8,9 +8,11 @@ rule, path or command stated here updates this file in the same commit.
 ## What Ghost is
 
 A desktop app (GPUI, macOS first) that runs other coding agents over the
-Agent Client Protocol. It has no agent, model client or prompt of its own.
-A feature that needs Ghost to think, or to give an agent tools, is out of
-scope: the agent brings those.
+Agent Client Protocol. It has no agent, model client or prompt of its own:
+a feature that needs Ghost to think asks one of your agents (the writer).
+Ghost may give an agent tools, as one MCP server of its own (an existing
+MCP crate over `proto::Call`) attached to a session through ACP's
+`mcpServers`, and the same server for agents outside Ghost.
 
 ## Definition of done
 
