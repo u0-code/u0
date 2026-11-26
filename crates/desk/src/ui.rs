@@ -184,7 +184,9 @@ pub fn segmented(id: &str, choices: Vec<(impl Into<SharedString>, bool, Pick)>) 
         .into_iter()
         .enumerate()
         .map(|(n, (label, on, pick))| {
-            let choice = Button::new(n).label(label).selected(on);
+            let choice = Button::new(SharedString::from(format!("{id}-{n}")))
+                .label(label)
+                .selected(on);
             (if on { choice.primary() } else { choice }, pick)
         })
         .unzip();
