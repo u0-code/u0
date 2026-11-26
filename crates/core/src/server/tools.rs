@@ -77,6 +77,9 @@ pub(super) struct Tools {
 /// Why a tool that acts, or asks you, is not for an agent outside Ghost.
 const OUTSIDE: &str = "Only an agent in a session of Ghost's can do this: Ghost asks you first there. Start one in Ghost.";
 
+/// Why a folder is not read for this caller.
+const NOT_HERE: &str = "Only a project of yours, or a worktree of one, is read here";
+
 /// Why a tool that acts is not for this caller: it may only read.
 const READS: &str = "This agent may only read here: let agents outside Ghost act on a session in Settings › Agents, or start one in Ghost.";
 
@@ -209,10 +212,18 @@ impl Tools {
     }
 
     /// `folder`, or where the session it calls from works.
+    /// One not in a session of Ghost's (outside Ghost, on a device) reads
+    /// only in a project of yours or a worktree, as a device that may only
+    /// read does (`access::within`).
     fn folder(&self, folder: Option<PathBuf>) -> Result<PathBuf, String> {
-        folder
+        let folder = folder
             .or_else(|| self.session().map(|(_, m)| m.folder))
-            .ok_or_else(|| "Name the folder".into())
+            .ok_or("Name the folder")?;
+        match self.caller() {
+            Some(Caller::Session(..)) => Ok(folder),
+            _ if crate::access::within(&self.shared.home, &[&folder]) => Ok(folder),
+            _ => Err(NOT_HERE.into()),
+        }
     }
 }
 
@@ -811,6 +822,36 @@ mod tests {
         assert!(body.contains("may only read"), "{body}");
         let (status, _) = over_http(home.path(), "not a key", &list);
         assert!(status.contains("401"), "{status}");
+    }
+
+    #[test]
+    fn an_agent_outside_ghost_reads_a_diff_of_your_projects_alone() {
+        let home = tempfile::tempdir().unwrap();
+        let (project, elsewhere) = (home.path().join("p"), tempfile::tempdir().unwrap());
+        std::fs::create_dir(&project).unwrap();
+        for dir in [&project, &elsewhere.path().to_path_buf()] {
+            let made = std::process::Command::new("git")
+                .arg("init")
+                .arg("-q")
+                .arg(dir)
+                .status();
+            assert!(made.unwrap().success());
+            std::fs::write(dir.join("secret.txt"), "the other repo's").unwrap();
+        }
+        let settings = json!({"enabled": [], "folders": [project]});
+        std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
+        let (_server, _said) = server(home.path());
+        let mut client = Client::new(home.path(), None);
+        client.call("read_diff", &json!({"folder": elsewhere.path()}));
+        assert_eq!(client.result(), (NOT_HERE.to_owned(), true));
+        client.call(
+            "read_diff",
+            &json!({"folder": project.join("..").join("..")}),
+        );
+        assert_eq!(client.result(), (NOT_HERE.to_owned(), true));
+        client.call("read_diff", &json!({"folder": project}));
+        let (said, failed) = client.result();
+        assert!(!failed && said.contains("secret.txt"), "{said}");
     }
 
     #[test]

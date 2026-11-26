@@ -34,7 +34,7 @@ in **Settings › Agents** and switch them off. That agent's id is added to
 |---|---|---|
 | `list_sessions` | The sessions Ghost keeps, the latest first (up to 100): each one's agent, id, title, project, the folder it works in and whether it is archived. Optional `project` filters by folder. | Any agent |
 | `read_session` | What was said in a session: your messages (led by "You:") and the agent's answers. Takes `agent` and `session`. | Any agent |
-| `read_diff` | What is not committed in a folder, as a unified diff. `folder` defaults to where the calling session works. | Any agent |
+| `read_diff` | What is not committed in a folder, as a unified diff. `folder` defaults to where the calling session works; for an agent outside Ghost it must be in a project of yours or a worktree of one. | Any agent |
 | `delegate_task` | Hand a task to an agent in a new Ghost session, which you can watch, and wait for its answer. Takes `prompt`, `title`, and optionally `agent`, `project` and `worktree`. Returns the new session's id and its final answer. | Sessions in Ghost; asks you first |
 | `open_pr` | Commit what is not committed where the session works, push it (on a branch of its own if on the default branch) and open a pull request with `gh`. Takes `title`, `body` and optionally the commit `message`. | Sessions in Ghost; asks you first |
 | `schedule_task` | Schedule a prompt for an agent, in a new session each time: once (`in_minutes`) or repeatedly (`every_minutes`). It appears in **Settings › Scheduled tasks**, where you can pause or delete it. | Sessions in Ghost; asks you first |

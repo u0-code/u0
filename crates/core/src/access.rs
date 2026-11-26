@@ -305,18 +305,25 @@ impl Access {
         let Some(paths) = call.reads() else {
             return false;
         };
-        if paths.is_empty() {
-            return true;
-        }
-        let settings = crate::settings::Settings::load(home).0;
-        let roots: Vec<PathBuf> = (settings.folders.iter())
-            .chain(&settings.worktree_folders(home))
-            .filter_map(|r| std::fs::canonicalize(r).ok())
-            .collect();
-        paths
-            .iter()
-            .all(|p| std::fs::canonicalize(p).is_ok_and(|p| roots.iter().any(|r| p.starts_with(r))))
+        within(home, &paths)
     }
+}
+
+/// Whether each of `paths` lies, by its real path (so that no `..` or link
+/// leads out), in a project of yours or a worktree of Ghost's home `home`:
+/// all that one who may only read is let read.
+pub fn within(home: &Path, paths: &[&Path]) -> bool {
+    if paths.is_empty() {
+        return true;
+    }
+    let settings = crate::settings::Settings::load(home).0;
+    let roots: Vec<PathBuf> = (settings.folders.iter())
+        .chain(&settings.worktree_folders(home))
+        .filter_map(|r| std::fs::canonicalize(r).ok())
+        .collect();
+    paths
+        .iter()
+        .all(|p| std::fs::canonicalize(p).is_ok_and(|p| roots.iter().any(|r| p.starts_with(r))))
 }
 
 /// `N` bytes from the system's randomness (ring's, as the keys are made).
