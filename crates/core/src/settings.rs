@@ -878,6 +878,18 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// These settings as a device that may only read is told them, as
+    /// `Event::for_reader` tells it what happens: no value of an agent's
+    /// variables (each as if kept secret), nor any command line of yours
+    /// that starts one, either of which may hold a key that spends as you.
+    #[must_use]
+    pub fn for_reader(&self) -> Self {
+        let mut told = self.clone();
+        (told.env.values_mut().flat_map(|vars| vars.values_mut())).for_each(|v| *v = None);
+        told.commands.clear();
+        told
+    }
+
     /// The settings in `home`, as this machine's policy has them
     /// (`policy`); the defaults where there are none. A file that cannot be
     /// read is not overwritten: the reason comes back with the defaults,

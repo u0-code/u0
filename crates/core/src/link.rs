@@ -425,7 +425,10 @@ fn welcome(server: &Server, scope: Scope) -> Welcome {
         home: server.home().to_path_buf(),
         resumed: false,
         said: 0,
-        settings: server.settings(),
+        settings: match scope {
+            Scope::Full => server.settings(),
+            Scope::Read => server.settings().map(|s| Box::new(s.for_reader())),
+        },
         back: None,
         scope,
     }
@@ -2130,6 +2133,32 @@ esac; done"#;
             "{seen}"
         );
         assert!(crate::tasks::Hook::new().signed, "a new webhook is signed");
+    }
+
+    #[test]
+    fn a_device_that_may_only_read_is_told_no_agents_variable_nor_command_line() {
+        let home = tempfile::tempdir().unwrap();
+        let settings = serde_json::json!({"env": {"a": {"API_KEY": "sk-live-1"}},
+            "commands": {"a": "/bin/agent --key sk-live-2"}});
+        std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
+        let (server, port) = server(home.path());
+        let read = crate::access::Grant {
+            scope: crate::access::Scope::Read,
+            ..crate::access::Grant::default()
+        };
+        let watcher = kept();
+        pair_as(&server, port, &watcher, read);
+        let (_watching, theirs, ..) = desk(port, key(&watcher), None).unwrap();
+        let (_owning, mine, ..) = desk(port, Key::generate(), Some(&server)).unwrap();
+        let said = |w: &Welcome| serde_json::to_string(&w.settings).unwrap();
+        assert!(said(&mine).contains("sk-live-1") && said(&mine).contains("sk-live-2"));
+        let told = said(&theirs);
+        assert!(!told.contains("sk-live"), "{told}");
+        assert_eq!(
+            theirs.settings.as_ref().unwrap().env["a"]["API_KEY"],
+            None,
+            "named, as if secret"
+        );
     }
 
     #[test]

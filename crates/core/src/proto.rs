@@ -947,7 +947,8 @@ pub enum Event {
 impl Event {
     /// This event as a device that may only read is told it, where it
     /// carries what would let one act: a webhook task's address (its
-    /// token) taken out. None where it carries nothing such.
+    /// token) taken out. None where it carries nothing such. (The
+    /// settings it is welcomed with are `Settings::for_reader`.)
     pub fn for_reader(&self) -> Option<Self> {
         match self {
             Self::Tasks(Ok(tasks)) => Some(Self::Tasks(Ok((tasks.iter().cloned())
