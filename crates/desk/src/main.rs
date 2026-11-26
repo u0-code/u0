@@ -11,6 +11,7 @@
 mod aside;
 mod assets;
 mod desk;
+mod figures;
 mod fonts;
 mod hub;
 mod keys;

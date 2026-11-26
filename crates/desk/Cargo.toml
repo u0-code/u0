@@ -30,6 +30,11 @@ which.workspace = true
 nucleo-matcher.workspace = true
 jsonc-parser.workspace = true
 sys-locale.workspace = true
+ratex-parser.workspace = true
+ratex-layout.workspace = true
+ratex-types.workspace = true
+ratex-svg.workspace = true
+mermaid-rs-renderer.workspace = true
 # The pairing QR code, drawn as the SVG the crate writes.
 qrcode = { workspace = true, features = ["svg"] }
 

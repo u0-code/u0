@@ -156,6 +156,9 @@ pub struct Settings {
     /// An answer streams in a paragraph at a time, not word by word.
     #[serde(default)]
     pub paragraphs: bool,
+    /// TeX in what an agent says (`$…$`, `$$…$$`) is set as formulas.
+    #[serde(default)]
+    pub math: bool,
     /// What a worktree's branch begins with, before the name the writer
     /// gives it.
     #[serde(default = "prefix")]
@@ -809,6 +812,7 @@ impl Default for Settings {
             view: View::default(),
             send: SendKey::default(),
             paragraphs: false,
+            math: false,
             left: left(),
             right: right(),
             diff_wrap: yes(),

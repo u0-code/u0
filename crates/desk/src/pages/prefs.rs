@@ -648,6 +648,21 @@ impl Desk {
                                     .into_any_element()
                                 },
                             ),
+                            item(
+                                w,
+                                "Math",
+                                "TeX in what an agent says, $…$ and $$…$$, set as formulas.",
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "math",
+                                        [("As written", false), ("Set as formulas", true)],
+                                        d.settings.math,
+                                        |s, v| s.math = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
+                            ),
                         ],
                     ),
                 ],

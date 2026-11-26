@@ -206,6 +206,8 @@ crates/desk/src/
                 the PRs and Issues pages drawn (forge, its menus forge/menus;
                 a pull request reviewed, pr)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
+  figures.rs    what Markdown shows as a picture: Mermaid (mermaid-rs-renderer) and
+                TeX (ratex), drawn natively as SVG
   ui.rs, theme.rs, style.rs
   themes.rs     themes in gpui-kit's format: Ghost's, yours, a VS Code theme imported
   fonts.rs, assets.rs   faces, icons

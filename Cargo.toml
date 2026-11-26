@@ -58,6 +58,14 @@ jiff = "1.0.2"
 # dependency already.
 sys-locale = "0.3"
 tempfile = "3.27"
+# What Markdown shows as a picture, drawn natively as SVG: a formula set
+# by RaTeX (KaTeX in Rust, its glyphs as outlines), a Mermaid diagram by
+# mermaid-rs-renderer.
+ratex-parser = { version = "0.1.16", default-features = false }
+ratex-layout = { version = "0.1.16", default-features = false }
+ratex-types = "0.1.16"
+ratex-svg = { version = "0.1.16", default-features = false, features = ["embed-fonts"] }
+mermaid-rs-renderer = { version = "0.3.1", default-features = false }
 # A PDF's pages, drawn in Rust: the Files tab's viewer.
 hayro = "0.9"
 # The one HTTP client: the registry and its archives, the forges' APIs, the

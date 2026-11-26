@@ -420,9 +420,9 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> Div {
         let full = s.meta.folder.join(path);
-        let markdown = path
-            .extension()
-            .is_some_and(|e| e == "md" || e == "markdown");
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+        let mermaid = matches!(ext, "mmd" | "mermaid");
+        let markdown = mermaid || matches!(ext, "md" | "markdown");
         let value = self.viewer.editor.read(cx).value().to_string();
         let text = match &self.viewer.shown {
             Some(Shown::Text(was)) => Some(was.clone()),
@@ -528,7 +528,16 @@ impl Desk {
                 .min_h(px(0.))
                 .px(px(16.))
                 .py(px(12.))
-                .child(markdown::render(faces, "file-drawn", &value, cx))
+                .child(markdown::render(
+                    faces,
+                    "file-drawn",
+                    &if mermaid {
+                        format!("```mermaid\n{value}\n```")
+                    } else {
+                        value
+                    },
+                    cx,
+                ))
                 .overflow_y_scrollbar()
                 .into_any_element(),
             Some(Shown::Text(_)) => div()

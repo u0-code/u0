@@ -24,6 +24,7 @@ use gpui::{
 
 use crate::{
     desk::Desk,
+    figures,
     fonts::Faces,
     style::{H1, H2, H3, PROSE, PROSE_LINE},
     theme, ui,
@@ -67,6 +68,8 @@ pub fn render(faces: &Faces, key: &str, text: &str, cx: &mut Context<Desk>) -> i
                 .selectable(true)
                 .markdown_extensions(extensions())
                 .plugin(Paths(desk))
+                .plugin(figures::Figures(figures::math()))
+                .when(figures::math(), |v| v.plugin(figures::Formulas))
                 .on_link_click(move |to, click, window, cx| {
                     follow(&links, to, click.modifiers().platform, window, cx);
                 })

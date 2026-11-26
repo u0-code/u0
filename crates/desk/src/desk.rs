@@ -2089,6 +2089,7 @@ pub const EDITORS: [(&str, &str); 4] = [
 /// not from the settings: as Ghost starts and as they change.
 fn mirror(settings: &settings::Settings, cx: &mut gpui::App) {
     theme::set_blue_orange(settings.blue_orange);
+    crate::figures::set_math(settings.math);
     theme::set_contrast(settings.contrast);
     theme::set_glass(settings.glass);
     theme::set_themes(settings.theme_dark.clone(), settings.theme_light.clone());
