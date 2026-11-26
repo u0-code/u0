@@ -742,7 +742,7 @@ impl Desk {
                                 .text_size(px(13.)),
                         )
                         .child(ui::one_line(
-                            ui::text(faces, ui::fit(why, 80))
+                            ui::text(faces, why.clone())
                                 .text_size(px(11.5))
                                 .text_color(theme::faint()),
                         )),
@@ -924,7 +924,7 @@ impl Desk {
                         .child(ui::icon("clock", 12.).text_color(theme::faint()))
                         .child(
                             ui::one_line(
-                                ui::text(faces, ui::fit(text, 70))
+                                ui::text(faces, text.clone())
                                     .text_size(px(12.5))
                                     .text_color(theme::text2()),
                             )

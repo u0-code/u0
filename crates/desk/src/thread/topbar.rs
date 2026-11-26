@@ -15,14 +15,8 @@ use crate::{
 };
 
 impl Desk {
-    /// The bar over the middle, `pane` points wide.
-    pub(crate) fn topbar(
-        &self,
-        faces: &Faces,
-        lights: f32,
-        pane: f32,
-        cx: &mut Context<Self>,
-    ) -> Div {
+    /// The bar over the middle.
+    pub(crate) fn topbar(&self, faces: &Faces, lights: f32, cx: &mut Context<Self>) -> Div {
         let mut bar = draggable()
             .flex()
             .flex_none()
@@ -68,7 +62,7 @@ impl Desk {
                     let shown = if new {
                         "New session".to_owned()
                     } else {
-                        ui::fit(&s.meta.title, ui::cols(pane - 200.))
+                        s.meta.title.clone()
                     };
                     let key = s.key;
                     let here = Renaming::Session { key, here: true };

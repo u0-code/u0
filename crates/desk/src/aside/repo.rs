@@ -96,8 +96,8 @@ impl Desk {
             .px(px(6.))
             .child(fine(faces, "against"))
             .child(
-                ui::mono(faces, ui::fit(&shown, 18))
-                    .text_size(px(12.))
+                ui::one_line(ui::mono(faces, shown).text_size(px(12.)))
+                    .max_w(px(140.))
                     .text_color(theme::text2()),
             )
             .child(ui::icon("chevron-down", 10.).text_color(theme::faint()));
@@ -238,7 +238,7 @@ impl Desk {
                         )
                         .child(
                             ui::one_line(
-                                ui::text(&faces, ui::fit(&subject, 30))
+                                ui::text(&faces, subject.clone())
                                     .text_size(px(12.5))
                                     .text_color(theme::text2()),
                             )

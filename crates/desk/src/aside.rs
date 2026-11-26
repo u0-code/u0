@@ -325,7 +325,7 @@ impl Desk {
                 .hover(|st| st.bg(theme::hover()))
         };
         let title = |text: &str| {
-            ui::one_line(ui::text(faces, ui::fit(text, 40)).text_size(px(13.)))
+            ui::one_line(ui::text(faces, text.to_owned()).text_size(px(13.)))
                 .flex_1()
                 .min_w(px(0.))
         };
@@ -463,7 +463,7 @@ impl Desk {
         let chip = ui::opener("branch-chip")
             .h(px(22.))
             .px(px(6.))
-            .child(fine_mono(faces, ui::fit(branch, 22)))
+            .child(ui::one_line(ui::fine_mono(faces, branch.to_owned())).max_w(px(160.)))
             .child(ui::icon("chevron-down", 10.).text_color(theme::faint()));
         let (faces, key, branch) = (faces.clone(), s.key, branch.to_owned());
         self.popover(
@@ -492,7 +492,7 @@ impl Desk {
             menu = menu.child(
                 ListItem::new(SharedString::from(format!("branch-{n}")))
                     .selected(on)
-                    .child(ui::mono(faces, ui::fit(b, 30)).text_size(px(12.)))
+                    .child(ui::one_line(ui::mono(faces, b.clone()).text_size(px(12.))))
                     .suffix(move |_, _| {
                         let copied = copied.clone();
                         ui::icon_button(
@@ -771,7 +771,7 @@ impl Desk {
             sec = sec.child(key_value(
                 faces,
                 "And in",
-                fine_mono(faces, ui::fit(&Desk::shown(folder), 24)),
+                ui::one_line(ui::fine_mono(faces, Desk::shown(folder))).max_w(px(200.)),
             ));
         }
         if let Some(wt) = &s.meta.worktree {
@@ -877,7 +877,7 @@ impl Desk {
             .child(key_value(
                 faces,
                 "Command",
-                fine_mono(faces, ui::fit(&command, 30)),
+                ui::one_line(ui::fine_mono(faces, command)).max_w(px(220.)),
             ))
             .child(key_value(
                 faces,

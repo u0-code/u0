@@ -49,7 +49,7 @@ impl Desk {
                 .child(verb(faces, word))
                 .child(
                     ui::one_line(
-                        ui::mono(faces, ui::fit(&bare(&asked.title), 64))
+                        ui::mono(faces, bare(&asked.title))
                             .text_size(px(13.5))
                             .text_color(theme::text()),
                     )

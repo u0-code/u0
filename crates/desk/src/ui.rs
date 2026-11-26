@@ -286,34 +286,21 @@ pub fn live_dot() -> Svg {
 }
 
 /// A piece of text that stays on one line. It is as wide as it may be: in
-/// a row, what its siblings leave; in a column, the column. Hiding the
-/// overflow is what lets it shrink below its text; a minimum width of
-/// zero, or a flex basis of zero, would do that too, but in a column
-/// either has the text measured without a width and cut to a few
-/// characters. What is wider than that is clipped at its edge: text that
-/// can be is cut to its room with [`fit`] first, so that it trails off.
+/// a row, what its siblings leave; in a column, the column. What is wider
+/// trails off in an ellipsis where GPUI measured it would not fit, so the
+/// cut falls between characters, Chinese or Latin, never through one.
 pub fn one_line(d: Div) -> Div {
-    d.w_full().overflow_hidden().whitespace_nowrap()
-}
-
-/// About how many points a column of one-line text takes at the sizes it
-/// is set in (11.5 to 14): a Latin letter is a column, a Chinese
-/// character two.
-const POINTS_PER_COL: f32 = 7.;
-
-/// How many columns of text `points` of room hold.
-pub fn cols(points: f32) -> usize {
-    (points.max(0.) / POINTS_PER_COL) as usize
+    d.w_full().truncate()
 }
 
 /// `text` on one line in at most `cols` columns, a wide character
 /// (Chinese, Japanese, Korean, an emoji) taking two: its runs of space and
 /// its line breaks each one space, and ending in "…" when it is cut.
 ///
-/// Every line the desk lets trail off is cut here, between graphemes, so
-/// that no character is ever split. GPUI's own ellipsis is not used: it
-/// measures a line before it knows its width, and measured again it can
-/// cut Chinese inside a character and panic.
+/// For text that is kept or said somewhere else (a title made from what
+/// you wrote, a notification), or a label that nothing clips held to a
+/// length (a chip, a tab, a menu's line); never to make text fit a box:
+/// what a box clips trails off in [`one_line`], measured.
 pub fn fit(text: &str, cols: usize) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.width() <= cols {
@@ -408,12 +395,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    #[test]
-    fn a_room_in_points_holds_a_column_every_seven() {
-        assert_eq!(cols(70.), 10);
-        assert_eq!(cols(-5.), 0);
     }
 
     #[test]

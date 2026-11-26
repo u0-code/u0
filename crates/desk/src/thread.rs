@@ -231,9 +231,9 @@ pub fn command(faces: &Faces, text: &str, size: f32) -> Div {
             d.child(
                 div()
                     .min_w(px(0.))
-                    .overflow_hidden()
+                    .truncate()
                     .text_color(theme::code_argument())
-                    .child(format!(" {}", ui::fit(rest, 72))),
+                    .child(format!(" {rest}")),
             )
         })
 }
@@ -548,7 +548,8 @@ impl Desk {
                             .cursor_pointer()
                             .child(ui::icon("branch", 12.).text_color(theme::faint()))
                             .child(
-                                meta(faces, format!("from “{}”", ui::fit(&o.meta.title, 32)))
+                                ui::one_line(meta(faces, format!("from “{}”", o.meta.title)))
+                                    .max_w(px(320.))
                                     .hover(|st| st.text_color(theme::text2())),
                             )
                             .on_click(
@@ -635,8 +636,8 @@ impl Desk {
             .child(icon("branch"))
             .child(meta(faces, "from"))
             .child(
-                ui::mono(faces, ui::fit(&shown, 32))
-                    .text_size(px(12.))
+                ui::one_line(ui::mono(faces, shown).text_size(px(12.)))
+                    .max_w(px(240.))
                     .text_color(theme::text2()),
             )
             .child(ui::icon("chevron-down", 11.).text_color(theme::faint()));
@@ -1110,7 +1111,7 @@ impl Desk {
                     .child(sub_mark(&sub))
                     .child(verb(faces, "Subagent"))
                     .child(
-                        ui::one_line(ui::text(faces, ui::fit(title, 64)))
+                        ui::one_line(ui::text(faces, title.clone()))
                             .w_auto()
                             .min_w(px(0.)),
                     )
@@ -1410,7 +1411,7 @@ impl Desk {
             .cursor_pointer()
             .child(
                 ui::one_line(
-                    ui::text(faces, ui::fit(words, 90))
+                    ui::text(faces, words.to_owned())
                         .text_size(px(crate::style::PROSE))
                         .text_color(theme::muted()),
                 )
@@ -1476,7 +1477,7 @@ impl Desk {
         let object: AnyElement = match row.kind {
             Object::Command => command(faces, &row.object, 13.5).into_any_element(),
             Object::Mono => ui::one_line(
-                ui::mono(faces, ui::fit(&row.object, 72))
+                ui::mono(faces, row.object.clone())
                     .text_size(px(13.5))
                     .text_color(theme::text()),
             )
@@ -1490,7 +1491,7 @@ impl Desk {
                     .into_any_element()
             }
             Object::Plain => {
-                ui::one_line(ui::text(faces, ui::fit(&row.object, 72)).text_color(theme::text()))
+                ui::one_line(ui::text(faces, row.object.clone()).text_color(theme::text()))
                     .w_auto()
                     .min_w(px(0.))
                     .into_any_element()

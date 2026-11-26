@@ -1697,7 +1697,7 @@ impl Render for Desk {
                     .object_fit(gpui::ObjectFit::Cover)
                     .opacity(0.16)
             }))
-            .child(self.topbar(&faces, lights, pane, cx));
+            .child(self.topbar(&faces, lights, cx));
 
         let cell = crate::thread::drawer::grid(window, &faces, self.settings.terminal_size);
         let middle = match self.page.clone() {
