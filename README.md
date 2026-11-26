@@ -132,8 +132,8 @@ sessions, files, git and terminals, as if you sat at it.
   other machines reach it. It listens on `127.0.0.1:4317` only; the world
   reaches it through a [cloudflared](https://github.com/cloudflare/cloudflared)
   tunnel Ghost starts (a quick one, or a named one of yours), or an
-  `ssh -L 4317:127.0.0.1:4317`. **Create link** makes a pairing link that
-  works once, for ten minutes.
+  `ssh -L 4317:127.0.0.1:4317`. **Create link** makes a pairing link, and
+  its QR code, that works once, for ten minutes.
 - On the other Mac, open the link, or paste it in **Settings › Connections**.
   That Mac makes an Ed25519 key for the server, keeps its private half in
   its Keychain and sends only the public half; it shows the key's
@@ -143,8 +143,8 @@ sessions, files, git and terminals, as if you sat at it.
   window on that server; **Revoke** on the server removes the key and cuts
   the device off.
 - With no window (a Linux box, say): `ghost-server`, or
-  `ghost-desk --serve`, prints a pairing link for `127.0.0.1` as it
-  starts.
+  `ghost-desk --serve`, prints a pairing link for `127.0.0.1`, and its QR
+  code, as it starts.
 
 A link that drops (a laptop shut, a network changed) is reached again, and
 what was said meanwhile is told then.

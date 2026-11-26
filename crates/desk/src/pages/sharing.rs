@@ -1,6 +1,6 @@
 //! Settings › Sharing & access: this Ghost reached from other machines
-//! (listening, the tunnel, pairing links, the devices paired and their
-//! keys) — the server's, whichever machine it is on. And
+//! (listening, the tunnel, pairing links and their QR codes, the devices
+//! paired and their keys) — the server's, whichever machine it is on. And
 //! Settings › Connections: the Ghosts elsewhere this Mac has paired with,
 //! the key it made for each, and the one the window is on.
 
@@ -24,6 +24,34 @@ use crate::{
 /// How long ago `secs` (since 1970) was.
 fn ago(secs: u64) -> String {
     when::ago(crate::store::time(secs), std::time::SystemTime::now())
+}
+
+/// The QR code of `link`, dark on light whatever the theme, each row's
+/// runs of one colour drawn as one box.
+fn qr(link: &str) -> Div {
+    const MODULE: f32 = 4.;
+    let code = link::qr(link);
+    let dark: Vec<bool> = code
+        .to_colors()
+        .iter()
+        .map(|c| c.select(true, false))
+        .collect();
+    let rows = dark.chunks(code.width()).map(|row| {
+        div()
+            .flex()
+            .children(row.chunk_by(|a, b| a == b).map(|run| {
+                div()
+                    .w(px(MODULE * run.len() as f32))
+                    .h(px(MODULE))
+                    .when(run[0], |d| d.bg(gpui::black()))
+            }))
+    });
+    div()
+        .p(px(MODULE * 4.))
+        .bg(gpui::white())
+        .flex()
+        .flex_col()
+        .children(rows)
 }
 
 impl Desk {
@@ -127,6 +155,9 @@ impl Desk {
                 })
             })
         });
+        // Its QR code under it, for a camera to read off this screen.
+        let code = (shared.link.as_ref())
+            .map(|(link, _)| div().p(px(16.)).flex().justify_center().child(qr(link)));
         let devices = match &shared.devices {
             Err(why) => vec![Some(setting(faces, "Devices", why, div()))],
             Ok(devices) if devices.is_empty() => {
@@ -162,7 +193,7 @@ impl Desk {
                 "Reach",
                 vec![Some(listen), Some(tunnel), Some(mode), Some(awake)],
             ))
-            .children(group(faces, "Pairing", vec![Some(link), fresh]))
+            .children(group(faces, "Pairing", vec![Some(link), fresh, code]))
             .children(group(faces, "Devices paired", devices))
     }
 

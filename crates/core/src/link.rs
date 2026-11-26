@@ -160,8 +160,15 @@ pub fn serve_here() -> Result<(), String> {
     server.share_as_kept(true);
     let host = format!("127.0.0.1:{PORT}");
     let link = pairing_link(&host, &server.access().code());
+    // Light on dark, as a terminal mostly is: a camera reads it as dark
+    // on light.
+    let qr = qr(&link)
+        .render::<qrcode::render::unicode::Dense1x2>()
+        .dark_color(qrcode::render::unicode::Dense1x2::Light)
+        .light_color(qrcode::render::unicode::Dense1x2::Dark)
+        .build();
     println!("Ghost serves on ws://{host}");
-    println!("Pair a desk with it, once, in the next ten minutes: {link}");
+    println!("Pair a desk with it, once, in the next ten minutes: {link}\n{qr}");
     crate::acp::runtime().block_on(async {
         let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
             .map_err(|e| e.to_string())?;
@@ -513,6 +520,12 @@ pub fn pairing(link: &str) -> Option<(String, String)> {
 /// The pairing link for `code` at `host`.
 pub fn pairing_link(host: &str, code: &str) -> String {
     format!("ghost://pair?host={host}#{code}")
+}
+
+/// The QR code of the pairing link `link`, for a camera to read off a
+/// screen.
+pub fn qr(link: &str) -> qrcode::QrCode {
+    qrcode::QrCode::new(link).expect("a pairing link fits a QR code")
 }
 
 #[cfg(test)]
