@@ -353,7 +353,7 @@ impl Desk {
                         .gap(px(8.))
                         .child(
                             ui::text(&faces, format!("{kind:?}"))
-                                .text_size(px(12.5))
+                                .text_size(px(crate::style::CAPTION))
                                 .text_color(theme::muted()),
                         )
                         .child(ui::fine(&faces, count.to_string()))
@@ -373,7 +373,7 @@ impl Desk {
                 item.pl(px(36.))
                     .child(
                         ui::text(&faces, format!("Show {} more", rest.min(SETTLED_MORE)))
-                            .text_size(px(13.))
+                            .text_size(px(crate::style::LABEL))
                             .text_color(theme::muted()),
                     )
                     .on_click(move |_, _, cx| {
@@ -429,7 +429,7 @@ impl Desk {
         } else {
             ui::one_line(
                 ui::text(faces, self.project_name(folder))
-                    .text_size(px(14.))
+                    .text_size(px(crate::style::BODY))
                     .weight(gpui::FontWeight::MEDIUM)
                     .text_color(theme::text().opacity(0.9)),
             )
@@ -541,7 +541,7 @@ impl Desk {
         } else {
             ui::one_line(
                 ui::text(faces, title.clone())
-                    .text_size(px(14.))
+                    .text_size(px(crate::style::BODY))
                     .weight(if wants {
                         gpui::FontWeight::MEDIUM
                     } else {
@@ -560,7 +560,7 @@ impl Desk {
         let end = match (number, status) {
             (Some(n), _) => ui::fine(faces, crate::keys::written(&[crate::keys::numbered(n + 1)])),
             (None, Some(st)) => ui::text(faces, st.word())
-                .text_size(px(12.))
+                .text_size(px(crate::style::CAPTION))
                 .text_color(st.color()),
             (None, None) => ui::fine(faces, compact(lists::used(s), now)),
         };
@@ -672,7 +672,7 @@ impl Desk {
                     .children(s.git.pr.as_ref().map(|pr| {
                         ui::text(faces, format!("#{}", pr.number))
                             .flex_none()
-                            .text_size(px(11.))
+                            .text_size(px(crate::style::CAPTION))
                             .text_color(theme::muted())
                     }))
                     .child(div().flex_none().child(end))

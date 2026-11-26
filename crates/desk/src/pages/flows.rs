@@ -57,7 +57,7 @@ impl Desk {
                     let why = why.clone();
                     whole(w, &[], move |_, faces, _| {
                         ui::text(faces, why.clone())
-                            .text_size(px(12.5))
+                            .text_size(px(crate::style::CAPTION))
                             .text_color(theme::coral())
                             .into_any_element()
                     })
@@ -182,7 +182,7 @@ impl Desk {
                     .child(ui::icon("check", 12.).text_color(theme::ok()))
                     .child(
                         ui::text(faces, done.name.clone())
-                            .text_size(px(12.5))
+                            .text_size(px(crate::style::CAPTION))
                             .flex_none(),
                     )
                     .child(
@@ -196,7 +196,7 @@ impl Desk {
                                     .unwrap_or_default()
                                     .to_owned(),
                             )
-                            .text_size(px(12.5))
+                            .text_size(px(crate::style::CAPTION))
                             .text_color(theme::faint()),
                         )
                         .flex_1()
@@ -219,7 +219,7 @@ impl Desk {
             (State::Asking, Some(Step::Ask { title, choices, .. })) => {
                 steps = steps.child(
                     ui::text(faces, run.fill(title))
-                        .text_size(px(13.))
+                        .text_size(px(crate::style::LABEL))
                         .pt(px(4.)),
                 );
                 for (n, choice) in choices.iter().enumerate() {
@@ -239,7 +239,7 @@ impl Desk {
             (State::Paused(why), _) => {
                 steps = steps.child(
                     ui::text(faces, why.clone())
-                        .text_size(px(12.5))
+                        .text_size(px(crate::style::CAPTION))
                         .text_color(theme::coral()),
                 );
                 actions = actions.child(
@@ -258,7 +258,10 @@ impl Desk {
                         .items_center()
                         .gap(px(8.))
                         .child(ui::live_dot())
-                        .child(ui::text(faces, step.name().to_owned()).text_size(px(12.5))),
+                        .child(
+                            ui::text(faces, step.name().to_owned())
+                                .text_size(px(crate::style::CAPTION)),
+                        ),
                 );
             }
             (State::Stopped(why), _) => steps = steps.child(ui::fine(faces, why.clone())),
@@ -284,11 +287,11 @@ impl Desk {
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .child(ui::text(faces, run.workflow.clone()).text_size(px(13.5)))
+                    .child(ui::text(faces, run.workflow.clone()).text_size(px(crate::style::LABEL)))
                     .when(!run.input.is_empty(), |d| {
                         d.child(ui::one_line(
                             ui::text(faces, run.input.clone())
-                                .text_size(px(12.5))
+                                .text_size(px(crate::style::CAPTION))
                                 .text_color(theme::text2()),
                         ))
                     })

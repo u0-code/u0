@@ -50,7 +50,7 @@ impl Desk {
                 .child(
                     ui::one_line(
                         ui::mono(faces, bare(&asked.title))
-                            .text_size(px(13.5))
+                            .text_size(px(crate::style::LABEL))
                             .text_color(theme::text()),
                     )
                     .w_auto(),
@@ -170,7 +170,7 @@ impl Desk {
             .bg(theme::well())
             .border_1()
             .border_color(theme::border2())
-            .child(ui::text(faces, headline).text_size(px(14.)))
+            .child(ui::text(faces, headline).text_size(px(crate::style::BODY)))
             .child(body)
             .child(
                 div()
@@ -430,13 +430,16 @@ impl Desk {
                     .items_center()
                     .gap(px(8.))
                     .child(ui::dot(theme::coral()))
-                    .child(ui::text(faces, format!("{name} stopped")).text_size(px(14.))),
+                    .child(
+                        ui::text(faces, format!("{name} stopped"))
+                            .text_size(px(crate::style::BODY)),
+                    ),
             )
             .child(
                 well(faces)
                     .px(px(12.))
                     .py(px(8.))
-                    .text_size(px(12.))
+                    .text_size(px(crate::style::CAPTION))
                     .child(why.to_owned()),
             )
             .child({
@@ -506,7 +509,7 @@ impl Desk {
                     .items_center()
                     .gap(px(8.))
                     .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.))
-                    .child(ui::text(faces, format!("Sign in to {name}")).text_size(px(14.))),
+                    .child(ui::text(faces, format!("Sign in to {name}")).text_size(px(crate::style::BODY))),
             )
             .child(
                 ui::text(
@@ -515,7 +518,7 @@ impl Desk {
                         "{name} signs in with its own account; Ghost never sees it. What you said is sent once you are in."
                     ),
                 )
-                .text_size(px(13.))
+                .text_size(px(crate::style::LABEL))
                 .line_height(px(20.))
                 .text_color(theme::text2()),
             )

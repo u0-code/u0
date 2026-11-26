@@ -936,7 +936,7 @@ impl Desk {
                     .py(px(40.))
                     .w_full()
                     .text_center()
-                    .text_size(px(14.))
+                    .text_size(px(crate::style::BODY))
                     .text_color(theme::muted())
                     .child(empty)
             })
@@ -955,7 +955,7 @@ impl Desk {
                     .gap(px(6.))
                     .px(px(12.))
                     .pt(px(10.))
-                    .text_size(px(12.))
+                    .text_size(px(crate::style::CAPTION))
                     .text_color(theme::muted())
                     .cursor_pointer()
                     .child(ui::icon("chevron-left", 12.))
@@ -1108,7 +1108,7 @@ fn row_view(faces: &Faces, row: &Row) -> gpui::Div {
                 .min_w(px(0.))
                 .child(
                     div()
-                        .text_size(px(14.))
+                        .text_size(px(crate::style::BODY))
                         .line_height(px(20.))
                         // Regular, as t3code's: only what was typed stands
                         // out, and a project's name.
@@ -1124,7 +1124,7 @@ fn row_view(faces: &Faces, row: &Row) -> gpui::Div {
                 )
                 .children(row.sub.clone().map(|sub| {
                     div()
-                        .text_size(px(12.))
+                        .text_size(px(crate::style::CAPTION))
                         .line_height(px(16.))
                         .text_color(theme::muted().opacity(0.7))
                         .truncate()
@@ -1139,7 +1139,7 @@ fn row_view(faces: &Faces, row: &Row) -> gpui::Div {
                 .flex()
                 .items_center()
                 .justify_end()
-                .text_size(px(12.))
+                .text_size(px(crate::style::CAPTION))
                 .text_color(color.opacity(0.85))
                 .child(end)
         }))
@@ -1150,7 +1150,7 @@ fn row_view(faces: &Faces, row: &Row) -> gpui::Div {
                     .flex_none()
                     .h(px(20.))
                     .items_center()
-                    .text_size(px(12.))
+                    .text_size(px(crate::style::CAPTION))
                     .text_color(theme::faint())
                     .child(SharedString::from(crate::keys::written(&row.keys))),
             )
@@ -1175,10 +1175,11 @@ fn foot(through: Through, page: bool) -> gpui::Div {
             .flex()
             .items_center()
             .gap(px(4.))
-            .children(
-                keys.iter()
-                    .map(|k| Kbd::label(*k).text_size(px(12.)).py(px(4.))),
-            )
+            .children(keys.iter().map(|k| {
+                Kbd::label(*k)
+                    .text_size(px(crate::style::CAPTION))
+                    .py(px(4.))
+            }))
             .child(div().ml(px(2.)).child(what))
     };
     let (enter, esc) = match through {
@@ -1194,7 +1195,7 @@ fn foot(through: Through, page: bool) -> gpui::Div {
         .border_t_1()
         .border_color(theme::text().opacity(0.07))
         .bg(theme::text().opacity(0.025))
-        .text_size(px(14.))
+        .text_size(px(crate::style::BODY))
         .text_color(theme::muted())
         .child(hint(&["↑", "↓"], "Navigate"))
         .child(hint(&["Enter"], enter))

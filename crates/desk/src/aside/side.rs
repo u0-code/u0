@@ -31,23 +31,22 @@ impl Desk {
             .map_or(0, |u| u.items.len().min(s.items.len()));
         let mut said = div().flex().flex_col().gap(px(12.)).px(px(16.)).py(px(12.));
         for (n, item) in s.items.iter().enumerate().skip(from) {
-            said =
-                match item {
-                    Item::You(text) => said.child(
-                        div()
-                            .self_end()
-                            .max_w(px(260.))
-                            .px(px(10.))
-                            .py(px(6.))
-                            .rounded(px(10.))
-                            .bg(theme::panel2())
-                            .child(ui::text(faces, text.clone()).text_size(px(13.))),
-                    ),
-                    Item::Agent(text) => said.child(div().text_size(px(13.)).child(
-                        markdown::render(faces, &format!("side-{key}-{n}"), text, cx),
-                    )),
-                    _ => said,
-                };
+            said = match item {
+                Item::You(text) => said.child(
+                    div()
+                        .self_end()
+                        .max_w(px(260.))
+                        .px(px(10.))
+                        .py(px(6.))
+                        .rounded(px(10.))
+                        .bg(theme::panel2())
+                        .child(ui::text(faces, text.clone()).text_size(px(crate::style::LABEL))),
+                ),
+                Item::Agent(text) => said.child(div().text_size(px(crate::style::LABEL)).child(
+                    markdown::render(faces, &format!("side-{key}-{n}"), text, cx),
+                )),
+                _ => said,
+            };
         }
         if s.items.len() <= from {
             said = said.child(fine(

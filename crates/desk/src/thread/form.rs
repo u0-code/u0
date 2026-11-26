@@ -282,12 +282,12 @@ impl Desk {
                     .child(
                         ui::text(faces, format!("{} asks", self.name_of(&agent)))
                             .flex_1()
-                            .text_size(px(12.))
+                            .text_size(px(crate::style::CAPTION))
                             .text_color(theme::faint()),
                     )
                     .child(decline),
             )
-            .child(ui::text(faces, e.message.clone()).text_size(px(14.)));
+            .child(ui::text(faces, e.message.clone()).text_size(px(crate::style::BODY)));
         if let Some(url) = e.url.clone() {
             return panel.child(div().flex().justify_end().child(
                 ui::button("form-open", "Open the page", ui::Weight::Primary).on_click(

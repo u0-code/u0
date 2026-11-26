@@ -319,7 +319,7 @@ impl Desk {
                     .child(
                         ui::text(faces, says)
                             .flex_1()
-                            .text_size(px(13.))
+                            .text_size(px(crate::style::LABEL))
                             .text_color(theme::text2()),
                     )
                     .child(button),
@@ -579,7 +579,7 @@ impl Desk {
                         mention::LIMIT
                     ),
                 )
-                .text_size(px(12.))
+                .text_size(px(crate::style::CAPTION))
                 .text_color(theme::coral()),
             )
         })
@@ -688,7 +688,7 @@ impl Desk {
                         .child(ui::icon("branch", 13.).text_color(theme::faint()))
                         .child(chip_text(faces, ui::fit(&b, 24)))
                 }))
-                .child(ui::counts(faces, added, gone, 12.))
+                .child(ui::counts(faces, added, gone, crate::style::CAPTION))
                 .child(div().flex_1())
                 .child(
                     ui::button("commit-changes", "Commit changes", ui::Weight::Secondary).on_click(
@@ -739,11 +739,11 @@ impl Desk {
                         .min_w(px(0.))
                         .child(
                             ui::text(faces, format!("{name} needs you to sign in"))
-                                .text_size(px(13.)),
+                                .text_size(px(crate::style::LABEL)),
                         )
                         .child(ui::one_line(
                             ui::text(faces, why.clone())
-                                .text_size(px(11.5))
+                                .text_size(px(crate::style::CAPTION))
                                 .text_color(theme::faint()),
                         )),
                 )
@@ -806,7 +806,7 @@ impl Desk {
                                     .child(
                                         ui::one_line(
                                             ui::mono(faces, name)
-                                                .text_size(px(12.5))
+                                                .text_size(px(crate::style::CAPTION))
                                                 .text_color(theme::text()),
                                         )
                                         .w_auto()
@@ -815,7 +815,7 @@ impl Desk {
                                     .child(
                                         ui::one_line(
                                             ui::text(faces, about)
-                                                .text_size(px(12.))
+                                                .text_size(px(crate::style::CAPTION))
                                                 .text_color(theme::faint()),
                                         )
                                         .flex_1(),
@@ -925,7 +925,7 @@ impl Desk {
                         .child(
                             ui::one_line(
                                 ui::text(faces, text.clone())
-                                    .text_size(px(12.5))
+                                    .text_size(px(crate::style::CAPTION))
                                     .text_color(theme::text2()),
                             )
                             .flex_1(),
@@ -992,7 +992,7 @@ impl Desk {
                                 format!("Its subagent “{}” asks", ui::fit(&c.meta.title, 40)),
                             )
                             .pb(px(4.))
-                            .text_size(px(12.))
+                            .text_size(px(crate::style::CAPTION))
                             .text_color(theme::faint()),
                         )
                         .child(self.asked(faces, c, &key, asked, cx)),
@@ -1039,7 +1039,7 @@ impl Desk {
                         format!("A side question of “{title}”: it does not go in it."),
                     )
                     .flex_1()
-                    .text_size(px(13.))
+                    .text_size(px(crate::style::LABEL))
                     .text_color(theme::text2()),
                 )
                 .when(answered, |d| {
@@ -1074,6 +1074,6 @@ pub(super) fn over_line(menu: Popover) -> Popover {
 fn chip_text(faces: &Faces, text: impl Into<SharedString>) -> Div {
     ui::text(faces, text)
         .flex_none()
-        .text_size(px(13.))
+        .text_size(px(crate::style::LABEL))
         .text_color(theme::text2())
 }

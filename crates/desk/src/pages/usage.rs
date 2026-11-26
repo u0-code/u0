@@ -134,7 +134,7 @@ impl Desk {
                 format!("{sessions} session{}", if sessions == 1 { "" } else { "s" }),
                 move |_, faces, _| {
                     ui::text(faces, said.clone())
-                        .text_size(px(13.5))
+                        .text_size(px(crate::style::LABEL))
                         .into_any_element()
                 },
             ));
@@ -170,7 +170,7 @@ impl Desk {
                         .gap(px(8.))
                         .child(
                             ui::text(faces, said.clone())
-                                .text_size(px(12.5))
+                                .text_size(px(crate::style::CAPTION))
                                 .text_color(theme::text2()),
                         )
                         .child(

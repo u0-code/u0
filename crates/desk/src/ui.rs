@@ -154,7 +154,7 @@ pub fn led_button(
 /// pages set them. GPUI has no letter spacing, so the capitals carry it.
 pub fn label(faces: &Faces, text: &str) -> Div {
     self::text(faces, text.to_uppercase())
-        .text_size(px(11.))
+        .text_size(px(crate::style::CAPTION))
         .line_height(px(16.))
         .weight(gpui::FontWeight::MEDIUM)
         .text_color(theme::faint())
@@ -202,7 +202,7 @@ pub fn fine_mono(faces: &Faces, words: impl Into<SharedString>) -> Div {
 }
 
 fn small(d: Div) -> Div {
-    d.text_size(px(11.5))
+    d.text_size(px(crate::style::CAPTION))
         .line_height(px(16.))
         .text_color(theme::faint())
 }
@@ -234,8 +234,12 @@ pub fn described(
         .flex()
         .flex_col()
         .py(px(2.))
-        .child(text(faces, label).text_size(px(13.)))
-        .children(about.map(|a| text(faces, a).text_size(px(12.)).text_color(theme::faint())))
+        .child(text(faces, label).text_size(px(crate::style::LABEL)))
+        .children(about.map(|a| {
+            text(faces, a)
+                .text_size(px(crate::style::CAPTION))
+                .text_color(theme::faint())
+        }))
 }
 
 /// What opens a menu where it is not an icon (a chip, a line): gpui-kit's

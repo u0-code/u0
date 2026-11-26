@@ -133,7 +133,7 @@ impl Desk {
         if !scripts_none {
             bar = bar.child(
                 ui::text(faces, "Scripts")
-                    .text_size(px(11.5))
+                    .text_size(px(crate::style::CAPTION))
                     .text_color(theme::faint())
                     .mr(px(2.)),
             );
@@ -319,7 +319,7 @@ impl Desk {
                     )))
                     .child(
                         ui::text(faces, label)
-                            .text_size(px(12.))
+                            .text_size(px(crate::style::CAPTION))
                             .text_color(theme::text2()),
                     )
             };
@@ -423,7 +423,7 @@ impl Desk {
                     .gap(px(4.))
                     .children(t.ended.clone().map(|how| {
                         ui::text(faces, how)
-                            .text_size(px(11.))
+                            .text_size(px(crate::style::CAPTION))
                             .text_color(theme::faint())
                     }))
                     .when(closable, |d| {

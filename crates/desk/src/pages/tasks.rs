@@ -72,13 +72,13 @@ impl Desk {
                     .flex_1()
                     .min_w(px(0.))
                     .gap(px(2.))
-                    .child(ui::text(faces, task.title.clone()).text_size(px(13.5)))
+                    .child(ui::text(faces, task.title.clone()).text_size(px(crate::style::LABEL)))
                     .child(ui::one_line(
                         ui::text(
                             faces,
                             task.prompt.lines().next().unwrap_or_default().to_owned(),
                         )
-                        .text_size(px(12.5))
+                        .text_size(px(crate::style::CAPTION))
                         .text_color(theme::text2()),
                     ))
                     .child(
@@ -103,7 +103,7 @@ impl Desk {
                                 |why| {
                                     ui::one_line(
                                         ui::text(faces, why)
-                                            .text_size(px(11.5))
+                                            .text_size(px(crate::style::CAPTION))
                                             .text_color(theme::coral()),
                                     )
                                 },

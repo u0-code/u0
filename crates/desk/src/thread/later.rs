@@ -26,7 +26,7 @@ impl Desk {
             .text_color(theme::faint())
             .child(ui::icon(icon, 14.))
             .when(count > 0, |d| {
-                d.child(ui::text(faces, count.to_string()).text_size(px(12.)))
+                d.child(ui::text(faces, count.to_string()).text_size(px(crate::style::CAPTION)))
             })
             .tooltip(tip)
     }
@@ -90,14 +90,16 @@ impl Desk {
             let line = move |faces: &Faces| {
                 div()
                     .child(
-                        ui::one_line(ui::text(faces, first.clone()).text_size(px(13.)))
-                            .flex_1()
-                            .min_w(px(0.)),
+                        ui::one_line(
+                            ui::text(faces, first.clone()).text_size(px(crate::style::LABEL)),
+                        )
+                        .flex_1()
+                        .min_w(px(0.)),
                     )
                     .when(with > 0, |d| {
                         d.child(
                             ui::text(faces, format!("+{with}"))
-                                .text_size(px(12.))
+                                .text_size(px(crate::style::CAPTION))
                                 .text_color(theme::faint()),
                         )
                     })
@@ -187,13 +189,15 @@ impl Desk {
                         .child(
                             ui::text(faces, when.clone())
                                 .flex_none()
-                                .text_size(px(12.))
+                                .text_size(px(crate::style::CAPTION))
                                 .text_color(theme::faint()),
                         )
                         .child(
-                            ui::one_line(ui::text(faces, prompt.clone()).text_size(px(13.)))
-                                .flex_1()
-                                .min_w(px(0.)),
+                            ui::one_line(
+                                ui::text(faces, prompt.clone()).text_size(px(crate::style::LABEL)),
+                            )
+                            .flex_1()
+                            .min_w(px(0.)),
                         )
                 };
                 let drop = SharedString::from(format!("later-drop-{id}"));

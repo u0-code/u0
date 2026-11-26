@@ -29,27 +29,32 @@ impl Desk {
         fresh: bool,
         cx: &mut Context<Self>,
     ) -> Div {
-        let row =
-            |id: SharedString, icon: &'static str, says: String, aside: Option<&'static str>| {
-                ListItem::new(id)
-                    .h(px(34.))
-                    .px(px(12.))
-                    .rounded(px(6.))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(10.))
-                            .child(ui::icon(icon, 16.).text_color(theme::muted()))
-                            .child(ui::one_line(ui::text(faces, says).text_size(px(14.))).w_auto())
-                            .children(aside.map(|a| {
-                                ui::text(faces, a)
-                                    .flex_none()
-                                    .text_size(px(14.))
-                                    .text_color(theme::faint())
-                            })),
-                    )
-            };
+        let row = |id: SharedString,
+                   icon: &'static str,
+                   says: String,
+                   aside: Option<&'static str>| {
+            ListItem::new(id)
+                .h(px(34.))
+                .px(px(12.))
+                .rounded(px(6.))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .child(ui::icon(icon, 16.).text_color(theme::muted()))
+                        .child(
+                            ui::one_line(ui::text(faces, says).text_size(px(crate::style::BODY)))
+                                .w_auto(),
+                        )
+                        .children(aside.map(|a| {
+                            ui::text(faces, a)
+                                .flex_none()
+                                .text_size(px(crate::style::BODY))
+                                .text_color(theme::faint())
+                        })),
+                )
+        };
         let mut steps: Vec<ListItem> = Vec::new();
         // Settings that did not read, as Ghost started: read again once
         // the file is mended or moved away.

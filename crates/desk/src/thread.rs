@@ -247,7 +247,7 @@ fn step() -> Div {
         .gap(px(8.))
         .min_h(px(30.))
         .px(px(10.))
-        .text_size(px(14.))
+        .text_size(px(crate::style::BODY))
         .line_height(px(22.))
 }
 
@@ -290,7 +290,7 @@ fn right_in(faces: &Faces, text: impl Into<SharedString>, color: gpui::Hsla) -> 
     div().flex().flex_1().justify_end().child(
         ui::text(faces, text)
             .flex_none()
-            .text_size(px(12.5))
+            .text_size(px(crate::style::CAPTION))
             .line_height(px(18.))
             .text_color(color),
     )
@@ -298,7 +298,7 @@ fn right_in(faces: &Faces, text: impl Into<SharedString>, color: gpui::Hsla) -> 
 
 fn meta(faces: &Faces, text: impl Into<SharedString>) -> Div {
     ui::text(faces, text)
-        .text_size(px(12.5))
+        .text_size(px(crate::style::CAPTION))
         .line_height(px(18.))
         .text_color(theme::faint())
 }
@@ -326,7 +326,7 @@ pub fn well(faces: &Faces) -> Div {
         .rounded(px(8.))
         .bg(theme::well())
         .font_family(faces.mono.clone())
-        .text_size(px(13.))
+        .text_size(px(crate::style::LABEL))
         .line_height(px(19.))
         .text_color(theme::text2())
 }
@@ -497,7 +497,7 @@ impl Desk {
                     .flex_1()
                     .min_w(px(0.))
                     .truncate()
-                    .text_size(px(13.))
+                    .text_size(px(crate::style::LABEL))
                     .text_color(theme::text2()),
                 )
                 .child(
@@ -598,7 +598,7 @@ impl Desk {
                     .child(meta(faces, "also"))
                     .child(
                         ui::mono(faces, Desk::shown(folder))
-                            .text_size(px(12.))
+                            .text_size(px(crate::style::CAPTION))
                             .text_color(theme::text2()),
                     )
                     .child(
@@ -638,7 +638,7 @@ impl Desk {
             .child(icon("branch"))
             .child(meta(faces, "from"))
             .child(
-                ui::one_line(ui::mono(faces, shown).text_size(px(12.)))
+                ui::one_line(ui::mono(faces, shown).text_size(px(crate::style::CAPTION)))
                     .max_w(px(240.))
                     .text_color(theme::text2()),
             )
@@ -787,7 +787,7 @@ impl Desk {
                                     .px(px(16.))
                                     .py(px(12.))
                                     .rounded(px(BUBBLE_RADIUS))
-                                    .text_size(px(14.))
+                                    .text_size(px(crate::style::BODY))
                                     .line_height(px(21.)),
                             )
                             .child(gpui::base::SelectableText::new(
@@ -957,7 +957,7 @@ impl Desk {
                                 .border_color(theme::tag_line())
                                 .child(
                                     ui::text(faces, text.clone())
-                                        .text_size(px(14.))
+                                        .text_size(px(crate::style::BODY))
                                         .line_height(px(21.))
                                         .text_color(theme::muted()),
                                 ),
@@ -1138,7 +1138,7 @@ impl Desk {
             } => self.trouble_note(s, i, text, cx).into_any_element(),
             Item::Note { text, .. } => ui::text(faces, text.clone())
                 .px(px(10.))
-                .text_size(px(13.))
+                .text_size(px(crate::style::LABEL))
                 .line_height(px(20.))
                 .text_color(theme::muted())
                 .into_any_element(),
@@ -1224,7 +1224,7 @@ impl Desk {
                         .gap(px(10.))
                         .child(
                             ui::text(faces, format!("{} of {}", at + 1, images.len()))
-                                .text_size(px(12.5))
+                                .text_size(px(crate::style::CAPTION))
                                 .text_color(theme::muted()),
                         )
                         .child(
@@ -1477,10 +1477,10 @@ impl Desk {
         });
 
         let object: AnyElement = match row.kind {
-            Object::Command => command(faces, &row.object, 13.5).into_any_element(),
+            Object::Command => command(faces, &row.object, crate::style::LABEL).into_any_element(),
             Object::Mono => ui::one_line(
                 ui::mono(faces, row.object.clone())
-                    .text_size(px(13.5))
+                    .text_size(px(crate::style::LABEL))
                     .text_color(theme::text()),
             )
             .w_auto()
@@ -1594,7 +1594,7 @@ impl Desk {
             .child(verb(faces, row.verb).when(running, |d| d.text_color(theme::accent())))
             .child(object)
             .when(added + gone > 0 && call.kind != ToolKind::Execute, |d| {
-                d.child(ui::counts(faces, added, gone, crate::style::META).gap(px(8.)))
+                d.child(ui::counts(faces, added, gone, crate::style::CAPTION).gap(px(8.)))
             })
             .children(tail)
             .child(div().flex_1())

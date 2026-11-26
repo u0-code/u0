@@ -74,13 +74,13 @@ impl Desk {
             .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.))
             .child(ui::one_line(
                 ui::text(faces, model.unwrap_or_else(|| self.name_of(&s.meta.agent)))
-                    .text_size(px(13.))
+                    .text_size(px(crate::style::LABEL))
                     .text_color(theme::text2()),
             ))
             .children(effort.map(|e| {
                 ui::text(faces, e)
                     .flex_none()
-                    .text_size(px(13.))
+                    .text_size(px(crate::style::LABEL))
                     .text_color(if open { theme::text2() } else { theme::faint() })
             }))
             .tooltip(crate::keys::hint(cx, "Choose the model", "model"));
@@ -357,7 +357,7 @@ impl Desk {
             list = list.child(
                 ui::text(faces, says)
                     .p(px(12.))
-                    .text_size(px(13.))
+                    .text_size(px(crate::style::LABEL))
                     .text_color(theme::faint()),
             );
         }
@@ -402,7 +402,7 @@ impl Desk {
                             .child(ui::mark(faces, &self.mark_of(&m.agent), 16.))
                             .child(ui::one_line(
                                 ui::text(faces, m.name.clone())
-                                    .text_size(px(14.))
+                                    .text_size(px(crate::style::BODY))
                                     .line_height(px(20.)),
                             ))
                             .when(m.current, |d| {
@@ -416,7 +416,7 @@ impl Desk {
                                         .rounded(px(4.))
                                         .border_1()
                                         .border_color(theme::border2())
-                                        .text_size(px(11.))
+                                        .text_size(px(crate::style::CAPTION))
                                         .text_color(theme::faint()),
                                 )
                             }),
@@ -517,7 +517,11 @@ impl Desk {
                 .py(px(10.))
                 .border_t_1()
                 .border_color(theme::border2())
-                .child(ui::text(faces, says).flex_1().text_size(px(13.)))
+                .child(
+                    ui::text(faces, says)
+                        .flex_1()
+                        .text_size(px(crate::style::LABEL)),
+                )
                 .child(button),
         )
     }
@@ -562,13 +566,13 @@ impl Desk {
                     .child(
                         ui::text(faces, head)
                             .flex_1()
-                            .text_size(px(14.))
+                            .text_size(px(crate::style::BODY))
                             .text_color(theme::muted()),
                     )
                     .children(Self::option_name(s, &Category::Model).map(|m| {
                         ui::one_line(
                             ui::text(faces, m)
-                                .text_size(px(12.))
+                                .text_size(px(crate::style::CAPTION))
                                 .text_color(theme::faint()),
                         )
                         .w_auto()
@@ -586,7 +590,7 @@ impl Desk {
                             .h(px(32.))
                             .px(px(8.))
                             .rounded(px(4.))
-                            .child(ui::text(faces, name).text_size(px(14.)))
+                            .child(ui::text(faces, name).text_size(px(crate::style::BODY)))
                             .when(on, |d| {
                                 d.suffix(|_, _| ui::icon("check", 14.).text_color(theme::text2()))
                             })
@@ -601,7 +605,7 @@ impl Desk {
                 rows = rows.child(
                     ui::text(faces, "No effort levels")
                         .p(px(8.))
-                        .text_size(px(13.))
+                        .text_size(px(crate::style::LABEL))
                         .text_color(theme::faint()),
                 );
             }
@@ -645,10 +649,12 @@ impl Desk {
                             .min_w(px(0.))
                             .child(
                                 ui::text(faces, o.name.clone())
-                                    .text_size(px(12.))
+                                    .text_size(px(crate::style::CAPTION))
                                     .text_color(theme::faint()),
                             )
-                            .child(ui::one_line(ui::text(faces, current).text_size(px(14.)))),
+                            .child(ui::one_line(
+                                ui::text(faces, current).text_size(px(crate::style::BODY)),
+                            )),
                     )
                     .child(ui::icon("chevron-right", 12.).text_color(theme::faint())),
             );
@@ -681,7 +687,7 @@ impl Desk {
                                 .h(px(30.))
                                 .px(px(8.))
                                 .rounded(px(4.))
-                                .child(ui::text(&faces, label).text_size(px(13.)))
+                                .child(ui::text(&faces, label).text_size(px(crate::style::LABEL)))
                                 .when(on, |d| {
                                     d.suffix(|_, _| {
                                         ui::icon("check", 13.).text_color(theme::text2())
@@ -719,7 +725,7 @@ impl Desk {
                         .child(ui::icon("plus", 13.))
                         .child(
                             ui::text(faces, format!("Send to all {usable} agents"))
-                                .text_size(px(12.))
+                                .text_size(px(crate::style::CAPTION))
                                 .text_color(theme::muted()),
                         )
                         .tooltip("A session each, begun with the same words")

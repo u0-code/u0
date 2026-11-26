@@ -316,7 +316,7 @@ impl Desk {
             .when(s.repo, |d| d.child(self.scope_tabs(faces, s, cx)))
             .child(div().flex_1())
             .when(!files.is_empty(), |d| {
-                d.child(ui::counts(faces, added, gone, 11.5))
+                d.child(ui::counts(faces, added, gone, crate::style::CAPTION))
             });
         let tool = |id: &'static str, icon: &'static str, tip: &'static str, on: bool| {
             ui::icon_button(id, icon, tip)
@@ -550,7 +550,7 @@ impl Desk {
                             )
                             .child(ui::one_line(
                                 ui::mono(&faces, item.label.clone())
-                                    .text_size(px(12.))
+                                    .text_size(px(crate::style::CAPTION))
                                     .text_color(theme::text2()),
                             )),
                     )
@@ -636,7 +636,11 @@ impl Desk {
                         .bg(theme::panel())
                         .border_1()
                         .border_color(theme::border2())
-                        .child(ui::text(&faces, said).flex_1().text_size(px(12.5)))
+                        .child(
+                            ui::text(&faces, said)
+                                .flex_1()
+                                .text_size(px(crate::style::CAPTION)),
+                        )
                         .child(
                             ui::icon_button(
                                 SharedString::from(format!("unsay-{line}")),

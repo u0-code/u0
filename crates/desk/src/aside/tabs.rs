@@ -441,7 +441,11 @@ impl Desk {
                         .flex()
                         .items_center()
                         .w(px(200.))
-                        .child(ui::text(&faces, name).flex_1().text_size(px(13.)))
+                        .child(
+                            ui::text(&faces, name)
+                                .flex_1()
+                                .text_size(px(crate::style::LABEL)),
+                        )
                         .child(Self::letter_key(letter))
                 })
                 .icon(ui::glyph(icon))
@@ -467,7 +471,11 @@ impl Desk {
                             .items_center()
                             .gap(px(10.))
                             .child(ui::icon(icon, 15.))
-                            .child(ui::text(faces, name).flex_1().text_size(px(13.)))
+                            .child(
+                                ui::text(faces, name)
+                                    .flex_1()
+                                    .text_size(px(crate::style::LABEL)),
+                            )
                             .child(Self::letter_key(letter)),
                     )
                     .on_click(cx.listener(move |this, _, _, cx| this.offer(letter, cx))),
@@ -485,7 +493,7 @@ impl Desk {
             .items_center()
             .justify_center()
             .gap(px(12.))
-            .child(ui::text(faces, "Open a surface").text_size(px(14.)))
+            .child(ui::text(faces, "Open a surface").text_size(px(crate::style::BODY)))
             .child(self.surface_list(faces, cx).w(px(240.)))
     }
 

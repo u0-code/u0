@@ -111,12 +111,12 @@ fn frow() -> Div {
         .items_center()
         .gap(px(8.))
         .h(px(26.))
-        .text_size(px(13.))
+        .text_size(px(crate::style::LABEL))
 }
 
 fn empty(faces: &Faces, text: impl Into<SharedString>) -> Div {
     ui::text(faces, text)
-        .text_size(px(12.5))
+        .text_size(px(crate::style::CAPTION))
         .line_height(px(18.))
         .text_color(theme::faint())
 }
@@ -126,7 +126,7 @@ fn key_value(faces: &Faces, key: &str, value: impl IntoElement) -> Div {
         .child(
             ui::text(faces, key.to_owned())
                 .flex_1()
-                .text_size(px(12.5))
+                .text_size(px(crate::style::CAPTION))
                 .text_color(theme::muted()),
         )
         .child(value)
@@ -351,7 +351,7 @@ impl Desk {
                 .hover(|st| st.bg(theme::hover()))
         };
         let title = |text: &str| {
-            ui::one_line(ui::text(faces, text.to_owned()).text_size(px(13.)))
+            ui::one_line(ui::text(faces, text.to_owned()).text_size(px(crate::style::LABEL)))
                 .flex_1()
                 .min_w(px(0.))
         };
@@ -508,7 +508,7 @@ impl Desk {
                 .px(px(8.))
                 .pt(px(6.))
                 .pb(px(2.))
-                .text_size(px(11.5))
+                .text_size(px(crate::style::CAPTION))
                 .text_color(theme::faint()),
         );
         let branches = self.sessions.at(key).map(|s| s.git.branches.as_slice());
@@ -518,7 +518,9 @@ impl Desk {
             menu = menu.child(
                 ListItem::new(SharedString::from(format!("branch-{n}")))
                     .selected(on)
-                    .child(ui::one_line(ui::mono(faces, b.clone()).text_size(px(12.))))
+                    .child(ui::one_line(
+                        ui::mono(faces, b.clone()).text_size(px(crate::style::CAPTION)),
+                    ))
                     .suffix(move |_, _| {
                         let copied = copied.clone();
                         ui::icon_button(
@@ -669,12 +671,11 @@ impl Desk {
                     .id(group.clone())
                     .group(group.clone())
                     .child(dot)
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w(px(0.))
-                            .child(thread::command(faces, &text, 12.5)),
-                    )
+                    .child(div().flex_1().min_w(px(0.)).child(thread::command(
+                        faces,
+                        &text,
+                        crate::style::CAPTION,
+                    )))
                     // Run again in a terminal of yours, to see or change it:
                     // over its time, while the pointer is on the row.
                     .child(
@@ -724,7 +725,7 @@ impl Desk {
                     thread::well(faces)
                         .px(px(10.))
                         .py(px(8.))
-                        .text_size(px(11.5))
+                        .text_size(px(crate::style::CAPTION))
                         .line_height(px(17.))
                         .child(tail.join("\n")),
                 );
@@ -930,7 +931,7 @@ impl Desk {
                         "Starts {name} in the session's folder, sends what you say, and draws what it reports. Edits, commands and permissions are {name}'s own; Ghost only asks you when it asks."
                     ),
                 )
-                .text_size(px(13.))
+                .text_size(px(crate::style::LABEL))
                 .line_height(px(20.))
                 .text_color(theme::text2()),
             );

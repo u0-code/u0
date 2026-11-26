@@ -260,7 +260,7 @@ impl Desk {
                         .child(ui::mark(faces, &d.mark_of(&id), 14.))
                         .child(
                             ui::text(faces, d.name_of(&id))
-                                .text_size(px(12.5))
+                                .text_size(px(crate::style::CAPTION))
                                 .text_color(theme::text2()),
                         )
                         .children(
@@ -532,7 +532,7 @@ impl Desk {
                         this.show(key, window, cx);
                     }))
                     .child(ui::one_line(
-                        ui::text(faces, s.meta.title.clone()).text_size(px(13.5)),
+                        ui::text(faces, s.meta.title.clone()).text_size(px(crate::style::LABEL)),
                     ))
                     .child(ui::fine(
                         faces,

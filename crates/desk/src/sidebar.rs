@@ -124,7 +124,7 @@ impl Desk {
                 .pt(px(24.))
                 .child(
                     ui::text(faces, "No projects yet")
-                        .text_size(px(12.))
+                        .text_size(px(crate::style::CAPTION))
                         .text_color(theme::muted()),
                 )
                 .child(
@@ -289,7 +289,9 @@ impl Desk {
                             .items_center()
                             .gap(px(10.))
                             .child(crate::desk::projects::project_icon(&p, icon, 14.))
-                            .child(ui::one_line(ui::text(faces, name).text_size(px(13.)))),
+                            .child(ui::one_line(
+                                ui::text(faces, name).text_size(px(crate::style::LABEL)),
+                            )),
                     )
                     .when(on, |d| d.suffix(|_, _| ui::icon("check", 14.)))
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_filter(&p, cx))),
@@ -303,7 +305,7 @@ impl Desk {
                         .items_center()
                         .gap(px(10.))
                         .child(ui::icon("folder-plus", 14.))
-                        .child(ui::text(faces, "Add project").text_size(px(13.))),
+                        .child(ui::text(faces, "Add project").text_size(px(crate::style::LABEL))),
                 )
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.close_popup(window, cx);
@@ -340,7 +342,7 @@ impl gpui::Render for Dragged {
             .border_1()
             .border_color(theme::border2())
             .shadow_lg()
-            .text_size(px(13.))
+            .text_size(px(crate::style::LABEL))
             .text_color(theme::text())
             .child(self.title.clone())
     }

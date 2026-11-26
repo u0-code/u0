@@ -45,7 +45,7 @@ impl Desk {
             let notes = ui::fit(found.notes.trim(), 600);
             items.push(whole(w, &[], move |_, faces, _| {
                 ui::text(faces, notes.clone())
-                    .text_size(px(12.5))
+                    .text_size(px(crate::style::CAPTION))
                     .line_height(px(18.))
                     .text_color(theme::text2())
                     .into_any_element()

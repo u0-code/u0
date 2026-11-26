@@ -28,7 +28,7 @@ pub fn plan(faces: &Faces, steps: &[(Status, String)]) -> Div {
                 ui::text(faces, text.clone())
                     .flex_1()
                     .min_w(px(0.))
-                    .text_size(px(13.5))
+                    .text_size(px(crate::style::LABEL))
                     .line_height(px(22.))
                     .text_color(match status {
                         Status::Doing => theme::text(),

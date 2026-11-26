@@ -1001,7 +1001,7 @@ impl Desk {
                     .hover(|st| st.bg(theme::hover()))
                     .child(if self.pages.recording == Some(name) {
                         ui::text(&faces, "Press the keys…  Escape to keep these")
-                            .text_size(px(12.))
+                            .text_size(px(crate::style::CAPTION))
                             .text_color(theme::link())
                             .into_any_element()
                     } else {

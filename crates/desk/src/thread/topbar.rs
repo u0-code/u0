@@ -40,7 +40,7 @@ impl Desk {
         let title = |t: String| {
             ui::one_line(
                 ui::text(faces, t)
-                    .text_size(px(13.5))
+                    .text_size(px(crate::style::LABEL))
                     .weight(gpui::FontWeight::MEDIUM),
             )
             .w_auto()
@@ -74,7 +74,7 @@ impl Desk {
                             .min_w(px(0.))
                             .child(ui::one_line(
                                 ui::text(faces, shown)
-                                    .text_size(px(14.))
+                                    .text_size(px(crate::style::BODY))
                                     .text_color(if new { theme::muted() } else { theme::text() }),
                             ))
                             // Not the bar's: a click here renames, it does

@@ -400,7 +400,7 @@ impl Desk {
                 .child(div().flex_1().h(px(1.)).bg(theme::link().opacity(0.35)))
                 .child(
                     ui::text(&faces, "New since you last looked")
-                        .text_size(px(12.))
+                        .text_size(px(crate::style::CAPTION))
                         .text_color(theme::link()),
                 )
                 .child(div().flex_1().h(px(1.)).bg(theme::link().opacity(0.35)))
@@ -559,7 +559,7 @@ impl Desk {
                 .child(
                     ui::text(faces, at)
                         .flex_none()
-                        .text_size(px(12.))
+                        .text_size(px(crate::style::CAPTION))
                         .text_color(theme::faint()),
                 )
                 .child(

@@ -96,7 +96,7 @@ impl Desk {
             .px(px(6.))
             .child(fine(faces, "against"))
             .child(
-                ui::one_line(ui::mono(faces, shown).text_size(px(12.)))
+                ui::one_line(ui::mono(faces, shown).text_size(px(crate::style::CAPTION)))
                     .max_w(px(140.))
                     .text_color(theme::text2()),
             )
@@ -233,13 +233,13 @@ impl Desk {
                         .child(
                             ui::mono(&faces, id.clone())
                                 .flex_none()
-                                .text_size(px(11.5))
+                                .text_size(px(crate::style::CAPTION))
                                 .text_color(theme::faint()),
                         )
                         .child(
                             ui::one_line(
                                 ui::text(&faces, subject.clone())
-                                    .text_size(px(12.5))
+                                    .text_size(px(crate::style::CAPTION))
                                     .text_color(theme::text2()),
                             )
                             .flex_1(),
@@ -290,7 +290,7 @@ impl Desk {
             section(faces, "Pull request", Some(fine(faces, state)))
                 .child(ui::one_line(
                     ui::text(faces, format!("#{} {}", pr.number, pr.title))
-                        .text_size(px(13.))
+                        .text_size(px(crate::style::LABEL))
                         .text_color(theme::text()),
                 ))
                 .child(line)

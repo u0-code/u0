@@ -98,7 +98,10 @@ impl Desk {
                             .flex_col()
                             .flex_1()
                             .min_w(px(0.))
-                            .child(ui::text(faces, self.project_name(&folder)).text_size(px(13.5)))
+                            .child(
+                                ui::text(faces, self.project_name(&folder))
+                                    .text_size(px(crate::style::LABEL)),
+                            )
                             .child(ui::fine(faces, Desk::shown(&folder))),
                     )
                     .when(prefs.pinned, |d| d.child(ui::fine(faces, "Pinned")))
@@ -265,7 +268,7 @@ impl Desk {
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(ui::text(faces, self.project_name(folder)).text_size(px(13.5)))
+            .child(ui::text(faces, self.project_name(folder)).text_size(px(crate::style::LABEL)))
             .child(
                 Button::new("rename-project")
                     .ghost()

@@ -288,7 +288,7 @@ impl Desk {
                         )
                         .child(ui::one_line(
                             ui::text(&faces, item.label.clone())
-                                .text_size(px(12.5))
+                                .text_size(px(crate::style::CAPTION))
                                 .text_color(theme::text2()),
                         )),
                 )
@@ -379,7 +379,7 @@ impl Desk {
             .child(
                 ui::one_line(
                     ui::mono(faces, path.display().to_string())
-                        .text_size(px(12.))
+                        .text_size(px(crate::style::CAPTION))
                         .text_color(theme::text2()),
                 )
                 .flex_1(),

@@ -433,7 +433,7 @@ impl Desk {
         } else {
             download = download.child(
                 ui::mono(faces, Desk::shown(&entry.dir(&self.home)))
-                    .text_size(px(11.5))
+                    .text_size(px(crate::style::CAPTION))
                     .text_color(theme::faint()),
             );
         }
@@ -638,7 +638,7 @@ impl Desk {
                         .child(ui::mark(faces, &self.mark_of(id), 48.))
                         .child(
                             ui::text(faces, headline)
-                                .text_size(px(22.))
+                                .text_size(px(crate::style::H1))
                                 .line_height(px(30.))
                                 .weight(gpui::FontWeight::SEMIBOLD),
                         )
@@ -649,7 +649,7 @@ impl Desk {
                                     "Ghost runs {name}'s own agent and shows its work here. Its account, models and billing stay with {name}; Ghost never sees its sign-in."
                                 ),
                             )
-                            .text_size(px(14.))
+                            .text_size(px(crate::style::BODY))
                             .line_height(px(21.))
                             .text_color(theme::text2()),
                         ),
@@ -748,7 +748,7 @@ impl Desk {
                     .rounded(px(7.))
                     .border_1()
                     .border_color(theme::tag_line())
-                    .child(ui::mono(faces, m.clone()).text_size(px(12.)))
+                    .child(ui::mono(faces, m.clone()).text_size(px(crate::style::CAPTION)))
                     .child(
                         ui::icon_button(
                             SharedString::from(format!("drop-model-{n}")),
@@ -810,7 +810,10 @@ impl Desk {
                             .id(SharedString::from(format!("account-{n}")))
                             .flex_1()
                             .cursor_pointer()
-                            .child(ui::text(faces, self.name_of(account)).text_size(px(13.)))
+                            .child(
+                                ui::text(faces, self.name_of(account))
+                                    .text_size(px(crate::style::LABEL)),
+                            )
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.open_page(crate::desk::Page::Agent(open.clone()), window, cx);
                             })),
@@ -878,7 +881,7 @@ impl Desk {
                     .px(px(12.))
                     .py(px(6.))
                     .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
-                    .child(ui::mono(faces, name.clone()).text_size(px(12.5)))
+                    .child(ui::mono(faces, name.clone()).text_size(px(crate::style::CAPTION)))
                     .child(
                         ui::one_line(ui::mono(
                             faces,

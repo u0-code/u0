@@ -105,7 +105,7 @@ impl Desk {
             .child(ui::icon(icon, 14.).text_color(theme::faint()))
             .child(
                 ui::text(faces, name)
-                    .text_size(px(13.))
+                    .text_size(px(crate::style::LABEL))
                     .text_color(theme::text2()),
             )
             .tooltip(crate::keys::hint(cx, "Choose the mode", "mode"));
@@ -134,7 +134,7 @@ impl Desk {
             .selected(self.popup == Popup::ModelMode)
             .child(
                 ui::text(faces, name)
-                    .text_size(px(12.))
+                    .text_size(px(crate::style::CAPTION))
                     .text_color(theme::muted()),
             )
             .child(ui::icon("chevron-up", 12.).text_color(theme::faint()));

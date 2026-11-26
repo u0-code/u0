@@ -19,13 +19,14 @@ use crate::{fonts::Faces, theme, ui};
 // makes it read open. At 15 on the same 21 the desk read cramped beside
 // it. A line of code takes 38 px there, "3 minutes ago" 24.
 //
-// Every size text is set at, smallest first. Nothing in the desk sets text
-// at a size of its own.
+// Every size text is set at, smallest first: 12, 13, 14 and 15, and the
+// headings. Nothing in the desk sets text at a size of its own.
 
-/// Mono text, a menu's head, a tip; a line in a form.
+/// Small print: when, how long, a count, a key, a menu's head, a tip.
 pub const CAPTION: f32 = 12.;
-/// Small print in the thread: when, how long; a button's word.
-pub const META: f32 = 12.5;
+/// A control's or a row's words: a menu's line, a chip, a name in a list
+/// beside the thread, a setting.
+pub const LABEL: f32 = 13.;
 /// Commands, paths and what they printed.
 pub const MONO: f32 = 13.;
 /// Body text: what you said, a step ("Ran python3…"), whose verb is grey
@@ -48,7 +49,7 @@ pub const BUBBLE_RADIUS: f32 = 18.;
 /// how long.
 pub fn meta(faces: &Faces, text: impl Into<gpui::SharedString>) -> Div {
     ui::text(faces, text)
-        .text_size(px(META))
+        .text_size(px(CAPTION))
         .line_height(px(18.))
         .text_color(theme::faint())
 }

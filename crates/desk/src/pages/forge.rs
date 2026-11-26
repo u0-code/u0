@@ -86,7 +86,7 @@ impl Desk {
         let chip = ui::opener("forge-project")
             .h(px(26.))
             .px(px(8.))
-            .child(ui::text(faces, project).text_size(px(13.)))
+            .child(ui::text(faces, project).text_size(px(crate::style::LABEL)))
             .child(ui::icon("chevron-down", 10.).text_color(theme::faint()));
         let bar = div()
             .flex()
@@ -225,7 +225,7 @@ impl Desk {
                     .flex_1()
                     .min_w(px(0.))
                     .child(ui::one_line(
-                        ui::text(faces, item.title.clone()).text_size(px(13.5)),
+                        ui::text(faces, item.title.clone()).text_size(px(crate::style::LABEL)),
                     ))
                     .child(ui::one_line(ui::fine(faces, meta.join(" · "))))
                     .child(
@@ -310,7 +310,7 @@ impl Desk {
                     .child(
                         ui::text(faces, format!("{} #{}", item.title, item.number))
                             .flex_1()
-                            .text_size(px(17.))
+                            .text_size(px(crate::style::H2))
                             .text_color(theme::text()),
                     )
                     .child(
@@ -470,7 +470,7 @@ impl Desk {
                 .child(ui::fine(faces, label.to_owned()).w(px(80.)).flex_none())
                 .child(
                     ui::text(faces, value)
-                        .text_size(px(13.))
+                        .text_size(px(crate::style::LABEL))
                         .text_color(theme::text2()),
                 )
         };
@@ -506,7 +506,10 @@ impl Desk {
                         _ => theme::accent(),
                     }))
                     .child(
-                        ui::one_line(ui::text(faces, c.name.clone()).text_size(px(13.))).flex_1(),
+                        ui::one_line(
+                            ui::text(faces, c.name.clone()).text_size(px(crate::style::LABEL)),
+                        )
+                        .flex_1(),
                     )
                     .child(ui::fine(faces, c.state.clone()))
                     .children(run.clone().map(|run| {
