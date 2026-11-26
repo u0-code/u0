@@ -1,6 +1,7 @@
 //! What a call printed, as its opened box shows it: the head and the last
 //! line with how many were folded between, or on asking all of it up to a
-//! limit; a line too long for the box scrolls sideways rather than wrap;
+//! limit; a line too long for the box wraps, as Claude's does; the fence
+//! an agent put round it as Markdown is not part of it;
 //! the four terminal colours a program is likely to mean something by are
 //! kept and every other escape is taken out, and a word that says
 //! something failed is red whatever it came as; and output that is not text
@@ -14,7 +15,7 @@ use super::kinds;
 use crate::{
     fonts::Faces,
     style::{MONO, MONO_LINE, S2, meta},
-    theme, ui,
+    theme,
 };
 
 /// How many lines of what came back show before the rest is folded: a
@@ -253,18 +254,29 @@ fn left_out(faces: &Faces, n: usize) -> Div {
     meta(faces, format!("… {n} more {lines} not drawn")).px(px(10.))
 }
 
-/// What a command printed, in mono, quiet, in a box that scrolls sideways
-/// so a long line keeps its shape: whole when it is short or asked for (up
-/// to `MOST` lines), else its head, how much was left out, and its last
-/// line. `key` tells its box apart, for its scrolling.
-pub fn printed(faces: &Faces, key: &str, text: &str, all: bool) -> Div {
-    let lines = lines(text);
-    let block = || div().flex_none().whitespace_nowrap();
+/// What a call printed, without the Markdown fence an agent may have
+/// put round it (Claude's adapter sends "```console" … "```"): its lines.
+fn unfenced(text: &str) -> &str {
+    let t = text.trim();
+    let Some(open) = t.strip_prefix("```") else {
+        return text;
+    };
+    // The opening line is the fence and its language; the closing, the fence.
+    match (open.split_once('\n'), t.len() > 3 && t.ends_with("```")) {
+        (Some((_, inner)), true) => inner[..inner.len() - 3].trim_end_matches('\n'),
+        _ => text,
+    }
+}
+
+/// What a command printed, in mono, quiet, its long lines wrapped: whole
+/// when it is short or asked for (up to `MOST` lines), else its head, how
+/// much was left out, and its last line.
+pub fn printed(faces: &Faces, text: &str, all: bool) -> Div {
+    let lines = lines(unfenced(text));
     let mut inner = div()
         .flex()
         .flex_col()
-        .flex_none()
-        .px(px(10.))
+        .w_full()
         .font_family(faces.mono.clone())
         .text_size(px(MONO))
         .line_height(px(MONO_LINE))
@@ -273,31 +285,24 @@ pub fn printed(faces: &Faces, key: &str, text: &str, all: bool) -> Div {
     if all || lines.len() <= folded_at("") {
         let (shown, rest) = capped(&lines);
         left = rest;
-        inner = inner.child(block().child(styled(faces, shown)));
+        inner = inner.child(styled(faces, shown));
     } else {
         let gone = lines.len() - HEAD - 1;
         inner = inner
-            .child(block().child(styled(faces, &lines[..HEAD])))
+            .child(styled(faces, &lines[..HEAD]))
             .child(
-                block()
+                div()
                     .text_color(theme::quiet())
                     .child(format!("… {gone} lines")),
             )
-            .child(block().child(styled(faces, &lines[lines.len() - 1..])));
+            .child(styled(faces, &lines[lines.len() - 1..]));
     }
-    let scroller = ui::sideways(
-        div()
-            .id(SharedString::from(format!("{key}-out")))
-            .flex()
-            .w_full(),
-    )
-    .child(inner);
     div()
         .flex()
         .flex_col()
         .gap(px(S2))
         .w_full()
-        .child(scroller)
+        .child(inner)
         .when(left > 0, |d| d.child(left_out(faces, left)))
 }
 
@@ -399,5 +404,13 @@ mod tests {
         assert_eq!(left, 2_322 - MOST);
         let few: Vec<usize> = (0..12).collect();
         assert_eq!(capped(&few), (&few[..], 0));
+    }
+
+    #[test]
+    fn the_markdown_fence_round_output_is_not_part_of_it() {
+        assert_eq!(unfenced("```console\nok\nfine\n```"), "ok\nfine");
+        assert_eq!(unfenced("```\nok\n```\n"), "ok");
+        assert_eq!(unfenced("plain\n```"), "plain\n```");
+        assert_eq!(unfenced("```"), "```");
     }
 }

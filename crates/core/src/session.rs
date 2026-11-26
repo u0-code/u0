@@ -128,11 +128,14 @@ pub struct Elicit {
     pub answered: Option<String>,
 }
 
-/// A tool call, with when it started and how long it took, as the desk saw.
+/// A tool call, with when it started and how long it took, as its record
+/// says: an `At` goes before the line that begins a call and the one that
+/// ends it, so a record read back keeps its times, to the second. A record
+/// from before that has none, and says no time rather than a wrong one.
 #[derive(Debug, Clone)]
 pub struct Tool {
     pub call: ToolCall,
-    pub started: Instant,
+    pub started: Option<SystemTime>,
     pub took: Option<Duration>,
     /// For each diff in the call's content, the line of the file its new
     /// text starts on, found once the call is done; `None` where the file
@@ -141,6 +144,16 @@ pub struct Tool {
 }
 
 impl Tool {
+    /// How long it has been going, where its start is known.
+    pub fn running(&self) -> Option<Duration> {
+        self.started.and_then(|t| t.elapsed().ok())
+    }
+
+    /// How long it took, where that is worth saying: a second or more.
+    pub fn took_said(&self) -> Option<Duration> {
+        self.took.filter(|t| t.as_secs() > 0)
+    }
+
     /// The command a call that runs one ran, as the agent gave it: its
     /// input's `command` (words, or the script a shell was given), else
     /// its title without the backticks.
@@ -978,17 +991,26 @@ impl Session {
         // A new message from the agent: when it began goes before it.
         let begins = matches!(update, SessionUpdate::AgentMessageChunk(_))
             && !matches!(self.items.last(), Some(Item::Agent(_)));
-        if begins {
-            let t = if self.replaying {
-                self.stamp.take()
-            } else {
-                let now = SystemTime::now();
-                self.record(store::Event::At(store::secs(now)));
-                Some(now)
-            };
-            if let Some(t) = t {
-                self.times.push((self.items.len(), t));
-            }
+        // A call begun or ended: when, likewise, for how long it took.
+        let timed = match &update {
+            SessionUpdate::ToolCall(_) => true,
+            SessionUpdate::ToolCallUpdate(u) => matches!(
+                u.fields.status,
+                Some(ToolCallStatus::Completed | ToolCallStatus::Failed)
+            ),
+            _ => false,
+        };
+        let at = if !(begins || timed) {
+            None
+        } else if self.replaying {
+            self.stamp.take()
+        } else {
+            let now = SystemTime::now();
+            self.record(store::Event::At(store::secs(now)));
+            Some(now)
+        };
+        if begins && let Some(t) = at {
+            self.times.push((self.items.len(), t));
         }
         if !self.replaying {
             self.meta.updated = SystemTime::now();
@@ -1084,14 +1106,14 @@ impl Session {
                 } else {
                     self.items.push(Item::Tool(Box::new(Tool {
                         call,
-                        started: Instant::now(),
+                        started: at,
                         took: None,
                         starts: Vec::new(),
                     })));
                 }
-                self.settle(&id);
+                self.settle(&id, at);
             }
-            SessionUpdate::ToolCallUpdate(update) => self.update_tool(update),
+            SessionUpdate::ToolCallUpdate(update) => self.update_tool(update, at),
             SessionUpdate::Plan(plan) => {
                 match self.items.last_mut() {
                     Some(Item::Plan(p)) => *p = plan.clone(),
@@ -1183,24 +1205,24 @@ impl Session {
         })
     }
 
-    fn update_tool(&mut self, update: ToolCallUpdate) {
+    fn update_tool(&mut self, update: ToolCallUpdate, at: Option<SystemTime>) {
         let id = update.tool_call_id.clone();
         if let Some(tool) = self.tool_mut(&id) {
             tool.call.update(update.fields);
         } else if let Ok(call) = ToolCall::try_from(update) {
             self.items.push(Item::Tool(Box::new(Tool {
                 call,
-                started: Instant::now(),
+                started: at,
                 took: None,
                 starts: Vec::new(),
             })));
         }
-        self.settle(&id);
+        self.settle(&id, at);
     }
 
-    /// A call that has just ended is timed, and its diffs are to be placed
-    /// in their files.
-    fn settle(&mut self, id: &ToolCallId) {
+    /// A call that has just ended, at `at`, is timed, and its diffs are to
+    /// be placed in their files.
+    fn settle(&mut self, id: &ToolCallId, at: Option<SystemTime>) {
         let Some(tool) = self.tool_mut(id) else {
             return;
         };
@@ -1211,7 +1233,13 @@ impl Session {
         if !done || tool.took.is_some() {
             return;
         }
-        tool.took = Some(tool.started.elapsed());
+        // Unknown, it is none at all: nothing is said of it, as of a call
+        // over in under a second.
+        tool.took = Some(
+            at.zip(tool.started)
+                .and_then(|(end, start)| end.duration_since(start).ok())
+                .unwrap_or_default(),
+        );
         let diffs: Vec<(PathBuf, String)> = tool
             .call
             .content
@@ -1252,7 +1280,7 @@ impl Session {
                 .last()
                 .map(|t| t.call.kind)
         });
-        self.update_tool(request.tool_call);
+        self.update_tool(request.tool_call, None);
         self.items.push(Item::Asked(Asked {
             id,
             title,
@@ -1576,7 +1604,7 @@ mod tests {
                 "toolCallId": "t", "title": "`cargo test`", "kind": "execute", "rawInput": input,
             }))
             .unwrap(),
-            started: Instant::now(),
+            started: None,
             took: None,
             starts: Vec::new(),
         };
@@ -1605,8 +1633,9 @@ mod tests {
         ));
         s.ended(Ok(StopReason::EndTurn));
         let log = std::mem::take(&mut s.log);
-        // Each message's time goes before it: six lines for four.
-        assert_eq!(log.len(), 6);
+        // Each message's time goes before it, and a call's: seven lines
+        // for four.
+        assert_eq!(log.len(), 7);
 
         let mut again = Session::new(2, "codex-acp", "/tmp/repo".into());
         again.replay(log);
@@ -1615,6 +1644,31 @@ mod tests {
         assert!(matches!(&again.items[0], Item::You(t) if t == "fix it"));
         assert!(matches!(again.items[2], Item::Agent(_)));
         assert!(matches!(again.items[3], Item::Ended { .. }));
+    }
+
+    #[test]
+    fn a_call_read_back_takes_as_long_as_its_record_says_and_one_untimed_says_nothing() {
+        let call = |status: &str| {
+            store::Event::Update(Box::new(update(&format!(
+                r#"{{"sessionUpdate":"tool_call_update","toolCallId":"t","status":"{status}"}}"#
+            ))))
+        };
+        let begun = store::Event::Update(Box::new(update(
+            r#"{"sessionUpdate":"tool_call","toolCallId":"t","title":"ls","kind":"execute","status":"in_progress"}"#,
+        )));
+        let took = |events: Vec<store::Event>| {
+            let mut s = Session::new(1, "codex-acp", "/tmp/repo".into());
+            s.replay(events);
+            s.tools().next().and_then(Tool::took_said)
+        };
+        let timed = vec![
+            store::Event::At(100),
+            begun.clone(),
+            store::Event::At(107),
+            call("completed"),
+        ];
+        assert_eq!(took(timed), Some(Duration::from_secs(7)));
+        assert_eq!(took(vec![begun, call("completed")]), None);
     }
 
     #[test]

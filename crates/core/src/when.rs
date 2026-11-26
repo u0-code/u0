@@ -15,15 +15,6 @@ pub fn took(d: Duration) -> String {
     }
 }
 
-/// A duration under a minute with its tenths, as a command's time: "3.2s".
-pub fn took_short(d: Duration) -> String {
-    if d.as_secs() < 60 {
-        format!("{:.1}s", d.as_secs_f32())
-    } else {
-        took(d)
-    }
-}
-
 /// `t` in this computer's time zone.
 fn local(t: SystemTime) -> ZonedDateTime {
     ZonedDateTime::try_from(t).unwrap_or_default()
@@ -281,7 +272,6 @@ mod tests {
         assert_eq!(took(Duration::from_secs(14)), "14s");
         assert_eq!(took(Duration::from_secs(134)), "2m 14s");
         assert_eq!(took(Duration::from_mins(65)), "1h 05m");
-        assert_eq!(took_short(Duration::from_millis(3200)), "3.2s");
     }
 
     #[test]

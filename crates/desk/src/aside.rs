@@ -628,11 +628,12 @@ impl Desk {
                 ui::dot(if failed { theme::coral() } else { theme::ok() }).into_any_element()
             };
             let time = if live {
-                fine(faces, when::took(t.started.elapsed())).text_color(theme::accent())
+                fine(faces, t.running().map(when::took).unwrap_or_default())
+                    .text_color(theme::accent())
             } else if failed {
                 fine(faces, "failed").text_color(theme::coral())
             } else {
-                fine(faces, t.took.map(when::took_short).unwrap_or_default())
+                fine(faces, t.took_said().map(when::took).unwrap_or_default())
             };
             let text = t.command_line();
             let group = SharedString::from(format!("ran-{}", t.call.tool_call_id.0));

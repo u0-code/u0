@@ -317,14 +317,14 @@ fn boxed() -> Div {
         .border_color(theme::border())
 }
 
-/// A well of mono text, for output.
+/// A well of mono text, for output: on the well's ground, as Claude sets
+/// a call's IN and OUT.
 pub fn well(faces: &Faces) -> Div {
     div()
-        .px(px(14.))
-        .py(px(10.))
-        .rounded(px(12.))
-        .border_1()
-        .border_color(theme::border())
+        .px(px(12.))
+        .py(px(8.))
+        .rounded(px(8.))
+        .bg(theme::well())
         .font_family(faces.mono.clone())
         .text_size(px(13.))
         .line_height(px(19.))
@@ -1504,15 +1504,13 @@ impl Desk {
                 .into_any_element()
         };
         let tail: Option<AnyElement> = if running {
-            Some(
-                right_in(faces, when::took(tool.started.elapsed()), theme::accent())
-                    .into_any_element(),
-            )
+            tool.running()
+                .map(|t| right_in(faces, when::took(t), theme::accent()).into_any_element())
         } else if failed {
             Some(right_in(faces, "failed", theme::coral()).into_any_element())
         } else if call.kind == ToolKind::Execute {
-            tool.took
-                .map(|t| right(faces, when::took_short(t)).into_any_element())
+            tool.took_said()
+                .map(|t| right(faces, when::took(t)).into_any_element())
         } else if call.kind == ToolKind::Search {
             call.content.iter().find_map(|c| match c {
                 ToolCallContent::Content(x) => {
@@ -1611,8 +1609,9 @@ impl Desk {
             return div().child(line);
         }
 
-        let mut body = boxed().when(failed, |d| d.border_color(theme::coral().opacity(0.35)));
-        body = body.child(line.px(px(2.)).min_h(px(22.)));
+        // Opened, a call is its line and under it what it did, on the
+        // well's ground: one surface, not a box round a box.
+        let mut body = div().flex().flex_col().gap(px(6.)).child(line);
         let mut diff_n = 0;
         for (j, c) in call.content.iter().enumerate() {
             match c {
@@ -1641,9 +1640,8 @@ impl Desk {
                 ToolCallContent::Content(x) => {
                     let text = text_of(&x.content);
                     if !text.trim().is_empty() {
-                        body = body.child(well(faces).px(px(4.)).child(output::printed(
+                        body = body.child(well(faces).child(output::printed(
                             faces,
-                            &format!("{key}-{j}"),
                             &text,
                             self.expanded.contains(&format!("{key}-all")),
                         )));
