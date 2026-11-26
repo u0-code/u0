@@ -1,0 +1,152 @@
+---
+title: 计划任务、工作流与 Webhook
+description: 按计划或由 Webhook 运行提示，并把智能体、命令和提问串成工作流。
+---
+
+# 计划任务、工作流与 Webhook
+
+任务和工作流由 Ghost 的服务器运行，而不是窗口。只要服务器在运行，窗口关闭后它们也会继续运行：应用打开时服务器在应用中运行，或者通过 `ghost service install`（见 [CLI](reference/cli.md#the-launchd-service)）或 `ghost-server` 一直运行。
+
+## 计划任务 {#scheduled-tasks}
+
+计划任务会按计划，在某个项目中，向某个智能体发送一条提示。每次运行都是一个独立的会话（或同一会话的下一轮），像其他会话一样显示在侧边栏中。
+
+打开 **设置 › 计划任务**，选择 **新任务**：
+
+| 字段 | 含义 |
+|---|---|
+| **名称** | 任务的标题。留空时取提示的第一行（40 个字符）。 |
+| **提示** | 每次对智能体说的话。 |
+| **智能体** | 对谁说，以及使用哪个模型。 |
+| **项目** | 在哪里工作。 |
+| **计划** | **每隔**（分钟数，或 `2h` 这样的时长）、**每天**（一个时间和一周中的哪几天；一天都不选表示每天）、**一次**（如 `tomorrow`、`5pm`、`in 3h`），或 **通过 Webhook**。 |
+| **每次运行** | **每次运行新开会话**，或 **同一个会话，继续进行**（每次运行都是第一次运行所开会话的下一轮）。 |
+| **在独立的工作树中** | 与“每次运行新开会话”一起用：每次运行都在一个新分支上工作，与你的检出隔开。 |
+
+新任务默认为每天，工作日 09:00。每个任务的「⋯」菜单有 **编辑**、**立即运行** 和 **删除**，它的开关用于暂停任务。
+
+运行的规则：
+
+- 服务器每 20 秒检查一次到期的任务。
+- 上一次运行还没结束时，跳过本次运行。
+- **每隔** 任务在保存后过满一个完整间隔才第一次运行。
+- **一次** 任务运行成功后会删除自己。
+- 运行完成或失败时会像任何一轮那样通知你（见[设置](reference/settings.md#notifications-and-background)中的 `notify_on`），其会话会标为未读。
+- 失败的运行会在任务下方显示错误。
+
+`ghost tasks` 在终端中列出任务。
+
+### tasks.json {#tasksjson}
+
+任务保存在 `<home>/tasks.json` 中，由服务器写入。Ghost 关闭时你可以编辑它：
+
+```json
+{
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Morning triage",
+      "prompt": "Look at the issues opened since yesterday",
+      "agent": "claude-acp",
+      "project": "/Users/me/app",
+      "schedule": { "daily": { "minute": 540, "days": [1, 2, 3, 4, 5] } },
+      "worktree": true
+    },
+    {
+      "id": 2,
+      "title": "CI watch",
+      "prompt": "Check the CI of main",
+      "agent": "codex-acp",
+      "project": "/Users/me/app",
+      "schedule": { "every": 30 },
+      "paused": true
+    }
+  ]
+}
+```
+
+| 字段 | 类型 | 含义 |
+|---|---|---|
+| `id` | 数字 | 任务的编号。 |
+| `title`、`prompt` | 字符串 | |
+| `agent` | 智能体 ID | |
+| `model`、`mode` | 字符串或 `null` | 要设置的模型和会话模式。`null`：智能体的默认值。 |
+| `project` | 路径 | |
+| `schedule` | 对象 | `{"every": 分钟数}`、`{"daily": {"minute": 午夜后的分钟数, "days": [0–6，0 为周日]}}`（`days` 为空表示每天，按本地时间）、`{"once": Unix 秒数}`，或 `{"hook": "<token>"}`。 |
+| `paused` | 布尔值 | |
+| `same` | 布尔值 | 同一个会话，继续进行。 |
+| `worktree` | 布尔值 | 每次运行都在新工作树中。 |
+| `session`、`next`、`last`、`runs` | | 由服务器维护：它继续的会话、下一次运行、上一次运行的结果、运行次数。 |
+
+未知字段会报错。读不了的文件会原样保留，在修好或移走之前，不会运行或保存任何任务。
+
+### 当用量限额中止一轮时 {#when-a-usage-limit-stops-a-turn}
+
+当智能体因达到用量限额而中止一轮，并说明限额何时重置时，Ghost 会安排这一轮在那时继续：一个一次性任务，在同一会话中发送 "Continue"。错误卡片会显示何时继续，并提供 **不要继续** 来取消。可通过 **通用 › 在后台 › 限额重置后继续**（`resume_at_reset`）关闭此功能。
+
+这只适用于你从窗口发起的轮次。由任务或工作流运行的轮次不会以这种方式继续。
+
+## Webhook {#webhooks}
+
+计划为 **通过 Webhook** 的任务，会在有东西向它的地址发送 HTTP `POST` 时运行：
+
+```
+POST /hook/<token>
+```
+
+- 令牌是你选择 **通过 Webhook** 时生成的 22 个随机字符。它是保护这个地址的唯一手段：任何拿到它的人都能运行该任务。请妥善保密。
+- 该地址由 Ghost 监听其他设备的地方提供，所以必须开启监听（**设置 › 设备**，见[远程控制](remote.md)）。表单会显示 `http://127.0.0.1:<port>/hook/<token>`，隧道开启时还会显示 `https://<tunnel host>/hook/<token>`。
+- 请求正文（最多 1 MiB）会替换提示中的每个 `{{body}}`，并用 `<webhook-data untrusted>` … `</webhook-data>` 包起来，让智能体知道它来自外部。提示中没有 `{{body}}` 时，不使用正文。
+- 任务运行时 Ghost 返回 `202 Accepted`；令牌未知、任务已暂停，或[策略](reference/policy.md)禁止 Webhook 时，返回 `404 Not Found`。
+- Ghost 未运行时收到的调用不会被保留。
+
+:::note 即将推出
+
+签名 Webhook（HMAC 密钥、过滤器、重放保护和轮换）、启动工作流或在会话事件上运行的任务，以及表单中的 Webhook 签名，正在完善中，尚未包含在当前版本里。
+
+:::
+
+## 工作流 {#workflows}
+
+工作流是分阶段的运行：一个接一个的步骤，向智能体发送提示、运行命令，或者询问你。服务器把它作为一次运行来执行，重启后仍能继续：每一步结束时都会保存其结果，失败的步骤会让运行在那里暂停。
+
+每个工作流都是你放在 `<home>/workflows/` 中的一个 JSON 文件，以文件名命名（`release.json` 即工作流 `release`）。Ghost 每次列出或启动工作流时都会读取这些文件。
+
+```json
+{
+  "about": "Prepare a release",
+  "agent": "claude-acp",
+  "project": "/Users/me/app",
+  "steps": [
+    { "agent": { "name": "notes", "prompt": "Write release notes for {{input}}" } },
+    { "agent": { "name": "polish", "prompt": "Make these shorter: {{notes}}", "after": "notes" } },
+    { "ask": { "name": "ship", "title": "Ship {{input}}?", "choices": ["Ship", "Hold"], "stop": ["Hold"] } },
+    { "run": { "name": "tag", "command": "git tag {{input}}" } }
+  ]
+}
+```
+
+顶层：
+
+| 键 | 含义 |
+|---|---|
+| `about` | 与工作流一起显示的一行说明。 |
+| `agent` | 未指定智能体的智能体步骤所用的智能体。 |
+| `project` | 未指定文件夹的步骤所用的文件夹。 |
+| `steps` | 按顺序排列的步骤。每个步骤的 `name` 必须唯一。 |
+
+步骤：
+
+| 步骤 | 键 | 作用 |
+|---|---|---|
+| `agent` | `name`、`prompt`；可选 `agent`、`model`、`project`、`worktree`、`after` | 在一个标题为 “workflow · step” 的新会话中，对智能体说 `prompt`。有 `after`（前面某个智能体步骤的名称）时，改为在那个步骤的会话中继续。步骤的结果是智能体的最后一个回答。 |
+| `run` | `name`、`command`；可选 `dir` | 在 `dir`（或项目）中用 `/bin/sh -c` 运行 `command`。结果是它的标准输出。退出码非零时，运行会暂停，并附上它的错误输出。 |
+| `ask` | `name`、`title`、`choices`；可选 `stop` | 询问你，每个选项一个按钮。你的选择就是步骤的结果。选择 `stop` 中列出的选项会停止运行。 |
+
+取值：`{{input}}` 是运行的输入，`{{<step name>}}` 是前面某一步的结果（去掉首尾空白）。在 `run` 命令中，每个值都会按 shell 规则引用为一个单词，因此绝不会被当作代码执行。
+
+### 运行工作流 {#running-a-workflow}
+
+在 **设置 › 工作流** 中，输入一个输入（可选），然后按工作流旁边的 **启动**。在 **运行记录** 下，你可以显示需要你处理的、正在进行的，或全部运行。一次运行会显示每个已完成步骤及其结果的第一行和 **打开**（其会话）；等待 `ask` 步骤的运行会显示其选项；已暂停的运行会显示原因，并提供 **继续**（重新运行该步骤）。**取消** 会停止运行及正在进行的一轮。
+
+运行记录保存在 `<home>/runs.json` 中。服务器停止时正在进行的运行，会在服务器再次启动后继续。

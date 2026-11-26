@@ -1,0 +1,57 @@
+---
+title: Ghost 为智能体提供的工具
+description: Ghost 提供给每个会话的 MCP 服务器，以及 Ghost 之外的智能体如何使用它。
+---
+
+# Ghost 为智能体提供的工具
+
+Ghost 自己没有智能体，但它为你的智能体提供工具：一个名为 `ghost` 的 MCP 服务器，挂接到 Ghost 打开的每个会话上。通过它，智能体可以读取 Ghost 保存的会话、把工作交给另一个智能体、打开拉取请求、安排任务、向你提问，以及使用其所在机器上的模拟器。
+
+## 会话如何获得这些工具 {#how-a-session-gets-them}
+
+Ghost 打开会话时，通过 ACP 的 `mcpServers` 把服务器作为一个要运行的程序交给智能体：即带 `--mcp` 的 Ghost 自身程序，附带 `GHOST_HOME` 和该会话独有的密钥（`GHOST_MCP_KEY`）。这个程序只是一个小管道：它在标准输入输出上讲 MCP，并把一切转发给 Ghost 服务器，后者只监听 `127.0.0.1`。
+
+端口和供 Ghost 之外智能体使用的密钥写在 `<home>/mcp.json` 中，只有你能读取（权限 0600）。每次服务器启动时，两者都会重新生成。
+
+要让某个智能体的会话不带 Ghost 的工具，在 **设置 › 智能体** 中打开它的页面并把工具关掉。该智能体的 ID 会被加入 [settings.json](reference/settings.md) 的 `no_tools`。
+
+## 工具 {#the-tools}
+
+| 工具 | 作用 | 谁可以调用 |
+|---|---|---|
+| `list_sessions` | Ghost 保存的会话，最新的在前（最多 100 个）：每个会话的智能体、ID、标题、项目、工作文件夹以及是否已归档。可选的 `project` 按文件夹筛选。 | 任何智能体 |
+| `read_session` | 会话中说过的内容：你的消息（以 "You:" 开头）和智能体的回答。参数为 `agent` 和 `session`。 | 任何智能体 |
+| `read_diff` | 文件夹中尚未提交的内容，以统一差异格式给出。`folder` 默认为调用方会话的工作位置。 | 任何智能体 |
+| `delegate_task` | 把任务交给一个新 Ghost 会话中的智能体（你可以旁观），并等待它的回答。参数为 `prompt`、`title`，可选 `agent`、`project` 和 `worktree`。返回新会话的 ID 和它的最终回答。 | Ghost 中的会话；先询问你 |
+| `open_pr` | 提交会话工作位置中未提交的内容，推送（如在默认分支上则推到独立分支），并用 `gh` 打开拉取请求。参数为 `title`、`body`，可选提交信息 `message`。 | Ghost 中的会话；先询问你 |
+| `schedule_task` | 为智能体安排一条提示，每次都在新会话中运行：一次（`in_minutes`）或重复（`every_minutes`）。它会出现在 **设置 › 计划任务** 中，你可以在那里暂停或删除它。 | Ghost 中的会话；先询问你 |
+| `ask_user` | 在会话的对话中向你提问并等待回答，可以是自由文本，也可以是 `choices` 之一。 | Ghost 中的会话 |
+| `list_devices` | 服务器所在机器上的 iOS 模拟器和 Android 模拟器：ID、名称、平台、是否在运行；以及缺什么才能用上它们。 | 任何智能体 |
+| `device_screen` | 正在运行的设备当前显示的内容，以图片形式给出。 | 任何智能体 |
+| `use_device` | 启动或停止设备、轻点某一点、输入文本、按主屏幕键（Android 上还有返回或最近任务），或设为深色或浅色。 | Ghost 中的会话；先询问你 |
+
+### 访问级别 {#access-levels}
+
+调用方有两类：
+
+- **Ghost 中的会话。** 它可以调用所有工具。会执行操作的工具（`delegate_task`、`open_pr`、`schedule_task`、`use_device`）会先在该会话的对话中用权限卡片询问你，这与智能体自身提问所用的卡片相同，有 **Allow**、**Always allow** 和 **Reject**。**Always allow** 在该会话中对该工具一直有效，直到会话的连接结束。
+- **Ghost 之外的智能体**（见下文）。它只能读取：`list_sessions`、`read_session`、`read_diff`、`list_devices` 和 `device_screen`。会执行操作或向你提问的工具会回答：只有 Ghost 会话中的智能体才能这样做。
+
+## 从 Ghost 之外的智能体使用 {#using-them-from-an-agent-outside-ghost}
+
+你在终端中运行的智能体，只要 Ghost 在同一个主目录上运行，就能通过同一个服务器读取 Ghost 保存的内容：
+
+```bash
+claude mcp add ghost -- /Applications/Ghost.app/Contents/MacOS/ghost-desk --mcp
+codex mcp add ghost -- /Applications/Ghost.app/Contents/MacOS/ghost-desk --mcp
+```
+
+在没有窗口的机器上，使用 `ghost-server --mcp`。要访问另一台机器上的 Ghost，通过 SSH 在那里运行它：`ssh host ghost-server --mcp`。
+
+如果没有以该主目录运行的 Ghost，`--mcp` 会退出并说明原因。
+
+:::note 即将推出
+
+通过可流式 HTTP 提供 Ghost 的工具、访问其他已配对的 Mac，以及更多会话工具（向会话发送内容、等待会话、停止会话），正在完善中，尚未包含在当前版本里。
+
+:::

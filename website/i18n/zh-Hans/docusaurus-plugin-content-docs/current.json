@@ -1,0 +1,22 @@
+{
+  "version.label": {
+    "message": "Next",
+    "description": "The label for version current"
+  },
+  "sidebar.guide.category.Getting started": {
+    "message": "入门",
+    "description": "The label for category 'Getting started' in sidebar 'guide'"
+  },
+  "sidebar.guide.category.Working with agents": {
+    "message": "与智能体协作",
+    "description": "The label for category 'Working with agents' in sidebar 'guide'"
+  },
+  "sidebar.guide.category.Automation": {
+    "message": "自动化",
+    "description": "The label for category 'Automation' in sidebar 'guide'"
+  },
+  "sidebar.guide.category.Reference": {
+    "message": "参考",
+    "description": "The label for category 'Reference' in sidebar 'guide'"
+  }
+}
