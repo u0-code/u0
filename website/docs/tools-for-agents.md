@@ -23,9 +23,19 @@ program is a small pipe: it speaks MCP on its standard input and output
 and forwards everything to the Ghost server, which listens on `127.0.0.1`
 only.
 
-The port and a key for agents outside Ghost are written to
-`<home>/mcp.json`, readable by you alone (mode 0600). Both are made anew
-each time the server starts.
+The ports and a key for agents outside Ghost are written to
+`<home>/mcp.json`, readable by you alone (mode 0600). They stay the same
+from one start to the next, so an app you set up with them keeps working:
+
+- The ports are chosen once and taken again at each start. Where another
+  program has taken one meanwhile, Ghost listens at another, writes it in
+  `mcp.json`, and says so: an app set up with the old address needs the
+  new one.
+- The key is kept in the Keychain until you press **New key** under
+  **Settings › Agents › Key for agents outside Ghost**. The old key then
+  lets no one in, and a new one is written in `mcp.json`. Where there is
+  no Keychain (`ghost-server` on Linux), the key is made anew at each
+  start.
 
 To keep a particular agent's sessions free of Ghost's tools, open its page
 in **Settings › Agents** and switch them off. That agent's id is added to
@@ -120,7 +130,8 @@ http://127.0.0.1:<http>/mcp
 ```
 
 with `<http>` and the key from `<home>/mcp.json`, the key sent as
-`Authorization: Bearer <key>`. It is the same caller as `--mcp` with no
+`Authorization: Bearer <key>`. Both stay as they are across restarts
+(above), so the address and key are set up once. It is the same caller as `--mcp` with no
 session: it reads, and acts as `outside_acts` lets it. Ghost keeps no MCP
 session; it answers only `127.0.0.1`, `localhost` and `::1` by name, and no
 request from a web page (one with an `Origin`).

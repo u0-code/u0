@@ -452,6 +452,7 @@ impl Server {
             Call::AnswerFlow { run, choice } => self.answer_flow(run, choice),
             Call::ResumeFlow(run) => self.resume_flow(run),
             Call::CancelFlow(run) => self.cancel_flow(run),
+            Call::NewToolsKey => self.shared.new_outside_key(),
             Call::Keep(metas) => self.shared.change_index(|index| {
                 for meta in metas {
                     match index.sessions.iter_mut().find(|m| same(m, &meta)) {

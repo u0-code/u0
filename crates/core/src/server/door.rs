@@ -1,7 +1,9 @@
 //! How an agent reaches Ghost's tools (`tools`), and who it is there.
 //! The server listens on 127.0.0.1 alone, on two ports `mcp.json` names
-//! with a key only that file holds: one where `ghost --mcp` pipes MCP
-//! after a key on a line, and one that speaks MCP's streamable HTTP
+//! (the same at each start, where they are free) with a key only that
+//! file and the Keychain hold, kept until you ask for a new one: one
+//! where `ghost --mcp` pipes MCP after a key on a line, and one that
+//! speaks MCP's streamable HTTP
 //! (rmcp's, one request a turn, no session kept), the key its bearer
 //! token. A session Ghost opens is given a key of its own; a device
 //! paired reaches them over its link, signed in as a desk is (`link`).
@@ -22,7 +24,7 @@ use rmcp::{
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, BufReader};
 
 use super::{Server, Shared, tools::Tools};
-use crate::{access::Scope, acp, mcp, settings::Settings};
+use crate::{access::Scope, acp, mcp, proto::Event, settings::Settings};
 
 /// Who each key lets in, and the tools you allowed it always.
 pub(super) type Callers = Arc<Mutex<HashMap<String, Called>>>;
@@ -60,38 +62,86 @@ const KEY_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 /// closed.
 const CALLS: usize = 64;
 
+/// Where the key agents outside Ghost come in by is kept (`secrets`).
+const OUTSIDE_KEY: &str = "mcp/key";
+
+/// The key agents outside Ghost come in by: the one kept, unless `anew`;
+/// else a new one, kept from now on. Where nothing can be kept (a system
+/// without the Keychain), one for as long as this server runs.
+fn outside_key(anew: bool) -> String {
+    if !anew && let Ok(Some(key)) = crate::secrets::get(OUTSIDE_KEY) {
+        return key;
+    }
+    let key = crate::access::random::<32>();
+    if let Err(why) = crate::secrets::set(OUTSIDE_KEY, Some(&key)) {
+        tracing::warn!("the key for agents outside Ghost lasts until Ghost stops: {why}");
+    }
+    key
+}
+
+/// A listener on 127.0.0.1 at `port`, where there is one and it is free;
+/// else at a port of the system's choosing. Where it could not take
+/// `port`, a word saying so.
+async fn bind(port: Option<u16>) -> std::io::Result<(tokio::net::TcpListener, Option<String>)> {
+    let at = |port| tokio::net::TcpListener::bind(("127.0.0.1", port));
+    if let Some(port) = port.filter(|p| *p != 0)
+        && let Ok(listener) = at(port).await
+    {
+        return Ok((listener, None));
+    }
+    let listener = at(0).await?;
+    let now = listener.local_addr()?.port();
+    let moved = port.map(|was| format!("{was} was taken: they are at {now} now"));
+    Ok((listener, moved))
+}
+
 impl Shared {
     /// Let `who` in by a new key: the key.
     fn let_in(&self, who: Caller) -> String {
         let key = crate::access::random::<32>();
+        self.let_in_by(key.clone(), who);
+        key
+    }
+
+    /// Let `who` in by `key`.
+    fn let_in_by(&self, key: String, who: Caller) {
         let called = Called {
             who,
             always: Arc::default(),
         };
-        (self.callers.lock().expect("callers")).insert(key.clone(), called);
-        key
+        (self.callers.lock().expect("callers")).insert(key, called);
     }
 
-    /// Listen for agents calling Ghost's tools, from now on: the door
-    /// written in the home, each one let in by its key and served on a
-    /// task of its own.
+    /// Listen for agents calling Ghost's tools, from now on: at the ports
+    /// the door names where it was written before and they are free (said
+    /// where one is not), by the key kept; the door written in the home,
+    /// each one let in by its key and served on a task of its own.
     pub(super) fn serve_tools(&self) {
         let this = self.clone();
         acp::runtime().spawn(async move {
-            let bind = || tokio::net::TcpListener::bind(("127.0.0.1", 0));
-            let (pipe, http) = match (bind().await, bind().await) {
+            let was = mcp::door(&this.home).ok();
+            let ports = (was.as_ref().map(|d| d.port), was.as_ref().map(|d| d.http));
+            let ((pipe, moved), (http, moved_too)) = match (bind(ports.0).await, bind(ports.1).await) {
                 (Ok(pipe), Ok(http)) => (pipe, http),
                 (Err(e), _) | (_, Err(e)) => {
                     tracing::warn!("Ghost's tools are not served: {e}");
                     return;
                 }
             };
+            for moved in [moved, moved_too].into_iter().flatten() {
+                tracing::warn!("Ghost's tools moved: port {moved}");
+                let what = "Ghost's tools moved to another port".to_owned();
+                let why = format!("Port {moved}: an app set up with their old address needs the new one in mcp.json");
+                (this.send)(Event::Notice(Err((what, why))));
+            }
             let port = |l: &tokio::net::TcpListener| l.local_addr().map_or(0, |a| a.port());
+            let key = outside_key(false);
+            // It lets in before the door names it.
+            this.let_in_by(key.clone(), Caller::Outside);
             let door = mcp::Door {
                 port: port(&pipe),
                 http: port(&http),
-                // It lets in before the door names it.
-                key: this.let_in(Caller::Outside),
+                key,
             };
             if let Err(e) = mcp::open(&this.home, &door) {
                 tracing::warn!("Ghost's tools are not served: {e}");
@@ -213,6 +263,27 @@ impl Shared {
                 EnvVariable::new(mcp::KEY, key.clone()),
             ]);
         (key, vec![McpServer::Stdio(server)])
+    }
+
+    /// Give agents outside Ghost a new key, kept from now on and written
+    /// in the door: the old one lets no one in, and its "allowed" go
+    /// with it.
+    pub(super) fn new_outside_key(&self) {
+        let mut door = match mcp::door(&self.home) {
+            Ok(door) => door,
+            Err(why) => {
+                let what = "Ghost's tools are not served here".to_owned();
+                (self.send)(Event::Notice(Err((what, why))));
+                return;
+            }
+        };
+        door.key = outside_key(true);
+        (self.callers.lock().expect("callers")).retain(|_, c| c.who != Caller::Outside);
+        self.let_in_by(door.key.clone(), Caller::Outside);
+        (self.send)(Event::Notice(match mcp::open(&self.home, &door) {
+            Ok(()) => Ok("Agents outside Ghost have a new key: the old one lets no one in".into()),
+            Err(e) => Err(("The new key was not written".into(), e.to_string())),
+        }));
     }
 
     /// The session opened with the key `key` is `id`.

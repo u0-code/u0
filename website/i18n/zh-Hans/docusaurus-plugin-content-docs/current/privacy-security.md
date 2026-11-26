@@ -32,7 +32,7 @@ description: Ghost 存储什么、存在哪里、发送什么，以及如何把�
 | `heard.json` | 最近一个月收到的 Webhook 调用（投递的名称、已签名正文的 SHA-256），确保每个都不会运行两次。 |
 | `devices.json` | 可以控制这台机器的设备（它们的公钥）、端口、共享设置，以及命名隧道的令牌。 |
 | `servers.json` | 这台 Mac 控制的服务器（其密钥的公钥）。 |
-| `mcp.json` | Ghost 工具的端口，以及供 Ghost 之外的智能体使用的密钥。每次启动时重新生成，只有你可读（0600）。 |
+| `mcp.json` | Ghost 工具的端口，以及供 Ghost 之外的智能体使用的密钥（也保存在钥匙串中，直到你生成新的）。只有你可读（0600）。 |
 | `telemetry.json` | 当天的计数、本次安装的随机 ID，以及首次启动时是否已告知。 |
 | `registry.json`、`icons/`、`agents/` | 最近一次读取的注册表、智能体的标志、已安装的智能体。 |
 | `accounts/` | 某个智能体额外[账户](first-run.md#an-agents-page)的登录文件夹。 |
@@ -54,6 +54,7 @@ Ghost 的主目录及其 `logs/` 只有你可访问（0700）。Ghost 整体写�
 | `token/<host>` | GitHub、GitLab、Bitbucket、Azure DevOps 或 Linear 的令牌。 |
 | `server/SHA256:…` | 这台 Mac 为它所控制的服务器生成的密钥的私钥（PKCS#8）。 |
 | `share/tls` | Ghost 在网络上使用 TLS 时的证书和密钥。 |
+| `mcp/key` | Ghost 之外的智能体访问其工具所用的密钥（也写在 `mcp.json` 中），直到你生成新的。 |
 
 这些值都可以是 1Password 引用（`op://vault/item/field`）；每次使用时，Ghost 都会用 1Password 的 `op` CLI 读取它。
 

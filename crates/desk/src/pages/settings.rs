@@ -357,6 +357,21 @@ impl Desk {
                     .into_any_element()
             },
         ));
+        head.push(item(
+            w,
+            crate::tr("Key for agents outside Ghost"),
+            crate::tr("An app set up with Ghost's tools (mcp.json's address and key) keeps working across restarts: the key stays until you make a new one, and the old one then lets no one in."),
+            move |_, _, cx| {
+                gpui::component::button::Button::new("new-tools-key")
+                    .small()
+                    .label(crate::tr("New key"))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.call(host, crate::proto::Call::NewToolsKey);
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            },
+        ));
         head.push(whole(w, &["search"], |d, _, _| {
             Input::new(&d.pages.agent_search)
                 .small()

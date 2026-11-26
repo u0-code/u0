@@ -486,6 +486,9 @@ pub enum Call {
     /// Take the paused run up again, at the step it stopped at.
     ResumeFlow(u64),
     CancelFlow(u64),
+    /// Give agents outside Ghost a new key to its tools (`mcp.json`): the
+    /// old one lets no one in. Answered as a `Notice`.
+    NewToolsKey,
 }
 
 impl Call {
@@ -598,7 +601,8 @@ impl Call {
             | Self::StartFlow { .. }
             | Self::AnswerFlow { .. }
             | Self::ResumeFlow(_)
-            | Self::CancelFlow(_) => return None,
+            | Self::CancelFlow(_)
+            | Self::NewToolsKey => return None,
         })
     }
 }
@@ -1614,6 +1618,7 @@ mod tests {
             },
             Call::ResumeFlow(1),
             Call::CancelFlow(1),
+            Call::NewToolsKey,
             Call::RunTask(1),
             Call::Say {
                 tag: 1,

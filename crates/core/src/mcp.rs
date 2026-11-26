@@ -9,7 +9,9 @@
 //! says which session calls; an agent outside Ghost (`claude mcp add ghost
 //! -- …/ghost --mcp`) starts it with none, and is let in by the file's.
 //! The same tools speak MCP's streamable HTTP at the file's `http` port,
-//! the key as a bearer token. `ghost --mcp --on <server>` reaches the
+//! the key as a bearer token: an app set up with that address keeps it,
+//! as the ports are taken again at each start and the key is kept (in
+//! the Keychain) until you ask for a new one. `ghost --mcp --on <server>` reaches the
 //! tools of a server this Mac is paired with instead, over a link of its
 //! own, signed in as the window is: there it acts as that Mac's scope
 //! lets it.
@@ -26,7 +28,8 @@ use tokio::io::AsyncWriteExt as _;
 pub const KEY: &str = "GHOST_MCP_KEY";
 
 /// Where the server listens, and the key that lets an agent outside Ghost
-/// in: made anew each time it starts.
+/// in: the ports taken again each time it starts (others where they are
+/// not free), the key kept in the Keychain until you ask for a new one.
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Door {
@@ -40,6 +43,13 @@ pub struct Door {
 
 pub(crate) fn path(home: &Path) -> PathBuf {
     home.join("mcp.json")
+}
+
+/// The door written in `home`, or why there is none.
+pub(crate) fn door(home: &Path) -> Result<Door, String> {
+    std::fs::read_to_string(path(home))
+        .map_err(|e| e.to_string())
+        .and_then(|text| serde_json::from_str(&text).map_err(|e| e.to_string()))
 }
 
 /// Write `door` in `home`, readable by you alone: whole, so that whoever
@@ -61,10 +71,8 @@ pub(crate) fn pipe(on: Option<&str>) -> Result<(), String> {
         return pipe_on(name);
     }
     let home = crate::settings::home();
-    let door: Door = std::fs::read_to_string(path(&home))
-        .map_err(|e| e.to_string())
-        .and_then(|text| serde_json::from_str(&text).map_err(|e| e.to_string()))
-        .map_err(|e| format!("Ghost is not running with {} ({e})", home.display()))?;
+    let door =
+        door(&home).map_err(|e| format!("Ghost is not running with {} ({e})", home.display()))?;
     let key = std::env::var(KEY).unwrap_or(door.key);
     crate::acp::runtime()
         .block_on(async {

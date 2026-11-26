@@ -41,7 +41,7 @@ Everything is in Ghost's home, `~/.ghost` (or `GHOST_HOME`):
 | `heard.json` | The webhook calls heard in the last month (a delivery's name, a signed body's SHA-256), so none runs twice. |
 | `devices.json` | Devices that may control this machine (their public keys), the port, sharing settings and a named tunnel's token. |
 | `servers.json` | The servers this Mac controls (the public halves of its keys). |
-| `mcp.json` | The port of Ghost's tools and the key for agents outside Ghost. Made anew at each start, readable by you alone (0600). |
+| `mcp.json` | The ports of Ghost's tools and the key for agents outside Ghost (kept too in the Keychain, until you make a new one). Readable by you alone (0600). |
 | `telemetry.json` | The day's counts, this install's random id, and whether the first launch was told. |
 | `registry.json`, `icons/`, `agents/` | The registry last read, agents' logos, the agents installed. |
 | `accounts/` | The sign-in folders of extra [accounts](first-run.md#an-agents-page) of an agent. |
@@ -71,6 +71,7 @@ service `Ghost <home>` (so two homes keep apart):
 | `token/<host>` | A token for GitHub, GitLab, Bitbucket, Azure DevOps or Linear. |
 | `server/SHA256:…` | The private half of the key this Mac made for a server it controls (PKCS#8). |
 | `share/tls` | The certificate and key Ghost speaks TLS with on a network. |
+| `mcp/key` | The key agents outside Ghost reach its tools by (also in `mcp.json`), until you make a new one. |
 
 Any of these values may be a 1Password reference
 (`op://vault/item/field`); Ghost reads it with 1Password's `op` CLI each

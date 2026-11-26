@@ -11,7 +11,10 @@ Ghost 自己没有智能体，但它为你的智能体提供工具：一个名�
 
 Ghost 打开会话时，通过 ACP 的 `mcpServers` 把服务器作为一个要运行的程序交给智能体：即带 `--mcp` 的 Ghost 自身程序，附带 `GHOST_HOME` 和该会话独有的密钥（`GHOST_MCP_KEY`）。这个程序只是一个小管道：它在标准输入输出上讲 MCP，并把一切转发给 Ghost 服务器，后者只监听 `127.0.0.1`。
 
-端口和供 Ghost 之外智能体使用的密钥写在 `<home>/mcp.json` 中，只有你能读取（权限 0600）。每次服务器启动时，两者都会重新生成。
+端口和供 Ghost 之外智能体使用的密钥写在 `<home>/mcp.json` 中，只有你能读取（权限 0600）。它们在每次启动之间保持不变，所以用它们设置好的应用会一直可用：
+
+- 端口只选一次，每次启动时重新占用。如果期间另一个程序占用了其中一个，Ghost 会改在另一个端口监听，把它写进 `mcp.json`，并告诉你：用旧地址设置的应用需要换成新地址。
+- 密钥保存在钥匙串中，直到你在 **设置 › 智能体 › Ghost 之外的智能体的密钥** 中按下 **新密钥**。之后旧密钥不再允许任何人进入，新的密钥会写进 `mcp.json`。没有钥匙串的地方（Linux 上的 `ghost-server`），每次启动都会重新生成密钥。
 
 要让某个智能体的会话不带 Ghost 的工具，在 **设置 › 智能体** 中打开它的页面并把工具关掉。该智能体的 ID 会被加入 [settings.json](reference/settings.md) 的 `no_tools`。
 
@@ -81,7 +84,7 @@ codex mcp add ghost -- /Applications/Ghost.app/Contents/MacOS/ghost-desk --mcp
 http://127.0.0.1:<http>/mcp
 ```
 
-`<http>` 和密钥都来自 `<home>/mcp.json`，密钥以 `Authorization: Bearer <key>` 发送。它与不带会话的 `--mcp` 是同一类调用方：可以读取，并在 `outside_acts` 允许时执行操作。Ghost 不保存 MCP 会话；它只响应以 `127.0.0.1`、`localhost` 和 `::1` 为名的请求，并拒绝来自网页的请求（带有 `Origin` 的请求）。
+`<http>` 和密钥都来自 `<home>/mcp.json`，密钥以 `Authorization: Bearer <key>` 发送。两者在重启后保持不变（见上文），所以地址和密钥只需设置一次。它与不带会话的 `--mcp` 是同一类调用方：可以读取，并在 `outside_acts` 允许时执行操作。Ghost 不保存 MCP 会话；它只响应以 `127.0.0.1`、`localhost` 和 `::1` 为名的请求，并拒绝来自网页的请求（带有 `Origin` 的请求）。
 
 ### 在另一台 Mac 上 {#on-another-mac}
 

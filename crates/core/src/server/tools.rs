@@ -960,6 +960,56 @@ esac; done"#;
         )
     }
 
+    /// The door of `home` once it stands as `stands` says.
+    fn door_once(home: &std::path::Path, stands: impl Fn(&mcp::Door) -> bool) -> mcp::Door {
+        for _ in 0..250 {
+            if let Ok(door) = mcp::door(home)
+                && stands(&door)
+            {
+                return door;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        panic!("the door never stood so");
+    }
+
+    #[test]
+    fn the_tools_keep_their_ports_and_key_until_you_ask_for_a_new_key() {
+        let home = tempfile::tempdir().unwrap();
+        let free = || {
+            let l = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            l.local_addr().unwrap().port()
+        };
+        let (port, http) = (free(), free());
+        let was = json!({"port": port, "http": http, "key": "from before"});
+        std::fs::write(mcp::path(home.path()), was.to_string()).unwrap();
+        let (ghost, _said) = server(home.path());
+        let door = door_once(home.path(), |d| d.key != "from before");
+        assert_eq!((door.port, door.http), (port, http), "the same ports again");
+        // Another Ghost finding them taken listens elsewhere, and says so.
+        let other = tempfile::tempdir().unwrap();
+        std::fs::copy(mcp::path(home.path()), mcp::path(other.path())).unwrap();
+        let (_other, said) = server(other.path());
+        let moved = door_once(other.path(), |d| d.port != port);
+        assert!(moved.port != port && moved.http != http);
+        let told = std::iter::from_fn(|| said.recv_timeout(Duration::from_secs(2)).ok())
+            .any(|e| matches!(e, Event::Notice(Err((what, _))) if what.contains("moved")));
+        assert!(told, "it said so");
+        // The key is kept, until a new one is asked for: then the old one
+        // lets no one in, and the new one is kept.
+        assert_eq!(moved.key, door.key);
+        ghost.handle(Call::NewToolsKey);
+        let new = door_once(home.path(), |d| d.key != door.key).key;
+        assert_eq!((door_once(home.path(), |_| true).port), port);
+        let list = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "list_sessions", "arguments": {}}});
+        assert!(over_http(home.path(), &door.key, &list).0.contains("401"));
+        assert!(over_http(home.path(), &new, &list).0.contains("200"));
+        let third = tempfile::tempdir().unwrap();
+        let (_third, _) = server(third.path());
+        assert_eq!(door_once(third.path(), |_| true).key, new);
+    }
+
     #[test]
     fn the_tools_answer_streamable_http_on_this_mac_by_a_key_alone() {
         let home = tempfile::tempdir().unwrap();
