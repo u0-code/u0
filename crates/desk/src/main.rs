@@ -31,9 +31,9 @@ mod voice;
 // What needs no window is ghost-core's. Named here, `crate::git` and the
 // rest name it alike in every module of the desk.
 use ghost_core::{
-    access, acp, diagnostics, forge, git, github, key, link, path, policy, proto, registry, repo,
-    review, scripts, secrets, server, servers, session, settings, share, store, tasks, telemetry,
-    tidy, update, usage, when, whole, workflows, writer,
+    access, acp, devices, diagnostics, forge, git, github, key, link, path, policy, proto,
+    registry, repo, review, scripts, secrets, server, servers, session, settings, share, store,
+    tasks, telemetry, tidy, update, usage, when, whole, workflows, writer,
 };
 use keys::{
     About, BringAllToFront, CheckForUpdates, Hide, HideOthers, Minimize, NewSession, OpenSettings,

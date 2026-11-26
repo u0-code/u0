@@ -13,6 +13,7 @@
 pub mod access;
 pub mod acp;
 pub mod cli;
+pub mod devices;
 pub mod diagnostics;
 pub mod forge;
 pub mod git;

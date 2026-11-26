@@ -266,6 +266,7 @@ pub struct Desk {
     pub pr_tick: u32,
     pub health_tick: u32,
     pub review: gitview::Review,
+    pub sims: crate::aside::Sims,
     pub palette: palette::Palette,
     /// What `@` can name: each folder's files, each project's open pull
     /// requests, read once when first wanted.
@@ -504,6 +505,7 @@ impl Desk {
             loop {
                 cx.background_executor().timer(Duration::from_secs(1)).await;
                 let Ok(()) = this.update(cx, |this, cx| {
+                    this.watch_device();
                     if this.busy() {
                         cx.notify();
                     }
@@ -589,6 +591,7 @@ impl Desk {
             pr_tick: 0,
             health_tick: 0,
             review: gitview::Review::new(window, cx),
+            sims: crate::aside::Sims::new(window, cx),
             prs: HashMap::new(),
             issues: HashMap::new(),
             registry,

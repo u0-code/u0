@@ -698,6 +698,23 @@ impl Server {
                 });
             }
             Call::Forges => self.off(|| Event::Forges(crate::forge::seen())),
+            Call::Devices => self.off(crate::devices::listed),
+            Call::Device { device, act } => {
+                let send = self.shared.send.clone();
+                self.off(move || {
+                    if let Err(why) = crate::devices::act(&device, &act) {
+                        send(Event::Notice(Err((
+                            format!("{} did not do that", device.name),
+                            why,
+                        ))));
+                    }
+                    crate::devices::listed()
+                });
+            }
+            Call::Screen { device } => self.off(move || Event::Screen {
+                png: crate::devices::screen(&device),
+                id: device.id,
+            }),
             Call::TermOpen {
                 id,
                 dir,

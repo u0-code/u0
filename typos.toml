@@ -17,3 +17,5 @@ extend-ignore-re = [
 [default.extend-words]
 # Linear's filter for "not in".
 nin = "nin"
+# A simulator's id, as Xcode names it.
+udid = "udid"

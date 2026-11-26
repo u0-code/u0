@@ -401,6 +401,17 @@ pub enum Call {
         key: u64,
         calls: Vec<(ToolCallId, Vec<(PathBuf, String)>)>,
     },
+    /// The simulators and emulators here.
+    Devices,
+    /// Do `act` to `device`; then the devices, listed again.
+    Device {
+        device: crate::devices::Device,
+        act: crate::devices::Act,
+    },
+    /// What `device` shows now.
+    Screen {
+        device: crate::devices::Device,
+    },
     /// How much each part of Ghost's home takes, its worktrees those in
     /// `worktrees`.
     Sizes {
@@ -633,6 +644,17 @@ pub enum Event {
     Held {
         folder: PathBuf,
         held: Held,
+    },
+    /// The simulators and emulators here, and what is missing to have
+    /// any.
+    Devices {
+        found: Vec<crate::devices::Device>,
+        missing: Vec<String>,
+    },
+    /// What the device `id` shows, as a PNG; or why it cannot be read.
+    Screen {
+        id: String,
+        png: Result<Vec<u8>, String>,
     },
     /// Something done, to be said: what was done, or what was not and why.
     Notice(Result<String, (String, String)>),
@@ -1047,6 +1069,26 @@ mod tests {
                 })),
             },
             Call::Forges,
+            Call::Devices,
+            Call::Device {
+                device: crate::devices::Device {
+                    id: "Pixel_9".into(),
+                    name: "Pixel 9".into(),
+                    android: true,
+                    serial: Some("emulator-5554".into()),
+                    running: true,
+                },
+                act: crate::devices::Act::Tap(10, 20),
+            },
+            Call::Screen {
+                device: crate::devices::Device {
+                    id: "A".into(),
+                    name: "iPhone".into(),
+                    android: false,
+                    serial: None,
+                    running: true,
+                },
+            },
             Call::TermOpen {
                 id: 2,
                 dir: dir.clone(),
@@ -1595,6 +1637,14 @@ mod tests {
             Event::Record {
                 key: 1,
                 events: Some(said),
+            },
+            Event::Devices {
+                found: Vec::new(),
+                missing: vec!["Xcode, for iOS simulators".into()],
+            },
+            Event::Screen {
+                id: "A".into(),
+                png: Err("it is not running".into()),
             },
             Event::Found {
                 query: "go".into(),

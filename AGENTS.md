@@ -154,6 +154,8 @@ crates/core/src/
   whole.rs      a file written whole; a JSON file read back
   writer.rs     text an agent writes for you: what each kind asks, what is kept
   tidy.rs       what Ghost keeps here, measured and tidied
+  devices.rs    iOS simulators and Android emulators: listed, started, their screen, touched
+                (xcrun simctl, adb, emulator)
   diagnostics.rs  the processes Ghost runs, as a tree with CPU and memory; its log's troubles
   path.rs       the PATH your shell sets up, for an app opened from the Dock
   scripts.rs    a repository's own commands, in its ghost.json
@@ -197,7 +199,8 @@ crates/desk/src/
   aside/        the column's tabs (tabs), the Diff tab as gpui-kit's diff view
                 reads the patches (diff), the Files tab and a file read
                 (files), git's scopes, commits and pull request (repo), a
-                side chat in it (side)
+                side chat in it (side), the Devices tab: simulators and
+                emulators (sims)
   pages/        the settings dialog, gpui-kit's Settings, a page a tab (settings, prefs, projects, writing,
                 usage, voice: dictation's settings, updates: on About, hosts:
                 Source control, looks: Appearance's themes, diagnostics,

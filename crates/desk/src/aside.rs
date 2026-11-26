@@ -8,9 +8,11 @@ mod diff;
 mod files;
 mod repo;
 mod side;
+mod sims;
 mod tabs;
 
 pub use files::Viewer;
+pub use sims::Sims;
 pub use tabs::{Column, Surface};
 
 use std::time::SystemTime;
@@ -180,6 +182,7 @@ impl Desk {
                 .into_any_element()
             }
             Some(Surface::Side(key)) => self.side_chat(faces, key, cx).into_any_element(),
+            Some(Surface::Devices) => scrolled(self.sims_tab(faces, cx)).into_any_element(),
         };
         // Its edge: dragged, its width; double-clicked, as it was at first.
         frame(head).child(body).child(

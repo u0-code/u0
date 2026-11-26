@@ -40,6 +40,8 @@ pub enum Surface {
     PullRequest,
     /// A side chat of it, by key.
     Side(u64),
+    /// The simulators and emulators of its server.
+    Devices,
 }
 
 /// A session's tabs in order, the one shown, and those closed, the last
@@ -108,12 +110,13 @@ impl Column {
 
 /// What the Open… menu offers, each with the letter that opens it while the
 /// menu is open: t3code's, for those Ghost has.
-const OFFERS: [(&str, &str, char); 6] = [
+const OFFERS: [(&str, &str, char); 7] = [
     ("Terminal", "terminal", 'T'),
     ("Files", "folder", 'F'),
     ("Diff", "diff", 'D'),
     ("Pull request", "pull-request", 'P'),
     ("Side chat", "bulb", 'S'),
+    ("Devices", "laptop", 'V'),
     ("Details", "list", 'I'),
 ];
 
@@ -223,6 +226,7 @@ impl Desk {
             'F' => Surface::Files,
             'D' => Surface::Diff,
             'P' => Surface::PullRequest,
+            'V' => Surface::Devices,
             'S' => {
                 // A new side chat, which opens here once it has begun.
                 if let Some(key) = self.current.filter(|_| self.offered('S')) {
@@ -404,6 +408,7 @@ impl Desk {
                 "file",
             ),
             Surface::Terminal => ("Terminal".into(), "terminal"),
+            Surface::Devices => ("Devices".into(), "laptop"),
             Surface::PullRequest => (
                 s.git
                     .pr
