@@ -110,6 +110,9 @@ pub struct Palette {
     pub snoozing: Vec<u64>,
     /// What had the keys before it opened, to have them again.
     pub back_to: Option<gpui::FocusHandle>,
+    /// What it looked through before it was turned to this, while open:
+    /// where Escape goes back to.
+    pub from: Option<Through>,
 }
 
 impl Palette {
@@ -125,6 +128,7 @@ impl Palette {
             how: crate::git::Match::default(),
             snoozing: Vec::new(),
             back_to: None,
+            from: None,
         }
     }
 }
@@ -373,6 +377,7 @@ impl Desk {
             self.files.insert(folder.clone(), Vec::new());
             self.list_files(&folder);
         }
+        self.palette.from = self.palette.open.then_some(self.palette.through);
         self.palette.through = through;
         self.palette.grep.clear();
         self.palette.pages.clear();
@@ -420,10 +425,9 @@ impl Desk {
     /// Escape in the palette: from the files or their words back to
     /// everything, else closed.
     pub(crate) fn palette_back(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.palette.through == Through::Everything {
-            self.close_palette(window, cx);
-        } else {
-            self.open_palette(Through::Everything, window, cx);
+        match back_from(self.palette.through, self.palette.from) {
+            Some(to) => self.open_palette(to, window, cx),
+            None => self.close_palette(window, cx),
         }
     }
 
@@ -996,8 +1000,9 @@ impl Desk {
                     .child(empty)
             })
             .footer({
+                let back = back_from(self.palette.through, self.palette.from).is_some();
                 let through = self.palette.through;
-                move |_, _, _| foot(through, page.is_some())
+                move |_, _, _| foot(through, back, page.is_some())
             });
         // A page says at its head what it is, and goes back when clicked.
         if let Some(sub) = page {
@@ -1222,9 +1227,17 @@ fn row_view(faces: &Faces, row: &Row) -> gpui::Div {
         })
 }
 
+/// Where Escape takes the palette looking through `through`, turned to it
+/// from `from`: back to everything when it came from there, else nowhere
+/// (it closes). ⌘P opened by itself has no ⌘K to go back to.
+fn back_from(through: Through, from: Option<Through>) -> Option<Through> {
+    (through != Through::Everything && from == Some(Through::Everything))
+        .then_some(Through::Everything)
+}
+
 /// The palette's foot: the keys that move, choose and leave, as t3code
-/// says them.
-fn foot(through: Through, page: bool) -> gpui::Div {
+/// says them; Escape goes `back`, or closes it.
+fn foot(through: Through, back: bool, page: bool) -> gpui::Div {
     let hint = |keys: &[&'static str], what: &'static str| {
         div()
             .flex()
@@ -1237,10 +1250,11 @@ fn foot(through: Through, page: bool) -> gpui::Div {
             }))
             .child(div().ml(px(2.)).child(what))
     };
-    let (enter, esc) = match through {
-        Through::Everything => ("Select", "Close"),
-        Through::Files | Through::Words => ("Open file", "Back"),
+    let enter = match through {
+        Through::Everything => "Select",
+        Through::Files | Through::Words => "Open file",
     };
+    let esc = if back { "Back" } else { "Close" };
     div()
         .flex()
         .items_center()
@@ -1256,4 +1270,22 @@ fn foot(through: Through, page: bool) -> gpui::Div {
         .child(hint(&["Enter"], enter))
         .child(hint(&["Esc"], esc))
         .when(page, |d| d.child(hint(&["⌫"], "Back")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn escape_goes_back_to_the_palette_only_when_it_was_turned_from_there() {
+        // ⌘P opened by itself: closed.
+        assert_eq!(back_from(Through::Files, None), None);
+        // ⌘K, then files: back to ⌘K.
+        assert_eq!(
+            back_from(Through::Files, Some(Through::Everything)),
+            Some(Through::Everything)
+        );
+        // ⌘K itself: closed.
+        assert_eq!(back_from(Through::Everything, Some(Through::Files)), None);
+    }
 }
