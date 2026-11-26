@@ -173,15 +173,12 @@ impl Desk {
     /// Back to the session shown before (or ahead again), as a browser
     /// goes back.
     pub fn step_trail(&mut self, ahead: bool, window: &mut Window, cx: &mut Context<Self>) {
-        let (from, to) = if ahead {
-            (&mut self.ahead, &mut self.trail)
+        let to = if ahead {
+            self.trail.forward()
         } else {
-            (&mut self.trail, &mut self.ahead)
+            self.trail.back()
         };
-        let Some(key) = from.pop() else { return };
-        if let Some(now) = self.current {
-            to.push(now);
-        }
+        let Some(key) = to else { return };
         self.trailing = true;
         self.show(key, window, cx);
         self.trailing = false;

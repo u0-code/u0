@@ -202,10 +202,9 @@ pub struct Desk {
     pub on_path: Vec<&'static str>,
     /// How many sessions need you, as the Dock last said.
     pub badge: usize,
-    /// The sessions shown before the one on screen, and those gone back
-    /// from; going back or ahead is under way.
-    pub trail: Vec<u64>,
-    pub ahead: Vec<u64>,
+    /// The sessions shown, to go back and ahead through as a browser
+    /// does; going back or ahead is under way.
+    pub trail: gpui::base::History<u64>,
     pub trailing: bool,
     /// Ports brought here from another machine (ssh -L), each its tunnel.
     pub tunnels: Vec<(u16, std::process::Child)>,
@@ -514,8 +513,7 @@ impl Desk {
             chosen: std::collections::BTreeSet::new(),
             sweep: Vec::new(),
             tunnels: Vec::new(),
-            trail: Vec::new(),
-            ahead: Vec::new(),
+            trail: gpui::base::History::new(),
             trailing: false,
             stopping: None,
             glassed: false,
@@ -812,10 +810,12 @@ impl Desk {
             gpui::base::TextSelection::clear(window, cx);
             // Where you were, to go back to; going back keeps the way ahead.
             if !self.trailing {
-                if let Some(old) = self.current {
+                if let Some(old) = self.current
+                    && self.trail.current() != Some(&old)
+                {
                     self.trail.push(old);
                 }
-                self.ahead.clear();
+                self.trail.push(key);
             }
             // What was being written stays with its session, and the
             // session shown brings back what was being written in it.
