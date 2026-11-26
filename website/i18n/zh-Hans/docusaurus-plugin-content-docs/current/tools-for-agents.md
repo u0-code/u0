@@ -33,10 +33,11 @@ Ghost 打开会话时，通过 ACP 的 `mcpServers` 把服务器作为一个要�
 | `device_screen` | 正在运行的设备当前显示的内容，以图片形式给出。 | 任何智能体 |
 | `use_device` | 启动或停止设备、轻点某一点、按住某一点、从一点滑到另一点、朝某一侧滚动、向左或向右旋转、输入文本、按主屏幕键（Android 上还有返回或最近任务），或设为深色或浅色。 | Ghost 中的会话；先询问你 |
 | `send_to_session` | 在 Ghost 保存的某个会话（`agent`、`session`）中说 `prompt`，作为它的下一轮：正在进行的一轮会先让它结束，绝不会被中断。带 `wait` 时返回其智能体的回答；否则由 `wait_for_turn` 返回。 | Ghost 中的会话；先在那个会话中询问你 |
+| `answer_request` | 回答另一个会话中智能体提出、正在等待的问题（`agent`、`session`；`request` 编号和一个 `option` id，都由 `events` 给出）。卡片会写明问题和答案。 | Ghost 中的会话；每次都先询问你 |
 | `organize_session` | 整理 Ghost 保存的一个会话（`agent`、`session`）：`pin` 置顶或取消置顶，`archive` 归档或恢复，给它一个 `title`，设置它的 `tags`。每个窗口都会立刻显示这一变化。 | Ghost 中的会话；先在那个会话中询问你 |
 | `wait_for_turn` | 等到会话中正在进行的一轮结束（`seconds`，未给出时为十分钟，最多一小时），并返回其智能体在最后一轮中说的话。 | 任何智能体 |
 | `interrupt_session` | 停止会话中正在进行的一轮。 | Ghost 中的会话；先在那个会话中询问你 |
-| `events` | Ghost 运行的会话中发生的事（一轮结束、智能体向你提问），每件都有编号；指定了 `agent`、`session` 或 `project` 时只给出与之相关的。用返回的 `last`（作为 `after`）再次调用以继续跟进，带 `seconds` 则等待能通过筛选的新事发生。`missed` 表示其中有些已不再保留。 | 任何智能体 |
+| `events` | Ghost 运行的会话中发生的事（一轮结束、智能体向你提问：附问题的 `request` 编号和 `options`），每件都有编号；指定了 `agent`、`session` 或 `project` 时只给出与之相关的。用返回的 `last`（作为 `after`）再次调用以继续跟进，带 `seconds` 则等待能通过筛选的新事发生。`missed` 表示其中有些已不再保留。 | 任何智能体 |
 | `list_projects` | 你的项目：它们的文件夹，与侧边栏列出的一致。 | 任何智能体 |
 | `add_project` | 把一个 `folder`（完整路径）设为你的项目，排在列表最前；连到那个 Ghost 的每个窗口都会立刻显示它。不能是根目录、你的主文件夹或包含它的文件夹，也不能是 Ghost 的主目录或其中的文件夹。 | Ghost 中的会话；先询问你 |
 | `search_sessions` | 标题或其中所说内容包含 `query`（不分大小写）的会话，最新的在前，格式与 `list_sessions` 相同。 | 任何智能体 |
@@ -70,8 +71,8 @@ Ghost 打开会话时，通过 ACP 的 `mcpServers` 把服务器作为一个要�
 
 调用方有两类：
 
-- **Ghost 中的会话。** 它可以调用所有工具。会执行操作的工具（`delegate_task`、`open_pr`、`schedule_task`、`use_device`、`send_to_session`、`interrupt_session`、`organize_session`、`add_project`、`review_pr`、`merge_pr`、`reply_to_thread`、`resolve_thread`、`rerun_ci`、`create_issue`、`comment_on_issue`、`set_issue_state`、`start_workflow`、`change_task`、`make_worktree`、`remove_worktree`）会先在该会话的对话中用权限卡片询问你，这与智能体自身提问所用的卡片相同，有 **Allow**、**Always allow** 和 **Reject**。**Always allow** 在该会话中对该工具一直有效，直到会话的连接结束。`review_pr` 和 `merge_pr` 的卡片会写明拉取请求、它所在的仓库（以其地址）以及要做的全部事情：审阅结论，或合并方式、是否等检查通过，以及要删除的分支。`merge_pr`、`start_workflow`、`change_task` 和 `remove_worktree` 从不提供 **Always allow**：它们做的事无法撤销，而智能体读到的文字（拉取请求、CI 日志、代码）可能左右它向这些工具提出的请求。
-- **Ghost 之外的智能体**（见下文）。它可以读取：`list_sessions`、`read_session`、`read_diff`、`wait_for_turn`、`events`、`list_devices`、`device_screen`，以及上面每个列出、查找或读取的工具（它指定的文件夹必须在你的某个项目中，或是其工作树）。打开 **设置 › 智能体 › Ghost 之外的智能体可以执行操作**（`outside_acts`）后，它还可以 `send_to_session`、`interrupt_session` 和 `organize_session`，每次都在那个会话的卡片上询问你，只有 **Allow** 和 **Reject**：Ghost 之外的每个智能体都用 `mcp.json` 中的同一个密钥进入，**Always allow** 会让它们全都获准，所以没有这一项。其他会执行操作或向你提问的工具会回答：只有 Ghost 会话中的智能体才能这样做。
+- **Ghost 中的会话。** 它可以调用所有工具。会执行操作的工具（`delegate_task`、`open_pr`、`schedule_task`、`use_device`、`send_to_session`、`interrupt_session`、`organize_session`、`answer_request`、`add_project`、`review_pr`、`merge_pr`、`reply_to_thread`、`resolve_thread`、`rerun_ci`、`create_issue`、`comment_on_issue`、`set_issue_state`、`start_workflow`、`change_task`、`make_worktree`、`remove_worktree`）会先在该会话的对话中用权限卡片询问你，这与智能体自身提问所用的卡片相同，有 **Allow**、**Always allow** 和 **Reject**。**Always allow** 在该会话中对该工具一直有效，直到会话的连接结束。`review_pr` 和 `merge_pr` 的卡片会写明拉取请求、它所在的仓库（以其地址）以及要做的全部事情：审阅结论，或合并方式、是否等检查通过，以及要删除的分支。`merge_pr`、`start_workflow`、`change_task`、`remove_worktree` 和 `answer_request` 从不提供 **Always allow**：它们做的事无法撤销，而智能体读到的文字（拉取请求、CI 日志、代码）可能左右它向这些工具提出的请求。
+- **Ghost 之外的智能体**（见下文）。它可以读取：`list_sessions`、`read_session`、`read_diff`、`wait_for_turn`、`events`、`list_devices`、`device_screen`，以及上面每个列出、查找或读取的工具（它指定的文件夹必须在你的某个项目中，或是其工作树）。打开 **设置 › 智能体 › Ghost 之外的智能体可以执行操作**（`outside_acts`）后，它还可以 `send_to_session`、`interrupt_session`、`organize_session` 和 `answer_request`，每次都在那个会话的卡片上询问你，只有 **Allow** 和 **Reject**：Ghost 之外的每个智能体都用 `mcp.json` 中的同一个密钥进入，**Always allow** 会让它们全都获准，所以没有这一项。其他会执行操作或向你提问的工具会回答：只有 Ghost 会话中的智能体才能这样做。
 - **另一台 Mac 上的智能体**，通过已配对设备的连接访问这台 Mac 的工具（`--mcp --on`，见下文）：它可以读取，并在该设备允许的范围内执行操作（只读设备的智能体只能读取）。
 
 ## 从 Ghost 之外的智能体使用 {#using-them-from-an-agent-outside-ghost}

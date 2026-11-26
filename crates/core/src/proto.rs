@@ -750,6 +750,15 @@ pub enum Event {
         flows: Vec<Result<workflows::Workflow, (String, String)>>,
         runs: Result<Vec<workflows::Run>, String>,
     },
+    /// What an agent asked in the session `session` of `agent` under
+    /// `request` was answered with `option` by one of Ghost's tools, as
+    /// you allowed: the desk marks its card so.
+    Answered {
+        agent: String,
+        session: SessionId,
+        request: u64,
+        option: agent_client_protocol::v1::schema::PermissionOption,
+    },
     /// A session organised by one of Ghost's tools (pinned, archived,
     /// renamed, tagged), as the index keeps it now: the desk takes those
     /// of it as if you changed them there.
@@ -1860,6 +1869,16 @@ mod tests {
                 ended: Some(Ok(StopReason::EndTurn)),
             },
             Event::Organized(Box::new(index.sessions[0].clone())),
+            Event::Answered {
+                agent: "a".into(),
+                session: SessionId::new("s1"),
+                request: 3,
+                option: agent_client_protocol::v1::schema::PermissionOption::new(
+                    "allow",
+                    "Allow",
+                    agent_client_protocol::v1::schema::PermissionOptionKind::AllowOnce,
+                ),
+            },
             Event::Index(Ok(index)),
             Event::Offered {
                 link: "ghost://pair?host=a#c".into(),

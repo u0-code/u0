@@ -61,10 +61,11 @@ in **Settings › Agents** and switch them off. That agent's id is added to
 | `device_screen` | What a running device shows now, as an image. | Any agent |
 | `use_device` | Start or stop a device, tap a point, press and hold one, swipe from one point to another, scroll toward a side, rotate it left or right, type text, press Home (Back or Recents on Android), or set it dark or light. | Sessions in Ghost; asks you first |
 | `send_to_session` | Say `prompt` in a session Ghost keeps (`agent`, `session`), as its next turn: a turn going on is let end first, never stopped. With `wait`, gives back what its agent answered; else `wait_for_turn` does. | Sessions in Ghost; asks you first, in that session |
+| `answer_request` | Answer what an agent asks in another session and waits on (`agent`, `session`; the `request` number and an `option` id, as `events` gives them). The card says the question and the answer. | Sessions in Ghost; asks you first, each time |
 | `organize_session` | Organise a session Ghost keeps (`agent`, `session`): `pin` it or take its pin off, `archive` or restore it, give it a `title`, set its `tags`. Every window shows the change at once. | Sessions in Ghost; asks you first, in that session |
 | `wait_for_turn` | Wait until the turn going on in a session ends (`seconds`, ten minutes if none, an hour at most), and give back what its agent said in its last turn. | Any agent |
 | `interrupt_session` | Stop the turn going on in a session. | Sessions in Ghost; asks you first, in that session |
-| `events` | What happened in the sessions Ghost runs (a turn ended, an agent asks you), each numbered; only that of an `agent`, a `session` or a `project` where you name one. Call again with `last` (as `after`) to follow on, and with `seconds` to wait for something the filters let through. `missed` says some of it is no longer kept. | Any agent |
+| `events` | What happened in the sessions Ghost runs (a turn ended, an agent asks you: its question's `request` number and `options`), each numbered; only that of an `agent`, a `session` or a `project` where you name one. Call again with `last` (as `after`) to follow on, and with `seconds` to wait for something the filters let through. `missed` says some of it is no longer kept. | Any agent |
 | `list_projects` | Your projects: their folders, as the sidebar lists them. | Any agent |
 | `add_project` | Make a `folder` (its whole path) one of your projects, first in the list; every window open on that Ghost shows it at once. Not the root, your home folder or a folder holding it, nor Ghost's home or a folder in it. | Sessions in Ghost; asks you first |
 | `search_sessions` | The sessions whose title, or what was said in them, holds `query` (case aside), the latest first, as `list_sessions` gives them. | Any agent |
@@ -106,7 +107,7 @@ There are two kinds of caller:
 - **A session in Ghost.** It may call every tool. A tool that acts
   (`delegate_task`, `open_pr`, `schedule_task`, `use_device`,
   `send_to_session`, `interrupt_session`, `organize_session`,
-  `add_project`, `review_pr`,
+  `answer_request`, `add_project`, `review_pr`,
   `merge_pr`, `reply_to_thread`, `resolve_thread`, `rerun_ci`,
   `create_issue`, `comment_on_issue`, `set_issue_state`,
   `start_workflow`, `change_task`, `make_worktree`, `remove_worktree`)
@@ -117,8 +118,8 @@ There are two kinds of caller:
   the session's connection ends. The card for `review_pr` and `merge_pr`
   names the pull request, its repository (by its address) and all it
   does: the verdict, or the method, whether it waits for the checks, and
-  the branch deleted. `merge_pr`, `start_workflow`, `change_task` and
-  `remove_worktree` never offer **Always allow**: what they do cannot be
+  the branch deleted. `merge_pr`, `start_workflow`, `change_task`,
+  `remove_worktree` and `answer_request` never offer **Always allow**: what they do cannot be
   undone, and text an agent reads (a pull request, a CI log, code) could
   steer what it asks of them.
 - **An agent outside Ghost** (below). It reads: `list_sessions`,
@@ -126,7 +127,7 @@ There are two kinds of caller:
   `device_screen`, and each tool that lists, finds or reads above (a
   folder it names must be in a project of yours, or a worktree of one). With **Settings › Agents › Agents outside Ghost may
   act** on (`outside_acts`), it may also `send_to_session`,
-  `interrupt_session` and `organize_session`, each asked of you on that session's card with
+  `interrupt_session`, `organize_session` and `answer_request`, each asked of you on that session's card with
   **Allow** and **Reject** alone: every agent outside Ghost comes in by
   the one key in `mcp.json`, so an **Always allow** would let each of
   them, and there is none. Any

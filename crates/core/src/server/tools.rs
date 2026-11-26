@@ -93,11 +93,12 @@ const OUTSIDE: &str = "Only an agent in a session of Ghost's can do this: Ghost 
 /// cannot be undone, and what they are given can be steered by text an
 /// agent reads but nobody vetted (a pull request's body, a CI log, code,
 /// a webhook), so a yes once must not become a yes to that text.
-const EACH_TIME: [&str; 4] = [
+const EACH_TIME: [&str; 5] = [
     "merge_pr",
     "start_workflow",
     "change_task",
     "remove_worktree",
+    "answer_request",
 ];
 
 /// What Ghost's MCP server says it is, to an agent that connects.
@@ -940,7 +941,6 @@ pub(super) mod tests {
         std::sync::mpsc::Receiver<Event>,
         Client,
     ) {
-        let agent = home.join("agent.sh");
         let script = r#"id() { printf '%s' "$line" | sed -E 's/.*"id":("[^"]*"|[0-9]+).*/\1/'; }
 while read line; do case "$line" in
 *'"initialize"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1}}\n' "$(id)" ;;
@@ -948,6 +948,21 @@ while read line; do case "$line" in
 printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"s1"}}\n' "$(id)" ;;
 *'"session/prompt"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$(id)" ;;
 esac; done"#;
+        in_session_as(home, folder, script)
+    }
+
+    /// As `in_session`, the agent `a` the stand-in `script` (which writes
+    /// what it was asked to open its first session with in `$0.opened`).
+    pub(in crate::server) fn in_session_as(
+        home: &std::path::Path,
+        folder: &std::path::Path,
+        script: &str,
+    ) -> (
+        std::sync::Arc<crate::server::Server>,
+        std::sync::mpsc::Receiver<Event>,
+        Client,
+    ) {
+        let agent = home.join("agent.sh");
         std::fs::write(&agent, script).unwrap();
         let (server, said) = server(home);
         let entry: Entry = serde_json::from_value(json!({
@@ -999,7 +1014,7 @@ esac; done"#;
         git(&["commit", "-q", "-m", "first"]);
     }
 
-    /// Answer the next permission card the server raises with `chosen`
+    /// Answer the next permission card Ghost raises with `chosen`
     /// (`once`, `always`, `no`): its title.
     pub(in crate::server) fn answer_card(
         server: &std::sync::Arc<crate::server::Server>,
@@ -1007,8 +1022,10 @@ esac; done"#;
         chosen: &str,
     ) -> String {
         let (request, asked) = loop {
+            // Ghost's own cards, not those its agents raise.
             if let Event::Said { event, .. } = said.recv_timeout(Duration::from_secs(10)).unwrap()
                 && let acp::Event::Permission { id, request } = *event
+                && request.tool_call.tool_call_id.0.starts_with("ghost-")
             {
                 break (id, request);
             }
@@ -1232,6 +1249,7 @@ esac; done"#;
             names,
             [
                 "add_project",
+                "answer_request",
                 "ask_user",
                 "change_task",
                 "ci_log",
@@ -1551,7 +1569,7 @@ esac; done"#;
             heard["params"]["notifications"]["resourceSubscriptions"],
             json!(["ghost://events"])
         );
-        let asks = crate::server::happened::Happened::Asks("May I?".into());
+        let asks = crate::server::happened::Happened::asks("May I?");
         (server.shared.happened).happened("a", &SessionId::new("s1"), asks);
         let updated = listener.told("notifications/resources/updated");
         assert_eq!(updated["params"]["uri"], json!("ghost://events"));

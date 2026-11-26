@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use agent_client_protocol::v1::schema::{SessionId, StopReason};
+use agent_client_protocol::v1::schema::{PermissionOption, SessionId, StopReason};
 use serde::Serialize;
 use tokio::sync::watch;
 
@@ -36,8 +36,25 @@ pub(super) struct Milestone {
 pub(super) enum Happened {
     /// A turn ended, as said (`end_turn`, `cancelled`, or why it failed).
     TurnEnded(String),
-    /// Its agent asks you, as titled, and waits.
-    Asks(String),
+    /// Its agent asks you, as titled, and waits: the number its question
+    /// is answered under, and what it may be answered with.
+    Asks {
+        title: String,
+        request: u64,
+        options: Vec<PermissionOption>,
+    },
+}
+
+impl Happened {
+    /// An agent asks `title`, under `request`, its answers `options`.
+    #[cfg(test)]
+    pub fn asks(title: &str) -> Self {
+        Self::Asks {
+            title: title.to_owned(),
+            request: 1,
+            options: Vec::new(),
+        }
+    }
 }
 
 /// How a turn ended, said: as ACP names its stop reason, or why it
@@ -170,7 +187,7 @@ mod tests {
         let (none, _) = block(h.after(said[0].n, Duration::from_millis(20)));
         assert!(none.is_empty());
         for _ in 0..KEPT + 5 {
-            h.happened("a", &id, Happened::Asks("May I?".into()));
+            h.happened("a", &id, Happened::asks("May I?"));
         }
         let (_, lost) = block(h.after(1, Duration::ZERO));
         assert!(lost, "more happened than is kept");
@@ -181,7 +198,7 @@ mod tests {
         let h = Happenings::default();
         let id = SessionId::new("s1");
         h.begin("a", &id, true);
-        h.happened("a", &id, Happened::Asks("May I?".into()));
+        h.happened("a", &id, Happened::asks("May I?"));
         h.end("a", &id, "end_turn".into());
         h.begin("a", &id, false);
         h.end("a", &id, "end_turn".into());

@@ -1,14 +1,35 @@
-//! Ghost's tools for organising the sessions Ghost keeps, as its sidebar
-//! does: pinned or not, archived or restored, renamed, tagged. Each
-//! change is kept in the index and said to the desk (`Event::Organized`),
-//! which takes it as if you made it there.
+//! Ghost's tools for the sessions Ghost keeps, as you would act on them:
+//! organised as its sidebar does (pinned or not, archived or restored,
+//! renamed, tagged), each change kept in the index and said to the desk
+//! (`Event::Organized`), which takes it as if you made it there; and what
+//! an agent asks in one answered for you, as you allow each time
+//! (`Event::Answered`).
 
-use agent_client_protocol::v1::schema::SessionId;
+use agent_client_protocol::v1::schema::{
+    RequestPermissionOutcome, SelectedPermissionOutcome, SessionId,
+};
 use rmcp::{handler::server::wrapper::Parameters, schemars, tool, tool_router};
 use serde::{Deserialize, Serialize};
 
 use super::Tools;
-use crate::{proto::Event, store::Meta};
+use crate::{
+    acp::Answer,
+    proto::Event,
+    server::happened::{Happened, Milestone},
+    store::Meta,
+};
+
+#[derive(Serialize, Deserialize, schemars::JsonSchema)]
+struct AnswerRequest {
+    /// The session's agent, by its registry id (as `events` says).
+    agent: String,
+    /// The session's id.
+    session: String,
+    /// The question, by its number (`request`, as `events` says it asks).
+    request: u64,
+    /// The answer, by its option's id (one of `options`, as `events` says).
+    option: String,
+}
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 struct Organize {
@@ -71,6 +92,53 @@ impl Organize {
 
 #[tool_router(router = session_router, vis = "pub(super)")]
 impl Tools {
+    /// Answer what an agent asks in another session and waits on (a
+    /// permission, as `events` tells it: its `request` and `options`) with
+    /// one of its options. You are asked first, each time.
+    #[tool]
+    async fn answer_request(
+        &self,
+        Parameters(ask): Parameters<AnswerRequest>,
+    ) -> Result<String, String> {
+        let id = SessionId::new(ask.session.clone());
+        self.not_mine(&ask.agent, &id)?;
+        let asked =
+            (self.shared.happened.subscribe().borrow().iter().rev()).find_map(|m: &Milestone| {
+                match &m.what {
+                    Happened::Asks {
+                        title,
+                        request,
+                        options,
+                    } if m.agent == ask.agent && m.session == id && *request == ask.request => {
+                        Some((title.clone(), options.clone()))
+                    }
+                    _ => None,
+                }
+            });
+        let (asks, options) = asked.ok_or("Nothing was asked there under that number")?;
+        let option = (options.into_iter())
+            .find(|o| *o.option_id.0 == ask.option)
+            .ok_or("That is not one of its options")?;
+        let agent = (self.shared.running(&ask.agent))
+            .filter(|a| a.waits(ask.request))
+            .ok_or("It no longer waits for an answer")?;
+        let title = format!("Answer “{asks}” with “{}”", option.name);
+        (self.allowed_on("answer_request", title, &ask, &ask.agent, &id)).await?;
+        let chosen = SelectedPermissionOutcome::new(option.option_id.clone());
+        agent.respond(
+            ask.request,
+            Answer::Permission(RequestPermissionOutcome::Selected(chosen)),
+        );
+        let told = format!("Answered “{}”.", option.name);
+        (self.shared.send)(Event::Answered {
+            agent: ask.agent,
+            session: id,
+            request: ask.request,
+            option,
+        });
+        Ok(told)
+    }
+
     /// Organise a session Ghost keeps: pin it or take its pin off, archive
     /// or restore it, rename it, set its tags. You are asked first, in
     /// that session.
@@ -109,7 +177,92 @@ mod tests {
 
     use serde_json::json;
 
-    use super::super::tests::{answer_card, in_session};
+    use super::super::tests::{answer_card, in_session, in_session_as, meta};
+    use crate::proto::{Call, Event};
+
+    #[test]
+    fn what_an_agent_asks_in_another_session_is_answered_as_you_allow_each_time() {
+        let home = tempfile::tempdir().unwrap();
+        // An agent whose second session asks before its turn ends, and
+        // writes down how it was answered.
+        let script = r#"id() { printf '%s' "$line" | sed -E 's/.*"id":("[^"]*"|[0-9]+).*/\1/'; }
+n=0
+while read line; do case "$line" in
+*'"initialize"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1}}\n' "$(id)" ;;
+*'"session/new"'*) n=$((n+1)); [ $n = 1 ] && echo "$line" > "$0.opened"
+printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"s%s"}}\n' "$(id)" "$n" ;;
+*'"session/prompt"'*'"s2"'*) turn=$(id)
+printf '{"jsonrpc":"2.0","id":"p1","method":"session/request_permission","params":{"sessionId":"s2","toolCall":{"toolCallId":"t1","title":"Delete it"},"options":[{"optionId":"yes","name":"Yes","kind":"allow_once"},{"optionId":"no","name":"No","kind":"reject_once"}]}}\n' ;;
+*'"id":"p1"'*) echo "$line" > "$0.answered"
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$turn" ;;
+*'"session/prompt"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$(id)" ;;
+esac; done"#;
+        let (server, said, mut client) = in_session_as(home.path(), home.path(), script);
+        server.handle(Call::Open {
+            agent: "a".into(),
+            key: 2,
+            folder: home.path().to_path_buf(),
+            also: Vec::new(),
+        });
+        let next = || said.recv_timeout(Duration::from_secs(10)).unwrap();
+        while !matches!(next(), Event::Opened { result: Ok(_), .. }) {}
+        let mut other = meta(home.path(), "Other");
+        other.id = Some(agent_client_protocol::v1::schema::SessionId::new("s2"));
+        server.handle(Call::Keep(vec![other]));
+        // s1 has s2 carry on; s2's agent asks, and waits.
+        client.call(
+            "send_to_session",
+            &json!({"agent": "a", "session": "s2", "prompt": "Clean up"}),
+        );
+        answer_card(&server, &said, "once");
+        assert!(!client.result().1);
+        let asked = loop {
+            client.call(
+                "events",
+                &json!({"after": 0, "session": "s2", "seconds": 10}),
+            );
+            let (happened, _) = client.result();
+            let happened: serde_json::Value = serde_json::from_str(&happened).unwrap();
+            if let Some(asks) = (happened["happened"].as_array().unwrap().iter())
+                .find_map(|m| m["what"].get("asks").cloned())
+            {
+                break asks;
+            }
+        };
+        assert_eq!(asked["title"], json!("Delete it"));
+        let answer =
+            json!({"agent": "a", "session": "s2", "request": asked["request"], "option": "yes"});
+        client.call(
+            "answer_request",
+            &json!({"agent": "a", "session": "s2", "request": asked["request"], "option": "maybe"}),
+        );
+        assert!(client.result().0.contains("not one of its options"));
+        // Asked in s1, each time: no "always" for it.
+        client.call("answer_request", &answer);
+        let title = answer_card(&server, &said, "always");
+        assert_eq!(title, "Answer “Delete it” with “Yes”");
+        assert_eq!(client.result(), ("You did not allow it".to_owned(), true));
+        client.call("answer_request", &answer);
+        answer_card(&server, &said, "once");
+        assert_eq!(client.result(), ("Answered “Yes”.".to_owned(), false));
+        let told = loop {
+            if let Event::Answered { option, .. } = next() {
+                break option;
+            }
+        };
+        assert_eq!(&*told.option_id.0, "yes");
+        let answered = home.path().join("agent.sh.answered");
+        for _ in 0..250 {
+            if answered.exists() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let answered = std::fs::read_to_string(answered).unwrap();
+        assert!(answered.contains(r#""optionId":"yes""#), "{answered}");
+        client.call("answer_request", &answer);
+        assert!(client.result().0.contains("no longer waits"));
+    }
 
     #[test]
     fn a_session_is_pinned_renamed_and_tagged_as_you_allow_and_the_desk_is_told() {

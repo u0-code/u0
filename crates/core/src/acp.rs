@@ -342,6 +342,11 @@ impl Agent {
         (id, rx)
     }
 
+    /// Whether the question asked under `id` still waits for an answer.
+    pub fn waits(&self, id: u64) -> bool {
+        self.asked.lock().expect("asked").contains_key(&id)
+    }
+
     /// Answer the question asked under `id`.
     pub fn respond(&self, id: u64, answer: Answer) {
         let waiting = self.asked.lock().expect("asked").remove(&id);

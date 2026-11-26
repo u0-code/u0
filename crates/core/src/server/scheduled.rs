@@ -263,7 +263,9 @@ impl Shared {
             Happened::TurnEnded(how) => {
                 (tasks::Moment::TurnEnded, format!("its turn ended ({how})"))
             }
-            Happened::Asks(what) => (tasks::Moment::Asks, format!("its agent asks: {what}")),
+            Happened::Asks { title, .. } => {
+                (tasks::Moment::Asks, format!("its agent asks: {title}"))
+            }
         };
         let title = meta.as_ref().map_or("", |m| m.title.as_str());
         let said = format!("In “{title}” ({} session {}): {said}", m.agent, m.session.0);

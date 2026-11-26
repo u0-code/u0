@@ -145,9 +145,12 @@ impl Shared {
         );
         let (said, id, this) = (self.send.clone(), agent.to_owned(), self.clone());
         let running = Agent::start(&launch, move |event| {
-            if let acp::Event::Permission { request, .. } = &event {
-                let title = (request.tool_call.fields.title.clone()).unwrap_or_default();
-                let asks = happened::Happened::Asks(title);
+            if let acp::Event::Permission { id: asked, request } = &event {
+                let asks = happened::Happened::Asks {
+                    title: (request.tool_call.fields.title.clone()).unwrap_or_default(),
+                    request: *asked,
+                    options: request.options.clone(),
+                };
                 this.happened.happened(&id, &request.session_id, asks);
             }
             if let Some(event) = heard(&this.records, &this.agents, &this.writing, &id, event) {
