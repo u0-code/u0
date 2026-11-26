@@ -188,7 +188,7 @@ mod tests {
         std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
         let record = crate::store::record_path(home.path(), "a", "s1");
         std::fs::create_dir_all(record.parent().unwrap()).unwrap();
-        std::fs::write(&record, "{\"You\":\"the test is Flaky\"}\n").unwrap();
+        std::fs::write(&record, "{\"you\":\"the test is Flaky\"}\n").unwrap();
         let (server, _said) = server(home.path());
         server.handle(Call::Keep(vec![meta(&project, "Fix the build")]));
         let mut client = Client::new(home.path(), None);
@@ -203,8 +203,10 @@ mod tests {
             let (found, _) = said("search_sessions", json!({"query": words}));
             assert!(found.contains("Fix the build"), "{words}: {found}");
         }
-        let none = said("search_sessions", json!({"query": "none such"}));
-        assert_eq!(none.0, "[]");
+        // Not by the record's JSON.
+        for none in ["none such", "\"you\":"] {
+            assert_eq!(said("search_sessions", json!({"query": none})).0, "[]");
+        }
         let (files, _) = said("find_files", json!({"folder": project, "query": "smr"}));
         assert!(files.contains("src/main.rs"), "{files}");
         let grep = json!({"folder": project, "words": "build()"});
