@@ -2,7 +2,8 @@
 //! The server listens on 127.0.0.1 alone, on two ports `mcp.json` names
 //! (the same at each start, where they are free) with a key only that
 //! file and the Keychain hold, kept until you ask for a new one: one
-//! where `ghost --mcp` pipes MCP after a key on a line, and one that
+//! where `ghost --mcp` pipes MCP once it proves it holds a key (an HMAC
+//! of the server's nonce, `mcp::proof`), and one that
 //! speaks MCP's streamable HTTP
 //! (rmcp's, one request a turn, no session kept), the key its bearer
 //! token. A session Ghost opens is given a key of its own; a device
@@ -21,7 +22,7 @@ use rmcp::{
         StreamableHttpServerConfig, StreamableHttpService, session::never::NeverSessionManager,
     },
 };
-use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, BufReader};
+use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _, BufReader};
 
 use super::{Server, Shared, tools::Tools};
 use crate::{access::Scope, acp, mcp, proto::Event, settings::Settings};
@@ -50,13 +51,13 @@ pub(super) enum Caller {
     Session(String, Option<SessionId>),
 }
 
-/// How many connections to the tools' pipe may be saying their key at
-/// once: one more is closed. A caller with a key says it at once.
+/// How many connections to the tools' pipe may be proving their key at
+/// once: one more is closed. A caller with a key proves it at once.
 pub(crate) const KEYING: usize = 16;
 
 /// How long a connection to either of the tools' ports has to say who it
-/// is (its key line, or its request's head).
-const KEY_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+/// is (its proof, or its request's head).
+const KEY_WAIT: std::time::Duration = mcp::WAIT;
 
 /// How many requests to the tools over HTTP go on at once: one more is
 /// closed.
@@ -103,6 +104,22 @@ impl Shared {
         key
     }
 
+    /// The key that `proof` is made with, for `nonce` at `port`, where
+    /// one lets anyone in: each is tried, in constant time.
+    fn proven(&self, nonce: &str, port: u16, proof: &str) -> Option<String> {
+        use subtle::ConstantTimeEq as _;
+        (self.callers.lock().expect("callers"))
+            .keys()
+            .find(|key| {
+                bool::from(
+                    mcp::proof(key, port, nonce)
+                        .as_bytes()
+                        .ct_eq(proof.as_bytes()),
+                )
+            })
+            .cloned()
+    }
+
     /// Let `who` in by `key`.
     fn let_in_by(&self, key: String, who: Caller) {
         let called = Called {
@@ -128,14 +145,19 @@ impl Shared {
                     return;
                 }
             };
+            // An HTTP client sends its key to whatever listens at the
+            // address it was given: one that held the port remembered
+            // while Ghost was down may have heard it, so it is made anew.
+            let anew = moved_too.is_some();
             for moved in [moved, moved_too].into_iter().flatten() {
                 tracing::warn!("Ghost's tools moved: port {moved}");
                 let what = "Ghost's tools moved to another port".to_owned();
-                let why = format!("Port {moved}: an app set up with their old address needs the new one in mcp.json");
+                let and_key = if anew { " and key" } else { "" };
+                let why = format!("Port {moved}: an app set up with their old address needs the new one{and_key} in mcp.json");
                 (this.send)(Event::Notice(Err((what, why))));
             }
             let port = |l: &tokio::net::TcpListener| l.local_addr().map_or(0, |a| a.port());
-            let key = outside_key(false);
+            let key = outside_key(anew);
             // It lets in before the door names it.
             this.let_in_by(key.clone(), Caller::Outside);
             let door = mcp::Door {
@@ -155,17 +177,22 @@ impl Shared {
                 let Ok(keyed) = keying.clone().try_acquire_owned() else {
                     continue;
                 };
-                let this = this.clone();
+                let (this, port) = (this.clone(), door.port);
                 tokio::spawn(async move {
                     let mut stream = BufReader::new(stream);
-                    let mut key = String::new();
-                    // A key is a line, short, and said at once.
-                    let mut line = (&mut stream).take(256);
-                    let read = line.read_line(&mut key);
+                    let nonce = crate::access::random::<32>();
+                    let mut proof = String::new();
+                    // A proof is a line, short, and said at once.
+                    let read = async {
+                        stream.write_all(format!("{nonce}\n").as_bytes()).await?;
+                        (&mut stream).take(256).read_line(&mut proof).await
+                    };
                     let read = tokio::time::timeout(KEY_WAIT, read).await;
                     drop(keyed);
-                    if matches!(read, Ok(Ok(_))) {
-                        this.serve(key.trim_end(), stream).await;
+                    if matches!(read, Ok(Ok(_)))
+                        && let Some(key) = this.proven(&nonce, port, proof.trim_end())
+                    {
+                        this.serve(&key, stream).await;
                     }
                 });
             }

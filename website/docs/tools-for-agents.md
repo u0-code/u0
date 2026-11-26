@@ -21,7 +21,10 @@ ACP's `mcpServers`, as a program to run: Ghost's own program with `--mcp`,
 with `GHOST_HOME` and a key of the session's own (`GHOST_MCP_KEY`). That
 program is a small pipe: it speaks MCP on its standard input and output
 and forwards everything to the Ghost server, which listens on `127.0.0.1`
-only.
+only. The pipe never sends its key: the server first sends a one-time
+nonce, and the pipe answers with an HMAC of it (and the port) made with
+the key. A program listening at that port while Ghost is not running
+learns nothing it could use.
 
 The ports and a key for agents outside Ghost are written to
 `<home>/mcp.json`, readable by you alone (mode 0600). They stay the same
@@ -30,7 +33,8 @@ from one start to the next, so an app you set up with them keeps working:
 - The ports are chosen once and taken again at each start. Where another
   program has taken one meanwhile, Ghost listens at another, writes it in
   `mcp.json`, and says so: an app set up with the old address needs the
-  new one.
+  new one. Where that was the HTTP port, the key is made anew too, since
+  the program holding the port may have heard it from an app (below).
 - The key is kept in the Keychain until you press **New key** under
   **Settings › Agents › Key for agents outside Ghost**. The old key then
   lets no one in, not even an agent already connected with it (its
@@ -132,7 +136,10 @@ http://127.0.0.1:<http>/mcp
 
 with `<http>` and the key from `<home>/mcp.json`, the key sent as
 `Authorization: Bearer <key>`. Both stay as they are across restarts
-(above), so the address and key are set up once. It is the same caller as `--mcp` with no
+(above), so the address and key are set up once. An HTTP client sends the
+key to whatever listens at that address, so do not use it while Ghost is
+not running; where an app can run a command, `ghost --mcp` is the safer
+way in. It is the same caller as `--mcp` with no
 session: it reads, and acts as `outside_acts` lets it. Ghost keeps no MCP
 session; it answers only `127.0.0.1`, `localhost` and `::1` by name, and no
 request from a web page (one with an `Origin`).

@@ -386,14 +386,17 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   are this Mac's. What an agent needs before it starts is the server's
   to say (`Event::Here`).
 - Ghost's tools (`server/tools`) listen on `127.0.0.1` at two ports
-  `~/.ghost/mcp.json` names (`port`, the pipe of `--mcp`, a key on a line
-  first; `http`, MCP's streamable HTTP, the key as a bearer token, no
-  session kept), with a key that file (mode 0600) and the Keychain
-  (`mcp/key`) hold. The ports are taken again as the server starts (one
-  taken by another program is moved from, in the file, and said with
-  `Event::Notice`), and the key is kept until `Call::NewToolsKey` (**New
-  key** on the Agents page) makes another, so an app set up with them
-  keeps working. `--mcp --on <server>` reaches a paired
+  `~/.ghost/mcp.json` names (`port`, the pipe of `--mcp`: the server says
+  a nonce first, and the pipe answers with `mcp::proof`, an HMAC of it and
+  the port by its key, so the key never crosses the wire; `http`, MCP's
+  streamable HTTP, the key as a bearer token, no session kept), with a
+  key that file (mode 0600) and the Keychain (`mcp/key`) hold. The ports
+  are taken again as the server starts (one taken by another program is
+  moved from, in the file, and said with `Event::Notice`; the key is made
+  anew where it was the HTTP port, whose holder may have heard it), and
+  the key is kept until `Call::NewToolsKey` (**New key** on the Agents
+  page) makes another, so an app set up with them keeps working. Each
+  tool call checks its key still lets it in. `--mcp --on <server>` reaches a paired
   server's tools over a link (`Then::Tools`), signed in as a desk; an
   agent there reads, and acts as its device's scope lets it. A session (of an agent not in
   `settings.no_tools`, its page's switch) is given them through

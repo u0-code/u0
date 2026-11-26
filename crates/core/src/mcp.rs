@@ -8,6 +8,11 @@
 //! A session of Ghost's starts it with a key of its own in [`KEY`], which
 //! says which session calls; an agent outside Ghost (`claude mcp add ghost
 //! -- …/ghost --mcp`) starts it with none, and is let in by the file's.
+//! The key never crosses the wire: the server's first word is a nonce,
+//! and the pipe answers with an HMAC of it and the port by the key
+//! (`proof`), as a desk signs a link's challenge. One listening at that
+//! port in Ghost's stead (while Ghost is down) hears nothing it can use:
+//! the proof is for that nonce alone, and that port, not Ghost's.
 //! The same tools speak MCP's streamable HTTP at the file's `http` port,
 //! the key as a bearer token: an app set up with that address keeps it,
 //! as the ports are taken again at each start and the key is kept (in
@@ -22,7 +27,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncWriteExt as _;
+use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _};
 
 /// The variable a session's key is given in.
 pub const KEY: &str = "GHOST_MCP_KEY";
@@ -39,6 +44,18 @@ pub struct Door {
     /// with the key as a bearer token.
     pub http: u16,
     pub key: String,
+}
+
+/// How long either end of the pipe waits for the other's first line.
+pub(crate) const WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// What a caller of the pipe at `port` answers the server's `nonce` with,
+/// holding `key`: an HMAC of both by it.
+pub(crate) fn proof(key: &str, port: u16, nonce: &str) -> String {
+    use base64::Engine as _;
+    let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, key.as_bytes());
+    let tag = ring::hmac::sign(&key, format!("ghost mcp {port}\n{nonce}").as_bytes());
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(tag)
 }
 
 pub(crate) fn path(home: &Path) -> PathBuf {
@@ -76,13 +93,28 @@ pub(crate) fn pipe(on: Option<&str>) -> Result<(), String> {
     let key = std::env::var(KEY).unwrap_or(door.key);
     crate::acp::runtime()
         .block_on(async {
-            let mut server = tokio::net::TcpStream::connect(("127.0.0.1", door.port)).await?;
-            server.write_all(format!("{key}\n").as_bytes()).await?;
+            let server = tokio::net::TcpStream::connect(("127.0.0.1", door.port)).await?;
+            let mut server = tokio::io::BufReader::new(server);
+            knock(&mut server, &key, door.port).await?;
             let mut here = tokio::io::join(tokio::io::stdin(), tokio::io::stdout());
             tokio::io::copy_bidirectional(&mut here, &mut server).await
         })
         .map(|_| ())
         .map_err(|e| format!("Ghost's tools could not be reached: {e}"))
+}
+
+/// Prove to the tools' pipe at `port`, `server`, that this holds `key`:
+/// its nonce (a line, short, said at once) answered with the proof.
+async fn knock<S>(server: &mut tokio::io::BufReader<S>, key: &str, port: u16) -> std::io::Result<()>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    let mut nonce = String::new();
+    let mut line = (&mut *server).take(256);
+    let said = line.read_line(&mut nonce);
+    tokio::time::timeout(WAIT, said).await??;
+    let proof = proof(key, port, nonce.trim_end());
+    server.write_all(format!("{proof}\n").as_bytes()).await
 }
 
 /// Pass what is said on the standard input to the tools of the server
@@ -96,4 +128,38 @@ fn pipe_on(name: &str) -> Result<(), String> {
     let (way, key) = server.reach()?;
     let here = tokio::io::join(tokio::io::stdin(), tokio::io::stdout());
     crate::acp::runtime().block_on(crate::link::tools(&way, &key, here))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::BufRead as _;
+
+    use super::*;
+
+    #[test]
+    fn one_listening_in_ghosts_stead_hears_no_key_and_nothing_it_can_use() {
+        let squatter = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = squatter.local_addr().unwrap().port();
+        let heard = std::thread::spawn(move || {
+            let (mut s, _) = squatter.accept().unwrap();
+            writeln!(s, "a-nonce").unwrap();
+            let mut line = String::new();
+            std::io::BufReader::new(s).read_line(&mut line).unwrap();
+            line.trim_end().to_owned()
+        });
+        let key = "the-key-in-mcp-json";
+        crate::acp::runtime()
+            .block_on(async {
+                let s = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
+                knock(&mut tokio::io::BufReader::new(s), key, port).await
+            })
+            .unwrap();
+        let heard = heard.join().unwrap();
+        assert!(!heard.contains(key), "the key never crosses the wire");
+        assert_eq!(heard, proof(key, port, "a-nonce"));
+        // What it heard proves nothing at Ghost's own port, nor to another
+        // nonce.
+        assert_ne!(heard, proof(key, port + 1, "a-nonce"));
+        assert_ne!(heard, proof(key, port, "another"));
+    }
 }

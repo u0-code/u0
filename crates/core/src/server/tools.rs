@@ -781,8 +781,11 @@ pub(super) mod tests {
             let door = door(home);
             let mut out = std::net::TcpStream::connect(("127.0.0.1", door.port)).unwrap();
             out.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-            writeln!(out, "{}", key.unwrap_or(&door.key)).unwrap();
-            let lines = std::io::BufReader::new(out.try_clone().unwrap());
+            let mut lines = std::io::BufReader::new(out.try_clone().unwrap());
+            let mut nonce = String::new();
+            lines.read_line(&mut nonce).unwrap();
+            let key = key.unwrap_or(&door.key);
+            writeln!(out, "{}", mcp::proof(key, door.port, nonce.trim_end())).unwrap();
             let mut client = Self {
                 lines,
                 out,
@@ -1010,7 +1013,10 @@ esac; done"#;
         assert!(told, "it said so");
         // The key is kept, until a new one is asked for: then the old one
         // lets no one in, and the new one is kept.
-        assert_eq!(moved.key, door.key);
+        assert_ne!(
+            moved.key, door.key,
+            "a new key where the HTTP port was held"
+        );
         let mut kept = Client::new(home.path(), None);
         kept.call("list_sessions", &json!({}));
         assert!(!kept.result().1);
@@ -1184,16 +1190,19 @@ esac; done"#;
             &json!({"prompt": "Do it", "title": "It", "agent": "a", "project": "/p"}),
         );
         assert_eq!(client.result(), (OUTSIDE.to_owned(), true));
-        // A key it was not given lets nothing in.
-        let mut stranger =
-            std::net::TcpStream::connect(("127.0.0.1", door(home.path()).port)).unwrap();
-        stranger
-            .set_read_timeout(Some(Duration::from_secs(10)))
-            .unwrap();
-        writeln!(stranger, "not a key").unwrap();
-        let mut said = String::new();
-        let read = std::io::BufReader::new(stranger).read_line(&mut said);
-        assert!(matches!(read, Ok(0)), "{said}");
+        // Neither a key it was not given, nor the key itself in place of
+        // a proof of it, lets anything in.
+        let door = door(home.path());
+        for said in ["not a key", door.key.as_str()] {
+            let mut stranger = std::net::TcpStream::connect(("127.0.0.1", door.port)).unwrap();
+            (stranger.set_read_timeout(Some(Duration::from_secs(10)))).unwrap();
+            let mut heard = std::io::BufReader::new(stranger.try_clone().unwrap());
+            let mut nonce = String::new();
+            heard.read_line(&mut nonce).unwrap();
+            writeln!(stranger, "{said}").unwrap();
+            let mut more = String::new();
+            assert!(matches!(heard.read_line(&mut more), Ok(0)), "{more}");
+        }
     }
 
     #[test]
