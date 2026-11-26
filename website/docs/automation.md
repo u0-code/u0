@@ -147,6 +147,8 @@ POST /hook/<token>
   runs nothing. A signed body sent again runs nothing either, whatever
   delivery it names and however its signature is written. What was heard
   is kept for a month in `<home>/heard.json`, so a restart forgets none.
+  After a month the same signed body runs again: a GitHub-style signature
+  carries no time, so nothing tells an old call from a new one.
 - The request body (up to 1 MiB) replaces each `{{body}}` in the prompt,
   `{{body.<a>.<b>}}` a field of it and `{{header.<name>}}` a header, each
   wrapped in `<webhook-data untrusted>` … `</webhook-data>` so the agent
@@ -211,9 +213,12 @@ to `/bin/sh` as an argument, and each `{{name}}` becomes a reference to
 it, quoted for where it stands (bare, in double quotes or in single
 quotes): the shell never reads a value as words of the command.
 
-A command can still read a word as code itself, so Ghost refuses one that
+A command can still read a word as code itself. Ghost refuses one that
 puts a `{{name}}` after `eval` or `let`, or within `[[ ]]` or `(( ))`
-(the run pauses, saying why). Give a value a command works on after `--`
+(the run pauses, saying why), but that list is a guard against the
+common cases, not a promise: the shell has other places that evaluate a
+word (an array index, a substring offset, `declare -i`), and Ghost does
+not find them all. Keep a value out of anything that computes with it. Give a value a command works on after `--`
 (`git fetch origin -- {{ref}}`), so one that begins with `-` is not taken
 for an option; and a command that runs its words as code (`sh -c`,
 `ssh`, `xargs`) runs a value as code. **Settings › Workflows** says so

@@ -63,6 +63,11 @@ one of two ways:
   by default), and speaks TLS there itself, with a certificate of its own
   kept in the Keychain. Reach lists each address it is reached at.
 
+Until a device is let in, Ghost holds at most 64 connections waiting at
+once, each for a few seconds; a page in a browser is refused outright.
+Anyone who reaches the tunnel can still keep that many busy and so keep
+devices out for a while: the tunnel's address is not a secret.
+
 **Keep the Mac awake while serving** keeps it reachable with no one at it
 (Ghost runs `caffeinate` while it listens).
 

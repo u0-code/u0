@@ -57,7 +57,8 @@ pub enum Step {
     /// what it printed. Each `{{name}}` in it is given it as an argument,
     /// never read as words of the command; one where the shell reads a
     /// word as code (after `eval` or `let`, within `[[ ]]` or `(( ))`)
-    /// is refused. One given a command as an operand goes after `--`; a
+    /// is refused: a guard, not a promise, for the shell evaluates words
+    /// elsewhere too. One given a command as an operand goes after `--`; a
     /// command that runs its words (`sh -c`, `ssh`) runs a value. One
     /// that fails pauses the run.
     Run {
