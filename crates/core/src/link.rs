@@ -183,10 +183,7 @@ pub async fn listen(
     let mut links = tokio::task::JoinSet::new();
     loop {
         let stream = tokio::select! {
-            accepted = listener.accept() => match accepted {
-                Ok((stream, _)) => stream,
-                Err(_) => continue,
-            },
+            stream = next(&listener) => stream,
             Some(_) = links.join_next() => continue,
         };
         // Held until it is let in, or answered: past `PENDING` waiting,
@@ -208,6 +205,21 @@ pub async fn listen(
                 tracing::info!("a link ended: {why}");
             }
         });
+    }
+}
+
+/// The next connection `listener` takes. Where it can take none (Ghost
+/// out of file descriptors, say), it waits a moment before it tries
+/// again, rather than trying again at once, for ever.
+pub(crate) async fn next(listener: &TcpListener) -> TcpStream {
+    loop {
+        match listener.accept().await {
+            Ok((stream, _)) => return stream,
+            Err(e) => {
+                tracing::debug!("a connection was not taken: {e}");
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        }
     }
 }
 

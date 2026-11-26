@@ -48,6 +48,18 @@ pub(super) enum Caller {
     Session(String, Option<SessionId>),
 }
 
+/// How many connections to the tools' pipe may be saying their key at
+/// once: one more is closed. A caller with a key says it at once.
+pub(crate) const KEYING: usize = 16;
+
+/// How long a connection to either of the tools' ports has to say who it
+/// is (its key line, or its request's head).
+const KEY_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// How many requests to the tools over HTTP go on at once: one more is
+/// closed.
+const CALLS: usize = 64;
+
 impl Shared {
     /// Let `who` in by a new key: the key.
     fn let_in(&self, who: Caller) -> String {
@@ -86,14 +98,23 @@ impl Shared {
                 return;
             }
             acp::runtime().spawn(this.clone().serve_http(http));
-            while let Ok((stream, _)) = pipe.accept().await {
+            let keying = Arc::new(tokio::sync::Semaphore::new(KEYING));
+            loop {
+                let stream = crate::link::next(&pipe).await;
+                // Past `KEYING` not yet keyed, one more is closed at once.
+                let Ok(keyed) = keying.clone().try_acquire_owned() else {
+                    continue;
+                };
                 let this = this.clone();
                 tokio::spawn(async move {
                     let mut stream = BufReader::new(stream);
                     let mut key = String::new();
-                    // A key is a line, and short.
-                    let read = (&mut stream).take(256).read_line(&mut key).await;
-                    if read.is_ok() {
+                    // A key is a line, short, and said at once.
+                    let mut line = (&mut stream).take(256);
+                    let read = line.read_line(&mut key);
+                    let read = tokio::time::timeout(KEY_WAIT, read).await;
+                    drop(keyed);
+                    if matches!(read, Ok(Ok(_))) {
                         this.serve(key.trim_end(), stream).await;
                     }
                 });
@@ -127,7 +148,13 @@ impl Shared {
             .with_legacy_session_mode(false)
             .with_json_response(true)
             .enforce_origin_validation();
-        while let Ok((stream, _)) = listener.accept().await {
+        let calls = Arc::new(tokio::sync::Semaphore::new(CALLS));
+        loop {
+            let stream = crate::link::next(&listener).await;
+            // Past `CALLS` going on, one more is closed at once.
+            let Ok(held) = calls.clone().try_acquire_owned() else {
+                continue;
+            };
             let (this, config) = (self.clone(), config.clone());
             let answer =
                 hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
@@ -153,9 +180,14 @@ impl Shared {
                 });
             tokio::spawn(async move {
                 let io = hyper_util::rt::TokioIo::new(stream);
+                // One request a connection, its head read in time.
                 let _ = hyper::server::conn::http1::Builder::new()
+                    .timer(hyper_util::rt::TokioTimer::new())
+                    .header_read_timeout(KEY_WAIT)
+                    .keep_alive(false)
                     .serve_connection(io, answer)
                     .await;
+                drop(held);
             });
         }
     }

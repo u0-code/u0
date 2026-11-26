@@ -874,6 +874,39 @@ mod tests {
     }
 
     #[test]
+    fn the_tools_hold_few_that_say_no_key_and_none_for_long() {
+        use std::io::Read as _;
+        let home = tempfile::tempdir().unwrap();
+        let (_server, _said) = server(home.path());
+        let door = door(home.path());
+        let connect = |port| {
+            let s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+            s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+            s
+        };
+        // Closed by the server within the read's ten seconds.
+        let ended = |mut s: std::net::TcpStream| s.read_to_end(&mut Vec::new()).is_ok();
+        let quiet: Vec<_> = (0..crate::server::door::KEYING)
+            .map(|_| connect(door.port))
+            .collect();
+        std::thread::sleep(Duration::from_millis(300));
+        let began = std::time::Instant::now();
+        assert!(ended(connect(door.port)), "one more is closed");
+        assert!(began.elapsed() < Duration::from_secs(2), "at once");
+        // Those that said nothing are let go in time.
+        for s in quiet {
+            assert!(ended(s));
+        }
+        assert!(began.elapsed() < Duration::from_secs(9));
+        // One that says nothing over HTTP is let go too.
+        assert!(ended(connect(door.http)));
+        // And one with a key is served still.
+        let mut client = Client::new(home.path(), None);
+        client.ask("tools/list", &json!({}));
+        assert!(client.reply()["result"]["tools"].is_array());
+    }
+
+    #[test]
     fn an_agent_outside_ghost_reads_the_sessions_kept_but_may_not_act() {
         let home = tempfile::tempdir().unwrap();
         let (server, _said) = server(home.path());
