@@ -300,18 +300,11 @@ async fn serve(server: &Arc<Server>, stream: TcpStream) -> Result<(), String> {
 
 /// This machine's name, for a desk to call its server by.
 pub fn host_name() -> String {
-    let mut buf = [0u8; 256];
-    // SAFETY: the buffer is as long as said, and gethostname writes no
-    // more than that.
-    let named = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) } == 0;
-    let end = buf.iter().position(|b| *b == 0).unwrap_or(buf.len());
-    let name = String::from_utf8_lossy(&buf[..end]);
-    let name = name.trim_end_matches(".local");
-    if named && !name.is_empty() {
-        name.to_owned()
-    } else {
-        "this machine".into()
-    }
+    sysinfo::System::host_name()
+        .ok()
+        .map(|name| name.trim_end_matches(".local").to_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| "this machine".into())
 }
 
 /// How a link to a server stands, as the desk is told.
