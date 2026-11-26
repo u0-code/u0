@@ -254,10 +254,16 @@ pub fn act(device: &Device, act: &Act) -> Result<(), String> {
             },
         ]),
         Act::Tap(x, y) => shell(&["input", "tap", &x.to_string(), &y.to_string()]),
-        // `input text` takes no spaces as they are.
-        Act::Type(words) => shell(&["input", "text", &words.replace(' ', "%s")]),
+        Act::Type(words) => shell(&["input", "text", &typed(words)]),
         Act::Dark(dark) => shell(&["cmd", "uimode", "night", if *dark { "yes" } else { "no" }]),
     }
+}
+
+/// `words` as one word of the emulator's shell, which reads what `adb shell`
+/// is given: quoted, so `;` or `$(…)` are typed rather than run, and with
+/// spaces as `%s`, which `input text` takes for a space.
+fn typed(words: &str) -> String {
+    shell_words::quote(&words.replace(' ', "%s")).into_owned()
 }
 
 /// What `device` shows now, as a PNG.
@@ -301,6 +307,18 @@ fn primary(said: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn what_is_typed_on_an_emulator_is_one_word_its_shell_never_runs() {
+        for words in ["a;reboot", "don't", "$(rm -rf /)", "`id`", "two words"] {
+            let word = typed(words);
+            assert_eq!(
+                shell_words::split(&word).unwrap(),
+                [words.replace(' ', "%s")],
+                "{words}"
+            );
+        }
+    }
 
     #[test]
     fn simctl_s_list_gives_its_ios_simulators_the_booted_first() {
