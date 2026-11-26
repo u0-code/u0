@@ -150,14 +150,19 @@ mod tests {
             None,
             None,
             // Raw, so that its input fills rather than being dropped.
-            Some("stty raw -echo; sleep 5"),
+            Some("stty raw -echo; sleep 10"),
             (6, 40),
         )
         .expect("a terminal opens");
         // What it prints is read, as the desk reads it, so that the shell
         // gets as far as the command.
         std::thread::spawn(move || std::io::copy(&mut from, &mut std::io::sink()));
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        // A login shell can take a second or more to read its profile
+        // before it runs the command: wait for it, not for a set time.
+        let opened = std::time::Instant::now();
+        while !pty.busy() && opened.elapsed() < std::time::Duration::from_secs(8) {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
         assert!(pty.busy(), "sleep holds the terminal");
         let began = std::time::Instant::now();
         pty.send(&vec![b'x'; 1 << 20]);
