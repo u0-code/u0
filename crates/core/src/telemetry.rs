@@ -24,7 +24,7 @@ use std::{
     time::Duration,
 };
 
-use rmcp::schemars::{self, JsonSchema, Schema, SchemaGenerator, json_schema};
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 
 use crate::{

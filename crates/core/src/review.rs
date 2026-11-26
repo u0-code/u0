@@ -187,43 +187,48 @@ pub struct File {
     pub mark: String,
 }
 
-/// The files `patch` (as git writes it) changes.
+/// The files `patch` (as git writes it) changes, read by diffy: each named
+/// as it is after, its lines counted by its hunks, its mark a hash of them.
 pub fn files(patch: &str) -> Vec<File> {
-    let mut out: Vec<File> = Vec::new();
-    let mut hasher = std::hash::DefaultHasher::new();
-    let close = |out: &mut Vec<File>, hasher: &mut std::hash::DefaultHasher| {
-        if let Some(last) = out.last_mut() {
-            last.mark = format!("{:016x}", hasher.finish());
-        }
-        *hasher = std::hash::DefaultHasher::new();
+    use diffy::{
+        Line,
+        patch_set::{FileOperation, ParseOptions, PatchSet},
     };
-    for line in patch.lines() {
-        if let Some(rest) = line.strip_prefix("diff --git ") {
-            close(&mut out, &mut hasher);
-            let named = rest.rsplit_once(" b/").map_or(rest, |(_, b)| b);
-            out.push(File {
-                path: named.to_owned(),
-                added: 0,
-                removed: 0,
-                mark: String::new(),
-            });
-            continue;
-        }
-        let Some(file) = out.last_mut() else {
-            continue;
+    let read = PatchSet::parse(patch, ParseOptions::gitdiff()).filter_map(Result::ok);
+    read.map(|file| {
+        let named = match file.operation().strip_prefix(1) {
+            FileOperation::Delete(p) | FileOperation::Create(p) => p.into_owned(),
+            FileOperation::Modify { modified: p, .. }
+            | FileOperation::Rename { to: p, .. }
+            | FileOperation::Copy { to: p, .. } => p.into_owned(),
         };
-        line.hash(&mut hasher);
-        if line.starts_with("+++") || line.starts_with("---") {
-            continue;
+        let mut hasher = std::hash::DefaultHasher::new();
+        let (mut added, mut removed) = (0, 0);
+        let lines = (file.patch().as_text().into_iter())
+            .flat_map(diffy::Patch::hunks)
+            .flat_map(diffy::Hunk::lines);
+        for line in lines {
+            let (sign, text) = match line {
+                Line::Context(t) => (' ', t),
+                Line::Delete(t) => {
+                    removed += 1;
+                    ('-', t)
+                }
+                Line::Insert(t) => {
+                    added += 1;
+                    ('+', t)
+                }
+            };
+            (sign, *text).hash(&mut hasher);
         }
-        if line.starts_with('+') {
-            file.added += 1;
-        } else if line.starts_with('-') {
-            file.removed += 1;
+        File {
+            path: named,
+            added,
+            removed,
+            mark: format!("{:016x}", hasher.finish()),
         }
-    }
-    close(&mut out, &mut hasher);
-    out
+    })
+    .collect()
 }
 
 /// How many lines of each part `files` add and remove, the parts with none
@@ -280,5 +285,18 @@ mod tests {
         assert_ne!(read[0].mark, changed[0].mark);
         assert_eq!(read[1].mark, changed[1].mark);
         assert_eq!(breakdown(&read), [(Part::Code, 2, 1), (Part::Docs, 1, 1)]);
+    }
+
+    #[test]
+    fn a_removed_comment_line_is_counted_and_a_quoted_name_read_as_it_is() {
+        let patch = "diff --git a/q.sql b/q.sql\n--- a/q.sql\n+++ b/q.sql\n@@ -1,2 +1,2 @@\n--- a comment\n+++b\n x\n\
+                     diff --git \"a/my notes.md\" \"b/my notes.md\"\n--- \"a/my notes.md\"\n+++ \"b/my notes.md\"\n@@ -1 +1 @@\n-a\n+b\n";
+        let read: Vec<(String, usize, usize)> = (files(patch).into_iter())
+            .map(|f| (f.path, f.added, f.removed))
+            .collect();
+        assert_eq!(
+            read,
+            [("q.sql".to_owned(), 1, 1), ("my notes.md".to_owned(), 1, 1)]
+        );
     }
 }

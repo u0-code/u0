@@ -266,9 +266,10 @@ impl ListDelegate for Offered {
         _: &mut Window,
         _: &mut Context<ListState<Self>>,
     ) -> gpui::Task<()> {
-        let typed = query.trim().trim_start_matches('@').to_lowercase();
+        let typed = super::rank::Query::new(query.trim().trim_start_matches('@'));
+        let found = |name: &str| super::rank::terms(&typed, name, &[], true).is_some();
         self.shown = (0..self.all.len())
-            .filter(|n| !typed.is_empty() && self.all[*n].1.to_lowercase().contains(&typed))
+            .filter(|n| !typed.is_empty() && found(&self.all[*n].1))
             .take(CANDIDATES)
             .collect();
         gpui::Task::ready(())

@@ -90,19 +90,14 @@ pub fn said_at(t: SystemTime, now: SystemTime, twelve: bool) -> String {
     }
 }
 
-/// A while said shortly: "45m", "3h", "2d", "1w"; none if it does not read.
+/// A while said shortly: "45m", "3h", "2 days", "1w", as jiff's friendly
+/// format reads one, a day 24 hours; none if it does not read or is none.
 pub fn span(text: &str) -> Option<Duration> {
-    let text = text.trim();
-    let (n, unit) = text.split_at(text.find(|c: char| !c.is_ascii_digit())?);
-    let n: u64 = n.parse().ok().filter(|n| *n > 0)?;
-    let secs = match unit.trim() {
-        "m" | "min" | "mins" => 60,
-        "h" | "hr" | "hrs" | "hour" | "hours" => 3600,
-        "d" | "day" | "days" => 86_400,
-        "w" | "week" | "weeks" => 604_800,
-        _ => return None,
-    };
-    Some(Duration::from_secs(n * secs))
+    let span: jiff::Span = text.trim().parse().ok()?;
+    let length = span.to_duration(jiff::SpanRelativeTo::days_are_24_hours());
+    Duration::try_from(length.ok()?)
+        .ok()
+        .filter(|d| !d.is_zero())
 }
 
 /// How long ago `t` was, the way a list of sessions says it: "now", "12m",

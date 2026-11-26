@@ -25,11 +25,11 @@ use crate::{
 /// How often the server looks for tasks due.
 const TICK: Duration = Duration::from_secs(20);
 
-/// How many ticks between looks at the pull requests watched: two minutes.
-const PR_TICKS: u32 = 6;
+/// How often it looks at the pull requests watched.
+const PRS: Duration = Duration::from_secs(120);
 
-/// How many ticks between tidyings of archived sessions' worktrees: an hour.
-const TIDY_TICKS: u32 = 180;
+/// How often it tidies archived sessions' worktrees.
+const TIDY: Duration = Duration::from_secs(3600);
 
 impl Server {
     pub(super) fn drop_task(&self, id: u64) {
@@ -75,20 +75,26 @@ impl Shared {
         });
     }
 
-    /// Look for tasks due every [`TICK`], from now on.
+    /// Look for tasks due every [`TICK`], at the pull requests watched
+    /// every [`PRS`], and tidy every [`TIDY`] (first a tick from now), from
+    /// now on.
     pub(super) fn schedule(&self) {
         let this = self.clone();
         acp::runtime().spawn(async move {
-            let mut ticks = 0u32;
+            let every = |first: Duration, period| {
+                let start = tokio::time::Instant::now() + first;
+                let mut interval = tokio::time::interval_at(start, period);
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                interval
+            };
+            let mut due = every(TICK, TICK);
+            let mut prs = every(PRS, PRS);
+            let mut tidy = every(TICK, TIDY);
             loop {
-                tokio::time::sleep(TICK).await;
-                this.run_due();
-                ticks = (ticks + 1) % (PR_TICKS * TIDY_TICKS);
-                if ticks.is_multiple_of(PR_TICKS) {
-                    this.watch_prs();
-                }
-                if ticks % TIDY_TICKS == 1 {
-                    this.tidy_worktrees();
+                tokio::select! {
+                    _ = due.tick() => this.run_due(),
+                    _ = prs.tick() => this.watch_prs(),
+                    _ = tidy.tick() => this.tidy_worktrees(),
                 }
             }
         });

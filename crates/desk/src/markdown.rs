@@ -344,7 +344,7 @@ fn csv(table: &TableData) -> String {
         cells
             .iter()
             .map(|c| {
-                if c.contains([',', '"', '\n']) {
+                if c.contains([',', '"', '\n', '\r']) {
                     format!("\"{}\"", c.replace('"', "\"\""))
                 } else {
                     c.clone()

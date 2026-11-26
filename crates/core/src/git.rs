@@ -179,24 +179,15 @@ pub fn fresh_base(dir: &Path) -> String {
     .unwrap_or_else(|| "HEAD".into())
 }
 
-/// `text` as a short name for a branch: lower case, words joined by `-`.
+/// `text` as a short name, for a branch, a file or an id: its first six
+/// words in lower-case ASCII, joined by `-`, other scripts spelt in Latin
+/// letters (`slug`'s deunicode); "session" where it has none.
 pub fn slug(text: &str) -> String {
-    let mut out = String::new();
-    for word in text
-        .split(|c: char| !c.is_ascii_alphanumeric())
-        .filter(|w| !w.is_empty())
-        .take(6)
-    {
-        if !out.is_empty() {
-            out.push('-');
-        }
-        out.push_str(&word.to_ascii_lowercase());
-    }
-    if out.is_empty() {
-        out.push_str("session");
-    }
+    let words = slug::slugify(text);
+    let mut out = words.split('-').take(6).collect::<Vec<_>>().join("-");
     out.truncate(40);
-    out.trim_end_matches('-').to_owned()
+    let out = out.trim_end_matches('-');
+    if out.is_empty() { "session" } else { out }.to_owned()
 }
 
 /// Make a worktree of the repository at `dir` for a session about `about`,
@@ -1340,6 +1331,18 @@ mod tests {
                 dir.path().join("packages/web")
             ]
         );
+    }
+
+    #[test]
+    fn a_title_in_any_script_makes_a_short_ascii_name() {
+        assert_eq!(slug("Fix the login page!"), "fix-the-login-page");
+        assert_eq!(slug("修复登录"), "xiu-fu-deng-lu");
+        assert_eq!(slug("Ünïcode  café"), "unicode-cafe");
+        assert_eq!(
+            slug("one two three four five six seven"),
+            "one-two-three-four-five-six"
+        );
+        assert_eq!(slug("!!"), "session");
     }
 
     fn edit(old: Option<&str>, new: &str) -> Diff {

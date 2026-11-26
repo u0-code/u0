@@ -464,13 +464,11 @@ pub fn instance(id: &str) -> (&str, Option<&str>) {
 }
 
 /// The id of the account `account` of the agent `agent`: its name made a
-/// word of letters, digits and dashes.
+/// word of letters, digits and dashes (`git::slug`); none for a name with
+/// no letter or digit.
 pub fn account_id(agent: &str, account: &str) -> Option<String> {
-    let word: String = (account.trim().to_lowercase().chars())
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
-    let word = word.trim_matches('-');
-    (!word.is_empty()).then(|| format!("{}+{word}", instance(agent).0))
+    (account.chars().any(char::is_alphanumeric))
+        .then(|| format!("{}+{}", instance(agent).0, crate::git::slug(account)))
 }
 
 /// The entry of the agent `id` in `registry`: for an account beside the

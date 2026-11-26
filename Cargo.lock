@@ -1531,6 +1531,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "deunicode"
+version = "1.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "abd57806937c9cc163efc8ea3910e00a62e2aeb0b8119f1793a978088f8f6b04"
+
+[[package]]
+name = "diffy"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3e3dc2f773b6aaa63b1a7684b8589f670a8a0146a510b74d23a401c882364b49"
+dependencies = [
+ "hashbrown 0.17.1",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2232,6 +2247,7 @@ version = "0.1.0-pre.1"
 dependencies = [
  "agent-client-protocol",
  "base64 0.22.1",
+ "diffy",
  "futures-util",
  "hayro",
  "jiff 1.0.2",
@@ -2243,12 +2259,14 @@ dependencies = [
  "ring",
  "rmcp",
  "rustls",
+ "schemars 1.2.3",
  "security-framework",
  "semver",
  "serde",
  "serde_json",
  "shell-words",
  "similar",
+ "slug",
  "ssh-key",
  "sysinfo 0.40.4",
  "tempfile",
@@ -2300,6 +2318,7 @@ dependencies = [
  "unicode-segmentation",
  "unicode-width",
  "url",
+ "usvg 0.46.0",
  "vt100",
  "vte",
  "which",
@@ -7510,6 +7529,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bdd58c3c93c3d278ca835519292445cb4b0d4dc59ccfdf7ceadaab3f8aeb4038"
 dependencies = [
  "version_check",
+]
+
+[[package]]
+name = "slug"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "882a80f72ee45de3cc9a5afeb2da0331d58df69e4e7d8eeb5d3c7784ae67e724"
+dependencies = [
+ "deunicode",
+ "wasm-bindgen",
 ]
 
 [[package]]

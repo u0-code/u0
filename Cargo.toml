@@ -25,6 +25,8 @@ agent-client-protocol = { version = "=5.6.0", features = ["unstable_session_fork
 # Ghost's tools, given to an agent: the official MCP SDK, one server
 # spoken over a stream (`server/tools`).
 rmcp = { version = "3.11", default-features = false, features = ["server", "macros"] }
+# The telemetry batch's JSON Schema: the version rmcp's tools derive with.
+schemars = "1.2"
 anyhow = "1.0.104"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.154"
@@ -48,6 +50,8 @@ percent-encoding = "2.3"
 mime_guess = { version = "2.0.5", default-features = false }
 # A picture's kind and size from its first bytes: usvg's, through GPUI.
 imagesize = "0.14"
+# An SVG's size, read as GPUI reads the SVG to draw it.
+usvg = { version = "0.46", default-features = false }
 # A program on the PATH, as the shell finds it: executable, first in order.
 which = "8"
 # A file found by what is typed (⌘P, @, the Files tab): Helix's matcher.
@@ -57,6 +61,10 @@ jsonc-parser = { version = "0.34", features = ["serde"] }
 # The processes Ghost runs, their CPU and memory; this machine's load: Diagnostics.
 sysinfo = { version = "0.40", default-features = false, features = ["system"] }
 similar = { version = "2.7", default-features = false, features = ["text"] }
+# A pull request's patch, as git writes it, read file by file.
+diffy = "0.5"
+# A name made of a title in any script, for a branch, a file or an id.
+slug = "0.1"
 jiff = "1.0.2"
 # The system's language, for telemetry at its most detailed: gpui-kit's
 # dependency already.

@@ -124,16 +124,7 @@ pub fn own(home: &Path, name: &str, dark: bool) -> (PathBuf, Vec<u8>) {
 
 /// A file of yours holding the one `theme` called `name`.
 fn file(home: &Path, name: &str, theme: &Value) -> (PathBuf, Vec<u8>) {
-    let stem: String = name
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() {
-                c.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect();
+    let stem = crate::git::slug(name);
     let set = json!({ "name": name, "themes": [theme] });
     let text = serde_json::to_vec_pretty(&set).expect("a theme serializes");
     (folder(home).join(format!("{stem}.json")), text)
@@ -263,7 +254,7 @@ mod tests {
         }"##;
         let (path, written, name) = from_vscode(Path::new("/h"), text).unwrap();
         assert_eq!(name, "Night // Owl");
-        assert_eq!(path, Path::new("/h/themes/night----owl.json"));
+        assert_eq!(path, Path::new("/h/themes/night-owl.json"));
         let set: ThemeSet = serde_json::from_slice(&written).unwrap();
         let theme = &set.themes[0];
         assert!(theme.mode.is_dark());

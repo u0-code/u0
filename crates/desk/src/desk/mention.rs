@@ -495,13 +495,12 @@ impl Desk {
         });
         let word = &text[start..];
         let query = word.strip_prefix('@')?.to_lowercase();
+        let typed = super::rank::Query::new(&query);
+        let found = |text: &str| super::rank::terms(&typed, text, &[], true).is_some();
         let mut offers = Vec::new();
         let project = super::Place::project_of(s);
         for (n, title) in self.prs.get(&project).into_iter().flatten() {
-            if query.is_empty()
-                || title.to_lowercase().contains(&query)
-                || n.to_string().starts_with(&query)
-            {
+            if query.is_empty() || found(title) || n.to_string().starts_with(&query) {
                 offers.push(Offer::Pr {
                     number: *n,
                     title: title.clone(),
@@ -515,11 +514,7 @@ impl Desk {
         }) && let Some((_, choices)) = crate::thread::select_choices(&option.kind)
         {
             for (value, label, on) in choices {
-                if !on
-                    && !query.is_empty()
-                    && (label.to_lowercase().contains(&query)
-                        || value.to_lowercase().contains(&query))
-                {
+                if !on && !query.is_empty() && (found(&label) || found(&value)) {
                     offers.push(Offer::Model {
                         config: option.id.0.to_string(),
                         value,
@@ -533,7 +528,7 @@ impl Desk {
                 && o.key != s.key
                 && (o.recorded || !o.items.is_empty())
         }) {
-            if query.is_empty() || other.meta.title.to_lowercase().contains(&query) {
+            if query.is_empty() || found(&other.meta.title) {
                 offers.push(Offer::Session {
                     key: other.key,
                     title: other.meta.title.clone(),

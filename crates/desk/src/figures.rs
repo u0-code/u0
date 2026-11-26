@@ -163,13 +163,11 @@ fn tex(source: &str, display: bool, colour: gpui::Rgba) -> Result<(String, f32),
     Ok((svg, (PAD + laid.height * size) as f32))
 }
 
-/// An SVG's size, from its `viewBox`.
+/// An SVG's size, as usvg (what draws it) reads it: its `width` and
+/// `height`, else its `viewBox`.
 fn size(svg: &str) -> Option<(f32, f32)> {
-    let (_, rest) = svg.split_once("viewBox=\"")?;
-    let (bounds, _) = rest.split_once('"')?;
-    let mut numbers = bounds.split_whitespace().skip(2).map(str::parse::<f32>);
-    let (width, height) = (numbers.next()?.ok()?, numbers.next()?.ok()?);
-    (width > 0. && height > 0.).then_some((width, height))
+    let tree = usvg::Tree::from_str(svg, &usvg::Options::default()).ok()?;
+    Some((tree.size().width(), tree.size().height()))
 }
 
 /// A figure on its own: a diagram scrolls sideways where it is wider than
@@ -320,11 +318,13 @@ mod tests {
     }
 
     #[test]
-    fn an_svg_is_as_large_as_its_view_box() {
+    fn an_svg_is_as_large_as_it_says_by_its_view_box_or_its_size() {
+        let svg = |attrs: &str| format!(r#"<svg xmlns="http://www.w3.org/2000/svg" {attrs}/>"#);
         assert_eq!(
-            size(r#"<svg width="9pt" viewBox="0 0 170.5 50.25">"#),
+            size(&svg("viewBox='0,0,170.5,50.25'")),
             Some((170.5, 50.25))
         );
+        assert_eq!(size(&svg(r#"width="40" height="30""#)), Some((40., 30.)));
         assert_eq!(size("<svg>"), None);
     }
 }
