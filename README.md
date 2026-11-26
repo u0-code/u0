@@ -141,10 +141,17 @@ Every Mac's Ghost can do both, in **Settings › Devices** (or ⌘K
   that works once, for ten minutes, and the devices paired, each by its
   key's `SHA256:` fingerprint, with **Revoke**. Turned off, it cuts every
   device off.
-- **Control other Macs** (off at first: a Mac controls only itself) lists
-  the Macs paired with, **Open** (the window restarts on that Mac) and
-  **Forget**, and takes a pasted link; opening a `ghost://pair` link does
-  the same. This Mac makes an Ed25519 key for the other, keeps its
+- **Control other Macs** (off at first: a Mac controls only itself) puts
+  each Mac paired with in this window beside this one: the sidebar has a
+  row for each server, this Mac's first, with its projects and sessions
+  under it, whether it is reached, and **Reach again**. A server that
+  drops is shown offline, what the window had of it still readable, and
+  is reached again on its own. New sessions, ⌘K and ⌘P name the server
+  of each project; the settings show each server's own (its agents,
+  projects, tasks, sharing), chosen at their top, saved there. It lists
+  the Macs paired with, with **Forget**, and takes a pasted link;
+  opening a `ghost://pair` link does the same. This Mac makes an Ed25519
+  key for the other, keeps its
   private half in its Keychain and sends only the public half. From then
   on it comes in by signing a nonce the server makes for each link, so no
   secret crosses the wire or sits on the server.
@@ -166,7 +173,7 @@ t3code's `t3`:
 ```bash
 ghost .                    # open this folder in Ghost, as a project
 ghost serve                # Ghost's server with no window
-ghost service install      # run that server from login (launchd); the window opens on it
+ghost service install      # run that server from login (launchd); the window uses it
 ghost service status       # whether it runs, and where it logs
 ghost service uninstall    # stop it, and take it out of login
 ghost status               # the agents on, the server, the tasks, the service
@@ -176,8 +183,8 @@ ghost tasks                # the scheduled tasks, and when each runs next
 
 The service is a launchd agent of yours (`~/Library/LaunchAgents`), its
 own for each `GHOST_HOME`. Installing it pairs this Mac's window with it,
-as any desk pairs, so the window opens on that server rather than
-starting a second one on the same home.
+as any desk pairs, so the window reaches this Mac's Ghost there rather
+than starting a second one on the same home.
 
 ## Ghost's tools in another agent
 

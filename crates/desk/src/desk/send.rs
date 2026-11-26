@@ -6,9 +6,9 @@ use gpui::{Context, Window};
 
 use agent_client_protocol::v1::schema::{RequestPermissionOutcome, SelectedPermissionOutcome};
 
-use super::{Desk, Later, Popup};
+use super::{Desk, Later, Place, Popup};
 use crate::{
-    hub::{Slot, Stage},
+    hub::{Host, Slot, Stage},
     proto::Call,
     session::{Item, State},
     tasks::{Schedule, Task},
@@ -51,14 +51,14 @@ impl Desk {
         };
         // Each goes as the first did: begun the same way (its worktree, the
         // machine it is on) and with the same images and files named.
-        let (agent, folder, shared) = (
+        let (agent, project, shared) = (
             origin.meta.agent.clone(),
-            origin.meta.project.clone(),
+            Place::project_of(origin),
             origin.attached.clone(),
         );
-        for (other, _) in self.others(&agent) {
+        for (other, _) in self.others(project.host, &agent) {
             let new = self.sessions.take_key();
-            let mut s = self.begun_in(new, &other, folder.clone());
+            let mut s = self.begun_in(new, &other, project.clone());
             s.attached.clone_from(&shared);
             self.sessions.all.push(s);
             self.send_in(new, text, cx);
@@ -106,7 +106,8 @@ impl Desk {
         } else {
             Schedule::Once(crate::store::secs(at))
         };
-        self.transport.send(Call::SetTask(Task {
+        let host = s.host;
+        let task = Task {
             id: 0,
             title: crate::ui::fit(text.lines().next().unwrap_or_default(), 40),
             prompt: text,
@@ -122,7 +123,8 @@ impl Desk {
             next: None,
             last: None,
             runs: 0,
-        }));
+        };
+        self.call(host, Call::SetTask(task));
         self.done(
             format!(
                 "To be said at {}",
@@ -165,7 +167,7 @@ impl Desk {
             };
             session.pending = Some(text.clone());
             session.state = State::Opening;
-            let agent = session.meta.agent.clone();
+            let (host, agent) = (session.host, session.meta.agent.clone());
             // What goes with it (images, files named) goes with it.
             if on_screen {
                 let attached = self.attach(key, &text);
@@ -173,7 +175,7 @@ impl Desk {
                     s.attached.extend(attached);
                 }
             }
-            self.open_when_running(&agent, key);
+            self.open_when_running(host, &agent, key);
             cx.notify();
             return;
         }
@@ -189,7 +191,8 @@ impl Desk {
         session.meta.flags.settled = None;
         session.meta.flags.snoozed = None;
         session.said(&text);
-        let (agent, folder, id) = (
+        let (host, agent, folder, id) = (
+            session.host,
             session.meta.agent.clone(),
             session.meta.folder.clone(),
             session.meta.id.clone(),
@@ -203,24 +206,23 @@ impl Desk {
             session.state = State::Opening;
             session.pending = Some(text.clone());
             let worktree = session.needs_worktree();
-            self.settings.used(&folder);
-            self.save_settings();
+            self.settings_on_mut(host).used(&folder);
+            self.save_settings_on(host);
             if worktree {
                 let from = self.sessions.at(key).and_then(|s| s.begin.clone());
-                self.transport.send(Call::MakeWorktree {
-                    submodules: self.settings.of(&folder).submodules,
+                let settings = self.settings_on(host);
+                let call = Call::MakeWorktree {
+                    submodules: settings.of(&folder).submodules,
                     dir: folder,
                     about: text,
-                    under: self
-                        .settings
-                        .worktree_folders(self.transport.home_there(&self.home))
-                        .remove(0),
-                    prefix: self.settings.branch_prefix.clone(),
+                    under: self.worktree_folders(host).remove(0),
+                    prefix: settings.branch_prefix.clone(),
                     from,
                     key,
-                });
+                };
+                self.call(host, call);
             } else {
-                self.open_when_running(&agent, key);
+                self.open_when_running(host, &agent, key);
             }
         }
         self.to_bottom(cx);
@@ -247,8 +249,9 @@ impl Desk {
         cx.notify();
     }
 
-    /// Open the session `key` once its agent runs, starting it if need be.
-    pub(crate) fn open_when_running(&mut self, agent: &str, key: u64) {
+    /// Open the session `key` once its agent on `host` runs, starting it
+    /// if need be.
+    pub(crate) fn open_when_running(&mut self, host: Host, agent: &str, key: u64) {
         let ((folder, also), id, recorded) = self
             .sessions
             .at(key)
@@ -260,7 +263,7 @@ impl Desk {
                 )
             })
             .unwrap_or_default();
-        let Some(slot) = self.slots.iter_mut().find(|s| s.entry.id == agent) else {
+        let Some(slot) = self.slot(host, agent) else {
             return;
         };
         let (resume, load) = slot.caps().map_or((false, false), |c| {
@@ -269,62 +272,68 @@ impl Desk {
         match &slot.stage {
             Stage::Running { .. } => match id {
                 Some(id) if recorded && resume => {
-                    self.transport.send(Call::Reopen {
+                    let call = Call::Reopen {
                         agent: agent.to_owned(),
                         key,
                         session: id,
                         folder,
                         also,
                         resumed: true,
-                    });
+                    };
+                    self.call(host, call);
                 }
                 Some(id) if load => {
                     if recorded {
                         self.drop_record(key);
                     }
-                    self.transport.send(Call::Reopen {
+                    let call = Call::Reopen {
                         agent: agent.to_owned(),
                         key,
                         session: id,
                         folder,
                         also,
                         resumed: false,
-                    });
+                    };
+                    self.call(host, call);
                 }
                 Some(_) => {
                     if let Some(s) = self.sessions.at_mut(key) {
                         s.state = State::Broken("The agent cannot open a session again".into());
                     }
                 }
-                None => self.transport.send(Call::Open {
-                    agent: agent.to_owned(),
-                    key,
-                    folder,
-                    also,
-                }),
+                None => {
+                    let call = Call::Open {
+                        agent: agent.to_owned(),
+                        key,
+                        folder,
+                        also,
+                    };
+                    self.call(host, call);
+                }
             },
             Stage::Starting => {}
             _ => {
-                slot.stage = Stage::Starting;
-                self.transport.send(Call::Start {
-                    entry: slot.entry.clone(),
-                    command: slot.command.clone(),
-                    env: self
-                        .settings
-                        .env
-                        .get(&slot.entry.id)
-                        .cloned()
-                        .unwrap_or_default(),
-                });
+                // One failed is tried again, as one ready is started.
+                if let Some(slot) = self.slot_mut(host, agent) {
+                    slot.stage = Stage::Ready;
+                }
+                self.start_for(host, agent);
             }
         }
+    }
+
+    /// The server the session `key` is on, and its agent, while that
+    /// agent runs: what is asked of it then goes there.
+    fn running(&self, key: u64) -> Option<(Host, String)> {
+        let s = self.sessions.at(key)?;
+        (self.slot(s.host, &s.meta.agent).is_some_and(Slot::running))
+            .then(|| (s.host, s.meta.agent.clone()))
     }
 
     /// Stop the turn going on in the session on screen.
     pub fn stop(&mut self, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
-        let (agent, id) = (s.meta.agent.clone(), s.meta.id.clone());
-        if let (true, Some(id)) = (self.slot(&agent).is_some_and(Slot::running), id) {
+        if let (Some((host, agent)), Some(id)) = (self.running(s.key), s.meta.id.clone()) {
             // Questions still open are answered as cancelled, as ACP asks.
             let open: Vec<_> = s
                 .items
@@ -337,11 +346,12 @@ impl Desk {
                 .collect();
             let key = s.key;
             for (request, form) in open {
-                self.transport.send(Call::Answer {
+                let call = Call::Answer {
                     agent: agent.clone(),
                     request,
                     answer: crate::acp::Answer::cancelled(form),
-                });
+                };
+                self.call(host, call);
                 if form {
                     self.forms.remove(&request);
                     if let Some(s) = self.sessions.at_mut(key) {
@@ -349,10 +359,9 @@ impl Desk {
                     }
                 }
             }
-            let Some(s) = self.session() else { return };
-            self.transport.send(Call::Cancel { agent, session: id });
-            if self.stopping.is_none_or(|(k, _)| k != s.key) {
-                self.stopping = Some((s.key, std::time::Instant::now()));
+            self.call(host, Call::Cancel { agent, session: id });
+            if self.stopping.is_none_or(|(k, _)| k != key) {
+                self.stopping = Some((key, std::time::Instant::now()));
             }
             // Its subagents stop with it, as t3code's do.
             let children: Vec<u64> = (self.sessions.all.iter())
@@ -368,35 +377,23 @@ impl Desk {
 
     /// Stop the task `task` the agent left going in the session `key`.
     pub fn stop_task(&mut self, key: u64, task: String, cx: &mut Context<Self>) {
-        let Some(s) = self.sessions.at(key) else {
-            return;
-        };
-        if let (true, Some(id)) = (
-            self.slot(&s.meta.agent).is_some_and(Slot::running),
-            s.meta.id.clone(),
-        ) {
-            self.transport.send(Call::StopTask {
-                agent: s.meta.agent.clone(),
+        let id = self.sessions.at(key).and_then(|s| s.meta.id.clone());
+        if let (Some((host, agent)), Some(id)) = (self.running(key), id) {
+            let call = Call::StopTask {
+                agent,
                 session: id,
                 task,
-            });
+            };
+            self.call(host, call);
         }
         cx.notify();
     }
 
     /// Stop the work of the subagent `key`, where its agent lets it be.
     pub fn stop_sub(&mut self, key: u64, cx: &mut Context<Self>) {
-        let Some(c) = self.sessions.at(key) else {
-            return;
-        };
-        if let (true, Some(id)) = (
-            self.slot(&c.meta.agent).is_some_and(Slot::running),
-            c.meta.id.clone(),
-        ) {
-            self.transport.send(Call::Cancel {
-                agent: c.meta.agent.clone(),
-                session: id,
-            });
+        let id = self.sessions.at(key).and_then(|c| c.meta.id.clone());
+        if let (Some((host, agent)), Some(id)) = (self.running(key), id) {
+            self.call(host, Call::Cancel { agent, session: id });
         }
         cx.notify();
     }
@@ -405,9 +402,8 @@ impl Desk {
     /// its turn: its process is ended, and started again when wanted.
     pub fn force_stop(&mut self, key: u64, cx: &mut Context<Self>) {
         self.stopping = None;
-        let agent = self.sessions.at(key).map(|s| s.meta.agent.clone());
-        if let Some(agent) = agent.filter(|a| self.slot(a).is_some_and(Slot::running)) {
-            self.transport.send(Call::Kill { agent });
+        if let Some((host, agent)) = self.running(key) {
+            self.call(host, Call::Kill { agent });
         }
         cx.notify();
     }
@@ -421,17 +417,15 @@ impl Desk {
         option: &agent_client_protocol::v1::schema::PermissionOption,
         cx: &mut Context<Self>,
     ) {
-        let Some(agent) = self.sessions.at(key).map(|s| s.meta.agent.clone()) else {
-            return;
-        };
-        if self.slot(&agent).is_some_and(Slot::running) {
-            self.transport.send(Call::Answer {
+        if let Some((host, agent)) = self.running(key) {
+            let call = Call::Answer {
                 agent,
                 request,
                 answer: crate::acp::Answer::Permission(RequestPermissionOutcome::Selected(
                     SelectedPermissionOutcome::new(option.option_id.clone()),
                 )),
-            });
+            };
+            self.call(host, call);
         }
         if let Some(s) = self.sessions.at_mut(key) {
             s.answered(request, option);
@@ -450,11 +444,14 @@ impl Desk {
         words: &str,
         cx: &mut Context<Self>,
     ) {
-        self.transport.send(Call::Answer {
-            agent: agent.to_owned(),
-            request: id,
-            answer,
-        });
+        if let Some(host) = self.sessions.at(key).map(|s| s.host) {
+            let call = Call::Answer {
+                agent: agent.to_owned(),
+                request: id,
+                answer,
+            };
+            self.call(host, call);
+        }
         self.forms.remove(&id);
         if let Some(s) = self.sessions.at_mut(key) {
             s.elicit_answered(id, words);
@@ -533,19 +530,20 @@ impl Desk {
         let Some(key) = self.current else { return };
         self.remember(|c| c.mode = Some(mode.clone()));
         let Some(s) = self.session() else { return };
-        let (agent, id) = (s.meta.agent.clone(), s.meta.id.clone());
+        let id = s.meta.id.clone();
         if id.is_none() {
             self.sessions
                 .at_mut(key)
                 .expect("on screen")
                 .choose_mode(&mode);
-        } else if let (true, Some(id)) = (self.slot(&agent).is_some_and(Slot::running), id) {
-            self.transport.send(Call::SetMode {
+        } else if let (Some((host, agent)), Some(id)) = (self.running(key), id) {
+            let call = Call::SetMode {
                 agent,
                 key,
                 session: id,
                 mode: mode.clone(),
-            });
+            };
+            self.call(host, call);
             if let Some(modes) = &mut self.sessions.at_mut(key).expect("on screen").modes {
                 modes.current_mode_id = agent_client_protocol::v1::schema::SessionModeId::new(mode);
             }
@@ -561,31 +559,32 @@ impl Desk {
             c.options.insert(config.clone(), value.clone());
         });
         let Some(s) = self.session() else { return };
-        let (agent, id) = (s.meta.agent.clone(), s.meta.id.clone());
+        let id = s.meta.id.clone();
         if id.is_none() {
             self.sessions
                 .at_mut(key)
                 .expect("on screen")
                 .choose(&config, &value);
-        } else if let (true, Some(id)) = (self.slot(&agent).is_some_and(Slot::running), id) {
-            self.transport.send(Call::SetOption {
+        } else if let (Some((host, agent)), Some(id)) = (self.running(key), id) {
+            let call = Call::SetOption {
                 agent,
                 key,
                 session: id,
                 config,
                 value,
-            });
+            };
+            self.call(host, call);
         }
         cx.notify();
     }
 
     /// Keep what `chose` sets as what the next session of the agent on
-    /// screen, in its project, begins with.
+    /// screen, in its project, begins with: in its server's settings.
     fn remember(&mut self, chose: impl FnOnce(&mut crate::settings::Chosen)) {
         let Some(s) = self.session() else { return };
-        let (project, agent) = (s.meta.project.clone(), s.meta.agent.clone());
-        let prefs = self.settings.prefs.entry(project).or_default();
+        let (host, project, agent) = (s.host, s.meta.project.clone(), s.meta.agent.clone());
+        let prefs = self.settings_on_mut(host).prefs.entry(project).or_default();
         chose(prefs.last.entry(agent).or_default());
-        self.save_settings();
+        self.save_settings_on(host);
     }
 }

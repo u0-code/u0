@@ -86,8 +86,9 @@ const LIGHTS: f32 = 76.;
 pub enum Page {
     /// The session on screen, by its key; or, with none, the empty start.
     Thread,
-    /// An agent's page: what it is, what it needs, how to install it.
-    Agent(String),
+    /// An agent's page, on a server: what it is, what it needs, how to
+    /// install it.
+    Agent(hub::Host, String),
     /// A project's pull requests, or its issues.
     Forge(crate::github::Kind),
 }
@@ -147,6 +148,8 @@ pub enum Popup {
     TaskProject,
     /// The project Settings' choices a project may hold are set for.
     Scope,
+    /// The server the settings' pages of a server's own are of.
+    Server,
 }
 
 /// Which side columns show.
@@ -168,9 +171,6 @@ pub struct Desk {
     /// Why the settings could not be read, while that is so: nothing is
     /// saved over them.
     pub settings_refused: Option<String>,
-    /// Why the sessions kept from before could not be read, while that is
-    /// so: nothing is saved over them.
-    pub store_refused: Option<String>,
     /// What is being renamed, and the line for it.
     pub renaming: Option<lists::Renaming>,
     pub rename: Entity<InputState>,
@@ -205,10 +205,6 @@ pub struct Desk {
     pub fetched: Option<std::time::Instant>,
     /// When ⌘Q was last pressed, not held.
     pub quit_asked: Option<std::time::Instant>,
-    /// Each running agent's process and the memory its group holds (kB),
-    /// as last weighed.
-    /// What of each agent the registry lists is here, by its id.
-    pub here: HashMap<String, crate::proto::Here>,
     /// The programs the desk offers that are on the PATH (`hub::on_path`).
     pub on_path: Vec<&'static str>,
     /// How many sessions need you, as the Dock last said.
@@ -223,7 +219,7 @@ pub struct Desk {
     /// passed over, to settle as it is let go.
     pub sweep: Vec<u64>,
     /// The projects the sidebar shows; none chosen, all.
-    pub filter: Vec<PathBuf>,
+    pub filter: Vec<Place>,
     /// Sessions deleted whose worktree you kept.
     pub keep_worktree: HashSet<u64>,
     /// The image looked at large: the session's key and its item.
@@ -241,13 +237,19 @@ pub struct Desk {
     /// The subagents' tabs over the thread you closed: hidden, still at
     /// work.
     pub closed_tabs: HashSet<u64>,
-    /// What waits for an agent to start, by agent: a fork, a delete.
-    pub waiting: Vec<(String, lists::Waiting)>,
-    /// Sessions deleted whose agent cannot delete them (see `store::Index`).
-    pub gone: Vec<(String, String)>,
-    /// Each session's meta as the server keeps it, by agent and id: what
-    /// is sent is what differs.
-    pub kept: HashMap<(String, agent_client_protocol::v1::schema::SessionId), crate::store::Meta>,
+    /// What waits for an agent to start, by its server and id: a fork, a
+    /// delete.
+    pub waiting: Vec<(hub::Host, String, lists::Waiting)>,
+    /// Each session's meta as its server keeps it, by server, agent and
+    /// id: what is sent is what differs.
+    pub kept: HashMap<
+        (
+            hub::Host,
+            String,
+            agent_client_protocol::v1::schema::SessionId,
+        ),
+        crate::store::Meta,
+    >,
     /// What Ghost tells you at the foot of the window, the oldest first.
     pub notices: Vec<notices::Notice>,
     pub pages: crate::pages::Pages,
@@ -263,15 +265,11 @@ pub struct Desk {
     pub health_tick: u32,
     pub review: gitview::Review,
     pub palette: palette::Palette,
-    /// The folders each agent has sessions in that are not projects.
-    pub elsewhere: std::collections::BTreeMap<String, Vec<(PathBuf, usize)>>,
     /// What `@` can name: each folder's files, each project's open pull
     /// requests, read once when first wanted.
-    pub files: HashMap<PathBuf, Vec<String>>,
-    pub prs: HashMap<PathBuf, Vec<(u64, String)>>,
-    pub issues: HashMap<PathBuf, Vec<(u64, String)>>,
-    /// What each CLI of yours an agent runs says its version is.
-    pub cli_versions: HashMap<PathBuf, String>,
+    pub files: HashMap<Place, Vec<String>>,
+    pub prs: HashMap<Place, Vec<(u64, String)>>,
+    pub issues: HashMap<Place, Vec<(u64, String)>>,
     pub registry: Registry,
     /// The last registry read failed: why.
     pub registry_trouble: Option<String>,
@@ -291,8 +289,8 @@ pub struct Desk {
     pub composer: mention::Composer,
     /// Cards and lines opened in the thread, by key.
     pub expanded: HashSet<String>,
-    /// Projects folded shut down the left.
-    pub closed: HashSet<PathBuf>,
+    /// Projects folded shut down the left, and servers.
+    pub closed: HashSet<Place>,
     /// The sidebar's list: its tree, the shape it was last given, the
     /// session open in it then, the sessions in the order it lists them,
     /// and how many settled sessions it shows.
@@ -309,7 +307,7 @@ pub struct Desk {
     pub command_down: Option<std::time::Instant>,
     pub numbers_shown: bool,
     /// What each project's folder holds, once read (see `read_projects`).
-    pub held: HashMap<PathBuf, crate::repo::Held>,
+    pub held: HashMap<Place, crate::repo::Held>,
     /// The thread as a list drawn where it is seen, its lines, and the
     /// session they are of; an item to bring into view once it is drawn.
     pub list: Entity<gpui::component::message_scroller::MessageScrollerState>,
@@ -318,7 +316,7 @@ pub struct Desk {
     pub reveal: Option<usize>,
     pub find: crate::thread::Find,
     /// The agent being signed in to, while it is.
-    pub signing: Option<String>,
+    pub signing: Option<(hub::Host, String)>,
     /// The right column's tabs, by session.
     pub columns: HashMap<u64, Column>,
     /// The line a side chat in the column is asked in.
@@ -335,8 +333,38 @@ pub struct Desk {
     /// When the registry was last read.
     pub registry_read: Option<std::time::SystemTime>,
     pub(crate) tx: hub::Sender,
-    /// The way to the server, which runs the agents.
-    pub transport: hub::Transport,
+    /// The servers the window holds, which run the agents: this Mac's
+    /// own first.
+    pub machines: Vec<hub::Machine>,
+    /// The last number given a server held (`hub::Host`).
+    pub last_host: u16,
+}
+
+/// A folder on one of the servers the window holds: a project's, a
+/// worktree's.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Place {
+    pub host: hub::Host,
+    pub folder: PathBuf,
+}
+
+impl Place {
+    pub fn new(host: hub::Host, folder: impl Into<PathBuf>) -> Self {
+        Self {
+            host,
+            folder: folder.into(),
+        }
+    }
+
+    /// The project of the session `s`.
+    pub fn project_of(s: &Session) -> Self {
+        Self::new(s.host, s.meta.project.clone())
+    }
+
+    /// Where the session `s` works.
+    pub fn folder_of(s: &Session) -> Self {
+        Self::new(s.host, s.meta.folder.clone())
+    }
 }
 
 /// A dialog's view of the desk, drawn by `draw`. gpui-kit's dialog layer
@@ -385,7 +413,8 @@ impl Desk {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let home = settings::home();
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let (transport, (settings, settings_refused)) = hub::Transport::open(&home, &tx);
+        let machines = hub::Machine::open(&home, &tx);
+        let (settings, settings_refused) = Settings::load(&home);
         // The system's look changed: drawn again, for a look that follows it.
         cx.observe_window_appearance(window, |_, _, cx| cx.notify())
             .detach();
@@ -509,13 +538,11 @@ impl Desk {
 
         let pages = crate::pages::Pages::new(&settings, window, cx);
         let registry = registry::kept(&home).unwrap_or_default();
-        transport.send(Call::Fetch);
         hub::on_path(tx.clone());
         let mut desk = Self {
             home,
             settings,
             settings_refused,
-            store_refused: None,
             renaming: None,
             zoom: None,
             filter: Vec::new(),
@@ -536,7 +563,6 @@ impl Desk {
             flows: flows::Flows::default(),
             fetched: None,
             badge: 0,
-            here: HashMap::new(),
             on_path: Vec::new(),
             menu_search,
             menu_changed: 0,
@@ -549,7 +575,6 @@ impl Desk {
             rewinding: None,
             asking_beside: None,
             closed_tabs: HashSet::new(),
-            gone: Vec::new(),
             kept: HashMap::new(),
             notices: Vec::new(),
             pages,
@@ -557,7 +582,6 @@ impl Desk {
             behind: false,
             awake: None,
             files: HashMap::new(),
-            elsewhere: std::collections::BTreeMap::new(),
             drawer: runs::Drawer::new(window, cx),
             palette: palette::Palette::new(window, cx),
             pr_tick: 0,
@@ -565,7 +589,6 @@ impl Desk {
             review: gitview::Review::new(window, cx),
             prs: HashMap::new(),
             issues: HashMap::new(),
-            cli_versions: HashMap::new(),
             registry,
             registry_trouble: None,
             slots: Vec::new(),
@@ -606,9 +629,9 @@ impl Desk {
             search: lists::Search::new(window, cx),
             registry_read: None,
             tx,
-            transport,
+            last_host: machines.iter().map(|m| m.host.0).max().unwrap_or(0),
+            machines,
         };
-        desk.transport.send(Call::Watch);
         desk.update_due();
         // Where the window is, kept as Ghost quits to open it there again.
         cx.observe_window_bounds(window, |this, window, _| {
@@ -620,9 +643,76 @@ impl Desk {
         })
         .detach();
         Self::keep_on_quit(cx);
-        desk.fill_slots();
-        desk.look_here();
+        // This Mac's server in this process is read now; one reached over
+        // a link (its service, another Mac), once it is reached.
+        if desk.machines[0].local().is_some() {
+            desk.afresh(hub::Host::HERE);
+        }
         desk
+    }
+
+    /// Ask the server `host` something; one not held, or out of reach
+    /// with no way to it, is not asked.
+    pub fn call(&self, host: hub::Host, call: Call) {
+        if let Some(m) = self.machine(host) {
+            m.send(call);
+        }
+    }
+
+    /// The server the window holds as `host`.
+    pub fn machine(&self, host: hub::Host) -> Option<&hub::Machine> {
+        hub::Machine::of(&self.machines, host)
+    }
+
+    pub(crate) fn machine_mut(&mut self, host: hub::Host) -> Option<&mut hub::Machine> {
+        self.machines.iter_mut().find(|m| m.host == host)
+    }
+
+    /// The settings of the server `host`: this Mac's are the desk's own.
+    pub fn settings_on(&self, host: hub::Host) -> &Settings {
+        match self.machine(host) {
+            Some(m) if host != hub::Host::HERE => &m.settings,
+            _ => &self.settings,
+        }
+    }
+
+    pub fn settings_on_mut(&mut self, host: hub::Host) -> &mut Settings {
+        match self.machines.iter_mut().find(|m| m.host == host) {
+            Some(m) if host != hub::Host::HERE => &mut m.settings,
+            _ => &mut self.settings,
+        }
+    }
+
+    /// The settings the dialog's pages of a server's own show and change:
+    /// those of the server it is on.
+    pub fn edited(&self) -> &Settings {
+        self.settings_on(self.pages.on)
+    }
+
+    pub fn edited_mut(&mut self) -> &mut Settings {
+        self.settings_on_mut(self.pages.on)
+    }
+
+    /// Save the settings of the server the dialog is on, there.
+    pub(crate) fn save_edited(&mut self) {
+        self.save_settings_on(self.pages.on);
+    }
+
+    /// Ghost's home on the server `host`: where its worktrees and scratch
+    /// folders are.
+    pub fn home_on(&self, host: hub::Host) -> &Path {
+        self.machine(host).map_or(&self.home, |m| &m.home)
+    }
+
+    /// Where Ghost makes worktrees on the server `host`, as its settings
+    /// say.
+    pub fn worktree_folders(&self, host: hub::Host) -> Vec<PathBuf> {
+        self.settings_on(host).worktree_folders(self.home_on(host))
+    }
+
+    /// What of each agent the registry lists is on the server `host`.
+    pub fn here_on(&self, host: hub::Host, agent: &str) -> Option<&crate::proto::Here> {
+        self.machine(host)?.here.get(agent)
     }
 
     /// Whether anything is going on that is drawn as it goes.
@@ -642,76 +732,100 @@ impl Desk {
         self.sessions.at(key)
     }
 
+    /// Save this Mac's settings.
     pub(crate) fn save_settings(&mut self) {
+        self.save_settings_on(hub::Host::HERE);
+    }
+
+    /// Save the settings of the server `host`, there: unless they did not
+    /// read, when nothing is saved over them.
+    pub(crate) fn save_settings_on(&mut self, host: hub::Host) {
         // Dictation listens as the settings now say, from the next on.
         if self.dictation.is_none() {
             self.speech = None;
         }
-        if self.settings_refused.is_some() {
-            return;
+        let refused = match self.machine(host) {
+            Some(m) if host != hub::Host::HERE => m.refused.is_some() || m.up == hub::Up::Reaching,
+            _ => self.settings_refused.is_some(),
+        };
+        if !refused {
+            let settings = Box::new(self.settings_on(host).clone());
+            self.call(host, Call::SaveSettings(settings));
         }
-        let settings = Box::new(self.settings.clone());
-        self.transport.send(Call::SaveSettings(settings));
     }
 
     /// The project a new session starts in: that of the session on
     /// screen, else the first listed that is not a scratch session's.
-    pub fn chosen_project(&self) -> Option<PathBuf> {
+    pub fn chosen_project(&self) -> Option<Place> {
         self.session()
-            .map(|s| s.meta.project.clone())
+            .map(Place::project_of)
             .or_else(|| self.projects().into_iter().find(|p| !self.is_scratch(p)))
     }
 
     /// The project a new session starts in; with none yet, a scratch
-    /// folder of its own, never your home. None when that cannot be made.
-    pub fn project(&mut self) -> Option<PathBuf> {
-        self.chosen_project().or_else(|| self.scratch())
+    /// folder of its own on this Mac, never your home. None when that
+    /// cannot be made.
+    pub fn project(&mut self) -> Option<Place> {
+        self.chosen_project()
+            .or_else(|| self.scratch(hub::Host::HERE))
     }
 
-    /// The projects down the left: those kept, then the folder of any
-    /// session in none of them.
-    pub fn projects(&self) -> Vec<PathBuf> {
-        let mut out = self.settings.folders.clone();
+    /// The projects down the left, server by server, this Mac's first:
+    /// those kept, then the folder of any session in none of them.
+    pub fn projects(&self) -> Vec<Place> {
+        let mut out: Vec<Place> = (self.machines.iter())
+            .flat_map(|m| {
+                let folders = &self.settings_on(m.host).folders;
+                folders.iter().map(|f| Place::new(m.host, f.clone()))
+            })
+            .collect();
         for s in &self.sessions.all {
-            if !out.contains(&s.meta.project) {
-                out.push(s.meta.project.clone());
+            let p = Place::project_of(s);
+            if !out.contains(&p) {
+                out.push(p);
             }
         }
-        // Archived ones are out of the list; pinned ones lead it.
+        // Archived ones are out of the list; pinned ones lead their
+        // server's.
         out.retain(|p| !self.prefs(p).archived);
-        out.sort_by_key(|p| !self.prefs(p).pinned);
+        out.sort_by_key(|p| (p.host, !self.prefs(p).pinned));
         out
     }
 
-    /// Ask what the folder of each project here holds, once.
+    /// Ask what the folder of each project holds, once.
     fn read_projects(&mut self) {
-        for folder in self.projects() {
-            if !self.held.contains_key(&folder) {
-                self.held
-                    .insert(folder.clone(), crate::repo::Held::default());
-                self.transport.send(Call::ReadProject { folder });
+        for p in self.projects() {
+            if !self.held.contains_key(&p) {
+                self.held.insert(p.clone(), crate::repo::Held::default());
+                self.call(p.host, Call::ReadProject { folder: p.folder });
             }
         }
     }
 
-    /// What you set for the project `folder`.
-    pub fn prefs(&self, folder: &Path) -> settings::Prefs {
-        self.settings.prefs.get(folder).cloned().unwrap_or_default()
+    /// What you set for the project `p`, as its server keeps it.
+    pub fn prefs(&self, p: &Place) -> settings::Prefs {
+        (self.settings_on(p.host).prefs.get(&p.folder))
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// The settings as they hold in `project` (`Settings::of`); none,
-    /// everywhere's.
-    pub fn settings_in(&self, project: Option<&Path>) -> settings::Settings {
-        project.map_or_else(|| self.settings.clone(), |p| self.settings.of(p))
+    /// everywhere's on this Mac.
+    pub fn settings_in(&self, project: Option<&Place>) -> settings::Settings {
+        project.map_or_else(
+            || self.settings.clone(),
+            |p| self.settings_on(p.host).of(&p.folder),
+        )
     }
 
-    /// The name the project `folder` shows by.
-    pub fn project_name(&self, folder: &Path) -> String {
-        self.prefs(folder).name.unwrap_or_else(|| {
-            if folder == self.scratch_dir() {
+    /// The name the project `p` shows by.
+    pub fn project_name(&self, p: &Place) -> String {
+        self.prefs(p).name.unwrap_or_else(|| {
+            let folder = &p.folder;
+            if *folder == self.scratch_dir(p.host) {
                 return "Scratch".into();
             }
-            if self.is_scratch(folder) {
+            if self.is_scratch(p) {
                 return format!(
                     "Scratch {}",
                     folder.file_name().unwrap_or_default().display()
@@ -723,55 +837,74 @@ impl Desk {
         })
     }
 
+    /// The name of the server `host`, where something of it is shown beside
+    /// another server's: none while the window holds this Mac's alone.
+    pub fn server_chip(&self, host: hub::Host) -> Option<&str> {
+        (self.machines.len() > 1)
+            .then(|| self.machine(host).map(|m| m.name.as_str()))
+            .flatten()
+    }
+
+    /// The name the project `p` shows by, with its server's after it where
+    /// the window holds more than one: "app · studio".
+    pub fn project_on(&self, p: &Place) -> String {
+        match self.server_chip(p.host) {
+            Some(on) => format!("{} · {on}", self.project_name(p)),
+            None => self.project_name(p),
+        }
+    }
+
     // What you do.
 
-    /// Begin a session with `agent` in the project `folder`. Nothing is
-    /// asked of the agent until you say something.
+    /// Begin a session with `agent` in the project `p`, on its server.
+    /// Nothing is asked of the agent until you say something.
     pub fn new_session(
         &mut self,
         agent: &str,
-        folder: PathBuf,
+        p: Place,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.slot(agent).is_some_and(Slot::usable) {
-            self.page = Page::Agent(agent.to_owned());
+        if !self.slot(p.host, agent).is_some_and(Slot::usable) {
+            self.page = Page::Agent(p.host, agent.to_owned());
             cx.notify();
             return;
         }
         // A session begun and not used yet is reused, not doubled.
         let key = if let Some(s) =
             self.sessions.all.iter().find(|s| {
-                s.meta.agent == agent && s.meta.project == folder && s.state == State::Draft
+                s.of(p.host, agent) && s.meta.project == p.folder && s.state == State::Draft
             }) {
             s.key
         } else {
             let key = self.sessions.take_key();
-            let s = self.begun_in(key, agent, folder);
+            let s = self.begun_in(key, agent, p);
             self.sessions.all.push(s);
             key
         };
         self.show(key, window, cx);
     }
 
-    /// A new session of `agent` in the project `folder`.
-    fn begun_in(&self, key: u64, agent: &str, folder: PathBuf) -> Session {
-        let worktree = self
-            .prefs(&folder)
-            .worktree
-            .unwrap_or(self.settings.worktree);
-        let mut s = Session::new(key, agent, folder);
+    /// A new session of `agent` in the project `p`.
+    fn begun_in(&self, key: u64, agent: &str, p: Place) -> Session {
+        let worktree = (self.prefs(&p).worktree).unwrap_or(self.settings_on(p.host).worktree);
+        let last = self.prefs(&p).last.get(agent).cloned();
+        let mut s = Session::new(key, agent, p.folder);
+        s.host = p.host;
         s.wants_worktree = worktree;
-        self.transport.send(Call::Look {
-            folder: s.meta.folder.clone(),
-            key,
-        });
-        if let Some(slot) = self.slot(agent) {
+        self.call(
+            p.host,
+            Call::Look {
+                folder: s.meta.folder.clone(),
+                key,
+            },
+        );
+        if let Some(slot) = self.slot(p.host, agent) {
             slot.seed(&mut s);
         }
         // As t3code: what was last chosen in a session of this agent in
         // this project, its model, effort and mode.
-        if let Some(last) = self.prefs(&s.meta.project).last.get(agent) {
+        if let Some(last) = last {
             for (config, value) in &last.options {
                 s.choose(config, value);
             }
@@ -782,12 +915,15 @@ impl Desk {
         s
     }
 
-    /// Read what each session kept here used, from its record.
+    /// Read what each session kept on each server used, from its record.
     pub(crate) fn read_used(&self) {
-        let records = (self.sessions.all.iter())
-            .filter_map(|s| Some((s.key, s.meta.agent.clone(), s.meta.id.clone()?)))
-            .collect();
-        self.transport.send(crate::proto::Call::Used { records });
+        for m in &self.machines {
+            let records = (self.sessions.all.iter())
+                .filter(|s| s.host == m.host)
+                .filter_map(|s| Some((s.key, s.meta.agent.clone(), s.meta.id.clone()?)))
+                .collect();
+            m.send(Call::Used { records });
+        }
     }
 
     /// Put the session `key` on screen.
@@ -875,31 +1011,34 @@ impl Desk {
         }
     }
 
-    /// Begin a session in `folder`, with the agent of the session on screen
-    /// if it can run, else the first that can.
-    pub fn new_in(&mut self, folder: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+    /// Begin a session in the project `p`, with the agent of the session on
+    /// screen if it runs on its server and can run, else the first there
+    /// that can.
+    pub fn new_in(&mut self, p: Place, window: &mut Window, cx: &mut Context<Self>) {
         // Scratch, the sidebar's folder of scratch sessions: one more.
-        if folder == self.scratch_dir() {
-            self.new_scratch(window, cx);
+        if p.folder == self.scratch_dir(p.host) {
+            self.new_scratch_on(p.host, window, cx);
             return;
         }
-        match self.agent_for(&folder) {
-            Some(agent) => self.new_session(&agent, folder, window, cx),
+        match self.agent_for(&p) {
+            Some(agent) => self.new_session(&agent, p, window, cx),
             None => self.open_tab(crate::pages::Tab::Agents, window, cx),
         }
     }
 
-    /// The agent a new session in `folder` begins with: the project's own,
-    /// else that of the session on screen, else the first that can run.
-    fn agent_for(&self, folder: &Path) -> Option<String> {
-        self.prefs(folder)
+    /// The agent a new session in the project `p` begins with, on its
+    /// server: the project's own, else that of the session on screen,
+    /// else the first there that can run.
+    fn agent_for(&self, p: &Place) -> Option<String> {
+        let on = |s: &&Slot| s.host == p.host;
+        self.prefs(p)
             .agent
-            .and_then(|a| self.slot(&a))
+            .and_then(|a| self.slot(p.host, &a))
             .filter(|s| s.usable())
-            .or_else(|| self.session().and_then(|s| self.slot(&s.meta.agent)))
+            .or_else(|| (self.session()).and_then(|s| self.slot(p.host, &s.meta.agent)))
             .filter(|s| s.usable())
-            .or_else(|| self.slots.iter().find(|s| s.usable()))
-            .or_else(|| self.slots.first())
+            .or_else(|| self.slots.iter().filter(on).find(|s| s.usable()))
+            .or_else(|| self.slots.iter().find(on))
             .map(|s| s.entry.id.clone())
     }
 
@@ -911,10 +1050,11 @@ impl Desk {
         if self.page != Page::Thread || self.current.is_some() {
             return None;
         }
-        let folder = self.chosen_project()?;
-        let agent = self.agent_for(&folder)?;
-        let slot = self.slot(&agent).filter(|s| s.usable())?;
-        let mut s = Session::new(0, &agent, folder);
+        let p = self.chosen_project()?;
+        let agent = self.agent_for(&p)?;
+        let slot = self.slot(p.host, &agent).filter(|s| s.usable())?;
+        let mut s = Session::new(0, &agent, p.folder);
+        s.host = p.host;
         slot.seed(&mut s);
         Some(s)
     }
@@ -941,6 +1081,7 @@ impl Desk {
         {
             // Where it works stays, and what git said of it.
             let mut new = Session::new(key, agent, s.meta.folder.clone());
+            new.host = s.host;
             new.meta.project = std::mem::take(&mut s.meta.project);
             (new.branch, new.repo) = (s.branch.take(), s.repo);
             new.scripts = std::mem::take(&mut s.scripts);
@@ -948,7 +1089,8 @@ impl Desk {
             *s = new;
         }
         if let Some(key) = self.current {
-            let slot = self.slots.iter().find(|x| x.entry.id == agent);
+            let host = self.sessions.at(key).map(|s| s.host);
+            let slot = (self.slots.iter()).find(|x| Some(x.host) == host && x.entry.id == agent);
             if let (Some(slot), Some(s)) = (slot, self.sessions.at_mut(key)) {
                 slot.seed(s);
             }
@@ -956,7 +1098,8 @@ impl Desk {
         cx.notify();
     }
 
-    /// Ask for a folder to add as a project, and begin a session in it.
+    /// Ask for a folder of this Mac's to add as a project, and begin a
+    /// session in it.
     pub fn add_project(window: &mut Window, cx: &mut Context<Self>) {
         let answer = cx.prompt_for_paths(PathPromptOptions {
             files: false,
@@ -969,7 +1112,7 @@ impl Desk {
                 && let Some(folder) = paths.into_iter().next()
             {
                 let _ = this.update_in(cx, |this, window, cx| {
-                    this.add_and_begin(&folder, window, cx);
+                    this.add_and_begin(&Place::new(hub::Host::HERE, folder), window, cx);
                 });
             }
         })
@@ -995,7 +1138,7 @@ impl Desk {
         };
         let s = self.sessions.all.remove(at);
         if let Some(id) = s.meta.id.clone() {
-            self.unkeep(s.meta.agent.clone(), id, keep_out);
+            self.unkeep(s.host, s.meta.agent.clone(), id, keep_out);
         }
         // Its checkpoints go with it.
         if s.repo {
@@ -1006,7 +1149,7 @@ impl Desk {
                     .map_or_else(|| s.meta.project.clone(), |w| w.repo.clone()),
                 s.uid(),
             );
-            self.transport.send(Call::DropCheckpoints { dir, uid });
+            self.call(s.host, Call::DropCheckpoints { dir, uid });
         }
         // Its worktree goes too, unless another session works in it (a
         // fork, or a new session begun there), or you kept it.
@@ -1030,17 +1173,17 @@ impl Desk {
     /// same agent, in the same project.
     pub fn restart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
-        let (agent, folder) = (s.meta.agent.clone(), s.meta.project.clone());
+        let (agent, project) = (s.meta.agent.clone(), Place::project_of(s));
         let key = self.sessions.take_key();
-        let s = self.begun_in(key, &agent, folder);
+        let s = self.begun_in(key, &agent, project);
         self.sessions.all.push(s);
         self.show(key, window, cx);
     }
 
-    /// Ask for the folder the draft on screen works in.
-    /// Ask for a folder the draft on screen works in too, beside its own.
+    /// Ask for a folder the draft on screen works in too, beside its own:
+    /// one of this Mac's, where it is.
     pub fn add_folder(&mut self, cx: &mut Context<Self>) {
-        let Some(key) = self.current else { return };
+        let Some(key) = self.here_draft() else { return };
         let answer = cx.prompt_for_paths(PathPromptOptions {
             files: false,
             directories: true,
@@ -1066,8 +1209,17 @@ impl Desk {
         .detach();
     }
 
+    /// The draft on screen, where it is on this Mac: the folders macOS
+    /// offers are this Mac's.
+    fn here_draft(&self) -> Option<u64> {
+        let s = self.session()?;
+        (s.host == hub::Host::HERE && s.state == State::Draft).then_some(s.key)
+    }
+
+    /// Ask for the folder the draft on screen works in: one of this
+    /// Mac's, where it is.
     pub fn choose_folder(&mut self, cx: &mut Context<Self>) {
-        let Some(key) = self.current else { return };
+        let Some(key) = self.here_draft() else { return };
         let answer = cx.prompt_for_paths(PathPromptOptions {
             files: false,
             directories: true,
@@ -1078,24 +1230,42 @@ impl Desk {
             if let Ok(Ok(Some(paths))) = answer.await
                 && let Some(folder) = paths.into_iter().next()
             {
-                let _ = this.update(cx, |this, cx| this.work_in(key, &folder, cx));
+                let at = Place::new(hub::Host::HERE, folder);
+                let _ = this.update(cx, |this, cx| this.work_in(key, &at, cx));
             }
         })
         .detach();
     }
 
-    /// The draft `key` works in `folder`, which becomes a project.
-    pub fn work_in(&mut self, key: u64, folder: &Path, cx: &mut Context<Self>) {
+    /// The draft `key` works in `p`, on its server, which becomes a project
+    /// there; its agent is the same there, where it is switched on, else
+    /// the first there that can run.
+    pub fn work_in(&mut self, key: u64, p: &Place, cx: &mut Context<Self>) {
+        let Some(agent) = self.sessions.at(key).map(|s| s.meta.agent.clone()) else {
+            return;
+        };
+        let agent = (self.slot(p.host, &agent).map(|s| s.entry.id.clone()))
+            .or_else(|| {
+                (self.slots.iter())
+                    .find(|s| s.host == p.host && s.usable())
+                    .map(|s| s.entry.id.clone())
+            })
+            .unwrap_or(agent);
         if let Some(s) = self.sessions.at_mut(key)
             && s.state == State::Draft
         {
             let wants = s.wants_worktree;
-            *s = Session::new(key, &s.meta.agent.clone(), folder.to_path_buf());
+            *s = Session::new(key, &agent, p.folder.clone());
+            s.host = p.host;
             s.wants_worktree = wants;
+            let slot = (self.slots.iter()).find(|x| x.host == p.host && x.entry.id == agent);
+            if let Some(slot) = slot {
+                slot.seed(s);
+            }
             self.look(key);
         }
-        self.settings.used(folder);
-        self.save_settings();
+        self.settings_on_mut(p.host).used(&p.folder);
+        self.save_settings_on(p.host);
         cx.notify();
     }
 
@@ -1515,21 +1685,28 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let on = self.pages.on;
         match tab {
             crate::pages::Tab::Sessions => self.measure(),
             crate::pages::Tab::Appearance => self.read_themes(cx),
-            crate::pages::Tab::SourceControl => self.transport.send(crate::proto::Call::Forges),
+            crate::pages::Tab::SourceControl => self.call(on, Call::Forges),
             crate::pages::Tab::Usage => self.read_used(),
-            crate::pages::Tab::Diagnostics => self.diagnose(),
+            crate::pages::Tab::Diagnostics => self.diagnose(on),
             crate::pages::Tab::Devices => {
-                self.transport.send(Call::Share(crate::share::Share::Look));
+                self.call(on, Call::Share(crate::share::Share::Look));
                 self.read_servers();
             }
             crate::pages::Tab::Workflows => self.read_flows(window, cx),
             // Where a webhook task is called from.
-            crate::pages::Tab::Tasks => self.transport.send(Call::Share(crate::share::Share::Look)),
+            crate::pages::Tab::Tasks => self.call(on, Call::Share(crate::share::Share::Look)),
             _ => {}
         }
+    }
+
+    /// Open the settings on the server `host`'s own: its agents first.
+    pub fn settings_of(&mut self, host: hub::Host, window: &mut Window, cx: &mut Context<Self>) {
+        self.pages.on = host;
+        self.open_tab(crate::pages::Tab::Agents, window, cx);
     }
 
     /// Close the settings; the keys go back to the composer.
@@ -1550,16 +1727,19 @@ impl Desk {
 
     pub fn open_page(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
         // An agent's page shows the command of yours that starts it.
-        if let Page::Agent(id) = &page {
-            let c = self.settings.commands.get(id).cloned().unwrap_or_default();
+        if let Page::Agent(host, id) = &page {
+            let host = *host;
+            let c = (self.settings_on(host).commands.get(id))
+                .cloned()
+                .unwrap_or_default();
             self.pages
                 .command
                 .update(cx, |i, cx| i.set_value(&c, window, cx));
             self.pages
                 .model
                 .update(cx, |i, cx| i.set_value("", window, cx));
-            if let Some(cli) = self.here.get(id).and_then(|h| h.cli.clone()) {
-                self.transport.send(Call::CliVersion { cli });
+            if let Some(cli) = self.here_on(host, id).and_then(|h| h.cli.clone()) {
+                self.call(host, Call::CliVersion { cli });
             }
         }
         self.page = page;
@@ -1717,7 +1897,7 @@ impl Render for Desk {
                     .child(self.composer(&faces, column, window, cx))
                     .children(self.drawer(&faces, cell, cx))
             }
-            Page::Agent(id) => middle.child(self.agent_page(&faces, &id, cx)),
+            Page::Agent(host, id) => middle.child(self.agent_page(&faces, host, &id, cx)),
             Page::Forge(_) => middle.child(self.forge_page(&faces, cx)),
         };
         let right = match &self.page {
@@ -1730,7 +1910,7 @@ impl Render for Desk {
                     .w(px(self.right_width().min(width - 48.)))
                     .right_0(),
             )),
-            Page::Agent(id) => Some(self.about(&faces, id, cx)),
+            Page::Agent(_, id) => Some(self.about(&faces, id, cx)),
             _ => None,
         };
         fonts::with_fallbacks(div())

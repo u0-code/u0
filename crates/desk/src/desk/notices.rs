@@ -36,8 +36,9 @@ pub struct Notice {
 pub enum Way {
     /// An address to open: a pull request.
     Open(String),
-    /// An agent's page: to sign in to it, or see why it stopped.
-    Agent(String),
+    /// An agent's page, on a server: to sign in to it, or see why it
+    /// stopped.
+    Agent(crate::hub::Host, String),
     /// A session, to put it on screen.
     Show(u64),
     /// What was just done to sessions, to take it back.
@@ -45,9 +46,7 @@ pub enum Way {
     /// An update of Ghost's own, to see and install.
     Update,
     /// A clone that failed, of the address into the folder, to try again.
-    Clone(String, std::path::PathBuf),
-    /// Ghost opened again, on the server it is on.
-    Reopen,
+    Clone(String, super::Place),
 }
 
 impl Desk {
@@ -132,12 +131,12 @@ impl Desk {
         }
         let label = match &n.way {
             Some(Way::Open(_)) => "Open",
-            Some(Way::Agent(_)) => "Open the agent",
+            Some(Way::Agent(..)) => "Open the agent",
             Some(Way::Show(_)) => "Show",
             Some(Way::Undo) => "Undo",
             Some(Way::Update) => "See",
             Some(Way::Clone(..)) => "Retry",
-            Some(Way::Reopen) => "Reload",
+
             None if n.trouble => "Copy details",
             None => return note,
         };
@@ -148,12 +147,13 @@ impl Desk {
         let go = move |way: &Option<Way>, window: &mut Window, cx: &mut gpui::App| {
             let _ = desk.update(cx, |d, cx| match way.clone() {
                 Some(Way::Open(url)) => cx.open_url(&url),
-                Some(Way::Agent(agent)) => d.open_page(super::Page::Agent(agent), window, cx),
+                Some(Way::Agent(host, agent)) => {
+                    d.open_page(super::Page::Agent(host, agent), window, cx);
+                }
                 Some(Way::Show(key)) => d.show(key, window, cx),
                 Some(Way::Undo) => d.take_back(cx),
                 Some(Way::Update) => d.open_tab(crate::pages::Tab::About, window, cx),
-                Some(Way::Clone(url, dir)) => d.clone_into(url, dir, cx),
-                Some(Way::Reopen) => d.reopen(window, cx),
+                Some(Way::Clone(url, to)) => d.clone_into(to, url, cx),
                 None => cx.write_to_clipboard(ClipboardItem::new_string(details.clone())),
             });
         };

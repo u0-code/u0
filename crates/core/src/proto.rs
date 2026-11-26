@@ -298,6 +298,11 @@ pub enum Call {
     Folders {
         dir: PathBuf,
     },
+    /// Make the folder `dir`, where it is not yet: a project's, a scratch
+    /// session's. Said only where it could not be made.
+    MakeFolder {
+        dir: PathBuf,
+    },
     /// Ask the pull requests or issues of the project in `folder`, from
     /// the host of its remote; its issues from the Linear team keyed
     /// `linear`, where it is bound to one.
@@ -938,6 +943,7 @@ mod tests {
                 folder: dir.clone(),
             },
             Call::Folders { dir: dir.clone() },
+            Call::MakeFolder { dir: dir.clone() },
             Call::Grep {
                 folder: dir.clone(),
                 words: "fn main".into(),

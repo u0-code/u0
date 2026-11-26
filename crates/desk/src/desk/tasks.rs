@@ -215,7 +215,7 @@ impl Desk {
         if task.title.is_empty() {
             task.title = crate::ui::fit(task.prompt.lines().next().unwrap_or_default(), 40);
         }
-        self.transport.send(Call::SetTask(task));
+        self.call(self.pages.on, Call::SetTask(task));
         self.tasks.draft = None;
         cx.notify();
     }
@@ -230,17 +230,17 @@ impl Desk {
             .and_then(|l| l.iter().find(|t| t.id == id));
         if let Some(mut task) = found.cloned() {
             task.paused = !task.paused;
-            self.transport.send(Call::SetTask(task));
+            self.call(self.pages.on, Call::SetTask(task));
         }
     }
 
     /// Run the task `id` now, whatever its schedule says.
     pub(crate) fn run_task(&self, id: u64) {
-        self.transport.send(Call::RunTask(id));
+        self.call(self.pages.on, Call::RunTask(id));
     }
 
     pub(crate) fn drop_task(&self, id: u64) {
-        self.transport.send(Call::DropTask(id));
+        self.call(self.pages.on, Call::DropTask(id));
     }
 
     /// A task's turn in the session `meta` begins (with what was said in it
@@ -248,22 +248,23 @@ impl Desk {
     /// it is not, and works, or is idle and told of as any turn's end.
     pub(super) fn task_turn(
         &mut self,
+        host: crate::hub::Host,
         meta: &Meta,
         record: Option<Vec<store::Event>>,
         ended: Option<Result<agent_client_protocol::v1::schema::StopReason, String>>,
         cx: &mut Context<Self>,
     ) {
         let id = meta.id.clone().expect("a task's session has an id");
-        if self.sessions.by_id(&meta.agent, &id).is_none() {
+        if self.sessions.by_id(host, &meta.agent, &id).is_none() {
             let key = self.sessions.take_key();
             self.kept
-                .insert((meta.agent.clone(), id.clone()), meta.clone());
-            let mut s = Session::stored(key, meta.clone());
+                .insert((host, meta.agent.clone(), id.clone()), meta.clone());
+            let mut s = Session::stored(key, host, meta.clone());
             s.state = State::Idle;
             s.recorded = true;
             self.sessions.all.push(s);
         }
-        let Some(s) = self.sessions.by_id(&meta.agent, &id) else {
+        let Some(s) = self.sessions.by_id(host, &meta.agent, &id) else {
             return;
         };
         let key = s.key;

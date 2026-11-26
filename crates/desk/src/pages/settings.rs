@@ -207,13 +207,57 @@ impl Desk {
             .bg(theme::bg())
             .child(settings)
             .child(
-                div().absolute().top(px(10.)).right(px(12.)).child(
-                    ui::icon_button("close-settings", "x", "Close · Esc").on_click(
-                        cx.listener(|this, _, window, cx| this.close_settings(window, cx)),
+                div()
+                    .absolute()
+                    .top(px(10.))
+                    .right(px(12.))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .children(self.server_pick(cx))
+                    .child(
+                        ui::icon_button("close-settings", "x", "Close · Esc").on_click(
+                            cx.listener(|this, _, window, cx| this.close_settings(window, cx)),
+                        ),
                     ),
-                ),
             )
             .into_any_element()
+    }
+
+    /// Where the window holds more than one server, the one whose own
+    /// pages (its agents, projects, tasks, sharing, what it keeps) the
+    /// settings show: each server's are that server's, saved there. The
+    /// window's own (its look, its keys) are this Mac's whichever it is.
+    fn server_pick(&self, cx: &mut Context<Self>) -> Option<gpui::component::popover::Popover> {
+        use gpui::component::Selectable as _;
+        if self.machines.len() < 2 {
+            return None;
+        }
+        let name = self.machine(self.pages.on).map(|m| m.name.clone())?;
+        let trigger = ui::opener("settings-server")
+            .selected(self.popup == crate::desk::Popup::Server)
+            .child(ui::icon("server", 14.))
+            .child(format!("On {name}"))
+            .child(ui::icon("chevron-down", 11.).text_color(theme::faint()));
+        Some(self.menu(
+            crate::desk::Popup::Server,
+            trigger,
+            |d, menu, desk, _| {
+                let items = d.machines.iter().map(|m| {
+                    let host = m.host;
+                    Desk::menu_item(desk, m.name.clone(), move |this, window, cx| {
+                        this.pages.on = host;
+                        this.pages.project = None;
+                        this.pages.scope = None;
+                        this.tab_shown(this.pages.tab, window, cx);
+                        cx.notify();
+                    })
+                    .checked(m.host == d.pages.on)
+                });
+                items.fold(menu.min_w(px(200.)), gpui::component::menu::PopupMenu::item)
+            },
+            cx,
+        ))
     }
 
     /// The agents of the registry: switched on and off, installed.
@@ -230,7 +274,7 @@ impl Desk {
             .registry
             .agents
             .iter()
-            .filter(|e| self.settings.enabled.contains(&e.id) || !matches!(e.way(), Way::None))
+            .filter(|e| self.edited().enabled.contains(&e.id) || !matches!(e.way(), Way::None))
             .filter(|e| {
                 query.is_empty()
                     || e.name.to_lowercase().contains(&query)
@@ -239,7 +283,7 @@ impl Desk {
             .collect();
         agents.sort_by_key(|e| {
             (
-                self.settings
+                self.edited()
                     .enabled
                     .iter()
                     .position(|id| id == &e.id)
@@ -248,7 +292,7 @@ impl Desk {
             )
         });
         let mut head: Vec<SettingItem> = Vec::new();
-        if let Some(first) = self.slots.first() {
+        if let Some(first) = self.slots_on(self.pages.on).next() {
             let id = first.entry.id.clone();
             // Said, not chosen here: the first agent on is it.
             head.push(item(
@@ -275,7 +319,11 @@ impl Desk {
                 },
             ));
         }
-        for trouble in [self.settings_refused.clone(), self.registry_trouble.clone()]
+        let refused = match self.pages.on {
+            crate::hub::Host::HERE => self.settings_refused.clone(),
+            on => self.machine(on).and_then(|m| m.refused.clone()),
+        };
+        for trouble in [refused, self.registry_trouble.clone()]
             .into_iter()
             .flatten()
         {
@@ -315,7 +363,7 @@ impl Desk {
             SettingGroup::new().items(head),
             group("Agents", rows).description(format!(
                 "Ghost keeps its settings and the agents it installs in {}.",
-                Desk::shown(&self.home)
+                Desk::shown(self.home_on(self.pages.on))
             )),
             SettingGroup::new().item(item(w, read, "", |_, _, cx| {
                 ui::button("refresh", "Read the registry again", Weight::Secondary)
@@ -331,9 +379,10 @@ impl Desk {
         let Some(e) = self.registry.agents.iter().find(|e| e.id == id) else {
             return div();
         };
-        let on = self.settings.enabled.contains(&e.id);
-        let here = self.here.get(&e.id).cloned().unwrap_or_default();
-        let installed = self.here.contains_key(&e.id) && here.missing.is_none();
+        let host = self.pages.on;
+        let on = self.edited().enabled.contains(&e.id);
+        let here = self.here_on(host, &e.id).cloned().unwrap_or_default();
+        let installed = self.here_on(host, &e.id).is_some() && here.missing.is_none();
         let name = self.name_of(&e.id);
         let how = match e.way() {
             Way::Archive => "binary",
@@ -342,7 +391,7 @@ impl Desk {
         };
         // Installed, which version, signed in: as far as each is known.
         let version = here.installed.unwrap_or_else(|| e.version.clone());
-        let signed = match self.slot(&e.id).map(|s| &s.auth) {
+        let signed = match self.slot(host, &e.id).map(|s| &s.auth) {
             Some(crate::hub::Auth::Ready) => " · signed in",
             Some(crate::hub::Auth::Needed(_)) => " · needs sign-in",
             _ => "",
@@ -359,7 +408,7 @@ impl Desk {
                 .accessibility_label(e.name.clone())
                 .small()
                 .checked(on)
-                .on_click(cx.listener(move |this, _, _, cx| this.toggle_agent(&id, cx)))
+                .on_click(cx.listener(move |this, _, _, cx| this.toggle_agent(host, &id, cx)))
                 .into_any_element()
         } else {
             ui::button(
@@ -368,7 +417,7 @@ impl Desk {
                 Weight::Secondary,
             )
             .on_click(cx.listener(move |this, _, window, cx| {
-                this.open_page(Page::Agent(id.clone()), window, cx);
+                this.open_page(Page::Agent(host, id.clone()), window, cx);
             }))
             .into_any_element()
         };
@@ -393,7 +442,7 @@ impl Desk {
                     .child(ui::text(faces, name).weight(gpui::FontWeight::MEDIUM))
                     .child(ui::fine(faces, line))
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_page(Page::Agent(page_id.clone()), window, cx);
+                        this.open_page(Page::Agent(host, page_id.clone()), window, cx);
                     })),
             )
             .child(control)
@@ -412,7 +461,7 @@ impl Desk {
             .collect();
         // What no session keeps is known only from the index: while it
         // does not read, every record, worktree and checkpoint looks so.
-        if self.store_refused.is_none() {
+        if self.store_refused(self.pages.on).is_none() {
             items.push(item(
                 w,
                 "Tidy",
@@ -446,27 +495,27 @@ impl Desk {
                 },
             ));
         }
-        if let Some(refused) = self.store_refused.clone() {
+        if let Some(refused) = self.store_refused(self.pages.on).cloned() {
             items.push(whole(w, &[], move |_, _, _| {
                 ui::trouble(refused.clone()).into_any_element()
             }));
         }
-        group("On this Mac", items).description(format!(
+        group("What Ghost keeps", items).description(format!(
             "In {}. A worktree with changes not committed is left as it is; undo reaches only the turns of this run.",
-            Desk::shown(&self.home)
+            Desk::shown(self.home_on(self.pages.on))
         ))
     }
 
     /// Projects archived: out of the list until restored here.
     fn archived_projects(&self, w: &WeakEntity<Desk>) -> Option<SettingGroup> {
-        let items: Vec<SettingItem> = (self.settings.prefs.iter())
+        let items: Vec<SettingItem> = (self.edited().prefs.iter())
             .filter(|(_, p)| p.archived)
             .enumerate()
             .map(|(n, (folder, _))| {
-                let f = folder.clone();
+                let f = crate::desk::Place::new(self.pages.on, folder.clone());
                 item(
                     w,
-                    self.project_name(folder),
+                    self.project_name(&f),
                     Desk::shown(folder),
                     move |_, _, cx| {
                         let f = f.clone();

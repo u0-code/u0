@@ -1,5 +1,6 @@
 //! The sessions on the desk, each by the desk's key for it and found by
-//! the id its agent gave it. Nothing here needs a window.
+//! the id its agent gave it, on the server it is on: two servers' agents
+//! may give the same id. Nothing here needs a window.
 
 use std::path::PathBuf;
 
@@ -10,7 +11,7 @@ use agent_client_protocol::{
 
 use crate::{
     acp,
-    hub::Probe,
+    hub::{Host, Probe},
     proto::{Call, Opened},
     session::{Session, State},
     store,
@@ -50,11 +51,16 @@ impl Sessions {
         self.all.iter_mut().find(|s| s.key == key)
     }
 
-    /// The session `agent` knows as `id`.
-    pub fn by_id(&mut self, agent: &str, id: &SessionId) -> Option<&mut Session> {
+    /// The session `agent` on `host` knows as `id`.
+    pub fn by_id(&mut self, host: Host, agent: &str, id: &SessionId) -> Option<&mut Session> {
         self.all
             .iter_mut()
-            .find(|s| s.meta.agent == agent && s.meta.id.as_ref() == Some(id))
+            .find(|s| s.of(host, agent) && s.meta.id.as_ref() == Some(id))
+    }
+
+    /// The sessions of `agent` on `host`.
+    fn of(&mut self, host: Host, agent: &str) -> impl Iterator<Item = &mut Session> {
+        self.all.iter_mut().filter(move |s| s.of(host, agent))
     }
 
     /// The subagent `id` the session `parent` set to work: a session of
@@ -65,6 +71,7 @@ impl Sessions {
             return;
         };
         let mut child = Session::new(key, &p.meta.agent, p.meta.folder.clone());
+        child.host = p.host;
         child.meta.project.clone_from(&p.meta.project);
         (child.branch, child.repo) = (p.branch.clone(), p.repo);
         child.scripts.clone_from(&p.scripts);
@@ -76,13 +83,10 @@ impl Sessions {
         self.all.push(child);
     }
 
-    /// The sessions of `agent` that waited to be signed in, opening again:
-    /// their keys, to be opened.
-    pub fn signed_in(&mut self, agent: &str) -> Vec<u64> {
-        let waiting = self
-            .all
-            .iter_mut()
-            .filter(|s| s.meta.agent == agent && s.state == State::SignIn);
+    /// The sessions of `agent` on `host` that waited to be signed in,
+    /// opening again: their keys, to be opened.
+    pub fn signed_in(&mut self, host: Host, agent: &str) -> Vec<u64> {
+        let waiting = self.of(host, agent).filter(|s| s.state == State::SignIn);
         waiting
             .map(|s| {
                 s.state = State::Opening;
@@ -91,14 +95,12 @@ impl Sessions {
             .collect()
     }
 
-    /// `agent` started, or could not (why): the keys of its sessions that
-    /// waited for it to open, to be opened now; or, if it could not, each
-    /// is broken with why.
-    pub fn started(&mut self, agent: &str, failed: Option<&str>) -> Vec<u64> {
-        let waiting = self
-            .all
-            .iter_mut()
-            .filter(|s| s.meta.agent == agent && s.state == State::Opening && !s.needs_worktree());
+    /// `agent` on `host` started, or could not (why): the keys of its
+    /// sessions that waited for it to open, to be opened now; or, if it
+    /// could not, each is broken with why.
+    pub fn started(&mut self, host: Host, agent: &str, failed: Option<&str>) -> Vec<u64> {
+        let waiting =
+            (self.of(host, agent)).filter(|s| s.state == State::Opening && !s.needs_worktree());
         match failed {
             None => waiting.map(|s| s.key).collect(),
             Some(why) => {
@@ -110,11 +112,12 @@ impl Sessions {
         }
     }
 
-    /// What `agent` listed, by project: each session not on the desk yet
-    /// (nor deleted, `gone`) is put there, closed; one closed already takes
-    /// the agent's title and time.
+    /// What `agent` on `host` listed, by project: each session not on the
+    /// desk yet (nor deleted, `gone`) is put there, closed; one closed
+    /// already takes the agent's title and time.
     pub fn listed(
         &mut self,
+        host: Host,
         agent: &str,
         found: Vec<(PathBuf, SessionInfo)>,
         gone: &[(String, String)],
@@ -126,7 +129,7 @@ impl Sessions {
             {
                 continue;
             }
-            if let Some(s) = self.by_id(agent, &info.session_id) {
+            if let Some(s) = self.by_id(host, agent, &info.session_id) {
                 if s.state == State::Closed {
                     if let Some(t) = info
                         .title
@@ -141,16 +144,19 @@ impl Sessions {
                 continue;
             }
             let key = self.take_key();
-            self.all.push(Session::listed(key, agent, info, project));
+            let mut s = Session::listed(key, agent, info, project);
+            s.host = host;
+            self.all.push(s);
         }
     }
 
-    /// Lines of the record of the session `id` of `agent` that the server
-    /// wrote, made of what the agent said in it, taken into its thread:
-    /// its key. A subagent set to work
-    /// becomes a session of its own, under its parent.
+    /// Lines of the record of the session `id` of `agent` on `host` that
+    /// its server wrote, made of what the agent said in it, taken into its
+    /// thread: its key. A subagent set to work becomes a session of its
+    /// own, under its parent.
     pub fn appended(
         &mut self,
+        host: Host,
         agent: &str,
         id: &SessionId,
         events: Vec<store::Event>,
@@ -163,8 +169,8 @@ impl Sessions {
             let SessionUpdate::SubagentUpdate(u) = update else {
                 continue;
             };
-            if self.by_id(agent, &u.session_id).is_none()
-                && let Some(parent) = self.by_id(agent, id)
+            if self.by_id(host, agent, &u.session_id).is_none()
+                && let Some(parent) = self.by_id(host, agent, id)
             {
                 let up = parent.key;
                 let title = match &u.title {
@@ -174,23 +180,23 @@ impl Sessions {
                 self.add_subagent(up, u.session_id.clone(), title, State::Idle);
             }
             // What it is doing now, for its row, the column and its tab.
-            if let Some(child) = self.by_id(agent, &u.session_id) {
+            if let Some(child) = self.by_id(host, agent, &u.session_id) {
                 child.sub.take(u);
             }
         }
-        let s = self.by_id(agent, id)?;
+        let s = self.by_id(host, agent, id)?;
         s.meta.updated = std::time::SystemTime::now();
         s.replay(events);
         Some(s.key)
     }
 
-    /// The process of `agent` stopped, why: each of its sessions open is
-    /// closed, to be loaded when opened again, and says so in its record;
-    /// one opening is broken. The keys of those closed, whose records are
-    /// to be written.
-    pub fn exited(&mut self, agent: &str, why: &str) -> Vec<u64> {
+    /// The process of `agent` on `host` stopped, why: each of its sessions
+    /// open is closed, to be loaded when opened again, and says so in its
+    /// record; one opening is broken. The keys of those closed, whose
+    /// records are to be written.
+    pub fn exited(&mut self, host: Host, agent: &str, why: &str) -> Vec<u64> {
         let mut closed = Vec::new();
-        for s in self.all.iter_mut().filter(|s| s.meta.agent == agent) {
+        for s in self.of(host, agent) {
             let open = !matches!(s.state, State::Draft | State::Closed);
             if s.meta.id.is_some() && open {
                 // The agent keeps it: opened again, it is loaded.
@@ -358,7 +364,7 @@ mod tests {
         n: SessionNotification,
     ) -> Option<u64> {
         let (id, events) = records.said(agent, n).ok()?;
-        sessions.appended(agent, &id, events)
+        sessions.appended(Host::HERE, agent, &id, events)
     }
 
     #[test]
@@ -420,7 +426,7 @@ mod tests {
         .unwrap();
         let option = request.options[0].clone();
         let id = request.session_id.clone();
-        let s = sessions.by_id("a", &id).unwrap();
+        let s = sessions.by_id(Host::HERE, "a", &id).unwrap();
         s.asked(7, request);
         assert_eq!(s.waiting().unwrap().title, "rm -rf build");
         s.answered(7, &option);
@@ -433,7 +439,12 @@ mod tests {
         let entry =
             serde_json::from_str(r#"{"id":"a","name":"A","version":"1","distribution":{}}"#)
                 .unwrap();
-        let mut slot = Slot::new(entry, None, Some("/bin/sh -c 'sleep 30'".into()));
+        let mut slot = Slot::new(
+            Host::HERE,
+            entry,
+            None,
+            Some("/bin/sh -c 'sleep 30'".into()),
+        );
         let pid = Some(4242);
         slot.stage = Stage::Running { pid };
         assert!(slot.runs(pid));
@@ -445,7 +456,7 @@ mod tests {
         let mut opening = Session::new(key, "a", "/p".into());
         opening.state = State::Opening;
         sessions.all.push(opening);
-        assert_eq!(sessions.exited("a", "killed"), vec![1]);
+        assert_eq!(sessions.exited(Host::HERE, "a", "killed"), vec![1]);
         let a = sessions.at(1).unwrap();
         assert_eq!(a.state, State::Closed);
         assert!(matches!(&a.items[..], [Item::Note { trouble: true, .. }]));
@@ -537,5 +548,36 @@ mod tests {
         sessions.at_mut(1).unwrap().state = State::Idle;
         let read = sessions.read_back(1, Some(cut()), None);
         assert_eq!(read, Read::Left);
+    }
+
+    #[test]
+    fn two_servers_sessions_with_one_agent_and_id_are_kept_apart() {
+        let (a, b) = (Host::HERE, Host(1));
+        let info: SessionInfo =
+            serde_json::from_str(r#"{"sessionId":"s1","cwd":"/p","title":"Same"}"#).unwrap();
+        let mut sessions = Sessions::default();
+        sessions.listed(a, "claude", vec![("/p".into(), info.clone())], &[]);
+        sessions.listed(b, "claude", vec![("/p".into(), info.clone())], &[]);
+        // Listed again, each is the one it was: none doubled.
+        sessions.listed(b, "claude", vec![("/p".into(), info)], &[]);
+        assert_eq!(sessions.all.len(), 2);
+        let id = SessionId::new("s1");
+        let on_b = sessions.by_id(b, "claude", &id).unwrap().key;
+        let on_a = sessions.by_id(a, "claude", &id).unwrap().key;
+        assert_ne!(on_a, on_b);
+        for s in &mut sessions.all {
+            s.state = State::Idle;
+        }
+        // What B's agent says goes to B's session alone.
+        let home = tempfile::tempdir().unwrap();
+        let records = Records::new(home.path().to_path_buf());
+        records.open("claude", id.clone());
+        let (id, events) = records.said("claude", said("s1", &chunk("Hi"))).unwrap();
+        assert_eq!(sessions.appended(b, "claude", &id, events), Some(on_b));
+        assert!(sessions.at(on_a).unwrap().items.is_empty());
+        assert!(!sessions.at(on_b).unwrap().items.is_empty());
+        // B's agent stopping closes B's session, not A's.
+        assert_eq!(sessions.exited(b, "claude", "gone"), vec![on_b]);
+        assert_eq!(sessions.at(on_a).unwrap().state, State::Idle);
     }
 }

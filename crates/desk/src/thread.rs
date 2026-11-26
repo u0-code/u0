@@ -676,7 +676,7 @@ impl Desk {
             };
             menu = menu.item(pick(b.clone(), on, Begin::Branch(b.clone())));
         }
-        let prs = self.prs.get(&s.meta.project).filter(|p| !p.is_empty());
+        let prs = (self.prs.get(&crate::desk::Place::project_of(s))).filter(|p| !p.is_empty());
         if let Some(prs) = prs {
             menu = menu.separator().label("Pull requests: on its own branch");
             for (number, title) in prs {

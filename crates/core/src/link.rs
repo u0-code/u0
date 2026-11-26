@@ -28,7 +28,7 @@ use std::{
 use futures_util::{SinkExt as _, StreamExt as _};
 use tokio::{
     net::{TcpListener, TcpStream},
-    sync::{mpsc, watch},
+    sync::{Notify, mpsc, watch},
 };
 use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream,
@@ -356,22 +356,28 @@ pub fn host_name() -> String {
 }
 
 /// How a link to a server stands, as the desk is told.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum State {
-    /// It dropped, why: it is being reached again.
+    /// It is reached, first or again: its welcome, which says whether all
+    /// said meanwhile follows (`resumed`), or the server restarted, or
+    /// too much was said, and what the desk had of it is to be read again.
+    Up(Box<Welcome>),
+    /// It could not be reached, or dropped, why: it is reached again,
+    /// waiting longer each time it is not.
     Lost(String),
-    /// It is back, and all said meanwhile has been told.
-    Back,
-    /// It is back, but not all said meanwhile is there to be told: the
-    /// server restarted, or too much was said.
-    Afresh,
-    /// The server will not let this desk in, why: it is not reached again.
+    /// The server will not let this desk in, why: it is reached again
+    /// only when asked to (`Link::again`).
     Refused(String),
 }
 
 /// A desk's link to a server: what it asks goes in order, kept while the
 /// server is out of reach and sent once it is back.
-pub struct Link(mpsc::UnboundedSender<Out>);
+pub struct Link {
+    calls: mpsc::UnboundedSender<Out>,
+    /// Woken, it reaches the server now rather than when its wait is
+    /// over.
+    again: Arc<Notify>,
+}
 
 /// What goes out on a link: a call, or a word back once all before it
 /// has gone.
@@ -382,16 +388,28 @@ enum Out {
 
 impl Link {
     pub fn send(&self, call: Call) {
-        let _ = self.0.send(Out::Call(Box::new(call)));
+        let _ = self.calls.send(Out::Call(Box::new(call)));
+    }
+
+    /// Reach the server again now: one out of reach, or one that refused.
+    pub fn again(&self) {
+        self.again.notify_one();
     }
 
     /// Wait, a few seconds at most, until all asked has gone: as Ghost
     /// quits.
     pub fn settle(&self) {
         let (tx, rx) = std::sync::mpsc::channel();
-        if self.0.send(Out::Settle(tx)).is_ok() {
+        if self.calls.send(Out::Settle(tx)).is_ok() {
             let _ = rx.recv_timeout(Duration::from_secs(5));
         }
+    }
+}
+
+impl Drop for Link {
+    /// Let go of, the link ends, even while it waits to reach the server.
+    fn drop(&mut self) {
+        self.again.notify_one();
     }
 }
 
@@ -405,46 +423,54 @@ enum Dial {
 type Client = Socket<MaybeTlsStream<TcpStream>>;
 
 /// Reach the server at `url` (`ws://127.0.0.1:…`, or `wss://` through a
-/// tunnel), signing with `key`: its welcome, and the link, which
-/// reaches it again each time it drops. What
-/// the server says goes to `said`, how the link stands to `state`.
-pub async fn connect(
+/// tunnel), signing with `key`, from now until the link is let go: each
+/// time it is reached its welcome goes to `state`, and each time it
+/// cannot be, or drops, why; it is reached again after a second, then
+/// twice as long each time, up to half a minute. What the server says
+/// goes to `said`.
+pub fn connect(
     url: String,
     key: Key,
     said: impl Fn(Event) + Send + Sync + 'static,
     state: impl Fn(State) + Send + Sync + 'static,
-) -> Result<(Link, Welcome), String> {
-    let (mut ws, welcome) = dial(&url, hello(&key, None, None))
-        .await
-        .map_err(|(Dial::Failed(why) | Dial::Refused(why))| why)?;
-    let mut since = Some((welcome.boot, welcome.said));
+) -> Link {
+    const FIRST: Duration = Duration::from_secs(1);
     let (tx, mut calls) = mpsc::unbounded_channel();
-    tokio::spawn(async move {
-        loop {
-            let Some(why) = pump(&mut ws, &mut calls, &said, &mut since).await else {
-                return;
-            };
-            state(State::Lost(why));
-            let mut wait = Duration::from_secs(1);
-            ws = loop {
-                tokio::time::sleep(wait).await;
-                match dial(&url, hello(&key, None, since)).await {
-                    Ok((ws, welcome)) => {
-                        state(if welcome.resumed {
-                            State::Back
-                        } else {
-                            State::Afresh
-                        });
-                        since = Some((welcome.boot, welcome.said));
-                        break ws;
-                    }
-                    Err(Dial::Refused(why)) => return state(State::Refused(why)),
-                    Err(Dial::Failed(_)) => wait = (wait * 2).min(Duration::from_secs(30)),
+    let again = Arc::new(Notify::new());
+    let woken = again.clone();
+    crate::acp::runtime().spawn(async move {
+        let (mut since, mut wait, mut lost) = (None, FIRST, false);
+        while !calls.is_closed() {
+            match dial(&url, hello(&key, None, since)).await {
+                Ok((mut ws, welcome)) => {
+                    since = Some((welcome.boot, welcome.said));
+                    wait = FIRST;
+                    state(State::Up(Box::new(welcome)));
+                    let Some(why) = pump(&mut ws, &mut calls, &said, &mut since).await else {
+                        return;
+                    };
+                    state(State::Lost(why));
+                    lost = true;
                 }
-            };
+                Err(Dial::Refused(why)) => {
+                    state(State::Refused(why));
+                    woken.notified().await;
+                    continue;
+                }
+                Err(Dial::Failed(why)) => {
+                    if !lost {
+                        state(State::Lost(why));
+                    }
+                    lost = true;
+                }
+            }
+            tokio::select! {
+                () = tokio::time::sleep(wait) => wait = (wait * 2).min(Duration::from_secs(30)),
+                () = woken.notified() => wait = FIRST,
+            }
         }
     });
-    Ok((Link(tx), welcome))
+    Link { calls: tx, again }
 }
 
 /// Pair with the server at `host` by its one-time `code`, coming in with
@@ -695,13 +721,24 @@ mod tests {
         let (events, heard) = std_mpsc::channel();
         let (states, stood) = std_mpsc::channel();
         let (events, states) = (Mutex::new(events), Mutex::new(states));
-        let (link, welcome) = crate::acp::runtime().block_on(connect(
+        let link = connect(
             format!("ws://127.0.0.1:{port}"),
             key,
             move |e| events.lock().unwrap().send(e).unwrap(),
-            move |s| states.lock().unwrap().send(s).unwrap(),
-        ))?;
+            move |s| {
+                let _ = states.lock().unwrap().send(s);
+            },
+        );
+        let welcome = reached(&stood)?;
         Ok((link, welcome, heard, stood))
+    }
+
+    /// The welcome of a link first reached, or why it was not.
+    fn reached(stood: &std_mpsc::Receiver<State>) -> Result<Welcome, String> {
+        match told(stood) {
+            State::Up(welcome) => Ok(*welcome),
+            State::Lost(why) | State::Refused(why) => Err(why),
+        }
     }
 
     fn code(server: &Server) -> Pair {
@@ -811,7 +848,7 @@ mod tests {
         // Said while the desk is away: for another desk, say.
         server.handle(Call::Stash(vec!["later".into()]));
         server.handle(Call::Watch);
-        assert_eq!(told(&stood), State::Back);
+        assert!(matches!(told(&stood), State::Up(w) if w.resumed));
         let Event::Index(Ok(index)) = told(&heard) else {
             panic!("the index, missed")
         };
@@ -828,9 +865,44 @@ mod tests {
         let devices = server.access().kept().unwrap().devices;
         assert_eq!(devices.len(), 2);
         server.access().revoke(&devices[1].key);
-        assert_eq!(told(&stood), State::Lost("This device was unpaired".into()));
+        assert!(matches!(told(&stood), State::Lost(why) if why == "This device was unpaired"));
         assert!(matches!(told(&stood), State::Refused(why) if why.contains("not paired")));
         assert_eq!(server.access().kept().unwrap().devices.len(), 1);
+    }
+
+    #[test]
+    fn a_server_out_of_reach_is_said_lost_once_and_reached_once_it_listens() {
+        let home = tempfile::tempdir().unwrap();
+        let server = Server::new(home.path().to_path_buf(), |_| {});
+        let rt = crate::acp::runtime();
+        let listener = rt.block_on(TcpListener::bind(("127.0.0.1", 0))).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let listening = rt.spawn(listen(server.clone(), listener));
+        let key = Key::generate();
+        let kept = key.kept().to_owned();
+        let code = server.access().code();
+        rt.block_on(pair(&format!("127.0.0.1:{port}"), code, &key, None))
+            .unwrap();
+        // It stops listening, and the port is free again.
+        listening.abort();
+        let bind = || rt.block_on(TcpListener::bind(("127.0.0.1", port)));
+        while bind().is_err() {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let (states, stood) = std_mpsc::channel();
+        let states = Mutex::new(states);
+        let link = connect(
+            format!("ws://127.0.0.1:{port}"),
+            Key::read(&kept).unwrap(),
+            |_| {},
+            move |s| {
+                let _ = states.lock().unwrap().send(s);
+            },
+        );
+        assert!(matches!(told(&stood), State::Lost(_)));
+        rt.spawn(listen(server.clone(), bind().unwrap()));
+        link.again();
+        assert!(matches!(told(&stood), State::Up(w) if !w.resumed));
     }
 
     /// Link with the key kept for the server `name` in `home`'s servers.
@@ -838,8 +910,17 @@ mod tests {
         let servers = crate::servers::Servers::load(home).unwrap();
         let server = servers.servers.iter().find(|s| s.name == name).unwrap();
         let (url, key) = server.reach()?;
-        let (_, welcome) = crate::acp::runtime().block_on(connect(url, key, |_| {}, |_| {}))?;
-        Ok(welcome)
+        let (states, stood) = std_mpsc::channel();
+        let states = Mutex::new(states);
+        let _link = connect(
+            url,
+            key,
+            |_| {},
+            move |s| {
+                let _ = states.lock().unwrap().send(s);
+            },
+        );
+        reached(&stood)
     }
 
     #[test]

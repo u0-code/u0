@@ -132,8 +132,8 @@ impl Desk {
     }
 
     /// Quit, and open Ghost again once this one has gone: the updated
-    /// Ghost.app, or this one on the server it now opens on. Run outside
-    /// an app, the program itself is run again, as it was.
+    /// Ghost.app. Run outside an app, the program itself is run again, as
+    /// it was.
     pub(crate) fn reopen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (again, what) = match update::running_app() {
             Some(app) => ("open \"$1\"", app),

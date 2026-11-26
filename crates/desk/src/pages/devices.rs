@@ -1,11 +1,11 @@
 //! Settings › Devices: Ghost used from one Mac on another, each way, a
 //! switch for each at the top. "Let other devices control this Mac": its
 //! server reached from elsewhere (listening, the tunnel, the pairing link
-//! and its QR code, the devices paired and their keys), the server's,
-//! whichever machine it is on. "Control other Macs": the Ghosts elsewhere
-//! this Mac has paired with, the key it made for each, the one the window
-//! is on, and pairing with a link. And the sheet that asks before pairing,
-//! which can pair both ways.
+//! and its QR code, the devices paired and their keys), the server's the
+//! settings are of. "Control other Macs": the Ghosts elsewhere this Mac
+//! has paired with, which the window holds beside its own, the key it made
+//! for each and how each stands, and pairing with a link. And the sheet
+//! that asks before pairing, which can pair both ways.
 
 use gpui::component::{
     Disableable as _, Sizable as _,
@@ -23,7 +23,7 @@ use crate::{
     access::Named,
     desk::Desk,
     fonts::Faces,
-    hub::Transport,
+    hub::{Host, Machine, Up},
     key::{self, Key},
     link,
     servers::Servers,
@@ -58,7 +58,9 @@ fn qr(link: &str) -> gpui::Img {
 impl Desk {
     /// Devices: this Mac controlled from others, and others from it.
     pub(super) fn devices_tab(&self, w: &WeakEntity<Desk>) -> SettingPage {
-        let on = self.transport.elsewhere().unwrap_or("this Mac").to_owned();
+        let on = (self.machine(self.pages.on))
+            .filter(|_| self.pages.on != Host::HERE)
+            .map_or_else(|| "this Mac".to_owned(), |m| m.name.clone());
         // None until the server has said how it is shared.
         let serving = self.pages.shared.as_ref().map(|s| s.serving.clone());
         let about = match &serving {
@@ -97,7 +99,7 @@ impl Desk {
             w,
             "Control other Macs",
             if control {
-                "Open a Mac paired with in this window, or pair with another's link."
+                "The Macs paired with are in this window beside this one; pair with another's link."
             } else {
                 "Off: this Mac controls only itself."
             },
@@ -138,9 +140,9 @@ impl Desk {
         page
     }
 
-    /// Whether this Mac controls others: as kept, or as it does now.
+    /// Whether this Mac controls others, as kept.
     fn controls(&self) -> bool {
-        self.pages.servers.control || self.transport.elsewhere().is_some()
+        self.pages.servers.control
     }
 
     /// The pairing link offered, its QR code under it; or the way to make
@@ -316,25 +318,23 @@ impl Desk {
         }
     }
 
-    /// This Mac and the Macs paired with: the one the window is on, and
-    /// the way to open each other one.
+    /// The Macs paired with, each in this window: how it stands, the way
+    /// to reach it again and to forget it.
     fn machines(&self, w: &WeakEntity<Desk>) -> Vec<gpui::component::setting::SettingItem> {
-        let mut rows = vec![item(
-            w,
-            "This Mac",
-            "Its own agents and projects.",
-            |d, faces, cx| d.server_control(None, faces, cx),
-        )];
-        for s in &self.pages.servers.servers {
-            let name = s.name.clone();
-            rows.push(item(
-                w,
-                s.name.clone(),
-                format!("{}. Your key: {}", s.host, key::fingerprint(&s.key)),
-                move |d, faces, cx| d.server_control(Some(&name), faces, cx),
-            ));
-        }
-        rows
+        let port = crate::access::Access::new(&self.home)
+            .kept()
+            .map_or(0, |k| k.port);
+        (self.pages.servers.held(port))
+            .map(|s| {
+                let name = s.name.clone();
+                item(
+                    w,
+                    s.name.clone(),
+                    format!("{}. Your key: {}", s.host, key::fingerprint(&s.key)),
+                    move |d, faces, cx| d.server_control(&name, faces, cx),
+                )
+            })
+            .collect()
     }
 
     /// Where a link from another Mac is pasted to pair with it.
@@ -342,7 +342,7 @@ impl Desk {
         item(
             w,
             "Pair with a link",
-            "Paste the link the other Mac shows under Pair a device with this Mac, or open it here. Ghost restarts on a Mac to open it.",
+            "Paste the link the other Mac shows under Pair a device with this Mac, or open it here. Its projects come down the left, beside this Mac's.",
             |d, _, cx| {
                 div()
                     .flex()
@@ -362,67 +362,103 @@ impl Desk {
         )
     }
 
-    /// What can be done with the server `name` (none, this Mac): open the
-    /// window on it, or say it is open here; and forget one elsewhere.
-    fn server_control(
-        &self,
-        name: Option<&str>,
-        faces: &Faces,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let here = self.transport.elsewhere() == name;
-        let open = if here {
-            ui::fine(faces, "This window").into_any_element()
-        } else {
-            let to = name.map(str::to_owned);
-            let id = to
-                .as_ref()
-                .map_or_else(|| "this-mac".into(), |n| format!("open-{n}"));
-            ui::button(SharedString::from(id), "Open", Weight::Secondary)
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.open_on(to.clone(), window, cx);
-                }))
-                .into_any_element()
+    /// How the server paired with as `name` stands in this window, the way
+    /// to reach it again, and to forget it.
+    fn server_control(&self, name: &str, faces: &Faces, cx: &mut Context<Self>) -> AnyElement {
+        let held = (self.machines.iter()).find(|m| m.host != Host::HERE && m.name == name);
+        let said = match held.map(|m| &m.up) {
+            Some(Up::On) => "In this window".to_owned(),
+            Some(Up::Reaching) => "Reaching it".to_owned(),
+            Some(Up::Lost(_)) => "Offline; reaching it again".to_owned(),
+            Some(Up::Refused(why)) => format!("Turned away: {why}"),
+            None => "Not in this window".to_owned(),
         };
-        let forget = name.map(|name| {
+        let again = held.filter(|m| m.up != Up::On).map(|m| {
+            let host = m.host;
+            ui::button(
+                SharedString::from(format!("reach-{name}")),
+                "Reach again",
+                Weight::Secondary,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.reach_again(host, cx)))
+        });
+        let forget = {
             let name = name.to_owned();
             ui::button(
                 SharedString::from(format!("forget-{name}")),
                 "Forget",
                 Weight::Quiet,
             )
-            .disabled(here)
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.change_servers(|s| {
                     s.forget(&name);
                     Ok(())
                 });
+                this.hold_servers();
                 cx.notify();
             }))
-        });
+        };
         div()
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(open)
-            .children(forget)
+            .child(ui::fine(faces, said))
+            .children(again)
+            .child(forget)
             .into_any_element()
     }
 
-    /// Ask the server something of sharing.
+    /// Ask the server the settings are of something of sharing.
     pub(crate) fn share(&mut self, share: Share) {
-        self.transport.send(crate::proto::Call::Share(share));
+        self.call(self.pages.on, crate::proto::Call::Share(share));
     }
 
-    /// Control other Macs, or only this one: turned off on another Mac,
-    /// the window opens on this Mac's own again.
-    pub(crate) fn set_control(&mut self, on: bool, window: &mut Window, cx: &mut Context<Self>) {
+    /// Control other Macs, or only this one: the window holds those
+    /// paired with, or lets go of them.
+    pub(crate) fn set_control(&mut self, on: bool, _: &mut Window, cx: &mut Context<Self>) {
         self.change_servers(|s| {
             s.control = on;
             Ok(())
         });
-        if !on && self.transport.elsewhere().is_some() {
-            self.open_on(None, window, cx);
+        self.hold_servers();
+        cx.notify();
+    }
+
+    /// Hold each server paired with while this Mac controls others, as
+    /// `servers.json` says now, reaching those not held yet; let go of
+    /// those it no longer says (forgotten, paired again, or control turned
+    /// off), and of what the desk had of them.
+    pub(crate) fn hold_servers(&mut self) {
+        let port = crate::access::Access::new(&self.home)
+            .kept()
+            .map_or(0, |k| k.port);
+        let wanted: Vec<crate::servers::Server> = self.pages.servers.held(port).cloned().collect();
+        let gone: Vec<Host> = (self.machines.iter())
+            .filter(|m| m.host != Host::HERE)
+            .filter(|m| !wanted.iter().any(|s| m.paired.as_ref() == Some(s)))
+            .map(|m| m.host)
+            .collect();
+        for host in gone {
+            self.forget_host(host, true);
+            self.machines.retain(|m| m.host != host);
+            if self.pages.on == host {
+                self.pages.on = Host::HERE;
+            }
+        }
+        for s in wanted {
+            if !(self.machines.iter()).any(|m| m.paired.as_ref() == Some(&s)) {
+                self.last_host += 1;
+                let m = Machine::linked(Host(self.last_host), &s, &self.tx);
+                self.machines.push(m);
+            }
+        }
+    }
+
+    /// Reach the server `host` again now, rather than when its wait is
+    /// over.
+    pub(crate) fn reach_again(&mut self, host: Host, cx: &mut Context<Self>) {
+        if let Some(m) = self.machine(host) {
+            m.again();
         }
         cx.notify();
     }
@@ -458,7 +494,7 @@ impl Desk {
         // Whether it pairs both ways, as the sheet's box is ticked.
         let ticked = std::rc::Rc::new(std::cell::Cell::new(false));
         window.open_alert_dialog(cx, move |alert, _, cx| {
-            let offer = matches!(desk.read(cx).transport, Transport::Local(_));
+            let offer = desk.read(cx).machines[0].local().is_some();
             let both = offer && ticked.get();
             let faces = crate::fonts::faces(cx).clone();
             let mut about = div().flex().flex_col().gap(px(12.)).child(ui::text(
@@ -510,8 +546,8 @@ impl Desk {
         both: bool,
         cx: &mut Context<Self>,
     ) {
-        let back = match &self.transport {
-            Transport::Local(server) if both => match server.back_link(host) {
+        let back = match self.machines[0].local() {
+            Some(server) if both => match server.back_link(host) {
                 Ok(back) => Some(back),
                 Err(why) => {
                     self.trouble(
@@ -546,16 +582,6 @@ impl Desk {
             self.trouble("Couldn't keep your servers", Some(why), None);
         }
         self.read_servers();
-    }
-
-    /// Open the window on the server `name` (none, this Mac's own):
-    /// Ghost restarts on it.
-    fn open_on(&mut self, name: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
-        self.change_servers(|s| {
-            s.open = name;
-            Ok(())
-        });
-        self.reopen(window, cx);
     }
 
     /// The servers paired with, read again for Devices.

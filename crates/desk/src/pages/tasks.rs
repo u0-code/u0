@@ -60,7 +60,10 @@ impl Desk {
             "{} · {} · {} · {when_next}",
             task.schedule.said(twelve),
             self.name_of(&task.agent),
-            self.project_name(&task.project),
+            self.project_name(&crate::desk::Place::new(
+                self.pages.on,
+                task.project.clone()
+            )),
         );
         div()
             .flex()
@@ -482,16 +485,20 @@ impl Desk {
             .child(if task.project.as_os_str().is_empty() {
                 "Choose a project".to_owned()
             } else {
-                self.project_name(&task.project)
+                self.project_name(&crate::desk::Place::new(
+                    self.pages.on,
+                    task.project.clone(),
+                ))
             });
         self.menu(
             Popup::TaskProject,
             trigger,
             |d, menu, desk, _| {
                 let chosen = d.tasks.draft.as_ref().map(|d| &d.task.project);
-                let items = d.settings.folders.iter().map(|folder| {
+                let items = d.edited().folders.iter().map(|folder| {
                     let f = folder.clone();
-                    Self::menu_item(desk, d.project_name(folder), move |this, _, cx| {
+                    let name = d.project_name(&crate::desk::Place::new(d.pages.on, f.clone()));
+                    Self::menu_item(desk, name, move |this, _, cx| {
                         if let Some(draft) = &mut this.tasks.draft {
                             draft.task.project.clone_from(&f);
                         }

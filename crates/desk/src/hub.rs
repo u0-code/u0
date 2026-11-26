@@ -1,16 +1,18 @@
 //! The work done off the window's thread, and what comes back of it.
 //!
-//! What touches the machine is the server's (`ghost_core::server`): the
-//! agents, the store, git and the files of a project. The desk asks it with
-//! a `proto::Call` through the [`Transport`], and what it says comes back
-//! as [`Msg::Event`]. Each agent switched on has a [`Slot`] here
-//! (`hub/agent.rs`): what the registry says of it, whether it can be
-//! started, and once started what it said it can do. What is the window's
-//! own (pictures, your editor, notifications, key bindings)
-//! runs on the ACP runtime too, and all of it comes back to the window as
-//! a [`Msg`] over one channel, which the desk reads in order.
+//! What touches a machine is its server's (`ghost_core::server`): the
+//! agents, the store, git and the files of a project. The window holds
+//! several at once, each a [`Machine`]: this Mac's own, and each one
+//! paired with while this Mac controls others. The desk asks one with a
+//! `proto::Call` through its [`Transport`], and what it says comes back
+//! as [`Msg::Event`], with the [`Host`] it came from. Each agent switched
+//! on has a [`Slot`] here (`hub/agent.rs`): what the registry says of it,
+//! whether it can be started, and once started what it said it can do.
+//! What is the window's own (pictures, your editor, notifications, key
+//! bindings) runs on the ACP runtime too, and all of it comes back to the
+//! window as a [`Msg`] over one channel, which the desk reads in order.
 
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use tokio::sync::mpsc;
 
@@ -18,17 +20,20 @@ mod agent;
 
 pub use agent::*;
 
+pub use crate::servers::Host;
 use crate::{
+    access::Access,
     acp, link,
-    proto::{Call, Event},
+    proto::{Call, Event, Here},
     server::Server,
+    servers::Servers,
     settings::Settings,
 };
 
 /// What comes back to the window.
 pub enum Msg {
-    /// What the server says.
-    Event(Event),
+    /// What a server says.
+    Event(Host, Event),
     /// Your key bindings, as keybindings.json says now, or why it was not
     /// written.
     Keys(Result<Vec<crate::keys::Binding>, String>),
@@ -42,8 +47,8 @@ pub enum Msg {
     Attached(Option<crate::desk::mention::Attached>),
     /// Where an update of Ghost's own stands.
     Update(crate::desk::updates::Update),
-    /// How the link to the server elsewhere stands.
-    Link(link::State),
+    /// How the link to a server stands.
+    Link(Host, link::State),
     /// The name of a server paired with, and how it paired back, if
     /// asked to: the public half of its key for this Mac, or why not; or
     /// why it did not pair.
@@ -52,132 +57,170 @@ pub enum Msg {
 
 pub type Sender = mpsc::UnboundedSender<Msg>;
 
-/// The way to the server: each [`Call`] goes to it in order, and what it
+/// The way to a server: each [`Call`] goes to it in order, and what it
 /// says comes back as [`Msg::Event`].
 pub enum Transport {
     /// The server in this process: a call reaches it as it is, not
     /// written out, and is handed on at once (what it waits for, it waits
     /// for on the ACP runtime).
     Local(std::sync::Arc<Server>),
-    /// A server on another machine, by its name, over a link (`link`),
-    /// and Ghost's home there; and this Mac's own, while it lets other
-    /// devices control it, serving them with no window.
-    Remote(
-        link::Link,
-        String,
-        std::path::PathBuf,
-        Option<std::sync::Arc<Server>>,
-    ),
+    /// A server reached over a link (`link`): on another machine, or this
+    /// Mac's service.
+    Remote(link::Link),
 }
 
-impl Transport {
-    /// The server the window opens on (`servers.json`), saying what it
-    /// has to say to `tx`, with its settings as its home has them (or why
-    /// they do not read). One that cannot be reached is said to be so, and
-    /// the window opens on this Mac's own. Open elsewhere, this Mac still
-    /// serves the devices that control it, if it lets them.
-    pub fn open(home: &std::path::Path, tx: &Sender) -> (Self, (Settings, Option<String>)) {
-        let servers = crate::servers::Servers::load(home);
-        if let Ok(Some(server)) = servers.as_ref().map(crate::servers::Servers::opened) {
-            let name = server.name.clone();
-            match Self::reach(server, tx) {
-                Ok((link, welcome)) => {
-                    let settings = match welcome.settings {
-                        Ok(s) => (*s, None),
-                        Err(why) => (Settings::default(), Some(why)),
-                    };
-                    // The server at this home's own port is this home's,
-                    // its service: there is no other to serve.
-                    let serving = crate::access::Access::new(home).kept();
-                    let here = (serving
-                        .is_ok_and(|k| k.serve && server.host != format!("127.0.0.1:{}", k.port)))
-                    .then(|| Server::new(home.to_path_buf(), |_| {}));
-                    return (Self::Remote(link, name, welcome.home, here), settings);
-                }
-                Err(why) => {
-                    let _ = tx.send(Msg::Notice(Err((
-                        format!("Couldn't reach {name}: Ghost opened on this Mac"),
-                        why,
-                    ))));
-                }
-            }
+/// How a server the window holds stands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Up {
+    /// Being reached, the first time.
+    Reaching,
+    On,
+    /// Out of reach, why: it is reached again on its own.
+    Lost(String),
+    /// It will not let this Mac in, or this Mac has no key for it, why.
+    Refused(String),
+}
+
+/// A server the window holds: this Mac's own, or one paired with.
+pub struct Machine {
+    pub host: Host,
+    /// As `servers.json` keeps it, for one paired with.
+    pub paired: Option<crate::servers::Server>,
+    /// What it is called: "This Mac", or the name it gave itself.
+    pub name: String,
+    /// None where this Mac has no key to reach it with.
+    pub transport: Option<Transport>,
+    pub up: Up,
+    /// Ghost's home there: where its worktrees and scratch folders are.
+    pub home: PathBuf,
+    /// Its settings, as its home has them, and why they do not read: this
+    /// Mac's are the desk's own (`Desk::settings`).
+    pub settings: Settings,
+    pub refused: Option<String>,
+    /// Why the sessions it keeps could not be read, while that is so:
+    /// nothing is saved over them.
+    pub store_refused: Option<String>,
+    /// What of each agent the registry lists is there, by its id.
+    pub here: HashMap<String, Here>,
+    /// Sessions deleted there whose agent cannot delete them (see
+    /// `store::Index`), by agent and id.
+    pub gone: Vec<(String, String)>,
+    /// The folders each agent there has sessions in that are not projects.
+    pub elsewhere: std::collections::BTreeMap<String, Vec<(PathBuf, usize)>>,
+    /// What each CLI of yours an agent there runs says its version is.
+    pub cli_versions: HashMap<PathBuf, String>,
+}
+
+impl Machine {
+    fn new(host: Host, name: String, transport: Option<Transport>, up: Up) -> Self {
+        Self {
+            host,
+            paired: None,
+            name,
+            transport,
+            up,
+            home: PathBuf::new(),
+            settings: Settings::default(),
+            refused: None,
+            store_refused: None,
+            here: HashMap::new(),
+            gone: Vec::new(),
+            elsewhere: std::collections::BTreeMap::new(),
+            cli_versions: HashMap::new(),
         }
-        if let Err(why) = servers {
-            let _ = tx.send(Msg::Notice(Err(("Couldn't read your servers".into(), why))));
-        }
-        let local = Self::Local(Server::new(home.to_path_buf(), {
-            let tx = tx.clone();
-            move |event| {
-                let _ = tx.send(Msg::Event(event));
-            }
-        }));
-        (local, Settings::load(home))
     }
 
-    /// Link to `server`, waiting for its welcome.
-    fn reach(
-        server: &crate::servers::Server,
-        tx: &Sender,
-    ) -> Result<(link::Link, crate::proto::Welcome), String> {
-        let (url, key) = server.reach()?;
-        let (said, stood) = (tx.clone(), tx.clone());
-        acp::runtime().block_on(link::connect(
-            url,
-            key,
-            move |event| {
-                let _ = said.send(Msg::Event(event));
-            },
-            move |state| {
-                let _ = stood.send(Msg::Link(state));
-            },
-        ))
+    /// The servers the window holds as it opens, each saying what it has
+    /// to say to `tx`: this Mac's own first (in this process, or its
+    /// service where it runs one), then each paired with while this Mac
+    /// controls others.
+    pub fn open(home: &std::path::Path, tx: &Sender) -> Vec<Self> {
+        let servers = Servers::load(home).unwrap_or_else(|why| {
+            let _ = tx.send(Msg::Notice(Err(("Couldn't read your servers".into(), why))));
+            Servers::default()
+        });
+        let port = Access::new(home).kept().map_or(0, |k| k.port);
+        let mut here = match servers.service(port) {
+            Some(service) => Self::linked(Host::HERE, service, tx),
+            None => Self::in_process(Host::HERE, home, tx),
+        };
+        "This Mac".clone_into(&mut here.name);
+        here.home = home.to_path_buf();
+        let others = (servers.held(port).zip(1..)).map(|(s, n)| Self::linked(Host(n), s, tx));
+        std::iter::once(here).chain(others).collect()
+    }
+
+    /// Hold as `host` a server in this process, for the Ghost home `home`.
+    fn in_process(host: Host, home: &std::path::Path, tx: &Sender) -> Self {
+        let tx = tx.clone();
+        let server = Server::new(home.to_path_buf(), move |event| {
+            let _ = tx.send(Msg::Event(host, event));
+        });
+        Self::new(host, String::new(), Some(Transport::Local(server)), Up::On)
+    }
+
+    /// The server the window holds as `host`, of `held`.
+    pub fn of(held: &[Self], host: Host) -> Option<&Self> {
+        held.iter().find(|m| m.host == host)
+    }
+
+    /// Hold the server paired with `server` as `host`, reaching it.
+    pub fn linked(host: Host, server: &crate::servers::Server, tx: &Sender) -> Self {
+        let (transport, up) = match server.reach() {
+            Ok((url, key)) => {
+                let (said, stood) = (tx.clone(), tx.clone());
+                let link = link::connect(
+                    url,
+                    key,
+                    move |event| {
+                        let _ = said.send(Msg::Event(host, event));
+                    },
+                    move |state| {
+                        let _ = stood.send(Msg::Link(host, state));
+                    },
+                );
+                (Some(Transport::Remote(link)), Up::Reaching)
+            }
+            Err(why) => (None, Up::Refused(why)),
+        };
+        let mut m = Self::new(host, server.name.clone(), transport, up);
+        m.paired = Some(server.clone());
+        m
     }
 
     pub fn send(&self, call: Call) {
-        match self {
-            Self::Local(server) => server.handle(call),
-            Self::Remote(link, ..) => link.send(call),
+        match &self.transport {
+            Some(Transport::Local(server)) => server.handle(call),
+            Some(Transport::Remote(link)) => link.send(call),
+            None => {}
         }
     }
 
-    /// Ghost's home where the server runs: `home`, this Mac's, for the
-    /// server in this process.
-    pub fn home_there<'a>(&'a self, home: &'a std::path::Path) -> &'a std::path::Path {
-        match self {
-            Self::Local(_) => home,
-            Self::Remote(_, _, there, _) => there,
+    /// The server in this process, where this is it.
+    pub fn local(&self) -> Option<&std::sync::Arc<Server>> {
+        match &self.transport {
+            Some(Transport::Local(server)) => Some(server),
+            _ => None,
         }
     }
 
-    /// Whether this Mac serves devices that control it while the window
-    /// is elsewhere.
-    pub fn serves(&self) -> bool {
-        matches!(self, Self::Remote(.., Some(_)))
-    }
-
-    /// The name of the server elsewhere the window is on; none, this Mac.
-    pub fn elsewhere(&self) -> Option<&str> {
-        match self {
-            Self::Local(_) => None,
-            Self::Remote(_, name, ..) => Some(name),
+    /// Reach it again now, rather than when its wait is over.
+    pub fn again(&self) {
+        if let Some(Transport::Remote(link)) = &self.transport {
+            link.again();
         }
     }
 
     /// Wait until what the server was asked to write is written, or what
     /// was asked of one elsewhere has gone to it: as Ghost quits.
     pub fn settle(&self) {
-        match self {
-            Self::Local(server) => {
+        match &self.transport {
+            Some(Transport::Local(server)) => {
                 server.unshare();
                 Server::settle();
             }
-            Self::Remote(link, .., here) => {
-                if let Some(server) = here {
-                    server.unshare();
-                    Server::settle();
-                }
-                link.settle();
-            }
+            Some(Transport::Remote(link)) => link.settle(),
+            None => {}
         }
     }
 }
@@ -408,4 +451,34 @@ pub fn on_path(tx: Sender) {
         let offered = std::iter::once("gh").chain(crate::desk::EDITORS.map(|(c, _)| c));
         Msg::OnPath(offered.filter(|c| which::which(c).is_ok()).collect())
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_call_goes_to_the_server_named_and_what_it_says_comes_back_named_by_it() {
+        let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        // Something kept on B alone, to tell its index from A's.
+        std::fs::write(
+            b.path().join("sessions.json"),
+            r#"{"sessions":[],"stashed":["on b"]}"#,
+        )
+        .unwrap();
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let held = [
+            Machine::in_process(Host::HERE, a.path(), &tx),
+            Machine::in_process(Host(7), b.path(), &tx),
+        ];
+        Machine::of(&held, Host(7)).unwrap().send(Call::Watch);
+        let said = acp::runtime().block_on(async {
+            tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv()).await
+        });
+        let Ok(Some(Msg::Event(host, Event::Index(Ok(index))))) = said else {
+            panic!("B's index, named by B")
+        };
+        assert_eq!((host, index.stashed), (Host(7), vec!["on b".to_owned()]));
+        assert!(Machine::of(&held, Host(3)).is_none());
+    }
 }

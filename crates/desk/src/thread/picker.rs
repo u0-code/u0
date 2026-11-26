@@ -60,7 +60,7 @@ impl Desk {
     /// hard it thinks.
     pub(crate) fn model_chip(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Popover {
         let model = if self.composer.fanout && Self::is_draft(s) {
-            let usable = self.slots.iter().filter(|x| x.usable()).count();
+            let usable = self.slots_on(s.host).filter(|x| x.usable()).count();
             Some(format!("All {usable} agents"))
         } else {
             Self::option_name(s, &Category::Model)
@@ -120,7 +120,7 @@ impl Desk {
         let Some(s) = self.session() else { return };
         let draft = Self::is_draft(s);
         let any = self.settings.favourites.iter().any(|f| {
-            self.slot(&f.agent)
+            self.slot(s.host, &f.agent)
                 .is_some_and(|x| x.usable() && !matches!(x.auth, Auth::Needed(_)))
         });
         self.picker.rail = if draft && any {
@@ -150,7 +150,7 @@ impl Desk {
         let options = if mine {
             &s.options
         } else {
-            match self.slot(agent).and_then(|x| x.probe.as_ref()) {
+            match self.slot(s.host, agent).and_then(|x| x.probe.as_ref()) {
                 Some(p) => &p.options,
                 None => return Vec::new(),
             }
@@ -198,7 +198,7 @@ impl Desk {
     /// every agent the session can take; else the rail's.
     fn shown_models(&self, s: &Session, query: &str) -> Vec<Model> {
         let agents: Vec<&str> = if Self::is_draft(s) {
-            self.slots.iter().map(|x| x.entry.id.as_str()).collect()
+            self.slots_on(s.host).map(|x| x.entry.id.as_str()).collect()
         } else {
             vec![s.meta.agent.as_str()]
         };
@@ -286,7 +286,7 @@ impl Desk {
                     .when(favourites, |d| d.child(pill())),
             )
             .child(Separator::horizontal().w(px(28.)));
-        for slot in &self.slots {
+        for slot in self.slots_on(s.host) {
             let id = slot.entry.id.clone();
             let name = self.name_of(&id);
             let bound = !draft && id != s.meta.agent;
@@ -488,7 +488,8 @@ impl Desk {
 
     /// Under the list, for an agent that needs you before it can be used.
     fn picker_notice(&self, faces: &Faces, agent: &str, cx: &mut Context<Self>) -> Option<Div> {
-        let slot = self.slot(agent)?;
+        let host = self.session()?.host;
+        let slot = self.slot(host, agent)?;
         let name = self.name_of(agent);
         let (says, button) = match &slot.stage {
             Stage::Missing(_) | Stage::Failed(_) => (
@@ -505,7 +506,7 @@ impl Desk {
                 (
                     format!("Sign in to {name}"),
                     ui::button("picker-sign-in", "Sign in", ui::Weight::Primary).on_click(
-                        cx.listener(move |this, _, _, cx| this.sign_in_agent(&agent, cx)),
+                        cx.listener(move |this, _, _, cx| this.sign_in_agent(host, &agent, cx)),
                     ),
                 )
             }
@@ -710,7 +711,7 @@ impl Desk {
     /// The foot: a new session sent to every agent at once at the left,
     /// the session's mode at the right.
     fn picker_foot(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
-        let usable = self.slots.iter().filter(|x| x.usable()).count();
+        let usable = self.slots_on(s.host).filter(|x| x.usable()).count();
         let fanout = self.composer.fanout;
         div()
             .flex()
@@ -794,7 +795,7 @@ impl Desk {
         match k.key.as_str() {
             "up" | "down" if m.platform && m.shift => {
                 let mut tabs = vec![Rail::Favourites];
-                tabs.extend(self.slots.iter().map(|x| Rail::Agent(x.entry.id.clone())));
+                tabs.extend((self.slots_on(s.host)).map(|x| Rail::Agent(x.entry.id.clone())));
                 let at = tabs
                     .iter()
                     .position(|t| *t == self.picker.rail)

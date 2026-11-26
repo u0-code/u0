@@ -25,11 +25,10 @@ impl Desk {
                 w,
                 &["project", "override", "scope"],
                 |d, faces, cx| {
-                    let shown = d
-                        .pages
-                        .scope
-                        .as_ref()
-                        .map_or_else(|| "All projects".to_owned(), |p| d.project_name(p));
+                    let shown = d.pages.scope.as_ref().map_or_else(
+                        || "All projects".to_owned(),
+                        |p| d.project_name(&crate::desk::Place::new(d.pages.on, p.clone())),
+                    );
                     let trigger = ui::opener("settings-scope")
                         .selected(d.popup == Popup::Scope)
                         .child(ui::icon("folder", 14.))
@@ -47,8 +46,11 @@ impl Desk {
                                 .checked(on)
                             };
                             let all = pick("All projects".into(), None);
-                            (d.settings.folders.iter())
-                                .map(|f| pick(d.project_name(f), Some(f.clone())))
+                            (d.edited().folders.iter())
+                                .map(|f| {
+                                    let p = crate::desk::Place::new(d.pages.on, f.clone());
+                                    pick(d.project_name(&p), Some(f.clone()))
+                                })
                                 .fold(menu.min_w(px(260.)).item(all), PopupMenu::item)
                         },
                         cx,
@@ -84,26 +86,26 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> Div {
         let scope = self.pages.scope.clone();
-        let shown = self.settings_in(scope.as_deref());
+        let shown = (scope.as_ref()).map_or_else(|| self.edited().clone(), |p| self.edited().of(p));
         let now = get(&shown);
-        let held = scope.is_some() && now != get(&self.settings);
+        let held = scope.is_some() && now != get(self.edited());
         let choices = choices
             .into_iter()
             .map(|(label, value)| {
                 let scope = scope.clone();
                 let pick: Pick = Box::new(cx.listener(move |this, _, _, cx| {
                     match &scope {
-                        Some(p) => this.settings.hold(p, |s| set(s, value)),
-                        None => set(&mut this.settings, value),
+                        Some(p) => this.edited_mut().hold(p, |s| set(s, value)),
+                        None => set(this.edited_mut(), value),
                     }
-                    this.save_settings();
+                    this.save_edited();
                     this.settings_took(cx);
                     cx.notify();
                 }));
                 (label, value == now, pick)
             })
             .collect();
-        let everywhere = get(&self.settings);
+        let everywhere = get(self.edited());
         let marker = if held {
             ui::button(
                 SharedString::from(format!("{id}-inherit")),
@@ -112,8 +114,8 @@ impl Desk {
             )
             .on_click(cx.listener(move |this, _, _, cx| {
                 if let Some(p) = this.pages.scope.clone() {
-                    this.settings.hold(&p, |s| set(s, everywhere));
-                    this.save_settings();
+                    this.edited_mut().hold(&p, |s| set(s, everywhere));
+                    this.save_edited();
                     this.settings_took(cx);
                 }
                 cx.notify();

@@ -3,8 +3,6 @@
 //! one read whole beside the list; and what is done to one, as `gh` does
 //! it (`core::github`).
 
-use std::path::PathBuf;
-
 use gpui::component::{
     diff::{DiffFile, DiffState},
     input::{InputEvent, InputState, TextareaState},
@@ -44,7 +42,7 @@ pub const PARTS: [(&str, &str); 5] = [
 /// being done to it.
 pub struct Forge {
     pub kind: Kind,
-    pub folder: Option<PathBuf>,
+    pub folder: Option<super::Place>,
     pub state: &'static str,
     pub part: usize,
     pub search: Entity<InputState>,
@@ -65,7 +63,7 @@ pub struct Forge {
     pub team: Entity<InputState>,
     /// The project's labels and the people who can review or be
     /// assigned, offered under the line to name one.
-    pub candidates: Option<(PathBuf, Vec<String>, Vec<String>)>,
+    pub candidates: Option<(super::Place, Vec<String>, Vec<String>)>,
     /// What a failed run of the checks printed, by the run's id.
     pub log: Option<(String, Result<String, String>)>,
     /// The repository's templates for a new issue: name and body.
@@ -166,20 +164,17 @@ impl Desk {
     /// Ask `ask` of the page's project's pull requests or issues (`kind`),
     /// of its Linear team where it is bound to one.
     fn ask_forge(&self, kind: Kind, ask: Ask) {
-        let Some(folder) = self.forge.folder.clone() else {
+        let Some(p) = self.forge.folder.clone() else {
             return;
         };
-        let linear = self
-            .settings
-            .prefs
-            .get(&folder)
-            .and_then(|p| p.linear.clone());
-        self.transport.send(Call::Forge {
-            folder,
+        let linear = self.prefs(&p).linear;
+        let call = Call::Forge {
+            folder: p.folder,
             kind,
             ask,
             linear,
-        });
+        };
+        self.call(p.host, call);
     }
 
     /// Ask for the list the page's choices pick.
@@ -197,22 +192,21 @@ impl Desk {
     /// Bind the page's project's issues to the Linear team typed (its key),
     /// or, with none, to its repository's host; and list them again.
     pub(crate) fn bind_linear(&mut self, cx: &mut Context<Self>) {
-        let Some(folder) = self.forge.folder.clone() else {
+        let Some(p) = self.forge.folder.clone() else {
             return;
         };
         let team = self.forge.team.read(cx).value().trim().to_uppercase();
-        self.settings.prefs.entry(folder).or_default().linear = (!team.is_empty()).then_some(team);
-        self.save_settings();
+        (self.settings_on_mut(p.host).prefs)
+            .entry(p.folder.clone())
+            .or_default()
+            .linear = (!team.is_empty()).then_some(team);
+        self.save_settings_on(p.host);
         self.list_forge(cx);
     }
 
     /// Show the Linear team the page's project is bound to in its field.
     pub(crate) fn show_team(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let team = self
-            .forge
-            .folder
-            .as_ref()
-            .and_then(|f| self.settings.prefs.get(f)?.linear.clone());
+        let team = (self.forge.folder.as_ref()).and_then(|p| self.prefs(p).linear);
         self.forge.team.update(cx, |i, cx| {
             i.set_value(team.unwrap_or_default(), window, cx);
         });
@@ -320,7 +314,7 @@ impl Desk {
     /// worktree, or (`here`) checked out where the project is.
     pub fn start_from_pr(
         &mut self,
-        folder: PathBuf,
+        folder: super::Place,
         n: u64,
         title: String,
         here: bool,
@@ -353,7 +347,7 @@ impl Desk {
     /// `triage` what is asked of it, begin what you write.
     pub fn start_from_issue(
         &mut self,
-        folder: PathBuf,
+        folder: super::Place,
         n: u64,
         title: &str,
         triage: bool,
@@ -409,7 +403,7 @@ impl Desk {
         let Some(folder) = self
             .session()
             .filter(|s| s.repo)
-            .map(|s| s.meta.project.clone())
+            .map(super::Place::project_of)
         else {
             return false;
         };
@@ -425,7 +419,7 @@ impl Desk {
     /// What came back of a project's pull requests or issues.
     pub(super) fn forge_answered(
         &mut self,
-        folder: &PathBuf,
+        folder: &super::Place,
         kind: Kind,
         answer: Answer,
         cx: &mut Context<Self>,
@@ -485,10 +479,11 @@ impl Desk {
         if let Some(seen) = self.pages.forges.iter_mut().find(|s| s.host == host) {
             seen.token = token.is_some();
         }
-        self.transport.send(Call::Secret {
+        let call = Call::Secret {
             account: host.account(),
             value: token,
-        });
+        };
+        self.call(self.pages.on, call);
         cx.notify();
     }
 }

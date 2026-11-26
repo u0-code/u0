@@ -1,9 +1,9 @@
 //! The Ghosts on other machines this Mac has paired with, in
 //! `servers.json`: each by its name, at the address it was last reached
-//! at, with the public half of the key this Mac made for it (`key`);
-//! whether this Mac controls others at all, and the one the window opens
-//! on, if not this Mac's own. The private half is kept secret (`secrets`),
-//! never in a file.
+//! at, with the public half of the key this Mac made for it (`key`); and
+//! whether this Mac controls others at all: while it does, the window
+//! holds each of them beside this Mac's own. The private half is kept
+//! secret (`secrets`), never in a file.
 //!
 //! A desk pairs as you ask it to; a server pairs back with a desk that
 //! asked it to as it paired (`link`). Both write here, each through
@@ -18,17 +18,24 @@ use crate::{
     link, whole,
 };
 
+/// Which of the servers a window holds something is on: a number the
+/// window gives each as it holds it, never given again while it runs.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Host(pub u16);
+
+impl Host {
+    /// This Mac's own.
+    pub const HERE: Self = Self(0);
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Servers {
     pub servers: Vec<Server>,
-    /// Whether this Mac controls others: until it does, the window opens
-    /// on this Mac's own Ghost only.
+    /// Whether this Mac controls others: until it does, the window holds
+    /// this Mac's own Ghost only.
     #[serde(default)]
     pub control: bool,
-    /// The server the window opens on, by name; none, this Mac's own.
-    #[serde(default)]
-    pub open: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -71,10 +78,19 @@ impl Servers {
         whole::write(&home.join("servers.json"), &text).map_err(|e| e.to_string())
     }
 
-    /// The server the window opens on, if not this Mac's own.
-    pub fn opened(&self) -> Option<&Server> {
-        let name = self.open.as_ref().filter(|_| self.control)?;
-        self.servers.iter().find(|s| &s.name == name)
+    /// The servers the window holds beside this Mac's own: none until this
+    /// Mac controls others. This Mac's service (`cli`), at `127.0.0.1` on
+    /// this home's own `port`, is this Mac's own, not another's.
+    pub fn held(&self, port: u16) -> impl Iterator<Item = &Server> {
+        let service = format!("127.0.0.1:{port}");
+        (self.servers.iter()).filter(move |s| self.control && s.host != service)
+    }
+
+    /// This Mac's service, where it runs one: the window reaches this
+    /// Mac's own Ghost there rather than running a second on its home.
+    pub fn service(&self, port: u16) -> Option<&Server> {
+        let service = format!("127.0.0.1:{port}");
+        self.servers.iter().find(|s| s.host == service)
     }
 
     /// Keep `server`, paired with by `key`: in place of one of its name.
@@ -92,9 +108,6 @@ impl Servers {
             let _ = crate::secrets::set(&account(&s.key), None);
         }
         self.servers.retain(|s| s.name != name);
-        if self.open.as_deref() == Some(name) {
-            self.open = None;
-        }
     }
 }
 
@@ -132,20 +145,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_window_opens_on_a_server_paired_with_only_while_this_mac_controls_others() {
+    fn the_window_holds_the_servers_paired_with_only_while_this_mac_controls_others() {
         let mut servers: Servers = serde_json::from_str(
-            r#"{"servers": [{"name": "box", "host": "a.trycloudflare.com", "key": "ssh-ed25519 AAAA"}], "control": true, "open": "box"}"#,
+            r#"{"servers": [{"name": "box", "host": "a.trycloudflare.com", "key": "ssh-ed25519 AAAA"}, {"name": "This Mac's service", "host": "127.0.0.1:4317", "key": "ssh-ed25519 BBBB"}], "control": true}"#,
         )
         .unwrap();
+        let held = |s: &Servers| s.held(4317).map(|s| s.name.clone()).collect::<Vec<_>>();
+        assert_eq!(held(&servers), ["box"], "the service is this Mac's own");
         assert_eq!(
-            servers.opened().map(|s| s.host.as_str()),
-            Some("a.trycloudflare.com")
+            servers.service(4317).map(|s| s.key.as_str()),
+            Some("ssh-ed25519 BBBB")
         );
+        assert_eq!(servers.service(4318), None);
         servers.control = false;
-        assert_eq!(servers.opened(), None);
-        servers.control = true;
-        servers.open = Some("gone".into());
-        assert_eq!(servers.opened(), None);
+        assert!(held(&servers).is_empty());
+        assert!(servers.service(4317).is_some(), "the service is this Mac's");
         assert!(serde_json::from_str::<Servers>(r#"{"hosts": []}"#).is_err());
     }
 

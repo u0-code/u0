@@ -45,7 +45,7 @@ pub enum Shown {
 /// came back, its editor, and whether Markdown is drawn.
 pub struct Viewer {
     pub tree: Entity<TreeState>,
-    pub held: Option<(PathBuf, usize, String, bool)>,
+    pub held: Option<(crate::desk::Place, usize, String, bool)>,
     pub search: Entity<InputState>,
     pub open_all: bool,
     pub path: Option<PathBuf>,
@@ -103,13 +103,13 @@ impl Desk {
     /// change, the file shown read when it is not yet.
     pub(crate) fn sync_files(&mut self, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
-        let folder = s.meta.folder.clone();
+        let folder = crate::desk::Place::folder_of(s);
         let surface = self.surface();
         if surface == Some(Surface::Files) {
             let Some(files) = self.files.get(&folder) else {
                 if self.viewer.held.as_ref().is_none_or(|h| h.0 != folder) {
                     self.viewer.held = Some((folder.clone(), usize::MAX, String::new(), false));
-                    self.list_files(folder);
+                    self.list_files(&folder);
                 }
                 return;
             };
@@ -137,11 +137,11 @@ impl Desk {
             }
         }
         if let Some(Surface::File(path)) = surface {
-            let full = folder.join(&path);
+            let full = folder.folder.join(&path);
             if self.viewer.path.as_ref() != Some(&full) {
                 self.viewer.path = Some(full.clone());
                 self.viewer.shown = None;
-                self.read_file(full);
+                self.read_file(folder.host, full);
             }
         }
     }
@@ -185,8 +185,8 @@ impl Desk {
     /// The Files tab: the line to find a file by name, folding, reading
     /// again, and the tree.
     pub(super) fn files_tab(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
-        let listed = self.files.get(&s.meta.folder).map_or(0, Vec::len);
-        let folder = s.meta.folder.clone();
+        let folder = crate::desk::Place::folder_of(s);
+        let listed = self.files.get(&folder).map_or(0, Vec::len);
         let head = div()
             .flex()
             .flex_none()

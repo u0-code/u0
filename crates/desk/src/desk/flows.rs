@@ -48,7 +48,7 @@ impl Desk {
             self.flows.input =
                 Some(cx.new(|cx| InputState::new(window, cx).placeholder("Its input (optional)")));
         }
-        self.transport.send(Call::Workflows);
+        self.call(self.pages.on, Call::Workflows);
     }
 
     /// Begin a run of `workflow` with what is typed as its input.
@@ -63,10 +63,13 @@ impl Desk {
             .input
             .as_ref()
             .map(|i| i.read(cx).value().trim().to_owned());
-        self.transport.send(Call::StartFlow {
-            workflow,
-            input: input.unwrap_or_default(),
-        });
+        self.call(
+            self.pages.on,
+            Call::StartFlow {
+                workflow,
+                input: input.unwrap_or_default(),
+            },
+        );
         if let Some(i) = &self.flows.input {
             i.update(cx, |i, cx| i.set_value("", window, cx));
         }
@@ -74,14 +77,14 @@ impl Desk {
 
     /// Answer the question the run `run` waits on.
     pub(crate) fn answer_flow(&self, run: u64, choice: String) {
-        self.transport.send(Call::AnswerFlow { run, choice });
+        self.call(self.pages.on, Call::AnswerFlow { run, choice });
     }
 
     pub(crate) fn resume_flow(&self, run: u64) {
-        self.transport.send(Call::ResumeFlow(run));
+        self.call(self.pages.on, Call::ResumeFlow(run));
     }
 
     pub(crate) fn cancel_flow(&self, run: u64) {
-        self.transport.send(Call::CancelFlow(run));
+        self.call(self.pages.on, Call::CancelFlow(run));
     }
 }

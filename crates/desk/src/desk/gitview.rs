@@ -15,7 +15,7 @@ use gpui::component::{
 };
 
 use super::Desk;
-use crate::{git::Scope, session::State};
+use crate::{git::Scope, proto::Call, session::State};
 
 /// The changes in the column beside: which it shows; the commit message
 /// being written and whether its form is open; what you say of a file's
@@ -103,24 +103,18 @@ impl Desk {
         if !s.repo {
             return;
         }
-        self.transport.send(crate::proto::Call::Commits {
-            dir: s.meta.folder.clone(),
-            key,
-        });
+        let dir = s.meta.folder.clone();
+        self.call(s.host, Call::Commits { dir, key });
         // Without gh there is no answer, and no pull request shown.
-        self.transport.send(crate::proto::Call::ReadPr {
-            dir: s.meta.folder.clone(),
-            key,
-        });
+        let dir = s.meta.folder.clone();
+        self.call(s.host, Call::ReadPr { dir, key });
     }
 
     /// Ask git about the folder the session `key` works in.
     pub(crate) fn look(&self, key: u64) {
         if let Some(s) = self.sessions.at(key) {
-            self.transport.send(crate::proto::Call::Look {
-                folder: s.meta.folder.clone(),
-                key,
-            });
+            let folder = s.meta.folder.clone();
+            self.call(s.host, Call::Look { folder, key });
         }
     }
 
@@ -134,9 +128,10 @@ impl Desk {
         repo: bool,
         scripts: Vec<crate::scripts::Script>,
     ) {
-        let under = self
-            .settings
-            .worktree_folders(self.transport.home_there(&self.home));
+        let Some(host) = self.sessions.at(key).map(|s| s.host) else {
+            return;
+        };
+        let under = self.worktree_folders(host);
         let Some(s) = self
             .sessions
             .at_mut(key)
@@ -178,8 +173,8 @@ impl Desk {
         };
         let calls = std::mem::take(&mut s.placing);
         if !calls.is_empty() {
-            self.transport
-                .send(crate::proto::Call::Place { key, calls });
+            let host = s.host;
+            self.call(host, Call::Place { key, calls });
         }
     }
 
@@ -191,19 +186,22 @@ impl Desk {
         if !s.repo {
             return;
         }
-        self.transport.send(crate::proto::Call::Uncommitted {
+        let no_spacing = self.settings.no_spacing;
+        let call = Call::Uncommitted {
             dir: s.meta.folder.clone(),
             key,
-            no_spacing: self.settings.no_spacing,
-        });
+            no_spacing,
+        };
+        self.call(s.host, call);
         if let Some((scope, _)) = &s.git.scoped {
-            self.transport.send(crate::proto::Call::ScopeDiff {
+            let call = Call::ScopeDiff {
                 dir: s.meta.folder.clone(),
                 key,
                 scope: scope.clone(),
                 base: s.git.compare_to.clone(),
-                no_spacing: self.settings.no_spacing,
-            });
+                no_spacing,
+            };
+            self.call(s.host, call);
         }
     }
 
@@ -221,22 +219,22 @@ impl Desk {
             .iter()
             .filter(|s| s.repo && (s.meta.worktree.is_some() || Some(s.key) == self.current))
         {
-            self.transport.send(crate::proto::Call::ReadPr {
-                dir: s.meta.folder.clone(),
-                key: s.key,
-            });
+            let dir = s.meta.folder.clone();
+            self.call(s.host, Call::ReadPr { dir, key: s.key });
         }
     }
 
-    /// Ask for the files of `folder` git sees, for the column's Files tab.
-    pub(crate) fn list_files(&self, folder: PathBuf) {
-        self.transport
-            .send(crate::proto::Call::ListFiles { folder });
+    /// Ask for the files of the folder `at` git sees, for the column's
+    /// Files tab and for `@`.
+    pub(crate) fn list_files(&self, at: &super::Place) {
+        let folder = at.folder.clone();
+        self.call(at.host, Call::ListFiles { folder });
     }
 
-    /// Ask for what the file at `path` holds, for its tab in the column.
-    pub(crate) fn read_file(&self, path: PathBuf) {
-        self.transport.send(crate::proto::Call::ReadFile { path });
+    /// Ask the server `host` for what the file at `path` there holds, for
+    /// its tab in the column.
+    pub(crate) fn read_file(&self, host: crate::hub::Host, path: PathBuf) {
+        self.call(host, Call::ReadFile { path });
     }
 
     /// Show the changes of `scope`; the branch's and a commit's are read
@@ -249,14 +247,15 @@ impl Desk {
         let no_spacing = self.settings.no_spacing;
         if let Some(s) = self.sessions.at_mut(key) {
             s.git.scoped = None;
-            let (dir, base) = (s.meta.folder.clone(), s.git.compare_to.clone());
-            self.transport.send(crate::proto::Call::ScopeDiff {
+            let (host, dir, base) = (s.host, s.meta.folder.clone(), s.git.compare_to.clone());
+            let call = Call::ScopeDiff {
                 dir,
                 key,
                 scope: scope.clone(),
                 base,
                 no_spacing,
-            });
+            };
+            self.call(host, call);
         }
     }
 
@@ -279,11 +278,12 @@ impl Desk {
     fn branch_action(&mut self, action: crate::repo::GitAction, cx: &mut Context<Self>) {
         self.popup = super::Popup::Closed;
         let Some(s) = self.session() else { return };
-        let (key, dir) = (s.key, s.meta.folder.clone());
-        let busy =
-            self.sessions.all.iter().any(|o| {
-                o.meta.folder == dir && matches!(o.state, State::Working | State::Opening)
-            });
+        let (host, key, dir) = (s.host, s.key, s.meta.folder.clone());
+        let busy = self.sessions.all.iter().any(|o| {
+            o.host == host
+                && o.meta.folder == dir
+                && matches!(o.state, State::Working | State::Opening)
+        });
         if busy {
             self.trouble(
                 "The branch is not switched",
@@ -293,13 +293,14 @@ impl Desk {
             cx.notify();
             return;
         }
-        self.transport.send(crate::proto::Call::Git {
+        let call = Call::Git {
             dir,
             action,
-            prefix: self.settings.branch_prefix.clone(),
+            prefix: self.settings_on(host).branch_prefix.clone(),
             left_out: Vec::new(),
             key,
-        });
+        };
+        self.call(host, call);
         cx.notify();
     }
 

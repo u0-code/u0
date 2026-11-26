@@ -63,7 +63,7 @@ pub fn label(home: &Path) -> String {
     format!("local.ghost.server.{short:08x}")
 }
 
-/// What the window calls the service it opens on.
+/// What the window calls the service, its way to this Mac's own Ghost.
 const SERVICE: &str = "This Mac's service";
 
 fn plist_of(label: &str) -> Result<PathBuf, String> {
@@ -192,9 +192,9 @@ fn service(home: &Path, word: Option<&str>) -> Result<(), String> {
 
 /// Pair the window of `home` with its service, as a desk pairs with any
 /// server, but through the files the service has not opened yet: a key
-/// for the window let in (`devices.json`), the service kept as the server
-/// it opens on (`servers.json`, the private half in the Keychain), and
-/// the server listening.
+/// for the window let in (`devices.json`), the service kept as the way
+/// to this Mac's Ghost (`servers.json`, the private half in the Keychain;
+/// `Servers::service`), and the server listening.
 fn pair_window(home: &Path) -> Result<(), String> {
     let access = access::Access::new(home);
     let port = access.kept()?.port;
@@ -218,9 +218,7 @@ fn pair_window(home: &Path) -> Result<(), String> {
                 key: key.public(),
             },
             &key,
-        )?;
-        s.open = Some(SERVICE.into());
-        Ok(())
+        )
     })
 }
 

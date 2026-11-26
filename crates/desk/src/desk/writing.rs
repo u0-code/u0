@@ -1,8 +1,8 @@
-//! What Ghost has an agent write for you (`writer`): asked of the writer
-//! you chose in the settings, or else of the session's own agent, and put
-//! where it was asked for when it comes back: a session's title, its
-//! worktree's branch, a commit message, a pull request, what you might
-//! say next.
+//! What Ghost has an agent write for you (`writer`): asked, on the server
+//! the session is on, of the writer chosen in that server's settings, or
+//! else of the session's own agent, and put where it was asked for when it
+//! comes back: a session's title, its worktree's branch, a commit message,
+//! a pull request, what you might say next.
 
 use gpui::{Context, Window};
 
@@ -21,8 +21,9 @@ impl Desk {
         let Some(s) = self.sessions.at(key) else {
             return;
         };
+        let host = s.host;
         let agent = self.writer_of(s);
-        let w = &self.settings.writer;
+        let w = &self.settings_on(host).writer;
         let model = (w.agent.as_ref() == Some(&agent))
             .then(|| w.model.clone())
             .flatten();
@@ -33,12 +34,13 @@ impl Desk {
             Ask::Next { .. } => String::new(),
             Ask::Transcript { .. } => w.transcripts.clone(),
         };
-        let Some((dir, delete, close)) = self.aside_place(&agent) else {
-            self.waiting.push((agent.clone(), Waiting::Write(key, ask)));
-            self.start_for(&agent);
+        let Some((dir, delete, close)) = self.aside_place(host, &agent) else {
+            self.waiting
+                .push((host, agent.clone(), Waiting::Write(key, ask)));
+            self.start_for(host, &agent);
             return;
         };
-        self.transport.send(Call::Write(Order {
+        let order = Order {
             agent,
             model,
             key,
@@ -47,14 +49,15 @@ impl Desk {
             dir,
             delete,
             close,
-        }));
+        };
+        self.call(host, Call::Write(order));
     }
 
-    /// The agent that writes for `s`: the writer you chose, while it is
-    /// switched on, or else its own.
+    /// The agent that writes for `s`: the writer chosen on its server,
+    /// while it is switched on there, or else its own.
     pub(crate) fn writer_of(&self, s: &crate::session::Session) -> String {
-        (self.settings.writer.agent.clone())
-            .filter(|a| self.slot(a).is_some())
+        (self.settings_on(s.host).writer.agent.clone())
+            .filter(|a| self.slot(s.host, a).is_some())
             .unwrap_or_else(|| s.meta.agent.clone())
     }
 
@@ -87,7 +90,7 @@ impl Desk {
         let Some(s) = self.sessions.at(key).filter(|s| s.parent.is_none()) else {
             return;
         };
-        if !self.settings.writer.suggest {
+        if !self.settings_on(s.host).writer.suggest {
             return;
         }
         let last = |you: bool| {
@@ -153,23 +156,27 @@ impl Desk {
                 self.save_index();
             }
             Ask::Branch { semantic, .. } => {
-                let Some(wt) = self.sessions.at(key).and_then(|s| s.meta.worktree.as_ref()) else {
+                let Some(s) = self.sessions.at(key) else {
                     return;
                 };
-                let prefix = &self.settings.branch_prefix;
+                let Some(wt) = s.meta.worktree.as_ref() else {
+                    return;
+                };
+                let prefix = &self.settings_on(s.host).branch_prefix;
                 let name = if semantic {
                     text
                 } else {
                     format!("{prefix}{text}")
                 };
                 if wt.branch != name {
-                    self.transport.send(Call::Git {
+                    let call = Call::Git {
                         dir: wt.path.clone(),
                         action: GitAction::RenameBranch(name),
                         prefix: prefix.clone(),
                         left_out: Vec::new(),
                         key,
-                    });
+                    };
+                    self.call(s.host, call);
                 }
             }
             Ask::Commit { .. } => {

@@ -89,10 +89,8 @@ impl Desk {
                 (*name, f.part == n, pick)
             })
             .collect();
-        let project = f.folder.as_ref().and_then(|p| p.file_name()).map_or_else(
-            || "No project".to_owned(),
-            |n| n.to_string_lossy().into_owned(),
-        );
+        let project =
+            (f.folder.as_ref()).map_or_else(|| "No project".to_owned(), |p| self.project_on(p));
         let chip = ui::opener("forge-project")
             .h(px(26.))
             .px(px(8.))
@@ -188,10 +186,7 @@ impl Desk {
     fn forge_projects(&self, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
         for folder in self.projects() {
             let on = self.forge.folder.as_ref() == Some(&folder);
-            let name = folder.file_name().map_or_else(
-                || folder.display().to_string(),
-                |n| n.to_string_lossy().into_owned(),
-            );
+            let name = self.project_on(&folder);
             menu = menu.item(
                 Self::menu_item(desk, name, move |this, window, cx| {
                     this.forge.folder = Some(folder.clone());
@@ -731,7 +726,7 @@ impl Desk {
                         how: how.into(),
                         auto,
                         delete: true,
-                        uncredit: d.settings_in(d.forge.folder.as_deref()).uncredit,
+                        uncredit: d.settings_in(d.forge.folder.as_ref()).uncredit,
                     },
                     cx,
                 );
@@ -744,7 +739,7 @@ impl Desk {
             entry(
                 "Merge when its checks pass".into(),
                 merge(
-                    self.settings_in(self.forge.folder.as_deref()).merge.gh(),
+                    self.settings_in(self.forge.folder.as_ref()).merge.gh(),
                     true,
                 ),
             );

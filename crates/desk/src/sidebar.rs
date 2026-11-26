@@ -178,17 +178,20 @@ impl Desk {
                 Stage::Failed(_) => "Stopped",
                 _ => continue,
             };
-            let id = slot.entry.id.clone();
+            let (host, id) = (slot.host, slot.entry.id.clone());
             pills = pills.child(
-                Button::new(SharedString::from(format!("pill-{id}")))
+                Button::new(SharedString::from(format!("pill-{}-{id}", host.0)))
                     .outline()
                     .xsmall()
                     .child(ui::mark(faces, &self.mark_of(&id), 12.))
                     .child(word)
                     .accessibility_label(format!("{word}: {}", slot.entry.name))
-                    .tooltip(slot.entry.name.clone())
+                    .tooltip(match self.server_chip(host) {
+                        Some(on) => format!("{} on {on}", slot.entry.name),
+                        None => slot.entry.name.clone(),
+                    })
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_page(Page::Agent(id.clone()), window, cx);
+                        this.open_page(Page::Agent(host, id.clone()), window, cx);
                     })),
             );
         }
@@ -246,10 +249,14 @@ impl Desk {
             .w(px(width))
             .h_full()
             .bg(theme::rail())
-            // Folders dropped from the Finder are added as projects.
+            // Folders dropped from the Finder are added as this Mac's
+            // projects.
             .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, _, cx| {
                 for dir in paths.paths().iter().filter(|p| p.is_dir()) {
-                    this.adopt(dir);
+                    this.adopt(&crate::desk::Place::new(
+                        crate::hub::Host::HERE,
+                        dir.clone(),
+                    ));
                 }
                 cx.notify();
             }))

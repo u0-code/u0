@@ -10,8 +10,8 @@
 use std::path::{Path, PathBuf};
 
 use agent_client_protocol::v1::schema::{
-    ContentBlock, EmbeddedResource, EmbeddedResourceResource, ImageContent, ResourceLink,
-    TextResourceContents,
+    BlobResourceContents, ContentBlock, EmbeddedResource, EmbeddedResourceResource, ImageContent,
+    ResourceLink, TextResourceContents,
 };
 use gpui::{AppContext as _, Context, Entity, Window};
 
@@ -372,7 +372,7 @@ impl Desk {
             && !name.contains(char::is_whitespace)
         {
             let commands = if s.commands.is_empty() {
-                self.slot(&s.meta.agent)
+                self.slot(s.host, &s.meta.agent)
                     .map(|x| x.commands.clone())
                     .unwrap_or_default()
             } else {
@@ -400,7 +400,8 @@ impl Desk {
         let word = &text[start..];
         let query = word.strip_prefix('@')?.to_lowercase();
         let mut offers = Vec::new();
-        for (n, title) in self.prs.get(&s.meta.project).into_iter().flatten() {
+        let project = super::Place::project_of(s);
+        for (n, title) in self.prs.get(&project).into_iter().flatten() {
             if query.is_empty()
                 || title.to_lowercase().contains(&query)
                 || n.to_string().starts_with(&query)
@@ -445,10 +446,15 @@ impl Desk {
         }
         offers.truncate(3);
         offers.extend(
-            super::rank::paths(self.files.get(&s.meta.folder).into_iter().flatten(), &query)
-                .into_iter()
-                .take(OFFERS)
-                .map(|(f, _)| Offer::File(f.clone())),
+            super::rank::paths(
+                (self.files.get(&super::Place::folder_of(s)))
+                    .into_iter()
+                    .flatten(),
+                &query,
+            )
+            .into_iter()
+            .take(OFFERS)
+            .map(|(f, _)| Offer::File(f.clone())),
         );
         offers.truncate(OFFERS);
         Some((start, offers))
@@ -457,16 +463,17 @@ impl Desk {
     /// Read what `@` can name in the session on screen, once.
     pub(crate) fn want_offers(&mut self) {
         let Some(s) = self.session() else { return };
-        let (folder, project) = (s.meta.folder.clone(), s.meta.project.clone());
+        let (folder, project) = (super::Place::folder_of(s), super::Place::project_of(s));
         if !self.files.contains_key(&folder) {
             self.files.insert(folder.clone(), Vec::new());
-            self.transport
-                .send(crate::proto::Call::ListFiles { folder });
+            self.list_files(&folder);
         }
         if !self.prs.contains_key(&project) {
             self.prs.insert(project.clone(), Vec::new());
-            self.transport
-                .send(crate::proto::Call::ListPrs { folder: project });
+            let call = crate::proto::Call::ListPrs {
+                folder: project.folder,
+            };
+            self.call(project.host, call);
         }
     }
 
@@ -521,10 +528,11 @@ impl Desk {
             if let Offer::Pr { number, .. } = &offer
                 && let Some(s) = self.session()
             {
-                self.transport.send(crate::proto::Call::PrText {
+                let call = crate::proto::Call::PrText {
                     dir: s.meta.project.clone(),
                     number: *number,
-                });
+                };
+                self.call(s.host, call);
             }
             self.composer.mentions.push(Mention {
                 token,
@@ -591,7 +599,7 @@ impl Desk {
         let refused = matches!(attached, Attached::Image { .. })
             && self
                 .session()
-                .and_then(|s| self.slot(&s.meta.agent))
+                .and_then(|s| self.slot(s.host, &s.meta.agent))
                 .and_then(crate::hub::Slot::caps)
                 .is_some_and(|known| !known.prompt_capabilities.image);
         let twice = matches!(&attached, Attached::File(p)
@@ -688,12 +696,19 @@ impl Desk {
     /// What goes with `text` said in the session `key`: what is attached,
     /// and each file, session and pull request it names.
     pub(crate) fn attach(&mut self, key: u64, text: &str) -> Vec<ContentBlock> {
+        // An agent on another server cannot read this Mac's files: what
+        // they hold goes with what is said.
+        let here = self
+            .sessions
+            .at(key)
+            .is_none_or(|s| s.host == hub::Host::HERE);
         let mut blocks: Vec<ContentBlock> = (self.composer.attached.drain(..).enumerate())
             .filter_map(|(n, a)| match a {
                 Attached::Image { mime, bytes } => Some(ContentBlock::Image(ImageContent::new(
                     base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes),
                     mime,
                 ))),
+                Attached::File(path) if !here => embedded(&path),
                 Attached::File(path) => {
                     let name = path.file_name()?.to_string_lossy().into_owned();
                     let uri = url::Url::from_file_path(&path).ok()?;
@@ -709,6 +724,15 @@ impl Desk {
             return blocks;
         };
         let folder = s.meta.folder.clone();
+        // What `@` names on another server is what it listed there.
+        let listed = self.files.get(&super::Place::folder_of(s));
+        let named = |f: &str| {
+            if here {
+                folder.join(f).is_file()
+            } else {
+                listed.is_some_and(|l| l.iter().any(|x| x == f))
+            }
+        };
         let mentions = std::mem::take(&mut self.composer.mentions);
         for m in mentions.iter().filter(|m| text.contains(&m.token)) {
             match &m.what {
@@ -733,7 +757,7 @@ impl Desk {
         for word in text.split_whitespace() {
             if let Some(f) = word.strip_prefix('@')
                 && !mentions.iter().any(|m| m.token == word)
-                && folder.join(f).is_file()
+                && named(f)
             {
                 blocks.extend(link(&folder, f));
             }
@@ -755,6 +779,34 @@ fn link(folder: &Path, f: &str) -> Option<ContentBlock> {
         f.to_owned(),
         uri.to_string(),
     )))
+}
+
+/// The most of a file of this Mac's sent whole with what is said to an
+/// agent on another server.
+const EMBEDDED: u64 = 10 * 1024 * 1024;
+
+/// The file at `path`, whole, as a resource of its own: text as text, the
+/// rest in base64; none where it does not read or is larger than
+/// `EMBEDDED`.
+fn embedded(path: &Path) -> Option<ContentBlock> {
+    if std::fs::metadata(path).ok()?.len() > EMBEDDED {
+        tracing::warn!("{} is too large to send to another server", path.display());
+        return None;
+    }
+    let bytes = std::fs::read(path).ok()?;
+    let uri = url::Url::from_file_path(path).ok()?.to_string();
+    Some(match String::from_utf8(bytes) {
+        Ok(text) => text_resource(&uri, &text),
+        Err(e) => {
+            let blob =
+                base64::Engine::encode(&base64::engine::general_purpose::STANDARD, e.as_bytes());
+            ContentBlock::Resource(EmbeddedResource::new(
+                EmbeddedResourceResource::BlobResourceContents(BlobResourceContents::new(
+                    blob, uri,
+                )),
+            ))
+        }
+    })
 }
 
 fn text_resource(uri: &str, text: &str) -> ContentBlock {

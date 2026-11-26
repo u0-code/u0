@@ -118,7 +118,8 @@ crates/core/src/
   share.rs      sharing this Ghost: listening, the cloudflared tunnel, pairing links,
                 the link a desk gives for its server to pair back with
   servers.rs    the servers elsewhere this Mac is paired with (servers.json),
-                pairing with one; whether this Mac controls others at all
+                pairing with one; whether this Mac controls others at all;
+                `Host`, which of a window's servers something is on
   logs.rs       what Ghost logs, and where
   bin/          ghost-server: the server with no window
   cli.rs        the `ghost` command's words: serve, service (a launchd agent per
@@ -155,8 +156,10 @@ crates/core/src/
 crates/desk/src/
   main.rs       the app: the window opened, the menus, the keys bound
   terminal.rs   a terminal of yours: its screen (its shell is the server's)
-  hub.rs        the Transport to the server (here, or elsewhere over a link);
-                the window's own work, back as Msg
+  hub.rs        the servers the window holds (Machine: this Mac's, in this
+                process or its service, and each paired with, over a link),
+                what each says back as Msg tagged by its Host; the window's
+                own work, back as Msg
   hub/          agent (each agent's slot, as the desk sees it)
   sessions.rs   the sessions on the desk, by key and by the agent's id; what agents say of them
   macos.rs      what Ghost asks of macOS: icon, badge, dictation, a notification's
@@ -204,7 +207,8 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
 
 | Need | Use |
 |---|---|
-| A request to an agent | a `proto::Call` naming it by id, sent with `hub::Transport::send`; in the server, `acp::Agent::request` with a schema type |
+| A request to an agent | a `proto::Call` naming it by id, sent to the server it runs on with `Desk::call(host, …)`; in the server, `acp::Agent::request` with a schema type |
+| Which server something is on | `Session::host`, `Slot::host`, `desk::Place` (a folder on a server); a server's settings `Desk::settings_on`, the settings dialog's `Desk::edited` |
 | Work off the window's thread | what touches the machine (agents, store, git, files, the home): a `proto::Call`, answered as a `proto::Event`; the window's own (pictures, your editor, key bindings, terminals) a function in `hub.rs` that returns a `Msg` |
 | Atomic file write | `whole::write`, off the window's thread: `store::queue(Job::Write)` for the desk's own files |
 | Where Ghost keeps its files | `settings::home()` |
@@ -249,10 +253,12 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
   its Ed25519 key as `authorized_keys` writes it (`ssh-ed25519 AAAA…`),
   shown by its `SHA256:` fingerprint. `~/.ghost/servers.json` (on a desk)
   holds the servers paired with (`{name, host, key}`, `key` the public
-  half this Mac made for it), whether this Mac controls others
-  (`control`; off, the window opens on this Mac only) and the one the
-  window opens on; each private half is a secret (`server/<its
-  fingerprint>`, PKCS#8). The desk and the server (pairing back) both
+  half this Mac made for it) and whether this Mac controls others
+  (`control`: on, the window holds each of them beside this Mac's own;
+  off, this Mac's alone). One at `127.0.0.1` on this home's own port is
+  this Mac's service (`ghost service`), the way to this Mac's own Ghost
+  rather than a server beside it. Each private half is a secret
+  (`server/<its fingerprint>`, PKCS#8). The desk and the server (pairing back) both
   change it through `Servers::change`. Both are
   `deny_unknown_fields`, and left alone when they do not read: a file from
   before keys is refused with a word to pair again.
@@ -268,11 +274,18 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
   pairs with that link before its `Welcome`, which says how that went.
   The way back is reached as the way there: at 127.0.0.1 for a server
   reached there, else through the desk's own tunnel; with none, the
-  pairing stays one way and says why. A window on another Mac keeps this
-  Mac's server listening, if it lets others control it.
-- A desk on a server elsewhere reads that server's `settings.json` (in
-  its `Welcome`) and saves it there (`Call::SaveSettings`); what an agent
-  needs before it starts is the server's to say (`Event::Here`).
+  pairing stays one way and says why.
+- Every server a window holds is reached at once, each its own link
+  (resumed from what it last heard), each reached again on its own,
+  waiting longer each time, while it is out of reach; what the desk
+  had of it stays to be read. Everything of a server is that server's:
+  its sessions, agents, projects, terminals and files, asked of it alone
+  (`Desk::call`), what it says taken as its (`Msg::Event(Host, …)`).
+  Its settings are its `settings.json` (in its `Welcome`), saved there
+  (`Call::SaveSettings`); the settings dialog picks the server its pages
+  of a server's own show, while the window's own (its look, its keys)
+  are this Mac's. What an agent needs before it starts is the server's
+  to say (`Event::Here`).
 - Ghost's tools (`server/tools`) listen on `127.0.0.1` at a port
   `~/.ghost/mcp.json` names, with a key only that file holds (mode 0600),
   both made anew as the server starts. A session (of an agent not in

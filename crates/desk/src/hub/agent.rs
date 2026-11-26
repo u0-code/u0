@@ -38,6 +38,8 @@ pub struct Install {
 }
 
 pub struct Slot {
+    /// The server it runs on.
+    pub host: super::Host,
     pub entry: Entry,
     pub stage: Stage,
     /// What a session of it offers before one is opened: read from a
@@ -84,11 +86,17 @@ fn stage(here: Option<&Here>) -> Stage {
 }
 
 impl Slot {
-    /// A slot for `entry`, ready or missing what the server says it
-    /// needs (`here`).
-    pub fn new(entry: Entry, here: Option<&Here>, command: Option<String>) -> Self {
+    /// A slot for `entry` on `host`, ready or missing what its server
+    /// says it needs (`here`).
+    pub fn new(
+        host: super::Host,
+        entry: Entry,
+        here: Option<&Here>,
+        command: Option<String>,
+    ) -> Self {
         let stage = stage(here);
         Self {
+            host,
             command,
             entry,
             stage,

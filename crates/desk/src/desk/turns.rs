@@ -73,7 +73,7 @@ impl Desk {
         };
         if s.repo {
             let turn = s.turn_count().saturating_sub(1);
-            self.transport.send(Call::Checkpoint {
+            let call = Call::Checkpoint {
                 dir: s.meta.folder.clone(),
                 name: format!("{}/{turn}-before", s.uid()),
                 key,
@@ -83,7 +83,9 @@ impl Desk {
                 first: None,
                 then: Some(text),
                 no_spacing: self.settings.no_spacing,
-            });
+            };
+            let host = s.host;
+            self.call(host, call);
         } else {
             self.prompt(key, text);
         }
@@ -94,21 +96,22 @@ impl Desk {
         let Some(s) = self.sessions.at(key) else {
             return;
         };
-        let (agent, id) = (s.meta.agent.clone(), s.meta.id.clone());
+        let (host, agent, id) = (s.host, s.meta.agent.clone(), s.meta.id.clone());
         let attached = self
             .sessions
             .at_mut(key)
             .map(|s| std::mem::take(&mut s.attached))
             .unwrap_or_default();
-        if let (true, Some(id)) = (self.slot(&agent).is_some_and(Slot::running), id) {
+        if let (true, Some(id)) = (self.slot(host, &agent).is_some_and(Slot::running), id) {
             let mut content = vec![ContentBlock::Text(TextContent::new(text))];
             content.extend(attached);
-            self.transport.send(Call::Prompt {
+            let call = Call::Prompt {
                 agent,
                 key,
                 session: id,
                 content,
-            });
+            };
+            self.call(host, call);
         } else {
             if let Some(s) = self.sessions.at_mut(key) {
                 s.ended(
@@ -132,7 +135,7 @@ impl Desk {
             return;
         }
         let turn = s.turns.len() - 1;
-        self.transport.send(Call::Checkpoint {
+        let call = Call::Checkpoint {
             dir: s.meta.folder.clone(),
             name: format!("{}/{turn}-after", s.uid()),
             key,
@@ -142,7 +145,9 @@ impl Desk {
             first: s.first().map(str::to_owned),
             then: None,
             no_spacing: self.settings.no_spacing,
-        });
+        };
+        let host = s.host;
+        self.call(host, call);
     }
 
     pub(super) fn worktree_made(
@@ -163,12 +168,12 @@ impl Desk {
                 s.scripts = scripts;
                 let path = wt.path.clone();
                 s.meta.worktree = Some(wt);
-                let agent = s.meta.agent.clone();
-                let semantic = self.settings.of(&s.meta.project).branch_kind;
+                let (host, agent, project) = (s.host, s.meta.agent.clone(), s.meta.project.clone());
+                let semantic = self.settings_on(host).of(&project).branch_kind;
                 // What the repository runs in each new worktree runs now;
                 // what it says to wait for, first.
                 if !self.run_worktree_scripts(key, &path, cx) {
-                    self.open_when_running(&agent, key);
+                    self.open_when_running(host, &agent, key);
                 }
                 self.ask_writer(key, crate::writer::Ask::Branch { said, semantic });
             }
@@ -232,7 +237,7 @@ impl Desk {
         };
         let Some((target, undo)) = target else { return };
         let name = format!("{}/{turn}-{}", s.uid(), if undo { "undo" } else { "redo" });
-        self.transport.send(Call::Restore {
+        let call = Call::Restore {
             dir: s.meta.folder.clone(),
             target,
             name,
@@ -241,7 +246,8 @@ impl Desk {
             turn,
             undo,
             no_spacing: self.settings.no_spacing,
-        });
+        };
+        self.call(s.host, call);
         cx.notify();
     }
 
@@ -302,19 +308,20 @@ impl Desk {
         let Some(s) = self.sessions.at(key) else {
             return;
         };
-        let dir = s.meta.folder.clone();
+        let (host, dir) = (s.host, s.meta.folder.clone());
         let left_out: Vec<String> = s.git.left_out.iter().cloned().collect();
         if let Some(s) = self.sessions.at_mut(key) {
             s.git.step = Some("Working".into());
             s.git.left_out.clear();
         }
-        self.transport.send(Call::Git {
+        let call = Call::Git {
             dir,
             action,
-            prefix: self.settings.branch_prefix.clone(),
+            prefix: self.settings_on(host).branch_prefix.clone(),
             left_out,
             key,
-        });
+        };
+        self.call(host, call);
         cx.notify();
     }
 
@@ -355,18 +362,24 @@ impl Desk {
         // With no turn of its own taken here, what it shows is what is
         // not committed: read again after a commit, and after another
         // branch is checked out once git has said which.
+        let host = s.host;
         if looks {
-            self.transport.send(Call::Look {
-                folder: s.meta.folder.clone(),
-                key,
-            });
+            let folder = s.meta.folder.clone();
+            self.call(host, Call::Look { folder, key });
         } else if s.turns.is_empty() && s.repo && !removed {
-            self.transport.send(Call::Uncommitted {
-                dir: s.meta.folder.clone(),
-                key,
-                no_spacing,
-            });
+            let dir = s.meta.folder.clone();
+            self.call(
+                host,
+                Call::Uncommitted {
+                    dir,
+                    key,
+                    no_spacing,
+                },
+            );
         }
+        let Some(s) = self.sessions.at_mut(key) else {
+            return;
+        };
         // Its worktree removed, it is not kept from now on.
         let unkept =
             (removed.then(|| s.meta.id.take()).flatten()).map(|id| (s.meta.agent.clone(), id));
@@ -377,11 +390,11 @@ impl Desk {
         }
         // A repository made here: its project is read again.
         if matches!(action, crate::repo::GitAction::Init) {
-            let project = s.meta.project.clone();
+            let project = super::Place::project_of(s);
             self.held.remove(&project);
         }
         if let Some((agent, id)) = unkept {
-            self.unkeep(agent, id, false);
+            self.unkeep(host, agent, id, false);
         }
         match result {
             Ok(text) if text.starts_with("https://") => {

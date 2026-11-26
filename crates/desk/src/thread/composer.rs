@@ -415,8 +415,9 @@ impl Desk {
         row
     }
 
-    /// Where the session works: on a new one, a menu of the projects and a
-    /// folder of your choosing; after, its folder's name.
+    /// Where the session works: on a new one, a menu of the projects (on
+    /// each server the window holds) and a folder of your choosing; after,
+    /// its folder's name, and its server's where there are more.
     fn project_chip(
         &self,
         faces: &Faces,
@@ -424,7 +425,7 @@ impl Desk {
         draft: bool,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
-        let named = self.project_name(&s.meta.project);
+        let named = self.project_on(&crate::desk::Place::project_of(s));
         let says = |chevron: bool| {
             ui::opener("project-chip")
                 .h(px(28.))
@@ -448,12 +449,20 @@ impl Desk {
         .into_any_element()
     }
 
-    /// The projects a new session can work in, and a folder to choose.
+    /// The projects a new session can work in, under their server's name
+    /// where there are more, and a folder of this Mac's to choose.
     fn work_in_menu(&self, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
-        let here = self.session().map(|s| s.meta.folder.clone());
+        let here = self.session().map(crate::desk::Place::folder_of);
         // Each has its icon, so the one chosen is ticked at the end.
         menu = menu.check_side(gpui::component::Side::Right);
+        let mut server = None;
         for p in self.projects() {
+            if server != Some(p.host)
+                && let Some(name) = self.server_chip(p.host)
+            {
+                menu = menu.label(name.to_owned());
+            }
+            server = Some(p.host);
             let on = here.as_ref() == Some(&p);
             let name = ui::fit(&self.project_name(&p), 28);
             menu = menu.item(
@@ -481,7 +490,7 @@ impl Desk {
             .text_color(theme::muted());
         let able = s.state == State::Draft
             && self
-                .slot(&s.meta.agent)
+                .slot(s.host, &s.meta.agent)
                 .and_then(crate::hub::Slot::caps)
                 .is_some_and(|k| k.session_capabilities.additional_directories.is_some());
         // From a button inside the box: 4 points over the box's top edge,
@@ -725,10 +734,11 @@ impl Desk {
         column: f32,
         cx: &mut Context<Self>,
     ) -> Option<Div> {
-        let Some(crate::hub::Auth::Needed(why)) = self.slot(&s.meta.agent).map(|x| &x.auth) else {
+        let Some(crate::hub::Auth::Needed(why)) = self.slot(s.host, &s.meta.agent).map(|x| &x.auth)
+        else {
             return None;
         };
-        let (a, b) = (s.meta.agent.clone(), s.meta.agent.clone());
+        let (host, a, b) = (s.host, s.meta.agent.clone(), s.meta.agent.clone());
         Some(
             div()
                 .flex()
@@ -762,14 +772,14 @@ impl Desk {
                 .child(
                     ui::button("sign-in-now", "Sign in", ui::Weight::Primary).on_click(
                         cx.listener(move |this, _, _, cx| {
-                            this.sign_in_agent(&a, cx);
+                            this.sign_in_agent(host, &a, cx);
                         }),
                     ),
                 )
                 .child(
                     ui::button("signed-in", "I've signed in", ui::Weight::Quiet).on_click(
                         cx.listener(move |this, _, _, cx| {
-                            this.recheck_auth(&b, cx);
+                            this.recheck_auth(host, &b, cx);
                         }),
                     ),
                 ),

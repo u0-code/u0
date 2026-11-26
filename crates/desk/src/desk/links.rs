@@ -142,9 +142,12 @@ impl Desk {
         cx.notify();
     }
 
+    /// Open `link`: what macOS hands Ghost names this Mac's folders and
+    /// sessions.
     fn open_link(&mut self, link: Link, window: &mut Window, cx: &mut Context<Self>) {
+        let here = |folder| super::Place::new(crate::hub::Host::HERE, folder);
         match link {
-            Link::Folder(folder) => self.add_and_begin(&folder, window, cx),
+            Link::Folder(folder) => self.add_and_begin(&here(folder), window, cx),
             Link::Pair { host, code } => Self::ask_pair(host, code, window, cx),
             Link::New {
                 project,
@@ -154,14 +157,15 @@ impl Desk {
                 issue,
             } => {
                 // Only a project you added: a link does not add one.
-                let folder = project
+                let folder = (project.map(here))
                     .filter(|p| self.projects().contains(p))
                     .or_else(|| self.chosen_project());
                 let Some(folder) = folder else {
-                    self.new_scratch(window, cx);
+                    self.new_scratch_on(crate::hub::Host::HERE, window, cx);
                     return self.write_prompt(prompt, window, cx);
                 };
-                match (pr, issue, agent.filter(|a| self.slot(a).is_some())) {
+                let on = folder.host;
+                match (pr, issue, agent.filter(|a| self.slot(on, a).is_some())) {
                     (Some(n), _, _) => {
                         self.start_from_pr(folder, n, String::new(), false, window, cx);
                     }
@@ -173,7 +177,8 @@ impl Desk {
             }
             Link::Session { agent, id, prompt } => {
                 let id = agent_client_protocol::v1::schema::SessionId::new(id);
-                let Some(key) = self.sessions.by_id(&agent, &id).map(|s| s.key) else {
+                let found = self.sessions.by_id(crate::hub::Host::HERE, &agent, &id);
+                let Some(key) = found.map(|s| s.key) else {
                     self.trouble(
                         "That session isn't here",
                         Some(format!("{agent} {}", id.0)),

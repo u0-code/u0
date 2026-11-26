@@ -17,6 +17,7 @@ use gpui::component::input::InputState;
 
 use super::Desk;
 use crate::{
+    hub::Host,
     proto::Call,
     scripts::Script,
     terminal::{self, Terminal},
@@ -112,10 +113,37 @@ pub struct Writing {
 }
 
 impl Desk {
-    /// Open a terminal beside the session `key`, in `dir`; `first` is
-    /// typed into it (a script's command). The drawer opens on it.
+    /// Open a terminal beside the session `key`, in `dir` on its server;
+    /// `first` is typed into it (a script's command). The drawer opens on
+    /// it.
     pub(crate) fn open_terminal_in(
         &mut self,
+        key: u64,
+        dir: &Path,
+        first: Option<&str>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(host) = self.sessions.at(key).map(|s| s.host) {
+            self.terminal_at(host, key, dir, first, cx);
+        }
+    }
+
+    /// Open a terminal on the server `host`, in Ghost's home there, beside
+    /// the session on screen; `first` is typed into it: a sign-in there.
+    pub(crate) fn terminal_on(&mut self, host: Host, first: &str, cx: &mut Context<Self>) {
+        let Some(key) = self.current else {
+            self.trouble("Open a session to sign in beside it", None, None);
+            return;
+        };
+        let dir = self.home_on(host).to_path_buf();
+        self.terminal_at(host, key, &dir, Some(first), cx);
+    }
+
+    /// Open a terminal on the server `host`, beside the session `key`, in
+    /// `dir` there; `first` typed into it.
+    fn terminal_at(
+        &mut self,
+        host: Host,
         key: u64,
         dir: &Path,
         first: Option<&str>,
@@ -127,17 +155,32 @@ impl Desk {
             .terminals
             .last()
             .map_or(FIRST_SIZE, Terminal::size);
-        self.transport.send(Call::TermOpen {
+        let call = Call::TermOpen {
             id,
             dir: dir.to_path_buf(),
             shell: self.settings.shell.program().map(str::to_owned),
             first: first.map(str::to_owned),
             size,
-        });
-        self.drawer.terminals.push(Terminal::new(id, key, size));
+        };
+        self.call(host, call);
+        let mut t = Terminal::new(id, key, size);
+        t.host = host;
+        self.drawer.terminals.push(t);
         self.drawer.on = Some(id);
         self.drawer.open = true;
         cx.notify();
+    }
+
+    /// Ask the server the terminal `id` runs on what `of` makes of it: a
+    /// call to send it what was typed, pasted, or its size.
+    fn ask_terminal(&mut self, id: u64, of: impl FnOnce(&mut Terminal) -> Option<Call>) {
+        let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id) else {
+            return;
+        };
+        let host = t.host;
+        if let Some(call) = of(t) {
+            self.call(host, call);
+        }
     }
 
     /// A terminal opened, called `title`, or why not: one that did not is
@@ -186,7 +229,7 @@ impl Desk {
     /// running in it, only once you have closed it twice.
     pub fn close_terminal(&mut self, id: u64, cx: &mut Context<Self>) {
         let force = !self.settings.confirm.terminal || self.drawer.closing == Some(id);
-        self.transport.send(Call::TermClose { id, force });
+        self.ask_terminal(id, |_| Some(Call::TermClose { id, force }));
         cx.notify();
     }
 
@@ -257,7 +300,7 @@ impl Desk {
         let k = &e.keystroke;
         if k.modifiers.platform && k.key == "v" {
             if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
-                self.transport.send(t.paste(&text));
+                self.ask_terminal(id, |t| Some(t.paste(&text)));
             }
             cx.stop_propagation();
             return;
@@ -300,7 +343,7 @@ impl Desk {
             return;
         }
         if let Some(bytes) = terminal::key_bytes(k, t.app_cursor()) {
-            self.transport.send(t.send(bytes));
+            self.ask_terminal(id, |t| Some(t.send(bytes)));
             cx.stop_propagation();
         }
     }
@@ -320,10 +363,8 @@ impl Desk {
 
     /// Paste what is copied into the terminal `id`, as a terminal pastes.
     pub(crate) fn paste_terminal(&mut self, id: u64, cx: &mut Context<Self>) {
-        if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text())
-            && let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id)
-        {
-            self.transport.send(t.paste(&text));
+        if let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) {
+            self.ask_terminal(id, |t| Some(t.paste(&text)));
         }
     }
 
@@ -331,10 +372,10 @@ impl Desk {
     /// asked (⌃L) to draw its prompt again.
     pub fn clear_terminal(&mut self, cx: &mut Context<Self>) {
         let Some(id) = self.drawer.on else { return };
-        if let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id) {
+        self.ask_terminal(id, |t| {
             t.clear();
-            self.transport.send(t.send(vec![0x0c]));
-        }
+            Some(t.send(vec![0x0c]))
+        });
         cx.notify();
     }
 
@@ -394,8 +435,8 @@ impl Desk {
         };
         s.holding.retain(|t| *t != id);
         if s.holding.is_empty() {
-            let (agent, key) = (s.meta.agent.clone(), s.key);
-            self.open_when_running(&agent, key);
+            let (host, agent, key) = (s.host, s.meta.agent.clone(), s.key);
+            self.open_when_running(host, &agent, key);
         }
     }
 
@@ -445,7 +486,7 @@ impl Desk {
                 .map(|t| t.id)
                 .collect();
             for id in stopped {
-                self.transport.send(Call::TermClose { id, force: true });
+                self.ask_terminal(id, |_| Some(Call::TermClose { id, force: true }));
             }
             for script in scripts.iter().filter(|x| x.settle) {
                 if let Some(wt) = &worktree {
@@ -467,11 +508,11 @@ impl Desk {
         };
         let held = std::mem::take(&mut s.holding);
         s.setup.clear();
-        let agent = s.meta.agent.clone();
+        let (host, agent) = (s.host, s.meta.agent.clone());
         for id in held {
-            self.transport.send(Call::TermClose { id, force: true });
+            self.ask_terminal(id, |_| Some(Call::TermClose { id, force: true }));
         }
-        self.open_when_running(&agent, key);
+        self.open_when_running(host, &agent, key);
         cx.notify();
     }
 
@@ -505,9 +546,10 @@ impl Desk {
     /// Keep the script being written in `ghost.json`, or (`keep` false)
     /// take it away.
     pub fn save_script(&mut self, keep: bool, cx: &mut Context<Self>) {
-        let (Some(w), Some((key, dir))) = (
+        let (Some(w), Some((host, key, dir))) = (
             self.drawer.writing,
-            self.session().map(|s| (s.key, s.meta.folder.clone())),
+            self.session()
+                .map(|s| (s.host, s.key, s.meta.folder.clone())),
         ) else {
             return;
         };
@@ -530,21 +572,25 @@ impl Desk {
             return;
         }
         self.drawer.writing = None;
-        self.transport.send(crate::proto::Call::SaveScript {
+        let call = Call::SaveScript {
             dir,
             at: w.at,
             script,
             key,
-        });
+        };
+        self.call(host, call);
         cx.notify();
     }
 
     /// Fit the terminal `id` to its pane as laid out: `cols` by `rows`.
     pub(crate) fn fit_terminal(&mut self, id: u64, rows: u16, cols: u16, cx: &mut Context<Self>) {
-        if let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id)
-            && let Some(call) = t.resize(rows, cols)
-        {
-            self.transport.send(call);
+        let mut resized = false;
+        self.ask_terminal(id, |t| {
+            let call = t.resize(rows, cols);
+            resized = call.is_some();
+            call
+        });
+        if resized {
             cx.notify();
         }
     }

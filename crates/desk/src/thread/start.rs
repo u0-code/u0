@@ -101,15 +101,15 @@ impl Desk {
             .iter()
             .filter(|x| matches!(x.auth, Auth::Needed(_)))
         {
-            let id = slot.entry.id.clone();
+            let (host, id) = (slot.host, slot.entry.id.clone());
             steps.push(
                 row(
-                    SharedString::from(format!("step-sign-in-{id}")),
+                    SharedString::from(format!("step-sign-in-{}-{id}", host.0)),
                     "user",
                     format!("Sign in to {}", self.name_of(&id)),
                     None,
                 )
-                .on_click(cx.listener(move |this, _, _, cx| this.sign_in_agent(&id, cx))),
+                .on_click(cx.listener(move |this, _, _, cx| this.sign_in_agent(host, &id, cx))),
             );
         }
         if self.slots.is_empty() {

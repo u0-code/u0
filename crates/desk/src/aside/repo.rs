@@ -338,7 +338,8 @@ impl Desk {
                         .when(open && pr.failed == 0 && pr.going == 0 && !pr.conflicts, |d| {
                             d.child(ui::button("merge-pr", "Merge", Weight::Secondary).on_click(
                                 cx.listener(|this, _, _, cx| {
-                                    let s = this.settings_in(this.session().map(|s| s.meta.project.as_path()));
+                                    let p = this.session().map(crate::desk::Place::project_of);
+                                    let s = this.settings_in(p.as_ref());
                                     this.git_action(crate::repo::GitAction::Merge(s.merge, s.uncredit), cx);
                                 }),
                             ))

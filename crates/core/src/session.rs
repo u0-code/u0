@@ -366,6 +366,9 @@ pub enum Begin {
 pub struct Session {
     /// The desk's own key for it, stable from before the agent names it.
     pub key: u64,
+    /// The server it is on, of those the desk holds: this Mac's, unless
+    /// it is given another.
+    pub host: crate::servers::Host,
     /// What of it the desk keeps between runs (`sessions.json`).
     pub meta: store::Meta,
     /// The git branch the folder was on when the session began.
@@ -644,9 +647,16 @@ impl Session {
         self.repo && self.wants_worktree && self.meta.worktree.is_none()
     }
 
-    /// A session the desk kept from an earlier run: closed until opened.
-    pub fn stored(key: u64, meta: store::Meta) -> Self {
+    /// Whether it is a session of `agent` on `host`.
+    pub fn of(&self, host: crate::servers::Host, agent: &str) -> bool {
+        self.host == host && self.meta.agent == agent
+    }
+
+    /// A session the server `host` kept from an earlier run: closed until
+    /// opened.
+    pub fn stored(key: u64, host: crate::servers::Host, meta: store::Meta) -> Self {
         let mut s = Self::new(key, &meta.agent, meta.folder.clone());
+        s.host = host;
         s.meta = meta;
         s.state = State::Closed;
         s
@@ -826,6 +836,7 @@ impl Session {
         let now = SystemTime::now();
         Self {
             key,
+            host: crate::servers::Host::HERE,
             meta: store::Meta {
                 agent: agent.to_owned(),
                 id: None,

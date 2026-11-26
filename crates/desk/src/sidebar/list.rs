@@ -3,13 +3,13 @@
 //! each project a folder of its sessions not done, by your last message,
 //! the projects by theirs; and at the foot two shelves, folded, of the
 //! sessions snoozed (soonest back first) and settled (latest first, ten,
-//! then 25 more at a time). It is gpui-kit's Tree: ↑ ↓ move, → ← open and
-//! fold, Return opens; every row is one height.
+//! then 25 more at a time). Where the window holds more than one server,
+//! each server's projects are under its own row, this Mac's first, as
+//! t3code groups its environments: its name, whether it is reached, and
+//! the way to reach it again. It is gpui-kit's Tree: ↑ ↓ move, → ← open
+//! and fold, Return opens; every row is one height.
 
-use std::{
-    path::{Path, PathBuf},
-    time::SystemTime,
-};
+use std::time::SystemTime;
 
 use gpui::component::{
     Sizable as _,
@@ -23,8 +23,9 @@ use gpui::{App, Context, Entity, SharedString, Window, div, prelude::*, px};
 
 use super::{Dragged, gist};
 use crate::{
-    desk::{Desk, Renaming, lists, rank},
+    desk::{Desk, Place, Renaming, lists, rank},
     fonts::Weighted as _,
+    hub::{Host, Up},
     session::{Session, State},
     settings::Sort,
     store, theme, ui,
@@ -44,7 +45,9 @@ const SETTLED_MORE: usize = 25;
 /// What a row of the list is, as its id in the tree says.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Row {
-    Project(PathBuf),
+    /// A server the window holds, over its projects.
+    Server(Host),
+    Project(Place),
     Session(u64),
     Shelf(Shelf),
     /// More of the settled.
@@ -60,7 +63,8 @@ pub enum Shelf {
 impl Row {
     fn id(&self) -> SharedString {
         match self {
-            Self::Project(p) => format!("p:{}", p.display()).into(),
+            Self::Server(h) => format!("m:{}", h.0).into(),
+            Self::Project(p) => format!("p:{}:{}", p.host.0, p.folder.display()).into(),
             Self::Session(key) => format!("s:{key}").into(),
             Self::Shelf(Shelf::Snoozed) => "h:snoozed".into(),
             Self::Shelf(Shelf::Settled) => "h:settled".into(),
@@ -70,7 +74,11 @@ impl Row {
 
     pub fn of(id: &str) -> Option<Self> {
         Some(match id.split_once(':') {
-            Some(("p", path)) => Self::Project(PathBuf::from(path)),
+            Some(("m", n)) => Self::Server(Host(n.parse().ok()?)),
+            Some(("p", place)) => {
+                let (n, path) = place.split_once(':')?;
+                Self::Project(Place::new(Host(n.parse().ok()?), path))
+            }
             Some(("s", key)) => Self::Session(key.parse().ok()?),
             Some(("h", "snoozed")) => Self::Shelf(Shelf::Snoozed),
             Some(("h", "settled")) => Self::Shelf(Shelf::Settled),
@@ -83,6 +91,11 @@ impl Row {
 /// The key a shelf's being open is kept under in `Desk::expanded`.
 fn shelf_key(shelf: Shelf) -> String {
     format!("shelf-{shelf:?}")
+}
+
+/// The key a server's row being folded is kept under in `Desk::expanded`.
+fn folded_key(host: Host) -> String {
+    format!("server-folded-{}", host.0)
 }
 
 /// What the tree's shape is: each row's id and whether it is open, to
@@ -151,6 +164,12 @@ impl Desk {
             Some(Row::Shelf(kind)) => {
                 self.expanded.remove(&shelf_key(kind));
             }
+            Some(Row::Server(host)) if open => {
+                self.expanded.remove(&folded_key(host));
+            }
+            Some(Row::Server(host)) => {
+                self.expanded.insert(folded_key(host));
+            }
             _ => return,
         }
         // The row chosen in the tree goes back to the session open.
@@ -169,7 +188,7 @@ impl Desk {
                 &tagged(&s.meta.title, &s.meta.tags),
                 s.git.pr.as_ref().map(|p| p.number),
                 s.branch.as_deref(),
-                &self.project_name(&s.meta.project),
+                &self.project_on(&Place::project_of(s)),
                 lists::used(s),
                 now,
                 true,
@@ -179,13 +198,13 @@ impl Desk {
 
     /// The sessions of `folder` its folder lists: not pinned, settled,
     /// snoozed or put away; by your last message, the latest first.
-    pub(crate) fn in_project(&self, folder: &Path) -> Vec<&Session> {
+    pub(crate) fn in_project(&self, folder: &Place) -> Vec<&Session> {
         let mut here: Vec<&Session> = self
             .sessions
             .all
             .iter()
             .filter(|s| {
-                self.listed_under(&s.meta.project) == folder
+                self.listed_under(&Place::project_of(s)) == *folder
                     && self.listed_now(s)
                     && s.meta.flags.settled.is_none()
                     && s.meta.flags.pinned.is_none()
@@ -222,7 +241,7 @@ impl Desk {
         let now = SystemTime::now();
         let secs = store::secs(now);
         let shown = |s: &&Session| {
-            (self.filter.is_empty() || self.filter.contains(&s.meta.project))
+            (self.filter.is_empty() || self.filter.contains(&Place::project_of(s)))
                 && self.answers(s, &query, now)
         };
         let leaf = |s: &Session| TreeItem::new(Row::Session(s.key).id(), s.meta.title.clone());
@@ -245,14 +264,14 @@ impl Desk {
 
         // Pinned projects first, then by your last message in any of
         // their sessions, then by name.
-        let mut folders: Vec<PathBuf> = Vec::new();
+        let mut folders: Vec<Place> = Vec::new();
         for p in self.projects() {
             let p = self.listed_under(&p);
             if !folders.contains(&p) {
                 folders.push(p);
             }
         }
-        let mut projects: Vec<(PathBuf, SystemTime)> = folders
+        let mut projects: Vec<(Place, SystemTime)> = folders
             .into_iter()
             .filter(|p| self.filter.is_empty() || self.filter.contains(p))
             .map(|p| {
@@ -260,46 +279,61 @@ impl Desk {
                     .sessions
                     .all
                     .iter()
-                    .filter(|s| self.listed_under(&s.meta.project) == p)
+                    .filter(|s| self.listed_under(&Place::project_of(s)) == p)
                     .map(|s| self.sorted_at(s))
                     .max()
                     .unwrap_or(SystemTime::UNIX_EPOCH);
                 (p, last)
             })
             .collect();
-        // Pinned first; then the latest first, or by name alone.
+        // Server by server, this Mac's first; pinned first; then the
+        // latest first, or by name alone.
         let named = self.settings.sort == Sort::Name;
         projects.sort_by(|(a, at), (b, bt)| {
             let when = |t: SystemTime| std::cmp::Reverse((!named).then_some(t));
             (
+                a.host,
                 !self.prefs(a).pinned,
                 when(*at),
                 self.project_name(a).to_lowercase(),
             )
                 .cmp(&(
+                    b.host,
                     !self.prefs(b).pinned,
                     when(*bt),
                     self.project_name(b).to_lowercase(),
                 ))
         });
-        for (folder, _) in projects {
-            let sessions: Vec<&Session> =
-                self.in_project(&folder).into_iter().filter(shown).collect();
-            if searching && sessions.is_empty() {
-                continue;
+        // Each server's under a row of its own, where there are more.
+        let grouped = self.machines.len() > 1;
+        for m in &self.machines {
+            let server_open = searching || !self.expanded.contains(&folded_key(m.host));
+            let mut under = Vec::new();
+            for (folder, _) in projects.iter().filter(|(p, _)| p.host == m.host) {
+                let sessions: Vec<&Session> =
+                    self.in_project(folder).into_iter().filter(shown).collect();
+                if searching && sessions.is_empty() {
+                    continue;
+                }
+                let open = searching || !self.closed.contains(folder);
+                if open && (server_open || !grouped) {
+                    order.extend(sessions.iter().map(|s| s.key));
+                }
+                under.push(
+                    TreeItem::new(Row::Project(folder.clone()).id(), self.project_name(folder))
+                        .expanded(open)
+                        .children(sessions.into_iter().map(leaf)),
+                );
             }
-            let open = searching || !self.closed.contains(&folder);
-            if open {
-                order.extend(sessions.iter().map(|s| s.key));
+            if !grouped {
+                items.extend(under);
+            } else if !(searching && under.is_empty()) {
+                items.push(
+                    TreeItem::new(Row::Server(m.host).id(), m.name.clone())
+                        .expanded(server_open)
+                        .children(under),
+                );
             }
-            items.push(
-                TreeItem::new(
-                    Row::Project(folder.clone()).id(),
-                    self.project_name(&folder),
-                )
-                .expanded(open)
-                .children(sessions.into_iter().map(leaf)),
-            );
         }
 
         let mut snoozed: Vec<&Session> = self
@@ -381,6 +415,7 @@ impl Desk {
                 })
             });
         match Row::of(&id) {
+            Some(Row::Server(host)) => self.server_row(&faces, item, host, entry, desk),
             Some(Row::Project(folder)) => self.project_row(&faces, item, &folder, entry, desk),
             Some(Row::Session(key)) => match self.sessions.at(key) {
                 Some(s) => self.session_row(
@@ -457,6 +492,81 @@ impl Desk {
                 .is_some_and(|t| t > store::secs(SystemTime::now()))
     }
 
+    /// A server's row, over its projects: its name; how it stands where it
+    /// is not reached (being reached, out of reach and why, or turned
+    /// away), with the way to reach it again; and the chevron at its end.
+    fn server_row(
+        &self,
+        faces: &crate::fonts::Faces,
+        item: ListItem,
+        host: Host,
+        entry: &TreeEntry,
+        desk: &Entity<Self>,
+    ) -> ListItem {
+        let Some(m) = self.machine(host) else {
+            return item;
+        };
+        let (word, colour, why) = match &m.up {
+            Up::On => (None, theme::ok(), None),
+            Up::Reaching => (Some("Reaching"), theme::faint(), None),
+            Up::Lost(why) => (Some("Offline"), theme::accent(), Some(why.clone())),
+            Up::Refused(why) => (Some("Turned away"), theme::coral(), Some(why.clone())),
+        };
+        let again = !matches!(m.up, Up::On);
+        let desk = desk.clone();
+        let state = div()
+            .id(SharedString::from(format!("server-state-{}", host.0)))
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(6.))
+            .child(ui::dot(colour))
+            .children(word.map(|w| ui::fine(faces, w)))
+            .when_some(why, |d, why| d.tooltip(ui::tip(why)));
+        item.child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(
+                    ui::icon(
+                        if host == Host::HERE {
+                            "laptop"
+                        } else {
+                            "server"
+                        },
+                        14.,
+                    )
+                    .flex_none()
+                    .text_color(theme::muted()),
+                )
+                .child(
+                    ui::one_line(
+                        ui::text(faces, m.name.clone())
+                            .text_size(px(crate::style::CAPTION))
+                            .weight(gpui::FontWeight::SEMIBOLD)
+                            .text_color(theme::muted()),
+                    )
+                    .flex_1(),
+                )
+                .child(state)
+                .when(again, |d| {
+                    d.child(
+                        Button::new(SharedString::from(format!("reach-{}", host.0)))
+                            .ghost()
+                            .xsmall()
+                            .child(ui::icon("retry", 12.))
+                            .tooltip("Reach it again")
+                            .on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                desk.update(cx, |d, cx| d.reach_again(host, cx));
+                            }),
+                    )
+                })
+                .child(chevron(entry.item().is_expanded())),
+        )
+    }
+
     /// A project's folder: its icon, its name; folded, how many sessions
     /// it hides and a dot for the one that most needs you; on hover, a new
     /// session in it; and the chevron at its end.
@@ -464,11 +574,15 @@ impl Desk {
         &self,
         faces: &crate::fonts::Faces,
         item: ListItem,
-        folder: &Path,
+        folder: &Place,
         entry: &TreeEntry,
         desk: &Entity<Self>,
     ) -> ListItem {
-        let group = SharedString::from(format!("prow-{}", folder.display()));
+        let group = SharedString::from(format!(
+            "prow-{}-{}",
+            folder.host.0,
+            folder.folder.display()
+        ));
         let open = entry.item().is_expanded();
         let hidden: Vec<&Session> = if open {
             Vec::new()
@@ -497,12 +611,8 @@ impl Desk {
             .flex_1()
             .into_any_element()
         };
-        let new = folder.to_path_buf();
-        let (desk, drop, onto) = (
-            desk.clone(),
-            desk.clone(),
-            Row::Project(folder.to_path_buf()),
-        );
+        let new = folder.clone();
+        let (desk, drop, onto) = (desk.clone(), desk.clone(), Row::Project(folder.clone()));
         item.child(
             div()
                 .id(group.clone())
@@ -559,19 +669,23 @@ impl Desk {
                         .invisible()
                         .group_hover(group.clone(), gpui::Styled::visible)
                         .child(
-                            Button::new(SharedString::from(format!("new-in-{}", folder.display())))
-                                .ghost()
-                                .xsmall()
-                                .child(ui::icon("square-pen", 14.))
-                                .accessibility_label(format!(
-                                    "New session in {}",
-                                    self.project_name(folder)
-                                ))
-                                .tooltip(format!("New session in {}", self.project_name(folder)))
-                                .on_click(move |_, window, cx| {
-                                    cx.stop_propagation();
-                                    desk.update(cx, |d, cx| d.new_in(new.clone(), window, cx));
-                                }),
+                            Button::new(SharedString::from(format!(
+                                "new-in-{}-{}",
+                                folder.host.0,
+                                folder.folder.display()
+                            )))
+                            .ghost()
+                            .xsmall()
+                            .child(ui::icon("square-pen", 14.))
+                            .accessibility_label(format!(
+                                "New session in {}",
+                                self.project_name(folder)
+                            ))
+                            .tooltip(format!("New session in {}", self.project_name(folder)))
+                            .on_click(move |_, window, cx| {
+                                cx.stop_propagation();
+                                desk.update(cx, |d, cx| d.new_in(new.clone(), window, cx));
+                            }),
                         )
                         .when(!entry.item().children.is_empty(), |d| {
                             d.child(chevron(open))
@@ -836,7 +950,7 @@ impl Desk {
                 f.settled = None;
                 f.snoozed = None;
             }),
-            Row::Shelf(Shelf::Snoozed) | Row::More => {}
+            Row::Server(_) | Row::Shelf(Shelf::Snoozed) | Row::More => {}
         }
     }
 
@@ -966,6 +1080,7 @@ impl Desk {
                     let pinned = d.prefs(&folder).pinned;
                     Plan::Project(folder, pinned)
                 }
+                Some(Row::Server(host)) => Plan::Server(host),
                 _ => return menu,
             }
         };
@@ -973,6 +1088,7 @@ impl Desk {
             Plan::Session(f) => session_menu(menu, &f, desk, window, cx),
             Plan::Chosen(keys) => chosen_menu(menu, &keys, desk, window, cx),
             Plan::Project(folder, pinned) => project_menu(menu, &folder, pinned, desk),
+            Plan::Server(host) => server_menu(menu, host, desk),
         }
     }
 
@@ -990,7 +1106,7 @@ impl Desk {
             busy,
             fork: self.can_fork(s) && !busy,
             others: if s.meta.id.is_some() {
-                self.others(&s.meta.agent)
+                self.others(s.host, &s.meta.agent)
             } else {
                 Vec::new()
             },
@@ -1012,7 +1128,8 @@ impl Desk {
 enum Plan {
     Session(Facts),
     Chosen(Vec<u64>),
-    Project(PathBuf, bool),
+    Project(Place, bool),
+    Server(Host),
 }
 
 /// What a session's menu says of it, read from the desk before it is built.
@@ -1130,7 +1247,7 @@ fn session_menu(
             "Filter by project",
             "folder",
             on(|d, key, _, cx| {
-                if let Some(p) = d.sessions.at(key).map(|s| s.meta.project.clone()) {
+                if let Some(p) = d.sessions.at(key).map(Place::project_of) {
                     d.filter = vec![d.listed_under(&p)];
                     cx.notify();
                 }
@@ -1140,7 +1257,7 @@ fn session_menu(
             "Project settings",
             "settings",
             on(|d, key, window, cx| {
-                if let Some(p) = d.sessions.at(key).map(|s| s.meta.project.clone()) {
+                if let Some(p) = d.sessions.at(key).map(Place::project_of) {
                     d.project_settings(&p, window, cx);
                 }
             }),
@@ -1281,17 +1398,17 @@ fn chosen_menu(
 
 /// What can be done with a project, as t3code's menu has it: begin a
 /// session in it, copy its path, pin it, and its settings.
-fn project_menu(menu: PopupMenu, folder: &Path, pinned: bool, desk: &Entity<Desk>) -> PopupMenu {
-    let on = |f: fn(&mut Desk, &Path, &mut Window, &mut Context<Desk>)| {
-        let (desk, folder) = (desk.clone(), folder.to_path_buf());
+fn project_menu(menu: PopupMenu, folder: &Place, pinned: bool, desk: &Entity<Desk>) -> PopupMenu {
+    let on = |f: fn(&mut Desk, &Place, &mut Window, &mut Context<Desk>)| {
+        let (desk, folder) = (desk.clone(), folder.clone());
         move |window: &mut Window, cx: &mut App| desk.update(cx, |d, cx| f(d, &folder, window, cx))
     };
     menu.item(item(
         "New session",
         "square-pen",
-        on(|d, f, window, cx| d.new_in(f.to_path_buf(), window, cx)),
+        on(|d, f, window, cx| d.new_in(f.clone(), window, cx)),
     ))
-    .item(copy_item("Copy path", folder.display().to_string()))
+    .item(copy_item("Copy path", folder.folder.display().to_string()))
     .item(item(
         if pinned {
             "Unpin project"
@@ -1306,6 +1423,18 @@ fn project_menu(menu: PopupMenu, folder: &Path, pinned: bool, desk: &Entity<Desk
         "settings",
         on(Desk::project_settings),
     ))
+}
+
+/// What can be done with a server the window holds: reach it again, see
+/// its settings.
+fn server_menu(menu: PopupMenu, host: Host, desk: &Entity<Desk>) -> PopupMenu {
+    let (again, settings) = (desk.clone(), desk.clone());
+    menu.item(item("Reach it again", "retry", move |_, cx| {
+        again.update(cx, |d, cx| d.reach_again(host, cx));
+    }))
+    .item(item("Its settings", "settings", move |window, cx| {
+        settings.update(cx, |d, cx| d.settings_of(host, window, cx));
+    }))
 }
 
 /// The ways to snooze the sessions `keys`, as menu items.
@@ -1393,7 +1522,8 @@ mod tests {
     #[test]
     fn each_row_reads_back_from_its_id() {
         for row in [
-            Row::Project(PathBuf::from("/a/b c")),
+            Row::Server(Host(3)),
+            Row::Project(Place::new(Host(2), "/a/b: c")),
             Row::Session(42),
             Row::Shelf(Shelf::Snoozed),
             Row::Shelf(Shelf::Settled),

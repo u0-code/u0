@@ -131,10 +131,11 @@ impl Desk {
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_aside(cx))),
                     );
             }
-            Page::Agent(id) => {
+            Page::Agent(host, id) => {
+                let host = *host;
                 let name = self.name_of(id);
-                let state = match self.slot(id).map(|s| &s.stage) {
-                    None if self.here.get(id).is_some_and(|h| h.missing.is_none()) => "Off",
+                let state = match self.slot(host, id).map(|s| &s.stage) {
+                    None if self.here_on(host, id).is_some_and(|h| h.missing.is_none()) => "Off",
                     Some(Stage::Missing(_)) | None => "Not installed",
                     Some(Stage::Installing(_)) => "Installing",
                     Some(Stage::Running { .. }) => "Running",
@@ -181,7 +182,7 @@ impl Desk {
         }
         let (key, pr) = (s.key, s.git.pr.is_some());
         let others = if s.meta.id.is_some() {
-            self.others(&s.meta.agent)
+            self.others(s.host, &s.meta.agent)
         } else {
             Vec::new()
         };

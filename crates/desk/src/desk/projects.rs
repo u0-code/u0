@@ -8,8 +8,11 @@ use std::path::{Path, PathBuf};
 
 use gpui::{Context, Window};
 
-use super::{Desk, Popup};
-use crate::settings::{Icon, Prefs};
+use super::{Desk, Place, Popup};
+use crate::{
+    hub::Host,
+    settings::{Icon, Prefs},
+};
 
 /// A project's icon: the one you chose, or its own icon file where it has
 /// one, else a folder.
@@ -87,6 +90,8 @@ fn made_here() -> PathBuf {
 pub struct Adding {
     pub cloning: Option<crate::hub::Install>,
     pub url: Option<String>,
+    /// The server the clone goes on on.
+    pub on: Host,
 }
 
 /// The hosts whose page of a repository (a branch, a file) names it in
@@ -178,122 +183,134 @@ impl Source {
 }
 
 impl Desk {
-    /// The icon the project `folder` shows: the one you chose, else its
-    /// own icon file.
-    pub fn icon_of(&self, folder: &Path) -> Option<Icon> {
-        self.prefs(folder)
-            .icon
-            .or_else(|| Some(Icon::Picture(self.held.get(folder)?.icon.clone()?)))
+    /// The icon the project `p` shows: the one you chose, else, on this
+    /// Mac, its own icon file.
+    pub fn icon_of(&self, p: &Place) -> Option<Icon> {
+        self.prefs(p).icon.or_else(|| {
+            let held = self.held.get(p).filter(|_| p.host == Host::HERE)?;
+            Some(Icon::Picture(held.icon.clone()?))
+        })
     }
 
-    /// Ask for a picture to be the project `folder`'s icon.
-    pub fn choose_icon(folder: &Path, cx: &mut Context<Self>) {
+    /// Ask for a picture to be the project `p`'s icon.
+    pub fn choose_icon(p: &Place, cx: &mut Context<Self>) {
         let answer = cx.prompt_for_paths(gpui::PathPromptOptions {
             files: true,
             directories: false,
             multiple: false,
             prompt: Some("Use as icon".into()),
         });
-        let folder = folder.to_path_buf();
+        let p = p.clone();
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = answer.await
                 && let Some(picture) = paths.into_iter().next()
             {
                 let _ = this.update(cx, |this, cx| {
-                    this.set_prefs(&folder, cx, |p| p.icon = Some(Icon::Picture(picture)));
+                    this.set_prefs(&p, cx, |p| p.icon = Some(Icon::Picture(picture)));
                 });
             }
         })
         .detach();
     }
 
-    /// Put the project `folder`'s mark on the colour `colour`, its letters
-    /// kept (or made from its name).
-    pub fn mark_colour(&mut self, folder: &Path, colour: u8, cx: &mut Context<Self>) {
-        let text = match self.prefs(folder).icon {
+    /// Put the project `p`'s mark on the colour `colour`, its letters kept
+    /// (or made from its name).
+    pub fn mark_colour(&mut self, p: &Place, colour: u8, cx: &mut Context<Self>) {
+        let text = match self.prefs(p).icon {
             Some(Icon::Mark { text, .. }) => text,
-            _ => monogram(&self.project_name(folder)),
+            _ => monogram(&self.project_name(p)),
         };
-        self.set_prefs(folder, cx, |p| p.icon = Some(Icon::Mark { text, colour }));
+        self.set_prefs(p, cx, |p| p.icon = Some(Icon::Mark { text, colour }));
     }
 
     /// Take away the worktree `wt`, which the session `key` works in (and
     /// any others in it): as Remove does in that session's details.
     pub fn remove_checkout(&mut self, wt: crate::git::Worktree, key: u64) {
-        self.transport.send(crate::proto::Call::Git {
+        let Some(host) = self.sessions.at(key).map(|s| s.host) else {
+            return;
+        };
+        let call = crate::proto::Call::Git {
             dir: wt.repo.clone(),
             action: crate::repo::GitAction::RemoveWorktree(wt),
-            prefix: self.settings.branch_prefix.clone(),
+            prefix: self.settings_on(host).branch_prefix.clone(),
             left_out: Vec::new(),
             key,
-        });
+        };
+        self.call(host, call);
     }
 
-    /// Change what is set for the project `folder`, and keep it.
+    /// Change what is set for the project `p`, and keep it in its server's
+    /// settings.
     pub(crate) fn set_prefs(
         &mut self,
-        folder: &Path,
+        p: &Place,
         cx: &mut Context<Self>,
         f: impl FnOnce(&mut Prefs),
     ) {
-        let mut prefs = self.prefs(folder);
+        let mut prefs = self.prefs(p);
         f(&mut prefs);
+        let all = &mut self.settings_on_mut(p.host).prefs;
         if prefs == Prefs::default() {
-            self.settings.prefs.remove(folder);
+            all.remove(&p.folder);
         } else {
-            self.settings.prefs.insert(folder.to_path_buf(), prefs);
+            all.insert(p.folder.clone(), prefs);
         }
         self.popup = Popup::Closed;
-        self.save_settings();
+        self.save_settings_on(p.host);
         cx.notify();
     }
 
-    pub fn toggle_project_pin(&mut self, folder: &Path, cx: &mut Context<Self>) {
-        self.set_prefs(folder, cx, |p| p.pinned = !p.pinned);
+    pub fn toggle_project_pin(&mut self, p: &Place, cx: &mut Context<Self>) {
+        self.set_prefs(p, cx, |p| p.pinned = !p.pinned);
     }
 
-    /// Archive the project `folder`: out of the list, its sessions with it,
+    /// Archive the project `p`: out of the list, its sessions with it,
     /// until it is restored from the settings.
-    pub fn archive_project(&mut self, folder: &Path, cx: &mut Context<Self>) {
-        self.set_prefs(folder, cx, |p| p.archived = true);
+    pub fn archive_project(&mut self, p: &Place, cx: &mut Context<Self>) {
+        self.set_prefs(p, cx, |p| p.archived = true);
     }
 
-    pub fn restore_project(&mut self, folder: &Path, cx: &mut Context<Self>) {
-        self.set_prefs(folder, cx, |p| p.archived = false);
+    pub fn restore_project(&mut self, p: &Place, cx: &mut Context<Self>) {
+        self.set_prefs(p, cx, |p| p.archived = false);
     }
 
     /// The agent new sessions in the project begin with; `None`, the one
     /// on screen or the first that can run.
-    pub fn set_project_agent(
-        &mut self,
-        folder: &Path,
-        agent: Option<String>,
-        cx: &mut Context<Self>,
-    ) {
-        self.set_prefs(folder, cx, |p| p.agent = agent);
+    pub fn set_project_agent(&mut self, p: &Place, agent: Option<String>, cx: &mut Context<Self>) {
+        self.set_prefs(p, cx, |p| p.agent = agent);
     }
 
     /// Whether new sessions in the project work in a worktree of their own.
-    pub fn set_project_worktree(&mut self, folder: &Path, on: bool, cx: &mut Context<Self>) {
-        self.set_prefs(folder, cx, |p| p.worktree = Some(on));
+    pub fn set_project_worktree(&mut self, p: &Place, on: bool, cx: &mut Context<Self>) {
+        self.set_prefs(p, cx, |p| p.worktree = Some(on));
     }
 
-    /// The folder new and cloned projects go in.
-    pub fn projects_in(&self) -> PathBuf {
-        self.settings.projects_in.clone().unwrap_or_else(made_here)
+    /// The folder new and cloned projects go in on `host`, as its settings
+    /// say; none said, ~/Documents/Ghost there (beside Ghost's home, on
+    /// another server, whose own home the desk does not know).
+    pub fn projects_in(&self, host: Host) -> PathBuf {
+        let said = self.settings_on(host).projects_in.clone();
+        said.unwrap_or_else(|| match host {
+            Host::HERE => made_here(),
+            _ => (self.home_on(host).parent())
+                .unwrap_or(std::path::Path::new("/"))
+                .join("Documents")
+                .join("Ghost"),
+        })
     }
 
-    /// Clone what was typed, `typed`, into the folder projects go in, its
-    /// progress shown; it becomes a project once cloned.
-    pub fn start_clone(&mut self, typed: &str, cx: &mut Context<Self>) {
+    /// Clone what was typed, `typed`, into the folder projects go in on
+    /// `host`, its progress shown; it becomes a project once cloned.
+    pub fn start_clone(&mut self, host: Host, typed: &str, cx: &mut Context<Self>) {
         if let Some(source) = Source::read(typed) {
-            let dir = source.dir(&self.projects_in(), self.settings.host_folders);
-            self.clone_into(source.url, dir, cx);
+            let host_folders = self.settings_on(host).host_folders;
+            let dir = source.dir(&self.projects_in(host), host_folders);
+            self.clone_into(Place::new(host, dir), source.url, cx);
         }
     }
 
-    /// Clone `url` into `dir`, unless a clone goes on already.
-    pub fn clone_into(&mut self, url: String, dir: PathBuf, cx: &mut Context<Self>) {
+    /// Clone `url` into `to`, unless a clone goes on already.
+    pub fn clone_into(&mut self, to: Place, url: String, cx: &mut Context<Self>) {
         if self.adding.cloning.is_some() {
             return;
         }
@@ -302,41 +319,56 @@ impl Desk {
             share: None,
         });
         self.adding.url = Some(url.clone());
-        self.transport.send(crate::proto::Call::Clone { url, dir });
+        self.adding.on = to.host;
+        self.call(
+            to.host,
+            crate::proto::Call::Clone {
+                url,
+                dir: to.folder,
+            },
+        );
         cx.notify();
     }
 
     pub fn cancel_clone(&mut self, cx: &mut Context<Self>) {
         if self.adding.cloning.is_some() {
-            self.transport.send(crate::proto::Call::CancelClone);
+            self.call(self.adding.on, crate::proto::Call::CancelClone);
         }
         cx.notify();
     }
 
-    /// Make the new project `name` in the folder projects go in, and
-    /// (`publish`) a private repository on GitHub for it.
-    pub fn create_project(&mut self, name: &str, publish: bool, cx: &mut Context<Self>) {
+    /// Make the new project `name` in the folder projects go in on `host`,
+    /// and (`publish`) a private repository on GitHub for it.
+    pub fn create_project(
+        &mut self,
+        host: Host,
+        name: &str,
+        publish: bool,
+        cx: &mut Context<Self>,
+    ) {
         let name = name.trim().to_owned();
         if name.is_empty() {
             return;
         }
         self.adding.url = None;
-        self.transport.send(crate::proto::Call::Create {
-            dir: self.projects_in().join(&name),
-            name,
-            publish,
-        });
+        let dir = self.projects_in(host).join(&name);
+        self.call(host, crate::proto::Call::Create { dir, name, publish });
         cx.notify();
     }
 
-    /// The folders the agents have sessions in that are not projects yet:
-    /// how many sessions each, and which agents; most first.
-    pub(crate) fn found_elsewhere(&self) -> Vec<(PathBuf, usize, Vec<String>)> {
+    /// The folders the agents on `host` have sessions in that are not
+    /// projects yet: how many sessions each, and which agents; most first.
+    pub(crate) fn found_elsewhere(&self, host: Host) -> Vec<(PathBuf, usize, Vec<String>)> {
         let projects = self.projects();
+        let prefs = &self.settings_on(host).prefs;
         let mut found = std::collections::BTreeMap::<PathBuf, (usize, Vec<String>)>::new();
-        for (agent, folders) in &self.elsewhere {
+        let Some(m) = self.machine(host) else {
+            return Vec::new();
+        };
+        for (agent, folders) in &m.elsewhere {
             for (folder, n) in folders {
-                if projects.contains(folder) || self.settings.prefs.contains_key(folder) {
+                let p = Place::new(host, folder.clone());
+                if projects.contains(&p) || prefs.contains_key(folder) {
                     continue;
                 }
                 let at = found.entry(folder.clone()).or_default();
@@ -349,7 +381,7 @@ impl Desk {
         found
     }
 
-    /// Ask for the folder new and cloned projects go in.
+    /// Ask for the folder new and cloned projects go in on this Mac.
     pub fn choose_parent(cx: &mut Context<Self>) {
         Self::ask_folder(
             "Put them here",
@@ -383,21 +415,26 @@ impl Desk {
         .detach();
     }
 
-    /// Make `dir` a project, listed with the agents' sessions in it.
-    pub(crate) fn adopt(&mut self, dir: &Path) {
-        self.settings.used(dir);
-        self.save_settings();
-        let agents: Vec<String> = self.slots.iter().map(|s| s.entry.id.clone()).collect();
+    /// Make `p` a project on its server, listed with the agents' sessions
+    /// in it.
+    pub(crate) fn adopt(&mut self, p: &Place) {
+        self.settings_on_mut(p.host).used(&p.folder);
+        self.save_settings_on(p.host);
+        let agents: Vec<String> = (self.slots.iter())
+            .filter(|s| s.host == p.host)
+            .map(|s| s.entry.id.clone())
+            .collect();
         for agent in agents {
-            self.list_sessions(&agent);
+            self.list_sessions(p.host, &agent);
         }
         self.page = super::Page::Thread;
         self.current = None;
     }
 
-    /// Fetch each project here from its remote, as often as you said
+    /// Fetch each project from its remote, as often as you said
     /// (`fetch_every`), those you said pulled on their default branch; at
-    /// the first, those you said pulled even with fetching off.
+    /// the first, those you said pulled even with fetching off. Each
+    /// server fetches its own.
     pub(crate) fn refresh_projects(&mut self) {
         let first = self.fetched.is_none();
         let due = self.settings.fetch_every.is_some_and(|m| {
@@ -408,65 +445,80 @@ impl Desk {
             return;
         }
         self.fetched = Some(std::time::Instant::now());
-        let projects: Vec<(PathBuf, bool)> = self
-            .projects()
-            .into_iter()
-            .filter(|p| !self.is_scratch(p))
-            .map(|p| {
-                let pull = self.prefs(&p).pull;
-                (p, pull)
-            })
-            .filter(|(_, pull)| due || *pull)
-            .collect();
-        if !projects.is_empty() {
-            self.transport
-                .send(crate::proto::Call::Refresh { projects });
+        for m in &self.machines {
+            let projects: Vec<(PathBuf, bool)> = self
+                .projects()
+                .into_iter()
+                .filter(|p| p.host == m.host && !self.is_scratch(p))
+                .map(|p| {
+                    let pull = self.prefs(&p).pull;
+                    (p.folder, pull)
+                })
+                .filter(|(_, pull)| due || *pull)
+                .collect();
+            if !projects.is_empty() {
+                m.send(crate::proto::Call::Refresh { projects });
+            }
         }
     }
 
-    /// Where scratch sessions are begun: one folder each, under the home.
-    pub fn scratch_dir(&self) -> PathBuf {
-        self.transport.home_there(&self.home).join("scratch")
+    /// Where scratch sessions are begun on `host`: one folder each, under
+    /// Ghost's home there.
+    pub fn scratch_dir(&self, host: Host) -> PathBuf {
+        self.home_on(host).join("scratch")
     }
 
-    /// Whether `folder` is a scratch session's, not yet named: the sidebar
+    /// Whether `p` is a scratch session's, not yet named: the sidebar
     /// lists its sessions together under Scratch, as t3code does.
-    pub fn is_scratch(&self, folder: &Path) -> bool {
-        folder.parent() == Some(self.scratch_dir().as_path()) && self.prefs(folder).name.is_none()
+    pub fn is_scratch(&self, p: &Place) -> bool {
+        p.folder.parent() == Some(self.scratch_dir(p.host).as_path())
+            && self.prefs(p).name.is_none()
     }
 
-    /// The folder the sidebar lists `folder`'s sessions under: Scratch
-    /// for a scratch session's, else its own.
-    pub fn listed_under(&self, folder: &Path) -> PathBuf {
-        if self.is_scratch(folder) {
-            self.scratch_dir()
+    /// The folder the sidebar lists `p`'s sessions under: Scratch for a
+    /// scratch session's, else its own.
+    pub fn listed_under(&self, p: &Place) -> Place {
+        if self.is_scratch(p) {
+            Place::new(p.host, self.scratch_dir(p.host))
         } else {
-            folder.to_path_buf()
+            p.clone()
         }
     }
 
-    /// Begin a session in a folder of its own, with no project yet: it is
-    /// listed under Scratch until you name it, which makes it a project where
-    /// it is, as t3code does.
+    /// Begin a session in a folder of its own, with no project yet, on the
+    /// server of the session on screen (with none, this Mac): it is listed
+    /// under Scratch until you name it, which makes it a project where it
+    /// is, as t3code does.
     pub fn new_scratch(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(folder) = self.scratch() {
-            self.new_in(folder, window, cx);
+        let host = self.session().map_or(Host::HERE, |s| s.host);
+        self.new_scratch_on(host, window, cx);
+    }
+
+    /// Begin a session on `host` in a scratch folder of its own there.
+    pub fn new_scratch_on(&mut self, host: Host, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(p) = self.scratch(host) {
+            self.new_in(p, window, cx);
         }
     }
 
-    /// Make a scratch folder, listed as Scratch: none when it could not be
-    /// made.
-    pub(crate) fn scratch(&mut self) -> Option<PathBuf> {
-        let at = crate::when::stamp(std::time::SystemTime::now());
-        let folder = self.scratch_dir().join(&at);
-        if let Err(e) = std::fs::create_dir_all(&folder) {
-            tracing::warn!("a scratch folder could not be made: {e}");
+    /// Make a scratch folder on `host`, there, listed as Scratch: none
+    /// before Ghost's home there is known.
+    pub(crate) fn scratch(&mut self, host: Host) -> Option<Place> {
+        if self.home_on(host).as_os_str().is_empty() {
             return None;
         }
-        self.settings.used(&folder);
+        let at = crate::when::stamp(std::time::SystemTime::now());
+        let folder = self.scratch_dir(host).join(&at);
+        self.call(
+            host,
+            crate::proto::Call::MakeFolder {
+                dir: folder.clone(),
+            },
+        );
+        self.settings_on_mut(host).used(&folder);
         self.popup = Popup::Closed;
-        self.save_settings();
-        Some(folder)
+        self.save_settings_on(host);
+        Some(Place::new(host, folder))
     }
 }
 

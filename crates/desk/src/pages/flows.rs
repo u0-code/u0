@@ -26,7 +26,7 @@ use crate::{
 impl Desk {
     /// The Workflows tab: the workflows, and their runs.
     pub(super) fn flows(&self, w: &WeakEntity<Desk>) -> Vec<SettingGroup> {
-        let folder = crate::workflows::folder(&self.home);
+        let folder = crate::workflows::folder(self.home_on(self.pages.on));
         let mut defs: Vec<SettingItem> = Vec::new();
         if self.flows.input.is_some() {
             defs.push(item(

@@ -127,7 +127,7 @@ impl Desk {
 
     /// The name `agent` gives the model `value`, as a session of it said.
     pub(super) fn model_name(&self, agent: &str, value: &str) -> Option<String> {
-        let options = &self.slot(agent)?.probe.as_ref()?.options;
+        let options = &self.slot(self.pages.on, agent)?.probe.as_ref()?.options;
         let option = options
             .iter()
             .find(|o| o.category == Some(Category::Model))?;

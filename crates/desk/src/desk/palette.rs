@@ -33,8 +33,10 @@ enum Act {
     Key(&'static str),
     /// One of the palette's pages, opened over it.
     Sub(Sub),
+    /// The server a project is added, cloned or made on, chosen.
+    On(crate::hub::Host),
     /// A folder to make a project, and begin a session in.
-    Adopt(PathBuf),
+    Adopt(super::Place),
     /// The system's folder picker, for a project.
     Choose,
     /// Where new and cloned projects go, chosen.
@@ -50,8 +52,8 @@ enum Act {
     Unread,
     Archive,
     Delete,
-    PinProject(PathBuf),
-    ProjectSettings(PathBuf),
+    PinProject(super::Place),
+    ProjectSettings(super::Place),
     Look(crate::settings::Look),
     /// The sessions in `Palette::snoozing`, out of the way until then.
     Snooze(super::Later),
@@ -61,16 +63,16 @@ enum Act {
     FindSetting(String),
     Go(u64),
     /// A project: its latest session not done, else a new one.
-    Open(PathBuf),
-    NewIn(PathBuf),
+    Open(super::Place),
+    NewIn(super::Place),
     /// A file to open, by its name in the project (with ":line").
     File(String),
     /// A new session in a project on a pull request's own branch, in a
     /// worktree.
-    FromPr(PathBuf, u64, String),
+    FromPr(super::Place, u64, String),
     /// A new session in a project about an issue: its number and title
     /// begin what you write.
-    FromIssue(PathBuf, u64, String),
+    FromIssue(super::Place, u64, String),
     /// A pull request or issue linked to the session on screen, or
     /// unlinked where it was.
     Link(crate::store::Link),
@@ -98,7 +100,9 @@ pub struct Palette {
     /// The pages open over its root, each with what was typed under it.
     pub pages: Vec<(Sub, String)>,
     /// The folders in each folder a path typed to add a project is in.
-    pub folders: HashMap<PathBuf, Vec<String>>,
+    pub folders: HashMap<super::Place, Vec<String>>,
+    /// The server a project is added on, cloned on or made on.
+    pub on: crate::hub::Host,
     /// How words are looked for (⇧⌘F): case, whole words, a pattern.
     pub how: crate::git::Match,
     /// The sessions its Snooze page puts out of the way.
@@ -116,6 +120,7 @@ impl Palette {
             grep: Vec::new(),
             pages: Vec::new(),
             folders: HashMap::new(),
+            on: crate::hub::Host::HERE,
             how: crate::git::Match::default(),
             snoozing: Vec::new(),
             back_to: None,
@@ -225,18 +230,19 @@ impl Desk {
 
     /// Look for `words` in the project's files (git grep), for the palette.
     pub(crate) fn search_words(&mut self, words: &str) {
-        let Some(folder) = self.palette_folder() else {
+        let Some(at) = self.palette_folder() else {
             return;
         };
         if words.trim().len() < 2 {
             self.palette.grep.clear();
             return;
         }
-        self.transport.send(crate::proto::Call::Grep {
-            folder,
+        let call = crate::proto::Call::Grep {
+            folder: at.folder,
             words: words.trim().to_owned(),
             how: self.palette.how,
-        });
+        };
+        self.call(at.host, call);
     }
 }
 
@@ -364,8 +370,7 @@ impl Desk {
             && !self.files.contains_key(&folder)
         {
             self.files.insert(folder.clone(), Vec::new());
-            self.transport
-                .send(crate::proto::Call::ListFiles { folder });
+            self.list_files(&folder);
         }
         self.palette.through = through;
         self.palette.grep.clear();
@@ -446,9 +451,9 @@ impl Desk {
 
     /// The folder the files are looked through in: the session's, else
     /// the project a new session would begin in.
-    fn palette_folder(&self) -> Option<PathBuf> {
+    fn palette_folder(&self) -> Option<super::Place> {
         self.session()
-            .map(|s| s.meta.folder.clone())
+            .map(super::Place::folder_of)
             .or_else(|| self.chosen_project())
     }
 
@@ -471,7 +476,7 @@ impl Desk {
         };
         let mut rows = Vec::new();
         if let Some(project) = self.chosen_project() {
-            let name = self.project_name(&project);
+            let name = self.project_on(&project);
             let title = format!("New session in {name}");
             let from = title.chars().count() - name.chars().count();
             rows.push(Row {
@@ -578,7 +583,7 @@ impl Desk {
     /// under its title; where it stands and when you last used it at the
     /// end.
     fn found_row(&self, s: &crate::session::Session, now: SystemTime) -> Row {
-        let mut under = vec![self.project_name(&s.meta.project)];
+        let mut under = vec![self.project_on(&super::Place::project_of(s))];
         under.extend(s.branch.clone());
         under.push(self.name_of(&s.meta.agent));
         let end = if self.current == Some(s.key) {
@@ -607,8 +612,8 @@ impl Desk {
             Through::Files => {
                 let folder = self.palette_folder();
                 let name = folder
-                    .as_deref()
-                    .map_or_else(|| "Files".to_owned(), |f| self.project_name(f));
+                    .as_ref()
+                    .map_or_else(|| "Files".to_owned(), |f| self.project_on(f));
                 let files = folder.as_ref().and_then(|f| self.files.get(f));
                 let typed = typed.trim_start_matches('@').trim_start_matches("./");
                 let rows = super::rank::paths(files.into_iter().flatten(), typed)
@@ -682,7 +687,7 @@ impl Desk {
                 .projects()
                 .into_iter()
                 .map(|p| {
-                    let title = format!("New session in {}", self.project_name(&p));
+                    let title = format!("New session in {}", self.project_on(&p));
                     Row::new("square-pen", title, Act::NewIn(p))
                 })
                 .collect();
@@ -705,10 +710,16 @@ impl Desk {
             let projects = self
                 .projects()
                 .into_iter()
-                .map(|p| Row {
-                    lead: Lead::Project(self.icon_of(&p)),
-                    words: vec![p.display().to_string()],
-                    ..Row::new("", self.project_name(&p), Act::Open(p.clone())).sub(Desk::shown(&p))
+                .map(|p| {
+                    let shown = match self.server_chip(p.host) {
+                        Some(on) => format!("{} · {on}", Desk::shown(&p.folder)),
+                        None => Desk::shown(&p.folder),
+                    };
+                    Row {
+                        lead: Lead::Project(self.icon_of(&p)),
+                        words: vec![p.folder.display().to_string()],
+                        ..Row::new("", self.project_name(&p), Act::Open(p.clone())).sub(shown)
+                    }
                 })
                 .collect();
             groups.push(("Projects", projects));
@@ -745,7 +756,7 @@ impl Desk {
                 &s.meta.title,
                 s.git.pr.as_ref().map(|p| p.number),
                 s.branch.as_deref(),
-                &self.project_name(&s.meta.project),
+                &self.project_on(&super::Place::project_of(s)),
                 lists::used(s),
                 now,
                 typos,
@@ -800,10 +811,10 @@ impl Desk {
     /// The open pull requests and issues of the project on screen, to
     /// begin a session from.
     fn github_rows(&self) -> Vec<(&'static str, Vec<Row>)> {
-        let Some(project) = self.session().map(|s| s.meta.project.clone()) else {
+        let Some(project) = self.session().map(super::Place::project_of) else {
             return Vec::new();
         };
-        let of = |map: &HashMap<PathBuf, Vec<(u64, String)>>| {
+        let of = |map: &HashMap<super::Place, Vec<(u64, String)>>| {
             map.get(&project).cloned().unwrap_or_default()
         };
         let prs = of(&self.prs)
@@ -845,18 +856,22 @@ impl Desk {
         // going on.
         match &row.act {
             Act::Sub(sub) => return self.palette_page(*sub, window, cx),
+            Act::On(host) => {
+                self.palette.on = *host;
+                return cx.notify();
+            }
 
             Act::ChooseParent => return Self::choose_parent(cx),
-            Act::Clone(url) => return self.start_clone(url, cx),
+            Act::Clone(url) => return self.start_clone(self.palette.on, url, cx),
             Act::CancelClone => return self.cancel_clone(cx),
             _ => {}
         }
         self.close_palette(window, cx);
         match row.act {
-            Act::Sub(_) | Act::ChooseParent | Act::Clone(_) | Act::CancelClone => {}
+            Act::Sub(_) | Act::On(_) | Act::ChooseParent | Act::Clone(_) | Act::CancelClone => {}
             Act::Adopt(folder) => self.add_and_begin(&folder, window, cx),
             Act::Choose => Self::add_project(window, cx),
-            Act::Make(name, publish) => self.create_project(&name, publish, cx),
+            Act::Make(name, publish) => self.create_project(self.palette.on, &name, publish, cx),
 
             Act::Key(name) => {
                 if let Some(action) = crate::keys::action(name) {

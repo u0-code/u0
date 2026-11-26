@@ -314,7 +314,7 @@ impl Desk {
                     .on_click(cx.listener(|this, _, _, cx| this.say("Continue", cx))),
                 );
                 // Or go on with another agent, the conversation with it.
-                for (id, other) in self.others(&s.meta.agent) {
+                for (id, other) in self.others(s.host, &s.meta.agent) {
                     go = go.child(
                         ui::button(
                             SharedString::from(format!("continue-{i}-{id}")),
@@ -423,7 +423,7 @@ impl Desk {
                     })),
                 );
         }
-        for (id, other) in self.others(&s.meta.agent) {
+        for (id, other) in self.others(s.host, &s.meta.agent) {
             ways = ways.child(
                 ui::button(
                     SharedString::from(format!("limit-{id}")),
@@ -497,20 +497,21 @@ impl Desk {
     pub(super) fn sign_in_card(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
         let name = self.name_of(&s.meta.agent);
         let methods: Vec<(String, String)> = self
-            .slot(&s.meta.agent)
+            .slot(s.host, &s.meta.agent)
             .into_iter()
             .flat_map(Slot::sign_ins)
             .map(|m: &agent_client_protocol::v1::schema::AuthMethod| {
                 (m.id().0.to_string(), m.name().to_owned())
             })
             .collect();
-        let busy = self.signing.as_deref() == Some(s.meta.agent.as_str());
+        let busy = (self.signing.as_ref()).is_some_and(|(h, a)| s.of(*h, a));
         let mut buttons = div().flex().flex_wrap().gap(px(6.));
         if busy {
             buttons = buttons.child(step().px(px(0.)).child(ui::live_dot()).child(
                 verb(faces, "Waiting for the sign-in to finish").text_color(theme::accent()),
             ));
         } else {
+            let host = s.host;
             for (n, (id, label)) in methods.into_iter().enumerate() {
                 let agent = s.meta.agent.clone();
                 let weight = if n == 0 {
@@ -519,12 +520,13 @@ impl Desk {
                     Weight::Secondary
                 };
                 buttons = buttons.child(
-                    ui::button(SharedString::from(format!("auth-{n}")), label, weight)
-                        .on_click(cx.listener(move |this, _, _, cx| this.sign_in(&agent, &id, cx))),
+                    ui::button(SharedString::from(format!("auth-{n}")), label, weight).on_click(
+                        cx.listener(move |this, _, _, cx| this.sign_in(host, &agent, &id, cx)),
+                    ),
                 );
             }
         }
-        let agent = s.meta.agent.clone();
+        let (host, agent) = (s.host, s.meta.agent.clone());
         div()
             .flex()
             .flex_col()
@@ -562,7 +564,7 @@ impl Desk {
                     .child(div().flex_1())
                     .child(
                         ui::button("auth-retry", "I have signed in", Weight::Quiet).on_click(
-                            cx.listener(move |this, _, _, cx| this.retry_open(&agent, cx)),
+                            cx.listener(move |this, _, _, cx| this.retry_open(host, &agent, cx)),
                         ),
                     ),
             )

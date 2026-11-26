@@ -20,6 +20,9 @@ const SCROLLBACK: usize = 5_000;
 /// A terminal's screen, of a shell the server runs.
 pub struct Terminal {
     pub id: u64,
+    /// The server its shell runs on: this Mac's, unless it is given
+    /// another.
+    pub host: crate::hub::Host,
     /// The session it was opened beside.
     pub session: u64,
     /// What it is called in its tab: the shell, or the script it was
@@ -54,6 +57,7 @@ impl Terminal {
     pub fn new(id: u64, session: u64, (rows, cols): (u16, u16)) -> Self {
         Self {
             id,
+            host: crate::hub::Host::HERE,
             session,
             title: String::new(),
             script: None,

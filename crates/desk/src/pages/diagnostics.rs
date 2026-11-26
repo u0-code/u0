@@ -85,10 +85,10 @@ impl Desk {
         };
         vec![
             group(
-                "This Mac",
-                vec![item(w, "This Mac", mac, |_, _, cx| {
+                "Ghost",
+                vec![item(w, "Ghost", mac, |_, _, cx| {
                     ui::button("diagnostics-read", "Read again", Weight::Secondary)
-                        .on_click(cx.listener(|this, _, _, _| this.diagnose()))
+                        .on_click(cx.listener(|this, _, _, _| this.diagnose(this.pages.on)))
                         .into_any_element()
                 })],
             ),
@@ -132,8 +132,8 @@ impl Desk {
                     )
                     .on_click(move |_, _, cx| {
                         stop.update(cx, |this, cx| {
-                            this.let_go(&id);
-                            this.weigh_agents();
+                            this.let_go(this.pages.on, &id);
+                            this.weigh_agents(this.pages.on);
                             cx.notify();
                         });
                     }),
@@ -143,7 +143,10 @@ impl Desk {
                         Weight::Secondary,
                     )
                     .danger()
-                    .on_click(move |_, _, cx| stop.read(cx).stop_process(pid)),
+                    .on_click(move |_, _, cx| {
+                        let d = stop.read(cx);
+                        d.stop_process(d.pages.on, pid);
+                    }),
                 };
                 ListItem::new(ix)
                     .h(px(ROW))

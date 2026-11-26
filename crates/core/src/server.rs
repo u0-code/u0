@@ -557,6 +557,15 @@ impl Server {
                 names: repo::folders(&dir),
                 dir,
             }),
+            Call::MakeFolder { dir } => {
+                let send = self.shared.send.clone();
+                acp::runtime().spawn_blocking(move || {
+                    if let Err(e) = std::fs::create_dir_all(&dir) {
+                        let what = format!("Couldn't make the folder {}", dir.display());
+                        send(Event::Notice(Err((what, e.to_string()))));
+                    }
+                });
+            }
             Call::ListFiles { folder } => self.off(move || Event::Files {
                 files: git::files(&folder),
                 folder,

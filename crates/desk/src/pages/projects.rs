@@ -2,8 +2,6 @@
 //! page, where it is named, its icon shown, the agent and the way of
 //! working its new sessions take chosen, pinned, archived, or removed.
 
-use std::path::{Path, PathBuf};
-
 use gpui::component::{
     Sizable as _,
     button::{Button, ButtonVariants as _},
@@ -16,7 +14,7 @@ use gpui::{AnyElement, Context, Div, SharedString, WeakEntity, Window, div, prel
 
 use super::prefs::{group, item, whole};
 use crate::{
-    desk::{Desk, Renaming},
+    desk::{Desk, Place, Renaming},
     fonts::Faces,
     theme, ui,
 };
@@ -39,9 +37,10 @@ impl Desk {
                 "New projects go in",
                 format!(
                     "{}: a project made or cloned in the palette.",
-                    Desk::shown(&self.projects_in())
+                    Desk::shown(&self.projects_in(self.pages.on))
                 ),
                 |_, _, cx| {
+                    // macOS's folder picker shows this Mac's folders.
                     ui::button("projects-in", "Choose…", ui::Weight::Secondary)
                         .on_click(cx.listener(|_, _, _, cx| Desk::choose_parent(cx)))
                         .into_any_element()
@@ -54,10 +53,11 @@ impl Desk {
                 |d, _, cx| {
                     Switch::new("host-folders")
                         .small()
-                        .checked(d.settings.host_folders)
+                        .checked(d.edited().host_folders)
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.settings.host_folders = !this.settings.host_folders;
-                            this.save_settings();
+                            let on = &mut this.edited_mut().host_folders;
+                            *on = !*on;
+                            this.save_edited();
                             cx.notify();
                         }))
                         .into_any_element()
@@ -72,7 +72,10 @@ impl Desk {
 
     /// The projects, each a row that opens its page.
     fn project_list(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let mut folders = self.settings.folders.clone();
+        let on = self.pages.on;
+        let mut folders: Vec<Place> = (self.edited().folders.iter())
+            .map(|f| Place::new(on, f.clone()))
+            .collect();
         folders.sort_by_key(|f| (self.prefs(f).archived, !self.prefs(f).pinned));
         div()
             .flex()
@@ -102,7 +105,7 @@ impl Desk {
                                 ui::text(faces, self.project_name(&folder))
                                     .text_size(px(crate::style::LABEL)),
                             )
-                            .child(ui::fine(faces, Desk::shown(&folder))),
+                            .child(ui::fine(faces, Desk::shown(&folder.folder))),
                     )
                     .when(prefs.pinned, |d| d.child(ui::fine(faces, "Pinned")))
                     .when(prefs.archived, |d| d.child(ui::fine(faces, "Archived")))
@@ -115,9 +118,8 @@ impl Desk {
     }
 
     /// One project's page.
-    fn project_page(&self, w: &WeakEntity<Desk>, folder: &Path) -> SettingPage {
-        let at = |f: &Path| f.to_path_buf();
-        let dir = at(folder);
+    fn project_page(&self, w: &WeakEntity<Desk>, folder: &Place) -> SettingPage {
+        let dir = folder.clone();
         let mut rows = vec![
             item(w, "Name", "What the sidebar calls it.", {
                 let dir = dir.clone();
@@ -147,7 +149,10 @@ impl Desk {
                 "New sessions",
                 "Where they work: in the folder, or a worktree of their own on a new branch.",
                 move |d, _, cx| {
-                    let worktree = d.prefs(&dir).worktree.unwrap_or(d.settings.worktree);
+                    let worktree = d
+                        .prefs(&dir)
+                        .worktree
+                        .unwrap_or(d.settings_on(dir.host).worktree);
                     let (local, own): (ui::Pick, ui::Pick) = (
                         Box::new(Self::on_project(cx, &dir, |d, f, _, cx| {
                             d.set_project_worktree(f, false, cx);
@@ -167,7 +172,7 @@ impl Desk {
         let switch =
             |id: &'static str,
              on: fn(&crate::settings::Prefs) -> bool,
-             flip: fn(&mut Desk, &Path, &mut Window, &mut Context<Desk>)| {
+             flip: fn(&mut Desk, &Place, &mut Window, &mut Context<Desk>)| {
                 let dir = dir.clone();
                 move |d: &mut Desk, _: &Faces, cx: &mut Context<Desk>| {
                     Switch::new(id)
@@ -244,7 +249,7 @@ impl Desk {
                 .into_any_element()
         });
         SettingPage::new(self.project_name(folder))
-            .description(Desk::shown(folder))
+            .description(Desk::shown(&folder.folder))
             .group(SettingGroup::new().item(back).items(rows))
             .group(group("Checkouts", self.checkouts(w, folder)))
             .group(group("Danger zone", vec![danger]))
@@ -254,7 +259,7 @@ impl Desk {
     /// renamed in.
     fn project_name_control(
         &self,
-        folder: &Path,
+        folder: &Place,
         faces: &Faces,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -275,7 +280,7 @@ impl Desk {
                     .small()
                     .label("Rename")
                     .on_click(Self::on_project(cx, folder, |d, f, window, cx| {
-                        d.begin_rename(Renaming::Project(f.to_path_buf()), window, cx);
+                        d.begin_rename(Renaming::Project(f.clone()), window, cx);
                     })),
             )
             .into_any_element()
@@ -283,19 +288,18 @@ impl Desk {
 
     /// The agent the project's new sessions begin with, and the menu of
     /// those there are.
-    fn project_agent(&self, folder: &Path, cx: &mut Context<Self>) -> AnyElement {
+    fn project_agent(&self, folder: &Place, cx: &mut Context<Self>) -> AnyElement {
         let prefs = self.prefs(folder);
         let agent_name = prefs
             .agent
             .as_deref()
             .map_or_else(|| "The one on screen".to_owned(), |a| self.name_of(a));
         let desk = cx.entity();
-        let (menu_dir, menu_agent) = (folder.to_path_buf(), prefs.agent.clone());
+        let (menu_dir, menu_agent) = (folder.clone(), prefs.agent.clone());
         let agents: Vec<(Option<String>, String)> =
             std::iter::once((None, "The one on screen".to_owned()))
                 .chain(
-                    self.slots
-                        .iter()
+                    self.slots_on(folder.host)
                         .map(|s| (Some(s.entry.id.clone()), self.name_of(&s.entry.id))),
                 )
                 .collect();
@@ -321,13 +325,13 @@ impl Desk {
 
     /// Where the project is checked out: its folder, and each of Ghost's
     /// worktrees of it, with the sessions in it, each one removable.
-    fn checkouts(&self, w: &WeakEntity<Desk>, folder: &Path) -> Vec<SettingItem> {
+    fn checkouts(&self, w: &WeakEntity<Desk>, folder: &Place) -> Vec<SettingItem> {
         let mut worktrees: Vec<(crate::git::Worktree, u64, usize)> = Vec::new();
         for s in self
             .sessions
             .all
             .iter()
-            .filter(|s| s.meta.project == folder)
+            .filter(|s| Place::project_of(s) == *folder)
         {
             let Some(wt) = &s.meta.worktree else { continue };
             match worktrees.iter_mut().find(|(w, ..)| w.path == wt.path) {
@@ -337,7 +341,7 @@ impl Desk {
         }
         let mut rows = vec![item(
             w,
-            Desk::shown(folder),
+            Desk::shown(&folder.folder),
             "The project's own folder.",
             |_, _, _| div().into_any_element(),
         )];
@@ -367,19 +371,19 @@ impl Desk {
     /// letters typed in place.
     fn icon_control(
         &self,
-        folder: &Path,
+        folder: &Place,
         icon: Option<crate::settings::Icon>,
         cx: &mut Context<Self>,
     ) -> Div {
         use crate::desk::projects::MARKS;
         let marking = matches!(&self.renaming, Some(Renaming::Mark(f)) if f == folder);
-        let (desk, dir) = (cx.entity(), folder.to_path_buf());
+        let (desk, dir) = (cx.entity(), folder.clone());
         let menu = Button::new("project-icon")
             .outline()
             .small()
             .label("Change")
             .dropdown_menu(move |mut menu, _, _| {
-                let on = |f: fn(&mut Desk, &Path, &mut Window, &mut Context<Desk>)| {
+                let on = |f: fn(&mut Desk, &Place, &mut Window, &mut Context<Desk>)| {
                     let (desk, dir) = (desk.clone(), dir.clone());
                     move |_: &gpui::ClickEvent, window: &mut Window, cx: &mut gpui::App| {
                         desk.update(cx, |d, cx| f(d, &dir, window, cx));
@@ -395,7 +399,7 @@ impl Desk {
                     )
                     .item(
                         PopupMenuItem::new("Letters or an emoji…").on_click(on(|d, f, w, cx| {
-                            d.begin_rename(Renaming::Mark(f.to_path_buf()), w, cx);
+                            d.begin_rename(Renaming::Mark(f.clone()), w, cx);
                         })),
                     )
                     .separator();
@@ -421,16 +425,22 @@ impl Desk {
     /// A listener doing `f` to the project `dir`, whatever its event.
     fn on_project<E: 'static>(
         cx: &mut Context<Desk>,
-        dir: &Path,
-        f: fn(&mut Desk, &Path, &mut Window, &mut Context<Desk>),
+        dir: &Place,
+        f: fn(&mut Desk, &Place, &mut Window, &mut Context<Desk>),
     ) -> impl Fn(&E, &mut Window, &mut gpui::App) + 'static {
-        let dir = dir.to_path_buf();
+        let dir = dir.clone();
         cx.listener(move |this, _: &E, window, cx| f(this, &dir, window, cx))
     }
 
     /// Settings → Projects, at the page of `folder`.
-    pub fn project_settings(&mut self, folder: &Path, window: &mut Window, cx: &mut Context<Self>) {
-        self.pages.project = Some(folder.to_path_buf());
+    pub fn project_settings(
+        &mut self,
+        folder: &Place,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.pages.on = folder.host;
+        self.pages.project = Some(folder.clone());
         self.open_tab(super::Tab::Projects, window, cx);
     }
 
@@ -438,7 +448,7 @@ impl Desk {
     /// sessions are forgotten here, the agents keep theirs.
     pub(crate) fn ask_remove_project(
         &mut self,
-        folder: &Path,
+        folder: &Place,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -447,7 +457,7 @@ impl Desk {
             .sessions
             .all
             .iter()
-            .filter(|s| s.meta.project == folder && s.parent.is_none())
+            .filter(|s| Place::project_of(s) == *folder && s.parent.is_none())
             .count();
         let title = format!(
             "Remove project \u{201c}{}\u{201d} and forget its {n} session{}?",
@@ -456,9 +466,9 @@ impl Desk {
         );
         let said = format!(
             "Path: {}\nGhost forgets these sessions and their records. Each agent keeps its own sessions.\nFiles on disk are not touched.\nThis cannot be undone.",
-            Desk::shown(folder)
+            Desk::shown(&folder.folder)
         );
-        let (desk, folder) = (cx.entity(), folder.to_path_buf());
+        let (desk, folder) = (cx.entity(), folder.clone());
         window.open_alert_dialog(cx, move |alert, _, _| {
             let (desk, folder) = (desk.clone(), folder.clone());
             alert
@@ -475,12 +485,12 @@ impl Desk {
 
     /// Take the project `folder` off the list, and forget its sessions
     /// and their records; their worktrees and the files are left alone.
-    fn remove_project(&mut self, folder: &Path, cx: &mut Context<Self>) {
+    fn remove_project(&mut self, folder: &Place, cx: &mut Context<Self>) {
         let keys: Vec<u64> = self
             .sessions
             .all
             .iter()
-            .filter(|s| s.meta.project == folder && s.parent.is_none())
+            .filter(|s| Place::project_of(s) == *folder && s.parent.is_none())
             .map(|s| s.key)
             .collect();
         for key in keys {
@@ -488,11 +498,12 @@ impl Desk {
             self.forget_session(key, false, cx);
         }
         self.filter.retain(|f| f != folder);
-        self.settings.forget(folder);
-        self.settings.prefs.remove(folder);
+        let settings = self.settings_on_mut(folder.host);
+        settings.forget(&folder.folder);
+        settings.prefs.remove(&folder.folder);
         self.closed.remove(folder);
-        self.pages.project = None::<PathBuf>;
-        self.save_settings();
+        self.pages.project = None;
+        self.save_settings_on(folder.host);
         self.save_index();
         cx.notify();
     }

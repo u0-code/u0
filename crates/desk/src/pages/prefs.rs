@@ -702,12 +702,8 @@ impl Desk {
                                 w,
                                 "Worktree location",
                                 format!(
-                                    "New worktrees are made in {}, on this Mac. Those made before stay where they are.",
-                                    Desk::shown(
-                                        &self.settings.worktree_folders(
-                                            self.transport.home_there(&self.home)
-                                        )[0]
-                                    )
+                                    "New worktrees are made in {}. Those made before stay where they are.",
+                                    Desk::shown(&self.worktree_folders(crate::hub::Host::HERE)[0])
                                 ),
                                 |d, _, cx| d.worktree_location(cx).into_any_element(),
                             ),

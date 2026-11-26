@@ -36,7 +36,7 @@ use crate::fonts::Weighted as _;
 use crate::{
     desk::Desk,
     fonts::Faces,
-    hub::{Slot, Stage},
+    hub::{Host, Slot, Stage},
     registry::{Missing, Way},
     session::State,
     settings::Settings,
@@ -60,6 +60,9 @@ pub struct Pages {
     /// Your snooze presets as you write them, commas between.
     pub snoozes: Entity<InputState>,
     pub recording: Option<&'static str>,
+    /// The server the pages of a server's own are of: its agents,
+    /// projects, tasks, sharing and what it keeps.
+    pub on: crate::hub::Host,
     pub sizes: Vec<(String, u64)>,
     pub tidied: Option<String>,
     pub command: Entity<InputState>,
@@ -72,7 +75,7 @@ pub struct Pages {
     /// The name of another account of an agent, as it is typed.
     pub account: Entity<InputState>,
     /// The project whose page Settings → Projects shows, if one.
-    pub project: Option<std::path::PathBuf>,
+    pub project: Option<crate::desk::Place>,
     /// Your instructions to the writer, by what it writes.
     pub changes: Entity<TextareaState>,
     pub titles: Entity<TextareaState>,
@@ -186,6 +189,7 @@ impl Pages {
                         .masked(true)
                 })
             }),
+            on: crate::hub::Host::HERE,
             shared: None,
             named_host: field("ghost.example.com", window, cx),
             named_token: cx.new(|cx| {
@@ -308,6 +312,7 @@ impl Desk {
     pub(crate) fn agent_page(
         &self,
         faces: &Faces,
+        host: Host,
         id: &str,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
@@ -323,9 +328,9 @@ impl Desk {
                 .child(ui::text(faces, "The registry does not list this agent.").mt(px(72.)))
                 .overflow_y_scrollbar();
         };
-        let enabled = self.settings.enabled.iter().any(|e| e == id);
-        let stage = self.slot(id).map_or_else(
-            || Slot::new(entry.clone(), self.here.get(id), None).stage,
+        let enabled = self.settings_on(host).enabled.iter().any(|e| e == id);
+        let stage = self.slot(host, id).map_or_else(
+            || Slot::new(host, entry.clone(), self.here_on(host, id), None).stage,
             |s| s.stage.clone(),
         );
         let name = self.name_of(id);
@@ -344,12 +349,12 @@ impl Desk {
             .sessions
             .all
             .iter()
-            .any(|s| s.meta.agent == id && s.meta.id.is_some());
+            .any(|s| s.of(host, id) && s.meta.id.is_some());
         let signing = self
             .sessions
             .all
             .iter()
-            .any(|s| s.meta.agent == id && s.state == State::SignIn);
+            .any(|s| s.of(host, id) && s.state == State::SignIn);
 
         let (headline, ready) = match &stage {
             Stage::Missing(_) => (format!("{name} isn't on this Mac yet"), false),
@@ -366,14 +371,14 @@ impl Desk {
             Stage::Running { .. } => Step::Done,
             Stage::Starting => Step::Now,
             // Let go while idle, it was heard from all the same.
-            Stage::Ready if self.slot(id).is_some_and(|s| s.known.is_some()) => Step::Done,
+            Stage::Ready if self.slot(host, id).is_some_and(|s| s.known.is_some()) => Step::Done,
             _ => Step::Todo,
         };
         let auth = self
-            .slot(id)
+            .slot(host, id)
             .map_or(crate::hub::Auth::Unknown, |s| s.auth.clone());
         let can_log_out = self
-            .slot(id)
+            .slot(host, id)
             .filter(|s| s.running())
             .and_then(Slot::caps)
             .is_some_and(|c| c.auth.logout.is_some());
@@ -384,7 +389,9 @@ impl Desk {
             crate::hub::Auth::Unknown if signing => Step::Now,
             crate::hub::Auth::Unknown => Step::Todo,
         };
-        let installed = self.here.get(&entry.id).and_then(|h| h.installed.clone());
+        let installed = self
+            .here_on(host, &entry.id)
+            .and_then(|h| h.installed.clone());
         let update = installed.as_ref().filter(|v| **v != entry.version);
         let first_step = match entry.way() {
             Way::Archive => match update {
@@ -437,14 +444,17 @@ impl Desk {
             download = download.child(ui::trouble(m.say(&name)));
         } else {
             download = download.child(
-                ui::mono(faces, Desk::shown(&entry.dir(&self.home)))
+                ui::mono(faces, Desk::shown(&entry.dir(self.home_on(host))))
                     .text_size(px(crate::style::CAPTION))
                     .text_color(theme::faint()),
             );
         }
         // The CLI it drives: yours, as your terminal has it.
-        if let Some(cli) = self.here.get(&entry.id).and_then(|h| h.cli.clone()) {
-            let version = self.cli_versions.get(&cli).cloned().unwrap_or_default();
+        if let Some(cli) = self.here_on(host, &entry.id).and_then(|h| h.cli.clone()) {
+            let version = (self.machine(host))
+                .and_then(|m| m.cli_versions.get(&cli))
+                .cloned()
+                .unwrap_or_default();
             download = download.child(ui::fine(
                 faces,
                 format!(
@@ -527,14 +537,17 @@ impl Desk {
             Stage::Installing(_) => {
                 actions = actions.child(
                     ui::button("cancel-install", "Cancel", Weight::Secondary).on_click(
-                        cx.listener(move |this, _, _, cx| this.cancel_install(&cancel_id, cx)),
+                        cx.listener(move |this, _, _, cx| {
+                            this.cancel_install(host, &cancel_id, cx);
+                        }),
                     ),
                 );
             }
             Stage::Missing(Missing::Download) => {
                 actions = actions.child(
-                    ui::button("install", format!("Install {name}"), Weight::Primary)
-                        .on_click(cx.listener(move |this, _, _, cx| this.install(&install_id, cx))),
+                    ui::button("install", format!("Install {name}"), Weight::Primary).on_click(
+                        cx.listener(move |this, _, _, cx| this.install(host, &install_id, cx)),
+                    ),
                 );
             }
             Stage::Missing(Missing::Runner(runner)) => {
@@ -547,7 +560,7 @@ impl Desk {
                 actions = actions
                     .child(
                         ui::button("recheck", "Try again", Weight::Secondary).on_click(
-                            cx.listener(move |this, _, _, cx| this.recheck(&recheck_id, cx)),
+                            cx.listener(move |this, _, _, cx| this.recheck(host, &recheck_id, cx)),
                         ),
                     )
                     .child(
@@ -557,8 +570,9 @@ impl Desk {
             }
             Stage::Failed(_) => {
                 actions = actions.child(
-                    ui::button("recheck", "Try again", Weight::Secondary)
-                        .on_click(cx.listener(move |this, _, _, cx| this.recheck(&recheck_id, cx))),
+                    ui::button("recheck", "Try again", Weight::Secondary).on_click(
+                        cx.listener(move |this, _, _, cx| this.recheck(host, &recheck_id, cx)),
+                    ),
                 );
             }
             _ if enabled => {
@@ -581,31 +595,33 @@ impl Desk {
                     format!("Update to {}", entry.version),
                     Weight::Secondary,
                 )
-                .on_click(cx.listener(move |this, _, _, cx| this.install(&update_id, cx))),
+                .on_click(cx.listener(move |this, _, _, cx| this.install(host, &update_id, cx))),
             );
         }
         if matches!(auth, crate::hub::Auth::Needed(_)) {
             let (a, b) = (id.to_owned(), id.to_owned());
             actions = actions
                 .child(
-                    ui::button("page-sign-in", "Sign in", Weight::Primary)
-                        .on_click(cx.listener(move |this, _, _, cx| this.sign_in_agent(&a, cx))),
+                    ui::button("page-sign-in", "Sign in", Weight::Primary).on_click(
+                        cx.listener(move |this, _, _, cx| this.sign_in_agent(host, &a, cx)),
+                    ),
                 )
                 .child(
-                    ui::button("page-signed-in", "I've signed in", Weight::Quiet)
-                        .on_click(cx.listener(move |this, _, _, cx| this.recheck_auth(&b, cx))),
+                    ui::button("page-signed-in", "I've signed in", Weight::Quiet).on_click(
+                        cx.listener(move |this, _, _, cx| this.recheck_auth(host, &b, cx)),
+                    ),
                 );
         } else if can_log_out && auth == crate::hub::Auth::Ready && !busy {
             let a = id.to_owned();
             actions = actions.child(
                 ui::button("log-out", "Log out", Weight::Quiet)
-                    .on_click(cx.listener(move |this, _, _, cx| this.log_out(&a, cx))),
+                    .on_click(cx.listener(move |this, _, _, cx| this.log_out(host, &a, cx))),
             );
         }
         if installed.is_some() && !busy && !matches!(stage, Stage::Installing(_)) {
             actions = actions.child(
                 ui::button("uninstall", "Uninstall", Weight::Quiet).on_click(cx.listener(
-                    move |this, _, window, cx| this.uninstall(&uninstall_id, window, cx),
+                    move |this, _, window, cx| this.uninstall(host, &uninstall_id, window, cx),
                 )),
             );
         }
@@ -620,7 +636,7 @@ impl Desk {
                 if enabled { "Turn off" } else { "Turn on" },
                 toggle_weight,
             )
-            .on_click(cx.listener(move |this, _, _, cx| this.toggle_agent(&toggle_id, cx))),
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_agent(host, &toggle_id, cx))),
         );
 
         let trouble = match &stage {
@@ -662,7 +678,7 @@ impl Desk {
                 .child(steps)
                 .children(trouble.map(ui::trouble))
                 .child(actions)
-                .child(self.agent_own(faces, id, &stage, cx)),
+                .child(self.agent_own(faces, host, id, &stage, cx)),
         )
         .overflow_y_scrollbar()
     }
@@ -670,10 +686,17 @@ impl Desk {
     /// What you set for an agent: a command line of your own that starts
     /// it, and model ids of your own beside those it lists; and a warning
     /// where it speaks another version of ACP than Ghost.
-    fn agent_own(&self, faces: &Faces, id: &str, stage: &Stage, cx: &mut Context<Self>) -> Div {
+    fn agent_own(
+        &self,
+        faces: &Faces,
+        host: Host,
+        id: &str,
+        stage: &Stage,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let field = |input: &Entity<InputState>| div().flex_1().child(Input::new(input).small());
         let (a, b, c) = (id.to_owned(), id.to_owned(), id.to_owned());
-        let tools = !self.settings.no_tools.iter().any(|t| t == id);
+        let tools = !self.settings_on(host).no_tools.iter().any(|t| t == id);
         let mut own = div()
             .flex()
             .flex_col()
@@ -689,12 +712,12 @@ impl Desk {
                             .small()
                             .checked(tools)
                             .on_click(cx.listener(move |this, _, _, cx| {
-                                let off = &mut this.settings.no_tools;
+                                let off = &mut this.settings_on_mut(host).no_tools;
                                 match off.iter().position(|t| *t == c) {
                                     Some(at) => drop(off.remove(at)),
                                     None => off.push(c.clone()),
                                 }
-                                this.save_settings();
+                                this.save_settings_on(host);
                                 cx.notify();
                             })),
                     ),
@@ -712,12 +735,12 @@ impl Desk {
                     .child(field(&self.pages.command))
                     .child(
                         ui::button("save-command", "Use this command", Weight::Secondary)
-                            .on_click(cx.listener(move |this, _, _, cx| this.save_command(&a, cx))),
+                            .on_click(cx.listener(move |this, _, _, cx| this.save_command(host, &a, cx))),
                     ),
             )
             .child(ui::fine(
                 faces,
-                match self.settings.commands.get(id) {
+                match self.settings_on(host).commands.get(id) {
                     Some(c) => format!("Started with `{c}`; clear it to go back to the registry's way."),
                     None => "A command of yours starts it instead of the registry's way (your own build, a version manager's): it must speak ACP on its standard input and output.".to_owned(),
                 },
@@ -730,7 +753,7 @@ impl Desk {
                     .child(field(&self.pages.model))
                     .child(
                         ui::button("add-model", "Add a model", Weight::Secondary)
-                            .on_click(cx.listener(move |this, _, window, cx| this.add_model(&b, window, cx))),
+                            .on_click(cx.listener(move |this, _, window, cx| this.add_model(host, &b, window, cx))),
                     ),
             );
         let mut models = div().flex().flex_wrap().gap(px(6.));
@@ -762,9 +785,9 @@ impl Desk {
                             "Take it out",
                         )
                         .size(px(18.))
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.drop_model(&agent, &model, cx)),
-                        ),
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.drop_model(host, &agent, &model, cx);
+                        })),
                     ),
             );
         }
@@ -772,11 +795,11 @@ impl Desk {
             faces,
             "Model ids of yours are offered in the composer beside those the agent lists; the agent may refuse one it does not know.",
         ));
-        own = own.child(self.agent_vars(faces, id, cx));
-        own = own.child(self.agent_accounts(faces, id, cx));
+        own = own.child(self.agent_vars(faces, host, id, cx));
+        own = own.child(self.agent_accounts(faces, host, id, cx));
         // The version of ACP it speaks, where it is not Ghost's.
         if let Stage::Running { .. } = stage
-            && let Some(init) = self.slot(id).and_then(|s| s.known.as_ref())
+            && let Some(init) = self.slot(host, id).and_then(|s| s.known.as_ref())
             && init.protocol_version != agent_client_protocol::schema::ProtocolVersion::V1
         {
             own = own.child(ui::trouble(format!(
@@ -791,13 +814,13 @@ impl Desk {
     /// The accounts of the agent `id`: each signs in apart, its CLI's
     /// settings in a folder of its own; a line to add one. None where
     /// Ghost does not know where its CLI keeps them.
-    fn agent_accounts(&self, faces: &Faces, id: &str, cx: &mut Context<Self>) -> Div {
+    fn agent_accounts(&self, faces: &Faces, host: Host, id: &str, cx: &mut Context<Self>) -> Div {
         let agent = crate::registry::instance(id).0.to_owned();
         if crate::registry::known(&agent).and_then(|k| k.4).is_none() {
             return div();
         }
         let mut list = card().overflow_hidden();
-        let accounts: Vec<&String> = (self.settings.enabled.iter())
+        let accounts: Vec<&String> = (self.settings_on(host).enabled.iter())
             .filter(|e| crate::registry::instance(e).0 == agent && **e != agent)
             .collect();
         for (n, account) in accounts.iter().enumerate() {
@@ -821,12 +844,16 @@ impl Desk {
                                     .text_size(px(crate::style::LABEL)),
                             )
                             .on_click(cx.listener(move |this, _, window, cx| {
-                                this.open_page(crate::desk::Page::Agent(open.clone()), window, cx);
+                                this.open_page(
+                                    crate::desk::Page::Agent(host, open.clone()),
+                                    window,
+                                    cx,
+                                );
                             })),
                     )
                     .child(ui::fine(
                         faces,
-                        match self.slot(account).map(|s| &s.auth) {
+                        match self.slot(host, account).map(|s| &s.auth) {
                             Some(crate::hub::Auth::Ready) => "signed in",
                             Some(crate::hub::Auth::Needed(_)) => "needs sign-in",
                             _ => "",
@@ -841,7 +868,7 @@ impl Desk {
                         .size(px(22.))
                         .on_click(cx.listener(
                             move |this, _, window, cx| {
-                                this.drop_account(&drop, window, cx);
+                                this.drop_account(host, &drop, window, cx);
                             },
                         )),
                     ),
@@ -863,7 +890,7 @@ impl Desk {
                     .child(div().w(px(180.)).child(Input::new(&self.pages.account).small()))
                     .child(
                         ui::button("add-account", "Add an account", Weight::Secondary).on_click(
-                            cx.listener(move |this, _, window, cx| this.add_account(&base, window, cx)),
+                            cx.listener(move |this, _, window, cx| this.add_account(host, &base, window, cx)),
                         ),
                     ),
             )
@@ -875,47 +902,55 @@ impl Desk {
 
     /// The variables the agent `id` starts with, a secret one's value
     /// hidden (it is in the Keychain, not here); and a line to add one.
-    fn agent_vars(&self, faces: &Faces, id: &str, cx: &mut Context<Self>) -> Div {
+    fn agent_vars(&self, faces: &Faces, host: Host, id: &str, cx: &mut Context<Self>) -> Div {
         let mut list = card().overflow_hidden();
-        for (n, (name, value)) in self.settings.env.get(id).into_iter().flatten().enumerate() {
+        for (n, (name, value)) in self
+            .settings_on(host)
+            .env
+            .get(id)
+            .into_iter()
+            .flatten()
+            .enumerate()
+        {
             let (agent, var) = (id.to_owned(), name.clone());
-            list = list.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .px(px(12.))
-                    .py(px(6.))
-                    .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
-                    .child(ui::mono(faces, name.clone()).text_size(px(crate::style::CAPTION)))
-                    .child(
-                        ui::one_line(ui::mono(
-                            faces,
-                            value.clone().unwrap_or_else(|| "••••••••".into()),
-                        ))
-                        .flex_1()
-                        .text_color(theme::muted()),
-                    )
-                    .child(ui::fine(
-                        faces,
-                        if value.is_some() {
-                            "Plain text"
-                        } else {
-                            "In the Keychain"
-                        },
-                    ))
-                    .child(
-                        ui::icon_button(
-                            SharedString::from(format!("drop-var-{n}")),
-                            "x",
-                            "Take it out",
+            list =
+                list.child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .px(px(12.))
+                        .py(px(6.))
+                        .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
+                        .child(ui::mono(faces, name.clone()).text_size(px(crate::style::CAPTION)))
+                        .child(
+                            ui::one_line(ui::mono(
+                                faces,
+                                value.clone().unwrap_or_else(|| "••••••••".into()),
+                            ))
+                            .flex_1()
+                            .text_color(theme::muted()),
                         )
-                        .size(px(22.))
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.drop_var(&agent, &var, cx)),
+                        .child(ui::fine(
+                            faces,
+                            if value.is_some() {
+                                "Plain text"
+                            } else {
+                                "In the Keychain"
+                            },
+                        ))
+                        .child(
+                            ui::icon_button(
+                                SharedString::from(format!("drop-var-{n}")),
+                                "x",
+                                "Take it out",
+                            )
+                            .size(px(22.))
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| this.drop_var(host, &agent, &var, cx),
+                            )),
                         ),
-                    ),
-            );
+                );
         }
         let agent = id.to_owned();
         let secret = self.pages.var_secret;
@@ -925,7 +960,7 @@ impl Desk {
             .gap(px(10.))
             .pt(px(8.))
             .child(ui::label(faces, "Variables"))
-            .when(self.settings.env.contains_key(id), |d| d.child(list))
+            .when(self.settings_on(host).env.contains_key(id), |d| d.child(list))
             .child(
                 div()
                     .flex()
@@ -950,7 +985,7 @@ impl Desk {
                     )
                     .child(
                         ui::button("add-var", "Add", Weight::Secondary)
-                            .on_click(cx.listener(move |this, _, window, cx| this.add_var(&agent, window, cx))),
+                            .on_click(cx.listener(move |this, _, window, cx| this.add_var(host, &agent, window, cx))),
                     ),
             )
             .child(ui::fine(

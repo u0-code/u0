@@ -4,7 +4,6 @@
 
 use std::{
     collections::HashSet,
-    path::PathBuf,
     time::{Duration, Instant, SystemTime},
 };
 
@@ -29,9 +28,9 @@ pub enum Renaming {
     /// top bar.
     Session { key: u64, here: bool },
     /// A project, in the sidebar.
-    Project(PathBuf),
+    Project(super::Place),
     /// A project's mark: its letters, or an emoji.
-    Mark(PathBuf),
+    Mark(super::Place),
 }
 
 /// The search over sessions: what is typed, and the sessions whose
@@ -543,55 +542,69 @@ impl Desk {
         let Some(s) = self.sessions.at(key) else {
             return;
         };
-        let (agent, id) = (s.meta.agent.clone(), s.meta.id.clone());
+        let (host, agent, id) = (s.host, s.meta.agent.clone(), s.meta.id.clone());
         let Some(id) = id else {
             self.forget_session(key, false, cx);
             return;
         };
-        if !self.can_delete(&agent) {
-            self.gone.push((agent, id.0.to_string()));
+        if !self.can_delete(host, &agent) {
+            if let Some(m) = self.machine_mut(host) {
+                m.gone.push((agent, id.0.to_string()));
+            }
             self.forget_session(key, true, cx);
             return;
         }
-        if self.slot(&agent).is_some_and(hub::Slot::running) {
-            self.transport.send(Call::Delete {
+        if self.slot(host, &agent).is_some_and(hub::Slot::running) {
+            let call = Call::Delete {
                 agent,
                 key,
                 session: id,
-            });
+            };
+            self.call(host, call);
         } else {
-            self.waiting.push((agent.clone(), Waiting::Delete(key)));
-            self.start_for(&agent);
+            self.waiting
+                .push((host, agent.clone(), Waiting::Delete(key)));
+            self.start_for(host, &agent);
         }
+    }
+
+    /// The server the session `key` is on, while its agent runs there.
+    fn running_host(&self, key: u64) -> Option<crate::hub::Host> {
+        let s = self.sessions.at(key)?;
+        self.slot(s.host, &s.meta.agent)
+            .is_some_and(hub::Slot::running)
+            .then_some(s.host)
     }
 
     /// Do what waited for an agent to start.
     pub(crate) fn do_waiting(&mut self, waiting: Waiting) {
         match waiting {
             Waiting::Branch(key, upto) => {
-                if let Some(s) = self.sessions.at(key)
+                if let Some(host) = self.running_host(key)
+                    && let Some(s) = self.sessions.at(key)
                     && let Some(id) = s.meta.id.clone()
-                    && self.slot(&s.meta.agent).is_some_and(hub::Slot::running)
                 {
-                    self.transport.send(Call::Fork {
+                    let call = Call::Fork {
                         agent: s.meta.agent.clone(),
                         from: key,
                         session: id,
                         folder: s.meta.folder.clone(),
                         upto,
-                    });
+                    };
+                    self.call(host, call);
                 }
             }
             Waiting::Delete(key) => {
-                if let Some(s) = self.sessions.at(key)
+                if let Some(host) = self.running_host(key)
+                    && let Some(s) = self.sessions.at(key)
                     && let Some(id) = s.meta.id.clone()
-                    && self.slot(&s.meta.agent).is_some_and(hub::Slot::running)
                 {
-                    self.transport.send(Call::Delete {
+                    let call = Call::Delete {
                         agent: s.meta.agent.clone(),
                         key,
                         session: id,
-                    });
+                    };
+                    self.call(host, call);
                 }
             }
             Waiting::Write(key, ask) => self.ask_writer(key, ask),
@@ -606,10 +619,10 @@ impl Desk {
                 .at(*key)
                 .map(|s| s.meta.title.clone())
                 .unwrap_or_default(),
-            Renaming::Project(folder) => self.project_name(folder),
-            Renaming::Mark(folder) => match self.prefs(folder).icon {
+            Renaming::Project(p) => self.project_name(p),
+            Renaming::Mark(p) => match self.prefs(p).icon {
                 Some(crate::settings::Icon::Mark { text, .. }) => text,
-                _ => super::projects::monogram(&self.project_name(folder)),
+                _ => super::projects::monogram(&self.project_name(p)),
             },
         };
         self.popup = super::Popup::Closed;
@@ -670,7 +683,7 @@ impl Desk {
     pub fn can_fork(&self, s: &Session) -> bool {
         s.meta.id.is_some()
             && self
-                .slot(&s.meta.agent)
+                .slot(s.host, &s.meta.agent)
                 .and_then(crate::hub::Slot::caps)
                 .is_some_and(|k| k.session_capabilities.fork.is_some())
     }
@@ -682,11 +695,11 @@ impl Desk {
         self.branch(key, None, cx);
     }
 
-    /// The other agents a session of `agent` could go on with: each that
-    /// can run, by id and name.
-    pub(crate) fn others(&self, agent: &str) -> Vec<(String, String)> {
+    /// The other agents on `host` a session of `agent` there could go on
+    /// with: each that can run, by id and name.
+    pub(crate) fn others(&self, host: crate::hub::Host, agent: &str) -> Vec<(String, String)> {
         (self.slots.iter())
-            .filter(|s| s.entry.id != agent && s.usable())
+            .filter(|s| s.host == host && s.entry.id != agent && s.usable())
             .map(|s| (s.entry.id.clone(), s.entry.name.clone()))
             .collect()
     }
@@ -703,14 +716,15 @@ impl Desk {
         let (title, folder, project) = (
             origin.meta.title.clone(),
             origin.meta.folder.clone(),
-            origin.meta.project.clone(),
+            super::Place::project_of(origin),
         );
+        let host = project.host;
         let new = self.sessions.take_key();
         let mut s = self.begun_in(new, agent, project);
         s.wants_worktree = false;
         if s.meta.folder != folder {
             s.meta.folder.clone_from(&folder);
-            self.transport.send(Call::Look { folder, key: new });
+            self.call(host, Call::Look { folder, key: new });
         }
         let token = mention::token_of(&title);
         s.meta.unsent = format!("Go on with the work in {token} ");
@@ -825,7 +839,7 @@ impl Desk {
             && let Some(turn) = s.turn_of(item)
             && let Some(before) = s.turns.get(turn).and_then(|t| t.before.clone())
         {
-            self.transport.send(Call::Restore {
+            let call = Call::Restore {
                 dir: s.meta.folder.clone(),
                 target: before,
                 name: format!("{}/{turn}-rewind", s.uid()),
@@ -834,7 +848,8 @@ impl Desk {
                 turn,
                 undo: true,
                 no_spacing: self.settings.no_spacing,
-            });
+            };
+            self.call(s.host, call);
         }
         match point {
             Some(point) => {
@@ -863,15 +878,16 @@ impl Desk {
     }
 
     fn branch(&mut self, key: u64, upto: Option<(usize, MessageId)>, cx: &mut Context<Self>) {
-        let Some(agent) = self.sessions.at(key).map(|s| s.meta.agent.clone()) else {
+        let Some((host, agent)) = (self.sessions.at(key)).map(|s| (s.host, s.meta.agent.clone()))
+        else {
             return;
         };
-        if self.slot(&agent).is_some_and(hub::Slot::running) {
+        if self.slot(host, &agent).is_some_and(hub::Slot::running) {
             self.do_waiting(Waiting::Branch(key, upto));
         } else {
             self.waiting
-                .push((agent.clone(), Waiting::Branch(key, upto)));
-            self.start_for(&agent);
+                .push((host, agent.clone(), Waiting::Branch(key, upto)));
+            self.start_for(host, &agent);
         }
         cx.notify();
     }
@@ -957,12 +973,13 @@ impl Desk {
         // where it was branched off.
         if let Some(id) = origin.meta.id {
             self.flush(from);
-            self.transport.send(Call::CopyRecord {
+            let call = Call::CopyRecord {
                 agent: origin.meta.agent,
                 from: id,
                 to: r.session_id.clone(),
                 yours,
-            });
+            };
+            self.call(origin.host, call);
             s.recorded = true;
         }
         self.sessions.all.push(s);
@@ -1027,13 +1044,13 @@ impl Desk {
         self.send_in(key, "Carry out the plan.", cx);
     }
 
-    /// Show the project `folder` in the sidebar among those chosen, or no
+    /// Show the project `p` in the sidebar among those chosen, or no
     /// longer; with none chosen, all are shown.
-    pub fn toggle_filter(&mut self, folder: &std::path::Path, cx: &mut Context<Self>) {
-        if let Some(at) = self.filter.iter().position(|f| f == folder) {
+    pub fn toggle_filter(&mut self, p: &super::Place, cx: &mut Context<Self>) {
+        if let Some(at) = self.filter.iter().position(|f| f == p) {
             self.filter.remove(at);
         } else {
-            self.filter.push(folder.to_path_buf());
+            self.filter.push(p.clone());
         }
         cx.notify();
     }
@@ -1058,8 +1075,15 @@ impl Desk {
                 self.search.found.insert(s.key);
             }
         }
-        let records: Vec<_> = (self.sessions.all.iter())
-            .filter_map(|s| Some((s.key, s.meta.agent.clone(), s.meta.id.clone()?)))
+        // Each server searches the records it keeps.
+        let records: Vec<(crate::hub::Host, Vec<_>)> = (self.machines.iter())
+            .map(|m| {
+                let there = (self.sessions.all.iter()).filter(|s| s.host == m.host);
+                let records = there
+                    .filter_map(|s| Some((s.key, s.meta.agent.clone(), s.meta.id.clone()?)))
+                    .collect();
+                (m.host, records)
+            })
             .collect();
         cx.spawn(async move |this, cx| {
             cx.background_executor()
@@ -1067,26 +1091,34 @@ impl Desk {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.search.input.read(cx).value().trim().to_lowercase() == query {
-                    this.transport.send(Call::Search { query, records });
+                    for (host, records) in records {
+                        let query = query.clone();
+                        this.call(host, Call::Search { query, records });
+                    }
                 }
             });
         })
         .detach();
     }
 
-    /// Settle what has been left as many days as you said, unless it is
-    /// pinned or settled, or has a pull request open and you said to keep
-    /// those.
+    /// Settle what has been left as many days as its server's settings
+    /// say, unless it is pinned or settled, or has a pull request open and
+    /// they say to keep those.
     /// The sessions settled so come back, for what runs as they settle.
     pub(crate) fn settle_idle(&mut self) -> Vec<u64> {
-        let Some(days) = self.settings.settle_days else {
-            return Vec::new();
-        };
-        let after = Duration::from_secs(u64::from(days) * 24 * 3600);
+        let rules: Vec<(crate::hub::Host, Option<u32>, bool)> = (self.machines.iter())
+            .map(|m| {
+                let s = self.settings_on(m.host);
+                (m.host, s.settle_days, s.keep_with_pr)
+            })
+            .collect();
         let now = SystemTime::now();
-        let keep_with_pr = self.settings.keep_with_pr;
         let mut settled = Vec::new();
         for s in &mut self.sessions.all {
+            let Some(&(_, Some(days), keep_with_pr)) = rules.iter().find(|r| r.0 == s.host) else {
+                continue;
+            };
+            let after = Duration::from_secs(u64::from(days) * 24 * 3600);
             let idle = now.duration_since(s.meta.updated).unwrap_or_default() >= after;
             let open_pr = s.git.pr.as_ref().is_some_and(|p| p.state == "open");
             if idle
@@ -1115,7 +1147,7 @@ impl Desk {
             && !s.meta.flags.archived
             && !self.deleting(s.key)
             && s.meta.flags.snoozed.is_none_or(|t| t <= now)
-            && !self.prefs(&s.meta.project).archived
+            && !self.prefs(&super::Place::project_of(s)).archived
     }
 }
 

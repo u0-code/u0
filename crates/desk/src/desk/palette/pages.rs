@@ -60,12 +60,10 @@ impl Sub {
     }
 }
 
-/// A path as typed (`~/a/b`), whole.
-fn expand(typed: &str) -> PathBuf {
+/// A path as typed (`~/a/b`), whole, `~` being `home`.
+fn expand(typed: &str, home: &Path) -> PathBuf {
     match typed.strip_prefix('~') {
-        Some(rest) => Desk::home_path()
-            .unwrap_or_default()
-            .join(rest.trim_start_matches('/')),
+        Some(rest) => home.join(rest.trim_start_matches('/')),
         None => PathBuf::from(typed),
     }
 }
@@ -75,19 +73,34 @@ fn is_path(typed: &str) -> bool {
     typed.starts_with('/') || typed.starts_with('~')
 }
 
-/// The folder a path typed is in, and the start of the name typed in it.
-fn split_path(typed: &str) -> (PathBuf, String) {
+/// The folder a path typed is in (`~` being `home`), and the start of the
+/// name typed in it.
+fn split_path(typed: &str, home: &Path) -> (PathBuf, String) {
     let (dir, start) = typed.rsplit_once('/').unwrap_or((typed, ""));
-    (expand(&format!("{dir}/")), start.to_lowercase())
+    (expand(&format!("{dir}/"), home), start.to_lowercase())
 }
 
 impl Desk {
+    /// Your home on the server a project is added on: on another server,
+    /// the folder Ghost's home there is in, as the desk knows no other.
+    fn palette_home(&self) -> PathBuf {
+        match self.palette.on {
+            crate::hub::Host::HERE => Desk::home_path().unwrap_or_default(),
+            on => (self.home_on(on).parent())
+                .map(Path::to_path_buf)
+                .unwrap_or_default(),
+        }
+    }
+
     /// Open the page `sub` over what the palette shows, what was typed
-    /// kept to come back to.
+    /// kept to come back to. Projects are added on the server of the
+    /// session on screen, until another is chosen.
     pub(super) fn palette_page(&mut self, sub: Sub, window: &mut Window, cx: &mut Context<Self>) {
         let typed = self.palette.state.read(cx).query(cx).to_string();
         self.palette.pages.push((sub, typed));
-
+        if matches!(sub, Sub::Add | Sub::Clone | Sub::Make) && self.palette.pages.len() == 1 {
+            self.palette.on = self.session().map_or(crate::hub::Host::HERE, |s| s.host);
+        }
         self.palette
             .state
             .update(cx, |s, cx| s.set_query("", window, cx));
@@ -158,7 +171,7 @@ impl Desk {
                     ..
                 }) = row
                 {
-                    let shown = format!("{}/", Desk::shown(&folder));
+                    let shown = format!("{}/", Desk::shown(&folder.folder));
                     self.palette
                         .state
                         .update(cx, |s, cx| s.set_query(shown, window, cx));
@@ -166,7 +179,8 @@ impl Desk {
             }
             "enter" if sub == Sub::Add && m.platform && is_path(&typed) => {
                 self.close_palette(window, cx);
-                self.add_and_begin(&expand(&typed), window, cx);
+                let at = at_on(self.palette.on, expand(&typed, &self.palette_home()));
+                self.add_and_begin(&at, window, cx);
             }
             _ => return false,
         }
@@ -180,38 +194,37 @@ impl Desk {
             self.search_words(typed);
         }
         if self.palette.pages.last().is_some_and(|p| p.0 == Sub::Add) && is_path(typed) {
-            let (dir, _) = split_path(typed);
-            if !self.palette.folders.contains_key(&dir) {
-                self.palette.folders.insert(dir.clone(), Vec::new());
-                self.transport.send(crate::proto::Call::Folders { dir });
+            let (dir, _) = split_path(typed, &self.palette_home());
+            let at = super::super::Place::new(self.palette.on, dir);
+            if !self.palette.folders.contains_key(&at) {
+                self.palette.folders.insert(at.clone(), Vec::new());
+                self.call(at.host, crate::proto::Call::Folders { dir: at.folder });
             }
         }
     }
 
-    /// Make `folder` a project, as t3code adds one: made where it is
-    /// missing, never twice, taken out of the archive; then its latest
-    /// session not done, or a new one.
+    /// Make `p` a project on its server, as t3code adds one: made there
+    /// where it is missing, never twice, taken out of the archive; then
+    /// its latest session not done, or a new one.
     pub(crate) fn add_and_begin(
         &mut self,
-        folder: &Path,
+        p: &super::super::Place,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Err(e) = std::fs::create_dir_all(folder) {
-            self.trouble("Couldn't make the folder", Some(e.to_string()), None);
-            return;
+        let dir = p.folder.clone();
+        self.call(p.host, crate::proto::Call::MakeFolder { dir });
+        if self.prefs(p).archived {
+            self.restore_project(p, cx);
         }
-        if self.prefs(folder).archived {
-            self.restore_project(folder, cx);
-        }
-        self.adopt(folder);
-        self.open_project(folder, window, cx);
+        self.adopt(p);
+        self.open_project(p, window, cx);
     }
 
     /// A project's latest session not done, or a new one in it.
     pub(crate) fn open_project(
         &mut self,
-        folder: &Path,
+        p: &super::super::Place,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -220,13 +233,16 @@ impl Desk {
             .all
             .iter()
             .filter(|s| {
-                s.meta.project == folder && self.listed_now(s) && s.meta.flags.settled.is_none()
+                s.host == p.host
+                    && s.meta.project == p.folder
+                    && self.listed_now(s)
+                    && s.meta.flags.settled.is_none()
             })
             .max_by_key(|s| super::lists::used(s))
             .map(|s| s.key);
         match latest {
             Some(key) => self.show(key, window, cx),
-            None => self.new_in(folder.to_path_buf(), window, cx),
+            None => self.new_in(p.clone(), window, cx),
         }
     }
 
@@ -246,6 +262,7 @@ impl Desk {
                             .then(|| crate::keys::numbered(n + 1))
                             .into_iter()
                             .collect(),
+                        sub: self.server_chip(p.host).map(str::to_owned),
                         ..Row::new("", self.project_name(&p), Act::NewIn(p))
                     })
                     .collect();
@@ -352,18 +369,21 @@ impl Desk {
                 return narrowed(rows, typed);
             }
             Sub::Add if is_path(typed) => {
-                let (dir, start) = split_path(typed);
+                let on = self.palette.on;
+                let home = self.palette_home();
+                let (dir, start) = split_path(typed, &home);
+                let at = super::super::Place::new(on, dir.clone());
                 let mut rows: Vec<Row> = self
                     .palette
                     .folders
-                    .get(&dir)
+                    .get(&at)
                     .into_iter()
                     .flatten()
                     .filter(|n| n.to_lowercase().starts_with(&start))
                     .map(|n| {
                         let folder = dir.join(n);
-                        Row::new("folder", n.clone(), Act::Adopt(folder.clone()))
-                            .sub(Desk::shown(&folder))
+                        let shown = Desk::shown(&folder);
+                        Row::new("folder", n.clone(), Act::Adopt(at_on(on, folder))).sub(shown)
                     })
                     .collect();
                 rows.push(Row {
@@ -371,23 +391,29 @@ impl Desk {
                     ..Row::new(
                         "folder-plus",
                         format!("Add {typed}"),
-                        Act::Adopt(expand(typed)),
+                        Act::Adopt(at_on(on, expand(typed, &home))),
                     )
                 });
                 rows
             }
             Sub::Add => {
+                let on = self.palette.on;
                 let mut rows = vec![
-                    Row::new("folder", "Choose a folder…", Act::Choose),
                     Row::new("branch", "Clone a repository", Act::Sub(Sub::Clone)),
                     Row::new("folder-plus", "New project", Act::Sub(Sub::Make)),
                 ];
+                // macOS's folder picker shows this Mac's folders.
+                if on == crate::hub::Host::HERE {
+                    rows.insert(0, Row::new("folder", "Choose a folder…", Act::Choose));
+                }
+                rows.extend(self.servers_rows());
                 // The folders the agents already worked in, a step from
                 // being projects.
-                for (folder, count, _) in self.found_elsewhere().into_iter().take(6) {
+                for (folder, count, _) in self.found_elsewhere(on).into_iter().take(6) {
                     let s = if count == 1 { "" } else { "s" };
+                    let shown = Desk::shown(&folder);
                     rows.push(
-                        Row::new("folder", Desk::shown(&folder), Act::Adopt(folder))
+                        Row::new("folder", shown, Act::Adopt(at_on(on, folder)))
                             .sub(format!("{count} session{s} already worked here")),
                     );
                 }
@@ -403,7 +429,8 @@ impl Desk {
                         share.unwrap_or_default()
                     )));
                 } else if let Some(source) = crate::desk::projects::Source::read(typed) {
-                    let dir = source.dir(&self.projects_in(), self.settings.host_folders);
+                    let on = self.palette.on;
+                    let dir = source.dir(&self.projects_in(on), self.settings_on(on).host_folders);
                     rows.push(
                         Row::new(
                             "branch",
@@ -414,12 +441,13 @@ impl Desk {
                     );
                 }
                 rows.push(self.parent_row());
+                rows.extend(self.servers_rows());
                 rows
             }
             Sub::Make => {
                 let mut rows = Vec::new();
                 if !typed.is_empty() {
-                    let at = Desk::shown(&self.projects_in());
+                    let at = Desk::shown(&self.projects_in(self.palette.on));
                     rows.push(
                         Row::new(
                             "folder-plus",
@@ -440,17 +468,47 @@ impl Desk {
                     }
                 }
                 rows.push(self.parent_row());
+                rows.extend(self.servers_rows());
                 rows
             }
         };
         Some(vec![(String::new(), rows)])
     }
 
-    /// Where new and cloned projects go, and the way to choose another.
+    /// Where new and cloned projects go; on this Mac, the way to choose
+    /// another (macOS's folder picker shows this Mac's).
     fn parent_row(&self) -> Row {
-        Row::new("folder", "Put new projects in…", Act::ChooseParent)
-            .sub(Desk::shown(&self.projects_in()))
+        let on = self.palette.on;
+        let choose = if on == crate::hub::Host::HERE {
+            Act::ChooseParent
+        } else {
+            Act::On(on)
+        };
+        Row::new("folder", "Put new projects in…", choose).sub(Desk::shown(&self.projects_in(on)))
     }
+
+    /// Where a project is added, cloned or made: the server chosen, and a
+    /// row for each other server the window holds, to choose it instead.
+    fn servers_rows(&self) -> Vec<Row> {
+        if self.machines.len() < 2 {
+            return Vec::new();
+        }
+        (self.machines.iter())
+            .filter(|m| m.up == crate::hub::Up::On)
+            .map(|m| {
+                let chosen = m.host == self.palette.on;
+                Row {
+                    end: chosen.then(|| ("Adding here".to_owned(), crate::theme::faint())),
+                    ..Row::new("server", format!("On {}", m.name), Act::On(m.host))
+                }
+            })
+            .collect()
+    }
+}
+
+/// The folder `folder` on the server `on`.
+fn at_on(on: crate::hub::Host, folder: PathBuf) -> super::super::Place {
+    super::super::Place::new(on, folder)
 }
 
 /// The rows of a page that answer what is typed, best first; none where
