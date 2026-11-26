@@ -236,7 +236,7 @@ impl Server {
     /// Each way this Ghost is reached, as it listens now: 127.0.0.1, each
     /// address on a network it listens on (its certificate pinned), the
     /// tunnel once it is up.
-    fn ways(&self) -> Vec<(Route, Way)> {
+    pub(crate) fn ways(&self) -> Vec<(Route, Way)> {
         let sharing = self.sharing();
         let Some(port) = sharing.port() else {
             return Vec::new();

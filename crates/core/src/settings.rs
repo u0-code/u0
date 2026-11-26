@@ -22,6 +22,21 @@ pub fn home() -> PathBuf {
         .join(".ghost")
 }
 
+/// Make Ghost's home `home` and its `logs/`, each readable and enterable
+/// by you alone (0700) whatever it was: what is in them (a log, a
+/// session's record, a token) is yours.
+pub fn keep_private(home: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
+    for dir in [home.to_path_buf(), home.join("logs")] {
+        std::fs::DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&dir)?;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[allow(
@@ -1008,6 +1023,21 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ghost_s_home_and_its_logs_are_yours_alone_whatever_they_were() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let parent = tempfile::tempdir().unwrap();
+        let home = parent.path().join(".ghost");
+        let mode = |d: &std::path::Path| std::fs::metadata(d).unwrap().permissions().mode() & 0o777;
+        keep_private(&home).unwrap();
+        assert_eq!((mode(&home), mode(&home.join("logs"))), (0o700, 0o700));
+        for d in [&home, &home.join("logs")] {
+            std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        keep_private(&home).unwrap();
+        assert_eq!((mode(&home), mode(&home.join("logs"))), (0o700, 0o700));
+    }
 
     #[test]
     fn a_project_holds_its_own_choice_and_follows_everywhere_s_for_the_rest() {

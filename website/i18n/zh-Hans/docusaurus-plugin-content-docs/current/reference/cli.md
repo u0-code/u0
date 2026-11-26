@@ -23,7 +23,7 @@ description: ghost 命令、ghost-server 和 --mcp。
 |---|---|
 | `ghost` | 在 Ghost 中将当前文件夹作为项目打开。 |
 | `ghost <folder>…` | 在 Ghost 中将每个文件夹作为项目打开。macOS 会把它交给正在运行的 Ghost，或启动一个。 |
-| `ghost serve` | 运行没有窗口的 Ghost 服务器，供别处的桌面端与之配对。它会打印一个配对链接及其二维码。按 Ctrl-C 停止。 |
+| `ghost serve` | 运行没有窗口的 Ghost 服务器，供别处的桌面端与之配对。在终端中，它会打印一个配对链接及其二维码（绝不写入日志）。按 Ctrl-C 停止。 |
 | `ghost service install` | 仅限 macOS。将该服务器作为 launchd 代理在登录时运行，并让窗口在它上面打开。 |
 | `ghost service uninstall` | 停止该服务并将其移出登录项。窗口重新运行它自己的服务器。 |
 | `ghost service status` | 服务是否已安装并在运行，以及它的日志位置。 |

@@ -104,14 +104,14 @@ Ghost 在配对前会询问你：它会给出主机名以及为该主机生成�
 
 ## Linux 服务器 {#a-linux-server}
 
-`ghost-server`（见[安装](install.md#on-linux-ghost-server)）启动时即开始监听，如果之前开启了隧道则启动隧道，并打印：
+`ghost-server`（见[安装](install.md#on-linux-ghost-server)）启动时即开始监听，如果之前开启了隧道则启动隧道；在终端中运行时，它会打印：
 
 ```
 Ghost serves on ws://127.0.0.1:4317
 Pair a desk with it, once, in the next ten minutes: ghost://pair?host=…
 ```
 
-随后是该链接的二维码。通过隧道或 `ssh -L` 访问它，然后按上文所述从 Mac 配对。
+随后是该链接的二维码。在输出写入日志的地方运行时（如作为服务），它只说明在哪里提供服务，不打印链接：请改为在那台 Mac 的窗口中为桌面端配对。通过隧道或 `ssh -L` 访问它，然后按上文所述从 Mac 配对。
 
 ## 文件 {#files}
 

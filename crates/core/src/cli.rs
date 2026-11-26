@@ -301,7 +301,7 @@ fn service(home: &Path, what: &Service) -> Result<(), String> {
     match what {
         Service::Install => {
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-            std::fs::create_dir_all(home.join("logs")).map_err(|e| e.to_string())?;
+            crate::settings::keep_private(home).map_err(|e| e.to_string())?;
             pair_window(home)?;
             crate::whole::write(&plist, &agent_plist(&label, &exe, home, &log))
                 .map_err(|e| e.to_string())?;

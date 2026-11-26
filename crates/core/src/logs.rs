@@ -4,6 +4,9 @@
 /// `logs/`, of which the last `days` are kept.
 pub fn start(days: u16) {
     use tracing_subscriber::{fmt, layer::SubscriberExt as _, util::SubscriberInitExt as _};
+    if let Err(e) = crate::settings::keep_private(&crate::settings::home()) {
+        eprintln!("Ghost's home is not kept private: {e}");
+    }
     let file = tracing_appender::rolling::Builder::new()
         .rotation(tracing_appender::rolling::Rotation::DAILY)
         .filename_prefix("ghost")

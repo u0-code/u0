@@ -173,10 +173,13 @@ Every Mac's Ghost can do both, in **Settings › Devices** (or ⌘K
   secret crosses the wire or sits on the server.
 - **Also let it control this Mac**, ticked as you pair, pairs both ways
   at once: the other Mac pairs back with a key of its own, by a one-time
-  code this Mac makes, at `127.0.0.1` or through this Mac's own tunnel.
-  Where it cannot reach this Mac, the pairing stays one way and says why.
-- With no window (a Linux box, say): `ghost-server` prints a pairing link
-  for `127.0.0.1`, and its QR code, as it starts.
+  code this Mac makes, at `127.0.0.1` or through this Mac's own tunnel,
+  when its own link was made with **Pair both ways** (for everything).
+  Where it cannot reach this Mac, or its link was not made so, the
+  pairing stays one way and says why.
+- With no window (a Linux box, say): `ghost-server`, run in a terminal,
+  prints a pairing link for `127.0.0.1`, and its QR code, as it starts;
+  as a service, whose words go to a log, it prints none.
 - A dev server another Mac's terminal runs opens here: **Open** (the
   column's Servers, the drawer's Open preview, ⌘-click) brings its port
   to this Mac over a link of its own, signed in as the window is, and

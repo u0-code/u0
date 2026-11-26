@@ -280,24 +280,14 @@ async fn respond(
 
 /// Serve the Ghost in this machine's home to desks elsewhere, with no
 /// window, until stopped: what `ghost-server` and `ghost-desk --serve` do.
-/// A pairing link for the first desk is printed as it starts.
+/// It says where it serves as it starts, and at a terminal a pairing link
+/// for the first desk.
 pub fn serve_here() -> Result<(), String> {
+    use std::io::IsTerminal as _;
     let server = Server::new(crate::settings::home(), |_| {});
     server.serve()?;
     server.share_as_kept(true);
-    let link = server
-        .offer(crate::access::Grant::default(), None)
-        .expect("it listens");
-    let (way, _) = crate::reach::pairing(&link).expect("a pairing link reads");
-    // Light on dark, as a terminal mostly is: a camera reads it as dark
-    // on light.
-    let qr = qr(&link)
-        .render::<qrcode::render::unicode::Dense1x2>()
-        .dark_color(qrcode::render::unicode::Dense1x2::Light)
-        .light_color(qrcode::render::unicode::Dense1x2::Dark)
-        .build();
-    println!("Ghost serves on {}", way.url());
-    println!("Pair a desk with it, once, in the next ten minutes: {link}\n{qr}");
+    println!("{}", greeting(&server, std::io::stdout().is_terminal()));
     crate::acp::runtime().block_on(async {
         let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
             .map_err(|e| e.to_string())?;
@@ -312,6 +302,31 @@ pub fn serve_here() -> Result<(), String> {
     server.unshare();
     Server::settle();
     Ok(())
+}
+
+/// What `serve_here` says as it starts: where it serves; and, to a person
+/// at a `terminal` alone, a pairing link for the first desk and its code.
+/// What is not a terminal is a log (launchd's, for the service), which
+/// would keep a link that lets anyone who reads it in.
+fn greeting(server: &Arc<Server>, terminal: bool) -> String {
+    let urls: Vec<String> = (server.ways().into_iter()).map(|(_, w)| w.url()).collect();
+    let whereabouts = format!("Ghost serves on {}", urls.join(", "));
+    if !terminal {
+        return format!(
+            "{whereabouts}\nPair a desk with it from a window on this Mac, under Settings › Devices."
+        );
+    }
+    let link = server
+        .offer(crate::access::Grant::default(), None)
+        .expect("it listens");
+    // Light on dark, as a terminal mostly is: a camera reads it as dark
+    // on light.
+    let qr = qr(&link)
+        .render::<qrcode::render::unicode::Dense1x2>()
+        .dark_color(qrcode::render::unicode::Dense1x2::Light)
+        .light_color(qrcode::render::unicode::Dense1x2::Dark)
+        .build();
+    format!("{whereabouts}\nPair a desk with it, once, in the next ten minutes: {link}\n{qr}")
 }
 
 /// Why a device that asked was not paired back with.
@@ -1896,6 +1911,24 @@ esac; done"#;
             open(home_a.path(), &theirs.servers[0].name).is_ok(),
             "A still opens B"
         );
+    }
+
+    #[test]
+    fn a_server_whose_words_go_to_a_log_offers_no_pairing_link() {
+        let home = tempfile::tempdir().unwrap();
+        let (server, _) = sharing(home.path());
+        server.serve().unwrap();
+        let logged = greeting(&server, false);
+        assert!(
+            logged.contains("Ghost serves on ws://127.0.0.1:"),
+            "{logged}"
+        );
+        assert!(!logged.contains("ghost://"), "{logged}");
+        assert!(server.offered().is_none());
+        assert!(server.access().kept().is_ok_and(|k| k.devices.is_empty()));
+        let shown = greeting(&server, true);
+        let (link, ..) = server.offered().unwrap();
+        assert!(shown.contains(&link), "{shown}");
     }
 
     #[test]

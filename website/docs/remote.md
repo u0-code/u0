@@ -169,15 +169,18 @@ retried until you press **Reach again**.
 ## A Linux server
 
 `ghost-server` (see [Install](install.md#on-linux-ghost-server)) listens
-as it starts, starts the tunnel if it was on, and prints:
+as it starts, starts the tunnel if it was on, and, run in a terminal,
+prints:
 
 ```
 Ghost serves on ws://127.0.0.1:4317
 Pair a desk with it, once, in the next ten minutes: ghost://pair?host=…
 ```
 
-followed by the link's QR code. Reach it through a tunnel or
-`ssh -L`, and pair from a Mac as above.
+followed by the link's QR code. Run where what it prints goes to a log
+(as the service), it says where it serves and prints no link: pair a desk
+from a window on that Mac instead. Reach it through a tunnel or `ssh -L`,
+and pair from a Mac as above.
 
 ## Files
 

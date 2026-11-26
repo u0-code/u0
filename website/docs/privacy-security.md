@@ -53,7 +53,8 @@ tidies what no session uses. In repositories, Ghost also keeps
 [checkpoints](worktrees-and-checkpoints.md#checkpoints) under
 `refs/ghost/checkpoints/`.
 
-Each file Ghost writes whole (its settings, the index, the tasks, the
+Ghost's home and its `logs/` are readable by you alone (0700). Each file
+Ghost writes whole (its settings, the index, the tasks, the
 devices and servers, `mcp.json`) is readable and writable by you alone
 (0600), whatever it was before. Ghost writes each file whole: after a crash it is either the old file or the
 new one, never part of one.

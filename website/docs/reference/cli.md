@@ -27,7 +27,7 @@ so; add it in your shell's profile.
 |---|---|
 | `ghost` | Open the current folder in Ghost, as a project. |
 | `ghost <folder>…` | Open each folder in Ghost as a project. macOS hands it to the Ghost running, or starts one. |
-| `ghost serve` | Run Ghost's server with no window, for desks elsewhere to pair with. It prints a pairing link and its QR code. Stops on Ctrl-C. |
+| `ghost serve` | Run Ghost's server with no window, for desks elsewhere to pair with. In a terminal it prints a pairing link and its QR code (never to a log). Stops on Ctrl-C. |
 | `ghost service install` | macOS only. Run that server from login as a launchd agent, and have the window open on it. |
 | `ghost service uninstall` | Stop the service and take it out of login. The window runs its own server again. |
 | `ghost service status` | Whether the service is installed and running, and where it logs. |
