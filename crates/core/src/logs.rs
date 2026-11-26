@@ -20,4 +20,15 @@ pub fn start(days: u16) {
         .with(fmt::layer().with_writer(std::io::stderr))
         .with(file.map(|file| fmt::layer().with_ansi(false).with_writer(file)))
         .init();
+    // A panic is logged, with where it came from, before the process goes:
+    // one inside AppKit's callbacks aborts the app as it unwinds, and the
+    // log is all that is left of it.
+    std::panic::set_hook(Box::new(|panic| {
+        let thread = std::thread::current();
+        tracing::error!(
+            "thread '{}' {panic}\n{}",
+            thread.name().unwrap_or("unnamed"),
+            std::backtrace::Backtrace::force_capture()
+        );
+    }));
 }
