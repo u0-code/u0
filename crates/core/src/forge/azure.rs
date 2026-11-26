@@ -121,7 +121,7 @@ pub fn answer(dir: &Path, repo: &Repo, kind: Kind, ask: Ask) -> Answer {
                 crate::git::yours(dir, "git", &["fetch", "-q", "origin", &from, &into])?;
                 let range = format!("{into}...{from}");
 
-                crate::git::yours(dir, "git", &["diff", &range]).map(|t| crate::git::parse(&t))
+                crate::git::yours(dir, "git", &["diff", &range])
             }),
         ),
         Ask::Act(n, act) => {

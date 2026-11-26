@@ -886,8 +886,7 @@ mod tests {
     fn machine() -> (Vec<Call>, Vec<Event>) {
         let dir = PathBuf::from("/p");
         let diff: git::FileDiff = of(json!({
-            "path": "a.rs", "from": null, "status": "Modified", "added": 1, "gone": 1,
-            "binary": false, "patch": "--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,2 @@\n-a\n+b\n c\n",
+            "path": "a.rs", "added": 1, "gone": 1, "patch": "--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,2 @@\n-a\n+b\n c\n",
         }));
         let script: Script = of(json!({"name": "dev", "command": "make dev", "worktree": true}));
         let worktree: git::Worktree = of(json!({"repo": "/p", "path": "/w", "branch": "ghost/a"}));

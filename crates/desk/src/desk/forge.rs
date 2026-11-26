@@ -399,12 +399,8 @@ impl Desk {
             Answer::Viewed(n, detail) if self.forge.chosen == Some(n) => {
                 self.forge.detail = Some(detail);
             }
-            Answer::Diffed(n, Ok(files)) if self.forge.chosen == Some(n) => {
-                let parsed: Vec<DiffFile> = files
-                    .iter()
-                    .filter_map(|f| DiffFile::parse(&f.patch).ok())
-                    .flatten()
-                    .collect();
+            Answer::Diffed(n, Ok(patch)) if self.forge.chosen == Some(n) => {
+                let parsed = DiffFile::parse(&patch).unwrap_or_default();
                 self.forge.diff.update(cx, |d, cx| d.set_files(parsed, cx));
             }
             Answer::Candidates(Ok((labels, people))) => {

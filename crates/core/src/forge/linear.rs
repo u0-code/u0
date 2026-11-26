@@ -60,7 +60,7 @@ pub fn answer(team: &str, ask_: Ask) -> Answer {
             );
             Answer::Viewed(n, ask(&query, &json!({ "id": id(n) })).map(|d| Box::new(detail(&d["issue"]))))
         }
-        Ask::Diff(n) => Answer::Diffed(n, Ok(Vec::new())),
+        Ask::Diff(n) => Answer::Diffed(n, Ok(String::new())),
         Ask::Act(n, act) => {
             let update = |input: Value| {
                 ask(

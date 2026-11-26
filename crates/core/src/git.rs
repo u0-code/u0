@@ -413,28 +413,14 @@ pub fn restore(dir: &Path, commit: &str, name: &str) -> Result<String, String> {
     result.map(|_| now)
 }
 
-/// How a file changed between two checkpoints.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub enum Status {
-    Added,
-    Deleted,
-    Modified,
-    Renamed,
-}
-
 /// One file's changes: what lists name and count of them, and its patch
 /// as git writes it, which the desk's diff view reads.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct FileDiff {
     /// Its path from the top of the repository, as it is after.
     pub path: String,
-    /// Its path before, when it was renamed.
-    pub from: Option<String>,
-    pub status: Status,
     pub added: usize,
     pub gone: usize,
-    /// Whether git called it binary.
-    pub binary: bool,
     /// Its part of the unified diff, from its `diff --git` (or `---`) line.
     pub patch: String,
 }
@@ -476,15 +462,8 @@ pub fn edit_diff(d: &Diff, start: Option<usize>) -> FileDiff {
     }
     FileDiff {
         path: named,
-        from: None,
-        status: if d.old_text.is_none() {
-            Status::Added
-        } else {
-            Status::Modified
-        },
         added,
         gone,
-        binary: false,
         patch,
     }
 }
@@ -497,100 +476,47 @@ pub fn diff(dir: &Path, from: &str, to: &str, no_spacing: bool) -> Result<Vec<Fi
         args.push("-w");
     }
     args.extend([from, to]);
-    let out = git(dir, &args, None)?;
-    Ok(parse(&out))
+    let patch = git(dir, &args, None)?;
+    args.splice(1..1, ["--numstat", "-z"]);
+    let counts = git(dir, &args, None)?;
+    Ok(cut(&counts, &patch))
 }
 
-/// The new name in a `diff --git a/x b/y` line: after " b/", or the
-/// second name quoted where git quotes it (a tab, a quote in it).
-fn new_name(rest: &str) -> String {
-    if rest.ends_with('"')
-        && let Some(at) = rest.rfind(" \"b/")
-    {
-        let named = unquote(&rest[at + 1..]);
-        return named.strip_prefix("b/").unwrap_or(&named).to_owned();
-    }
-    rest.rsplit_once(" b/").map_or(rest, |(_, b)| b).to_owned()
-}
-
-/// A name as git writes it: as it is, or in quotes with C escapes (\t,
-/// \", \\, and each byte not plain ASCII as three octal digits).
-fn unquote(name: &str) -> String {
-    let Some(inner) = name.strip_prefix('"').and_then(|n| n.strip_suffix('"')) else {
-        return name.to_owned();
-    };
-    let mut bytes = Vec::new();
-    let mut chars = inner.bytes().peekable();
-    while let Some(b) = chars.next() {
-        if b != b'\\' {
-            bytes.push(b);
-            continue;
-        }
-        match chars.next() {
-            Some(b't') => bytes.push(b'\t'),
-            Some(b'n') => bytes.push(b'\n'),
-            Some(d @ b'0'..=b'7') => {
-                let mut n = u32::from(d - b'0');
-                for _ in 0..2 {
-                    if let Some(&d @ b'0'..=b'7') = chars.peek() {
-                        n = n * 8 + u32::from(d - b'0');
-                        chars.next();
-                    }
-                }
-                bytes.push(u8::try_from(n).unwrap_or(b'?'));
-            }
-            Some(other) => bytes.push(other),
-            None => {}
-        }
-    }
-    String::from_utf8_lossy(&bytes).into_owned()
-}
-
-/// A unified diff, cut into its files: each named and counted, with its
-/// own part of the patch.
-pub fn parse(text: &str) -> Vec<FileDiff> {
-    let mut files: Vec<FileDiff> = Vec::new();
-    let mut in_hunk = false;
+/// The files of a diff: named and counted by git itself (`--numstat -z`,
+/// `counts`, whose names are never quoted), each with its part of
+/// `text`, the same diff written out, its files in the same order.
+fn cut(counts: &str, text: &str) -> Vec<FileDiff> {
+    let mut parts: Vec<String> = Vec::new();
     for line in text.lines() {
-        if let Some(rest) = line.strip_prefix("diff --git ") {
-            files.push(FileDiff {
-                path: new_name(rest),
-                from: None,
-                status: Status::Modified,
-                added: 0,
-                gone: 0,
-                binary: false,
-                patch: String::new(),
-            });
-            in_hunk = false;
+        if line.starts_with("diff --git ") || parts.is_empty() {
+            parts.push(String::new());
         }
-        let Some(file) = files.last_mut() else {
-            continue;
-        };
-        file.patch.push_str(line);
-        file.patch.push('\n');
-        if line.starts_with("@@") {
-            in_hunk = true;
-        } else if in_hunk {
-            if line.starts_with('+') {
-                file.added += 1;
-            } else if line.starts_with('-') {
-                file.gone += 1;
-            }
-        } else if line.starts_with("new file mode") {
-            file.status = Status::Added;
-        } else if line.starts_with("deleted file mode") {
-            file.status = Status::Deleted;
-        } else if let Some(from) = line.strip_prefix("rename from ") {
-            file.status = Status::Renamed;
-            file.from = Some(unquote(from));
-        } else if let Some(to) = line.strip_prefix("rename to ") {
-            file.path = unquote(to);
-        } else if line.starts_with("Binary files ") {
-            file.binary = true;
-        }
+        let part = parts.last_mut().expect("one at least");
+        part.push_str(line);
+        part.push('\n');
     }
-    files
+    let mut parts = parts.into_iter();
+    let mut fields = counts.split('\0');
+    let mut out = Vec::new();
+    while let Some(head) = fields.next().filter(|h| !h.is_empty()) {
+        let mut head = head.splitn(3, '\t');
+        // A binary file is counted "-": nought lines.
+        let mut count = || head.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+        let (added, gone) = (count(), count());
+        let mut path = head.next().unwrap_or_default();
+        // A rename's names follow, before and after.
+        if path.is_empty() {
+            fields.next();
+            path = fields.next().unwrap_or_default();
+        }
+        out.push(FileDiff {
+            path: path.to_owned(),
+            added,
+            gone,
+            patch: parts.next().unwrap_or_default(),
+        });
+    }
+    out
 }
 
 /// Commit everything in `dir` with `message`, as you, on its branch; the
@@ -1205,13 +1131,19 @@ mod tests {
 
     #[test]
     fn a_name_git_quotes_reads_as_it_is() {
-        let d = parse(
-            "diff --git \"a/reports/JEPA \\346\\236\\266.md\" \"b/reports/JEPA \\346\\236\\266.md\"\nnew file mode 100644\n@@ -0,0 +1 @@\n+x\n",
-        );
-        assert_eq!(d[0].path, "reports/JEPA 架.md");
-        let d = parse("diff --git a/报告 一.md b/报告 一.md\n@@ -1 +1 @@\n-a\n+b\n");
-        assert_eq!(d[0].path, "报告 一.md");
-        assert_eq!(unquote("\"tab\\there\""), "tab\there");
+        let dir = repo("quoted");
+        let before = git(&dir, &["rev-parse", "HEAD"], None).unwrap();
+        std::fs::write(dir.join("报告 \"一\".md"), "x\n").unwrap();
+        std::fs::write(dir.join("tab\there.md"), "y\n").unwrap();
+        let c = checkpoint(&dir, "s1/1-after").unwrap();
+        let mut names: Vec<String> = diff(&dir, &before, &c, false)
+            .unwrap()
+            .into_iter()
+            .map(|f| f.path)
+            .collect();
+        names.sort();
+        assert_eq!(names, ["tab\there.md", "报告 \"一\".md"]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1367,11 +1299,11 @@ mod tests {
         let files = diff(&dir, &before, &c, false).unwrap();
         assert_eq!(files.len(), 2);
         let a = files.iter().find(|f| f.path == "a.txt").unwrap();
-        assert_eq!((a.added, a.gone, a.status), (1, 1, Status::Modified));
+        assert_eq!((a.added, a.gone), (1, 1));
         assert!(a.patch.starts_with("diff --git a/a.txt b/a.txt\n"));
         assert!(a.patch.contains("\n one\n-two\n+2\n three\n"));
         let b = files.iter().find(|f| f.path == "b.txt").unwrap();
-        assert_eq!(b.status, Status::Added);
+        assert!(b.patch.contains("\nnew file mode "));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1495,14 +1427,21 @@ mod tests {
     }
 
     #[test]
-    fn a_rename_is_read_with_both_its_names() {
-        let files = parse(
-            "diff --git a/x.rs b/y.rs\nsimilarity index 90%\nrename from x.rs\nrename to y.rs\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n",
-        );
-        assert_eq!(files[0].status, Status::Renamed);
-        assert_eq!(files[0].from.as_deref(), Some("x.rs"));
-        assert_eq!(files[0].path, "y.rs");
-        assert_eq!((files[0].added, files[0].gone), (1, 1));
+    fn a_rename_is_read_by_its_new_name_with_its_counts_and_patch() {
+        let dir = repo("rename");
+        let before = git(&dir, &["rev-parse", "HEAD"], None).unwrap();
+        let text = std::fs::read_to_string(dir.join("a.txt")).unwrap();
+        std::fs::remove_file(dir.join("a.txt")).unwrap();
+        std::fs::write(dir.join("z.txt"), format!("{text}four\n")).unwrap();
+        std::fs::write(dir.join("b.txt"), "new\n").unwrap();
+        let c = checkpoint(&dir, "s1/1-after").unwrap();
+        let files = diff(&dir, &before, &c, false).unwrap();
+        let z = files.iter().find(|f| f.path == "z.txt").unwrap();
+        assert_eq!((z.added, z.gone), (1, 0));
+        assert!(z.patch.contains("\nrename from a.txt\nrename to z.txt\n"));
+        let b = files.iter().find(|f| f.path == "b.txt").unwrap();
+        assert!(b.patch.starts_with("diff --git a/b.txt b/b.txt\n"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

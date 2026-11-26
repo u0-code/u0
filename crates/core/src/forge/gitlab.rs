@@ -6,7 +6,7 @@ use std::fmt::Write as _;
 use serde_json::{Value, json};
 
 use super::{api, int, items, list, said, text, words};
-use crate::git::{self, FileDiff};
+
 use crate::github::{Act, Answer, Ask, Check, Detail, Item, Kind};
 
 /// Answer `ask` of the project at `path` on the GitLab at `host`.
@@ -194,9 +194,9 @@ fn detail(v: &Value, notes: &Value) -> Detail {
     }
 }
 
-/// The files of a merge request's diff, each GitLab's hunks under the
-/// header git would write.
-fn patches(files: &Value) -> Vec<FileDiff> {
+/// A merge request's patch: each file's hunks, as GitLab gives them, under
+/// the header git would write.
+fn patches(files: &Value) -> String {
     let mut whole = String::new();
     for f in files.as_array().into_iter().flatten() {
         let (old, new) = (text(f, "/old_path"), text(f, "/new_path"));
@@ -219,7 +219,7 @@ fn patches(files: &Value) -> Vec<FileDiff> {
             whole.push('\n');
         }
     }
-    git::parse(&whole)
+    whole
 }
 
 #[cfg(test)]
@@ -253,9 +253,10 @@ mod tests {
         let files = json!([{"old_path": "a.rs", "new_path": "a.rs", "new_file": false, "deleted_file": false,
             "diff": "@@ -1 +1 @@\n-x\n+y\n"}, {"old_path": "b.rs", "new_path": "b.rs", "new_file": true,
             "deleted_file": false, "diff": "@@ -0,0 +1 @@\n+z\n"}]);
-        let read = patches(&files);
-        assert_eq!(read.len(), 2);
-        assert_eq!((read[0].added, read[0].gone), (1, 1));
-        assert_eq!(read[1].path, "b.rs");
+        assert_eq!(
+            patches(&files),
+            "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-x\n+y\n\
+             diff --git a/b.rs b/b.rs\n--- /dev/null\n+++ b/b.rs\n@@ -0,0 +1 @@\n+z\n"
+        );
     }
 }

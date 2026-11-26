@@ -8,7 +8,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::git::{self, FileDiff};
+use crate::git;
 
 /// Pull requests or issues.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -149,7 +149,8 @@ pub enum Act {
 pub enum Answer {
     Listed(Result<Vec<Item>, String>),
     Viewed(u64, Result<Box<Detail>, String>),
-    Diffed(u64, Result<Vec<FileDiff>, String>),
+    /// The pull request's whole patch, as git writes it.
+    Diffed(u64, Result<String, String>),
     /// Done to the one numbered (none, a new issue): what gh said, or why not.
     Acted(Option<u64>, Result<String, String>),
     /// The labels there are, and the people.
@@ -200,10 +201,7 @@ pub fn answer(dir: &Path, kind: Kind, ask: Ask) -> Answer {
                     .map(|raw| Box::new(raw.detail())),
             )
         }
-        Ask::Diff(n) => Answer::Diffed(
-            n,
-            gh(&["pr", "diff", &n.to_string()]).map(|t| git::parse(&t)),
-        ),
+        Ask::Diff(n) => Answer::Diffed(n, gh(&["pr", "diff", &n.to_string()])),
         Ask::Act(n, act) => {
             let number = n.to_string();
             let mut args = act_args(kind, &number, &act);

@@ -56,10 +56,7 @@ pub fn answer(path: &str, kind: Kind, ask: Ask) -> Answer {
                 Ok(Box::new(detail(&one, &comments)))
             }),
         ),
-        Ask::Diff(n) => Answer::Diffed(
-            n,
-            super::raw(Host::Bitbucket, &format!("{base}/{n}/diff")).map(|t| crate::git::parse(&t)),
-        ),
+        Ask::Diff(n) => Answer::Diffed(n, super::raw(Host::Bitbucket, &format!("{base}/{n}/diff"))),
         Ask::Act(n, act) => {
             let at = format!("/{n}");
             let done = match act {
