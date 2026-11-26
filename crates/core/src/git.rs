@@ -87,26 +87,58 @@ pub fn repos(folder: &Path) -> Vec<PathBuf> {
         found.sort();
         found
     }
-    // A worktree's `.git` is a file naming `<its repository>/.git/worktrees/…`.
-    let of = |p: &Path| {
-        let said = std::fs::read_to_string(p.join(".git")).ok()?;
-        let at = said.strip_prefix("gitdir: ")?.trim();
-        at.split_once("/.git/worktrees/")
-            .map(|(repo, _)| PathBuf::from(repo))
-    };
-    let top = |p: &PathBuf| p.join(".git").is_dir() || of(p).is_some();
     let mut found = Vec::new();
     for child in folders(folder) {
-        if top(&child) {
-            found.push(child);
-        } else {
-            found.extend(folders(&child).into_iter().filter(top));
+        match stands(&child) {
+            Some(top) => found.push((child, top)),
+            None => found.extend(
+                (folders(&child).into_iter()).filter_map(|p| stands(&p).map(|top| (p, top))),
+            ),
         }
     }
-    let mains: Vec<PathBuf> = found.iter().filter(|p| of(p).is_none()).cloned().collect();
-    found.retain(|p| of(p).is_none_or(|repo| !mains.contains(&repo)));
+    let real = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let mains: Vec<PathBuf> = (found.iter())
+        .filter(|(_, top)| matches!(top, Top::Own))
+        .map(|(p, _)| real(p))
+        .collect();
+    found.retain(|(_, top)| !matches!(top, Top::Of(repo) if mains.contains(&real(repo))));
     found.truncate(128);
-    found
+    found.into_iter().map(|(p, _)| p).collect()
+}
+
+/// The top of a repository: its own, or a worktree of the one whose top
+/// it names.
+enum Top {
+    Own,
+    Of(PathBuf),
+}
+
+/// Whether `dir` is the top of a repository, and how. A `.git` folder is a repository's; a `.git` file (a worktree's, a
+/// submodule's, one made with `--separate-git-dir`) is read by git, as it
+/// may name its repository relatively (`worktree.useRelativePaths`) or
+/// anywhere. A submodule is no top.
+fn stands(dir: &Path) -> Option<Top> {
+    let dot = dir.join(".git");
+    if dot.is_dir() {
+        return Some(Top::Own);
+    }
+    if !dot.is_file() {
+        return None;
+    }
+    let ask = [
+        "rev-parse",
+        "--path-format=absolute",
+        "--show-superproject-working-tree",
+        "--git-common-dir",
+        "--git-dir",
+    ];
+    let said = git(dir, &ask, None).ok()?;
+    // The superproject is said first, only for a submodule.
+    match said.lines().collect::<Vec<_>>()[..] {
+        [common, own] if common == own => Some(Top::Own),
+        [common, _] => Some(Top::Of(Path::new(common).parent()?.to_path_buf())),
+        _ => None,
+    }
 }
 
 /// The branch `dir` is on; `None` outside a repository or on a detached head.
@@ -1340,26 +1372,43 @@ mod tests {
     #[test]
     fn a_folder_of_repositories_holds_those_one_or_two_levels_down_not_their_worktrees() {
         let dir = tempfile::tempdir().unwrap();
-        for d in [
-            "api/.git",
-            "packages/web/.git",
-            "packages/notes",
-            ".hidden/.git",
-            "sub",
-            "api-wt",
-            "other-wt",
-        ] {
+        let away = tempfile::tempdir().unwrap();
+        for d in ["packages/web/.git", "packages/notes", ".hidden/.git"] {
             std::fs::create_dir_all(dir.path().join(d)).unwrap();
         }
+        let git = |at: &Path, args: &[&str]| {
+            let named = ["-c", "user.name=Ghost", "-c", "user.email=ghost@localhost"];
+            let file = ["-c", "protocol.file.allow=always"];
+            yours(at, "git", &[&named[..], &file[..], args].concat()).unwrap();
+        };
+        let repo = |at: &Path, more: &[&str]| {
+            std::fs::create_dir_all(at).unwrap();
+            git(at, &[&["init", "-q", "-b", "main"], more].concat());
+            git(at, &["commit", "-q", "--allow-empty", "-m", "first"]);
+        };
+        let (api, other) = (dir.path().join("api"), away.path().join("other"));
+        repo(&api, &[]);
+        repo(&other, &[]);
+        // A worktree of a repository held, named relatively (git 2.48's
+        // `worktree.useRelativePaths`); one of a repository elsewhere.
+        let api_wt = dir.path().join("api-wt").display().to_string();
+        let relative = ["-c", "worktree.useRelativePaths=true"];
+        git(
+            &api,
+            &[&relative[..], &["worktree", "add", "-q", &api_wt]].concat(),
+        );
+        let other_wt = dir.path().join("other-wt").display().to_string();
+        git(&other, &["worktree", "add", "-q", &other_wt]);
+        // A repository whose `.git` is a file naming its folder elsewhere.
+        let kept = away.path().join("kept.git").display().to_string();
+        repo(&dir.path().join("apart"), &["--separate-git-dir", &kept]);
         // A submodule's `.git` is a file, as a worktree's is.
-        std::fs::write(dir.path().join("sub/.git"), "gitdir: ../.git/modules/sub").unwrap();
-        let of = |repo: &str| format!("gitdir: {repo}/.git/worktrees/wt\n");
-        let api = dir.path().join("api").display().to_string();
-        std::fs::write(dir.path().join("api-wt/.git"), of(&api)).unwrap();
-        std::fs::write(dir.path().join("other-wt/.git"), of("/elsewhere/other")).unwrap();
+        let other_url = other.display().to_string();
+        git(&api, &["submodule", "add", "-q", &other_url, "sub"]);
         assert_eq!(
             repos(dir.path()),
             vec![
+                dir.path().join("apart"),
                 dir.path().join("api"),
                 dir.path().join("other-wt"),
                 dir.path().join("packages/web")
