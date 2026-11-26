@@ -60,8 +60,6 @@ fn frame(top: Div) -> Div {
         .flex_col()
         .flex_none()
         .h_full()
-        .border_l_1()
-        .border_color(theme::border())
         .child(top)
 }
 

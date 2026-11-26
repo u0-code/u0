@@ -170,12 +170,16 @@ pub fn trouble(words: impl Into<SharedString>) -> Alert {
 pub type Pick = Box<dyn Fn(&Vec<usize>, &mut Window, &mut App)>;
 
 /// A few choices side by side in one frame, each a word, the one chosen
-/// lit: gpui-kit's button group, a button to each choice.
+/// lit: gpui-kit's button group, a button to each choice, the chosen one
+/// primary so it stands out from the ground in both looks.
 pub fn segmented(id: &str, choices: Vec<(impl Into<SharedString>, bool, Pick)>) -> ButtonGroup {
     let (buttons, picks): (Vec<Button>, Vec<Pick>) = choices
         .into_iter()
         .enumerate()
-        .map(|(n, (label, on, pick))| (Button::new(n).label(label).selected(on), pick))
+        .map(|(n, (label, on, pick))| {
+            let choice = Button::new(n).label(label).selected(on);
+            (if on { choice.primary() } else { choice }, pick)
+        })
         .unzip();
     ButtonGroup::new(SharedString::from(id.to_owned()))
         .small()

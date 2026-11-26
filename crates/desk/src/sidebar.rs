@@ -239,8 +239,6 @@ impl Desk {
             .w(px(width))
             .h_full()
             .bg(theme::rail())
-            .border_r_1()
-            .border_color(theme::border())
             // Folders dropped from the Finder are added as projects.
             .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, _, cx| {
                 for dir in paths.paths().iter().filter(|p| p.is_dir()) {
