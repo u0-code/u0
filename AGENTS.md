@@ -119,7 +119,8 @@ crates/core/src/
   server.rs     the agents running, held by id; the store's one writer; each Call
                 handled, answered as Events; server/scheduled: the scheduled tasks run;
                 server/flows: the workflows' runs, step by step; server/tools: Ghost's
-                tools, the one MCP server (rmcp), given to each session it opens
+                tools, the one MCP server (rmcp), given to each session it opens (its
+                devices' tools in server/tools/devices)
   mcp.rs        how an agent reaches the tools: `--mcp`, the pipe to them; mcp.json
   proto.rs      the Ghost protocol: Call (desk to server), Event (server to desk);
                 Hello and Welcome, which begin a link
@@ -162,8 +163,9 @@ crates/core/src/
   whole.rs      a file written whole; a JSON file read back
   writer.rs     text an agent writes for you: what each kind asks, what is kept
   tidy.rs       what Ghost keeps here, measured and tidied
-  devices.rs    iOS simulators and Android emulators: listed, started, their screen, touched
-                (xcrun simctl, adb, emulator)
+  devices.rs    iOS simulators and Android emulators: listed, started, their screen
+                streamed, touched
+                (xcrun simctl, adb, emulator; AXe for an iOS one, where installed)
   diagnostics.rs  the processes Ghost runs, as a tree with CPU and memory; its log's troubles
   path.rs       the PATH your shell sets up, for an app opened from the Dock
   scripts.rs    a repository's own commands, in its ghost.json

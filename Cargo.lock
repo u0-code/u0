@@ -2274,6 +2274,7 @@ dependencies = [
  "cocoa 0.26.0",
  "ghost-core",
  "gpui-kit",
+ "imagesize 0.14.0",
  "jsonc-parser",
  "mermaid-rs-renderer",
  "mime_guess",

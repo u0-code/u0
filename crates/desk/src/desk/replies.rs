@@ -417,7 +417,7 @@ impl Desk {
 
             Event::Forges(seen) => self.pages.forges = seen,
             Event::Devices { found, missing } => self.devices_listed(found, missing),
-            Event::Screen { id, png } => self.device_screen(id, png),
+            Event::Screen { id, picture } => self.device_screen(id, picture),
             Event::Held { folder, held } => {
                 self.held.insert(at(folder), held);
             }

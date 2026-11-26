@@ -1095,8 +1095,6 @@ _version: 2
   zh-CN: "显示或隐藏侧边栏"
 "Top level":
   zh-CN: "仅顶层"
-"Touch it in Simulator: simctl takes no touch.":
-  zh-CN: "请在 Simulator 中触控：simctl 不支持触控。"
 "Transcript view":
   zh-CN: "记录视图"
 "Transcript view (⌃O)":

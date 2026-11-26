@@ -1,8 +1,8 @@
 //! The Devices tab: the iOS simulators and Android emulators of the server
 //! the session is on, as t3code's Devices panel. One chosen and running
-//! shows its screen, read again each second while the tab is shown; an
-//! Android one is touched by clicking its screen, typed into, and has its
-//! Home, Back and Recents keys. An iOS simulator is touched in Simulator.
+//! shows its screen, each frame asked for as the last one comes while the
+//! tab is shown; it is touched by clicking its screen, typed into, and has
+//! its Home key (an Android one's Back and Recents too).
 
 use std::sync::{Arc, Mutex};
 
@@ -12,7 +12,7 @@ use gpui::{AppContext as _, Context, Div, Entity, Window, div, prelude::*, px};
 use super::{empty, fine};
 use crate::{
     desk::Desk,
-    devices::{Act, AndroidKey, Device},
+    devices::{Act, Device, Key},
     fonts::Faces,
     hub::Host,
     proto::Call,
@@ -51,16 +51,6 @@ impl Sims {
     }
 }
 
-/// A PNG's width and height, from its header.
-fn png_size(png: &[u8]) -> Option<(u32, u32)> {
-    let at = |i: usize| {
-        png.get(i..i + 4)
-            .map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
-    };
-    (png.starts_with(b"\x89PNG")).then_some(())?;
-    Some((at(16)?, at(20)?))
-}
-
 impl Desk {
     /// The server devices are read on: the session's.
     fn device_host(&self) -> Host {
@@ -81,8 +71,9 @@ impl Desk {
         self.call(self.device_host(), Call::Device { device, act });
     }
 
-    /// Each second: list the devices once the tab is first shown, and read
-    /// the chosen one's screen while it is shown and that one runs.
+    /// Each second, and as each frame comes: list the devices once the tab
+    /// is first shown, and read the chosen one's screen while it is shown
+    /// and that one runs.
     pub(crate) fn watch_device(&mut self) {
         if self.surface() != Some(crate::desk::Surface::Devices) {
             return;
@@ -107,14 +98,23 @@ impl Desk {
         self.sims.listed = Some((found, missing));
     }
 
-    /// What the device `id` shows.
-    pub(crate) fn device_screen(&mut self, id: String, png: Result<Vec<u8>, String>) {
+    /// What the device `id` shows; the next frame asked for.
+    pub(crate) fn device_screen(&mut self, id: String, picture: Result<Vec<u8>, String>) {
         self.sims.reading = false;
-        match png {
-            Ok(png) => {
-                let size = png_size(&png).unwrap_or((1, 1));
-                let image = Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, png));
+        let read = picture.and_then(|bytes| {
+            let format = match imagesize::image_type(&bytes) {
+                Ok(imagesize::ImageType::Jpeg) => gpui::ImageFormat::Jpeg,
+                Ok(imagesize::ImageType::Png) => gpui::ImageFormat::Png,
+                _ => return Err("it is neither a PNG nor a JPEG".to_owned()),
+            };
+            let size = imagesize::blob_size(&bytes).map_err(|e| e.to_string())?;
+            let size = (size.width as u32, size.height as u32);
+            Ok((Arc::new(gpui::Image::from_bytes(format, bytes)), size))
+        });
+        match read {
+            Ok((image, size)) => {
                 self.sims.screen = Some((id, image, size));
+                self.watch_device();
             }
             Err(why) => tracing::warn!("a device's screen could not be read: {why}"),
         }
@@ -210,32 +210,32 @@ impl Desk {
     )]
     fn device_screen_view(&self, faces: &Faces, device: Device, cx: &mut Context<Self>) -> Div {
         let d = device;
-        let key = |label: &'static str, k: AndroidKey, d: &Device| {
+        let key = |label: &'static str, k: Key, d: &Device| {
             let d = d.clone();
-            ui::button(label, label, Weight::Quiet)
-                .on_click(cx.listener(move |this, _, _, _| this.device_act(d.clone(), Act::Key(k))))
+            ui::button(label, crate::tr(label), Weight::Quiet).on_click(
+                cx.listener(move |this, _, _, _| this.device_act(d.clone(), Act::Key { key: k })),
+            )
         };
         let (dark, light) = (d.clone(), d.clone());
-        let mut tools =
-            div()
-                .flex()
-                .flex_wrap()
-                .gap(px(4.))
-                .child(
-                    ui::button("dark", crate::tr("Dark"), Weight::Quiet).on_click(cx.listener(
-                        move |this, _, _, _| this.device_act(dark.clone(), Act::Dark(true)),
-                    )),
-                )
-                .child(
-                    ui::button("light", crate::tr("Light"), Weight::Quiet).on_click(cx.listener(
-                        move |this, _, _, _| this.device_act(light.clone(), Act::Dark(false)),
-                    )),
-                );
+        let mut tools = div()
+            .flex()
+            .flex_wrap()
+            .gap(px(4.))
+            .child(
+                ui::button("dark", crate::tr("Dark"), Weight::Quiet).on_click(cx.listener(
+                    move |this, _, _, _| this.device_act(dark.clone(), Act::Dark { dark: true }),
+                )),
+            )
+            .child(
+                ui::button("light", crate::tr("Light"), Weight::Quiet).on_click(cx.listener(
+                    move |this, _, _, _| this.device_act(light.clone(), Act::Dark { dark: false }),
+                )),
+            )
+            .child(key("Home", Key::Home, &d));
         if d.android {
             tools = tools
-                .child(key("Home", AndroidKey::Home, &d))
-                .child(key("Back", AndroidKey::Back, &d))
-                .child(key("Recents", AndroidKey::Recents, &d));
+                .child(key("Back", Key::Back, &d))
+                .child(key("Recents", Key::Recents, &d));
         }
         let screen = self.sims.screen.as_ref().filter(|(id, ..)| *id == d.id);
         let picture = screen.map(|(_, image, (w, h))| {
@@ -259,19 +259,22 @@ impl Desk {
                         |_, (), _, _| {},
                     )
                     .absolute()
+                    .top_0()
+                    .left_0()
                     .size_full(),
                 )
-                .when(d.android, |s| {
-                    s.cursor_pointer().on_click(cx.listener(
-                        move |this, e: &gpui::ClickEvent, _, _| {
-                            let o = *at.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                            let p = e.position() - o;
-                            let scale = w as f32 / WIDE;
-                            let (x, y) = (f32::from(p.x) * scale, f32::from(p.y) * scale);
-                            this.device_act(touched.clone(), Act::Tap(x as u32, y as u32));
-                        },
-                    ))
-                })
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, e: &gpui::ClickEvent, _, _| {
+                    let o = *at.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let p = e.position() - o;
+                    let scale = w as f32 / WIDE;
+                    let (x, y) = (f32::from(p.x) * scale, f32::from(p.y) * scale);
+                    let tap = Act::Tap {
+                        x: x as u32,
+                        y: y as u32,
+                    };
+                    this.device_act(touched.clone(), tap);
+                }))
         });
         let typed = d.clone();
         div()
@@ -284,44 +287,22 @@ impl Desk {
             .when(screen.is_none(), |s| {
                 s.child(empty(faces, crate::tr("Reading its screen…")))
             })
-            .when(d.android, |s| {
-                s.child(
-                    div()
-                        .flex()
-                        .gap(px(4.))
-                        .child(div().flex_1().child(Input::new(&self.sims.typed)))
-                        .child(
-                            ui::button("type", crate::tr("Type"), Weight::Secondary).on_click(
-                                cx.listener(move |this, _, window, cx| {
-                                    let words = this.sims.typed.read(cx).value().to_string();
-                                    this.sims
-                                        .typed
-                                        .update(cx, |i, cx| i.set_value("", window, cx));
-                                    this.device_act(typed.clone(), Act::Type(words));
-                                }),
-                            ),
+            .child(
+                div()
+                    .flex()
+                    .gap(px(4.))
+                    .child(div().flex_1().child(Input::new(&self.sims.typed)))
+                    .child(
+                        ui::button("type", crate::tr("Type"), Weight::Secondary).on_click(
+                            cx.listener(move |this, _, window, cx| {
+                                let text = this.sims.typed.read(cx).value().to_string();
+                                this.sims
+                                    .typed
+                                    .update(cx, |i, cx| i.set_value("", window, cx));
+                                this.device_act(typed.clone(), Act::Type { text });
+                            }),
                         ),
-                )
-            })
-            .when(!d.android, |s| {
-                s.child(fine(
-                    faces,
-                    crate::tr("Touch it in Simulator: simctl takes no touch."),
-                ))
-            })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_png_s_size_is_read_from_its_header() {
-        let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
-        png.extend(1179u32.to_be_bytes());
-        png.extend(2556u32.to_be_bytes());
-        assert_eq!(png_size(&png), Some((1179, 2556)));
-        assert_eq!(png_size(b"GIF89a"), None);
+                    ),
+            )
     }
 }

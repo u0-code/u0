@@ -651,10 +651,11 @@ pub enum Event {
         found: Vec<crate::devices::Device>,
         missing: Vec<String>,
     },
-    /// What the device `id` shows, as a PNG; or why it cannot be read.
+    /// What the device `id` shows, as a PNG or a JPEG; or why it cannot be
+    /// read.
     Screen {
         id: String,
-        png: Result<Vec<u8>, String>,
+        picture: Result<Vec<u8>, String>,
     },
     /// Something done, to be said: what was done, or what was not and why.
     Notice(Result<String, (String, String)>),
@@ -1078,7 +1079,7 @@ mod tests {
                     serial: Some("emulator-5554".into()),
                     running: true,
                 },
-                act: crate::devices::Act::Tap(10, 20),
+                act: crate::devices::Act::Tap { x: 10, y: 20 },
             },
             Call::Screen {
                 device: crate::devices::Device {
@@ -1644,7 +1645,7 @@ mod tests {
             },
             Event::Screen {
                 id: "A".into(),
-                png: Err("it is not running".into()),
+                picture: Err("it is not running".into()),
             },
             Event::Found {
                 query: "go".into(),

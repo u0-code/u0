@@ -1,15 +1,22 @@
 //! iOS simulators and Android emulators on the machine the server runs on,
 //! as t3code's Devices panel has them: listed, started and stopped, their
-//! screen read as a picture, and an Android one touched and typed into.
-//! Driven by Xcode's `xcrun simctl` and the Android SDK's `adb` and
-//! `emulator`, where they are installed; `simctl` takes no touch, so an
-//! iOS simulator is touched in Simulator itself.
+//! screen read frame after frame, touched and typed into. Driven by Xcode's
+//! `xcrun simctl` and the Android SDK's `adb` and `emulator`, where they are
+//! installed. `simctl` takes no touch: an iOS simulator is touched, and its
+//! screen streamed, through [AXe](https://github.com/cameroncooke/AXe)
+//! where it is installed (it sends the simulator's own touch events, with
+//! no test runner built), else in Simulator itself.
 
 use std::{
-    path::PathBuf,
+    collections::HashMap,
+    io::Read as _,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::{Arc, Condvar, LazyLock, Mutex},
+    time::{Duration, Instant},
 };
 
+use rmcp::schemars;
 use serde::{Deserialize, Serialize};
 
 /// A simulator or an emulator.
@@ -25,22 +32,34 @@ pub struct Device {
     pub running: bool,
 }
 
-/// What can be done to a device.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// What can be done to a device; as an agent names it too.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(tag = "act", rename_all = "snake_case")]
 pub enum Act {
     Start,
     Stop,
-    /// Android's Home, Back and Recents keys.
-    Key(AndroidKey),
-    /// A touch at this point of its screen, in its pixels.
-    Tap(u32, u32),
-    Type(String),
+    /// Press a key of it.
+    Key {
+        key: Key,
+    },
+    /// Touch this point of its screen, in the pixels of its picture.
+    Tap {
+        x: u32,
+        y: u32,
+    },
+    Type {
+        text: String,
+    },
     /// Dark appearance, or light.
-    Dark(bool),
+    Dark {
+        dark: bool,
+    },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AndroidKey {
+/// Home, and Android's Back and Recents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Key {
     Home,
     Back,
     Recents,
@@ -62,6 +81,13 @@ fn run(program: &PathBuf, args: &[&str]) -> Result<Vec<u8>, String> {
 
 fn text(program: &PathBuf, args: &[&str]) -> Result<String, String> {
     run(program, args).map(|b| String::from_utf8_lossy(&b).into_owned())
+}
+
+/// `AXe`, which touches and streams an iOS simulator.
+fn axe() -> Option<PathBuf> {
+    cfg!(target_os = "macos")
+        .then(|| which::which("axe").ok())
+        .flatten()
 }
 
 fn xcrun() -> Option<PathBuf> {
@@ -190,8 +216,8 @@ pub fn act(device: &Device, act: &Act) -> Result<(), String> {
         let id = device.id.as_str();
         return match act {
             Act::Start => run(&x, &["simctl", "boot", id]).map(|_| {
-                // Its window, where it is touched: Simulator, of the Xcode
-                // simctl is.
+                // Without AXe it is touched in its window: Simulator, of
+                // the Xcode simctl is.
                 let xcode = std::env::var_os("DEVELOPER_DIR")
                     .map(PathBuf::from)
                     .or_else(|| {
@@ -199,13 +225,15 @@ pub fn act(device: &Device, act: &Act) -> Result<(), String> {
                             .ok()
                             .map(|p| PathBuf::from(p.trim()))
                     });
-                if let Some(app) = xcode.map(|d| d.join("Applications/Simulator.app")) {
+                if axe().is_none()
+                    && let Some(app) = xcode.map(|d| d.join("Applications/Simulator.app"))
+                {
                     let _ = run(&PathBuf::from("/usr/bin/open"), &[&app.to_string_lossy()]);
                 }
                 Vec::new()
             }),
             Act::Stop => run(&x, &["simctl", "shutdown", id]),
-            Act::Dark(dark) => run(
+            Act::Dark { dark } => run(
                 &x,
                 &[
                     "simctl",
@@ -215,8 +243,14 @@ pub fn act(device: &Device, act: &Act) -> Result<(), String> {
                     if *dark { "dark" } else { "light" },
                 ],
             ),
-            Act::Key(_) | Act::Tap(..) | Act::Type(_) => {
-                Err("An iOS simulator is touched in Simulator itself.".into())
+            Act::Key {
+                key: Key::Back | Key::Recents,
+            } => Err("An iOS simulator has no such key.".into()),
+            Act::Key { .. } | Act::Tap { .. } | Act::Type { .. } => {
+                let axe = axe().ok_or(
+                    "An iOS simulator is touched in Ghost with AXe (brew install cameroncooke/axe/axe), else in Simulator.",
+                )?;
+                touch(&axe, id, act)
             }
         }
         .map(drop);
@@ -244,19 +278,42 @@ pub fn act(device: &Device, act: &Act) -> Result<(), String> {
     match act {
         Act::Start => unreachable!("started above"),
         Act::Stop => run(&adb, &["-s", serial, "emu", "kill"]).map(drop),
-        Act::Key(key) => shell(&[
+        Act::Key { key } => shell(&[
             "input",
             "keyevent",
             match key {
-                AndroidKey::Home => "KEYCODE_HOME",
-                AndroidKey::Back => "KEYCODE_BACK",
-                AndroidKey::Recents => "KEYCODE_APP_SWITCH",
+                Key::Home => "KEYCODE_HOME",
+                Key::Back => "KEYCODE_BACK",
+                Key::Recents => "KEYCODE_APP_SWITCH",
             },
         ]),
-        Act::Tap(x, y) => shell(&["input", "tap", &x.to_string(), &y.to_string()]),
-        Act::Type(words) => shell(&["input", "text", &typed(words)]),
-        Act::Dark(dark) => shell(&["cmd", "uimode", "night", if *dark { "yes" } else { "no" }]),
+        Act::Tap { x, y } => shell(&["input", "tap", &x.to_string(), &y.to_string()]),
+        Act::Type { text } => shell(&["input", "text", &typed(text)]),
+        Act::Dark { dark } => shell(&["cmd", "uimode", "night", if *dark { "yes" } else { "no" }]),
     }
+}
+
+/// Touch, type into or press Home on the iOS simulator `udid` with `AXe`,
+/// which takes points: a tap in pixels is divided by its screen's scale.
+fn touch(axe: &PathBuf, udid: &str, act: &Act) -> Result<Vec<u8>, String> {
+    match act {
+        Act::Tap { x, y } => {
+            let said = text(axe, &["--output", "json", "displays", "--udid", udid])?;
+            let scale = scale(&said).ok_or("AXe did not say its screen's scale")?;
+            let (x, y) = ((x / scale).to_string(), (y / scale).to_string());
+            run(axe, &["tap", "-x", &x, "-y", &y, "--udid", udid])
+        }
+        Act::Type { text } => run(axe, &["type", text, "--udid", udid]),
+        _ => run(axe, &["button", "home", "--udid", udid]),
+    }
+}
+
+/// The scale of the active screen, of what `axe --output json displays`
+/// says.
+fn scale(said: &str) -> Option<u32> {
+    let said: serde_json::Value = serde_json::from_str(said).ok()?;
+    let scale = said.pointer("/data/result/activeScreen/scale")?.as_u64()?;
+    u32::try_from(scale).ok().filter(|s| *s > 0)
 }
 
 /// `words` as one word of the emulator's shell, which reads what `adb shell`
@@ -266,9 +323,12 @@ fn typed(words: &str) -> String {
     shell_words::quote(&words.replace(' ', "%s")).into_owned()
 }
 
-/// What `device` shows now, as a PNG.
+/// What `device` shows now, as a PNG or a JPEG: where it is streamed, a
+/// frame not handed out before.
 pub fn screen(device: &Device) -> Result<Vec<u8>, String> {
-    if device.android {
+    if let Some(axe) = axe().filter(|_| !device.android) {
+        streamed(&axe, &device.id)
+    } else if device.android {
         let adb = sdk("platform-tools", "adb").ok_or("adb is not installed")?;
         let serial = device.serial.as_deref().ok_or("it is not running")?;
         run(&adb, &["-s", serial, "exec-out", "screencap", "-p"])
@@ -295,6 +355,112 @@ pub fn screen(device: &Device) -> Result<Vec<u8>, String> {
     }
 }
 
+/// A simulator's screen as `AXe` streams it: the newest frame, numbered;
+/// the number last handed out; when one was last asked for; why it ended.
+#[derive(Default)]
+struct Frames {
+    jpeg: Vec<u8>,
+    n: u64,
+    given: u64,
+    asked: Option<Instant>,
+    ended: Option<String>,
+}
+
+type Stream = Arc<(Mutex<Frames>, Condvar)>;
+
+/// The simulators streamed, by UDID.
+static STREAMS: LazyLock<Mutex<HashMap<String, Stream>>> = LazyLock::new(Mutex::default);
+
+/// How long a stream nobody asks of runs on.
+const UNWATCHED: Duration = Duration::from_secs(10);
+
+/// The newest frame of the simulator `udid` not handed out yet, waiting up
+/// to a second for one; its stream started as it is first asked for.
+fn streamed(axe: &Path, udid: &str) -> Result<Vec<u8>, String> {
+    let stream = (STREAMS.lock().expect("streams"))
+        .entry(udid.to_owned())
+        .or_insert_with(|| stream(axe, udid))
+        .clone();
+    let (frames, came) = &*stream;
+    let mut f = frames.lock().expect("frames");
+    f.asked = Some(Instant::now());
+    f = (came.wait_timeout_while(f, Duration::from_secs(1), |f| {
+        f.n == f.given && f.ended.is_none()
+    }))
+    .expect("frames")
+    .0;
+    if let Some(why) = &f.ended {
+        return Err(why.clone());
+    }
+    f.given = f.n;
+    (f.n > 0)
+        .then(|| f.jpeg.clone())
+        .ok_or_else(|| "its screen has not come yet".into())
+}
+
+/// `axe stream-video` of `udid`, each frame kept as it comes, until nobody
+/// asks for one.
+fn stream(axe: &Path, udid: &str) -> Stream {
+    let stream = Stream::default();
+    let child = Command::new(axe)
+        .args([
+            "stream-video",
+            "--udid",
+            udid,
+            "--fps",
+            "30",
+            "--format",
+            "raw",
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn();
+    let (kept, udid) = (stream.clone(), udid.to_owned());
+    std::thread::spawn(move || {
+        let (frames, came) = &*kept;
+        let why = match child {
+            Ok(mut child) => {
+                let why = frames_of(child.stdout.take().expect("piped"), frames, came);
+                let _ = child.kill();
+                let _ = child.wait();
+                why
+            }
+            Err(e) => format!("AXe could not be started: {e}"),
+        };
+        let mut streams = STREAMS.lock().expect("streams");
+        if streams.get(&udid).is_some_and(|s| Arc::ptr_eq(s, &kept)) {
+            streams.remove(&udid);
+        }
+        frames.lock().expect("frames").ended = Some(why);
+        came.notify_all();
+    });
+    stream
+}
+
+/// Each frame read from `out` (four bytes of its length, then a JPEG) into
+/// `frames`, until it ends or nobody has asked for one in a while; why it
+/// stopped.
+fn frames_of(mut out: impl std::io::Read, frames: &Mutex<Frames>, came: &Condvar) -> String {
+    loop {
+        let mut len = [0; 4];
+        if let Err(e) = out.read_exact(&mut len) {
+            return format!("its stream ended: {e}");
+        }
+        let mut jpeg = Vec::new();
+        let len = u64::from(u32::from_be_bytes(len));
+        if let Err(e) = (&mut out).take(len).read_to_end(&mut jpeg) {
+            return format!("its stream ended: {e}");
+        }
+        let mut f = frames.lock().expect("frames");
+        if f.asked.is_some_and(|at| at.elapsed() > UNWATCHED) {
+            return "nobody watched it".into();
+        }
+        (f.jpeg, f.n) = (jpeg, f.n + 1);
+        came.notify_all();
+    }
+}
+
 /// The `--display=` of the primary screen, of those simctl lists when a
 /// device has more than one.
 fn primary(said: &str) -> Option<String> {
@@ -318,6 +484,39 @@ mod tests {
                 "{words}"
             );
         }
+    }
+
+    #[test]
+    fn a_tap_on_an_ios_simulator_is_scaled_by_what_axe_says_of_its_screen() {
+        let said = r#"{"command":"displays","data":{"result":{"udid":"U","name":"iPhone",
+            "activeScreen":{"id":1,"width":402,"height":874,"scale":3}}},"didError":false}"#;
+        assert_eq!(scale(said), Some(3));
+        assert_eq!(scale(r#"{"didError":true}"#), None);
+    }
+
+    #[test]
+    fn a_stream_keeps_its_newest_frame_and_ends_when_nobody_watches() {
+        let mut bytes = Vec::new();
+        for jpeg in [&b"one"[..], b"two!"] {
+            bytes.extend(u32::try_from(jpeg.len()).unwrap().to_be_bytes());
+            bytes.extend(jpeg);
+        }
+        let (frames, came) = (Mutex::new(Frames::default()), Condvar::new());
+        let why = frames_of(&bytes[..], &frames, &came);
+        assert!(why.contains("ended"), "{why}");
+        let f = frames.lock().unwrap();
+        assert_eq!((f.n, f.jpeg.as_slice()), (2, &b"two!"[..]));
+        drop(f);
+        frames.lock().unwrap().asked = Instant::now().checked_sub(UNWATCHED * 2);
+        assert_eq!(frames_of(&bytes[..], &frames, &came), "nobody watched it");
+    }
+
+    #[test]
+    fn an_act_reads_as_an_agent_writes_it() {
+        let act: Act = serde_json::from_str(r#"{"act":"tap","x":10,"y":20}"#).unwrap();
+        assert_eq!(act, Act::Tap { x: 10, y: 20 });
+        let act: Act = serde_json::from_str(r#"{"act":"key","key":"home"}"#).unwrap();
+        assert_eq!(act, Act::Key { key: Key::Home });
     }
 
     #[test]

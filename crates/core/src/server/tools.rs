@@ -29,6 +29,8 @@ use rmcp::{
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, BufReader};
 
+mod devices;
+
 use super::Shared;
 use crate::{
     acp::{self, Answer},
@@ -496,7 +498,8 @@ impl Tools {
 )]
 #[tool_handler(
     name = "ghost",
-    instructions = "Ghost, the app this agent may be running in: the sessions it keeps of your agents, their diffs and pull requests, its scheduled tasks; and the user, asked in this session's thread."
+    router = Self::every(),
+    instructions = "Ghost, the app this agent may be running in: the sessions it keeps of your agents, their diffs and pull requests, its scheduled tasks, the simulators and emulators where it runs; and the user, asked in this session's thread."
 )]
 impl ServerHandler for Tools {
     /// Each call counted by its tool (`telemetry`), then made.
@@ -507,7 +510,7 @@ impl ServerHandler for Tools {
     ) -> Result<rmcp::model::CallToolResponse, rmcp::ErrorData> {
         (self.shared.telemetry).count(|c| crate::telemetry::tally(&mut c.tools, &request.name));
         let call = rmcp::handler::server::tool::ToolCallContext::new(self, request, context);
-        Self::tool_router().call(call).await
+        Self::every().call(call).await
     }
 }
 
@@ -625,11 +628,14 @@ mod tests {
             [
                 "ask_user",
                 "delegate_task",
+                "device_screen",
+                "list_devices",
                 "list_sessions",
                 "open_pr",
                 "read_diff",
                 "read_session",
-                "schedule_task"
+                "schedule_task",
+                "use_device"
             ]
         );
         client.call("list_sessions", &json!({}));

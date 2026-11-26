@@ -712,7 +712,7 @@ impl Server {
                 });
             }
             Call::Screen { device } => self.off(move || Event::Screen {
-                png: crate::devices::screen(&device),
+                picture: crate::devices::screen(&device),
                 id: device.id,
             }),
             Call::TermOpen {
