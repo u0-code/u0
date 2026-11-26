@@ -20,7 +20,9 @@ MCP crate over `proto::Call`) attached to a session through ACP's
 just check    # fmt, clippy -D warnings, all tests, docs, cargo-deny, typos
 ```
 
-A change is reported as working only after this passes. Do not claim an
+A change to `website/` also passes `just site` (the user guide built in both
+languages; it needs Node, so it is not part of `just check`). A change is
+reported as working only after these pass. Do not claim an
 agent (Claude Code, Codex, Antigravity, ...) works with a change unless it
 was run against that agent in this change, and say how far (handshake,
 session opened, a prompt answered).
@@ -232,6 +234,8 @@ crates/desk/src/
   fonts.rs, assets.rs   faces, icons
 assets/         fonts, the desk's own icons and the themes it brings, built into the app
 policy/         ghost.mobileconfig: the example profile, every policy key; read by a core test
+website/        the user guide (Docusaurus): docs/ in English, i18n/zh-Hans/ in
+                Simplified Chinese; published on GitHub Pages
 telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf deploy`;
                 batch.schema.json, made from `telemetry::Batch` by a core test
 
@@ -407,7 +411,20 @@ test for the behaviour it proves.
 ## Documentation
 
 `docs/` is git-ignored: design notes stay local. The published documents are
-`README.md`, `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md` and `SECURITY.md`.
+`README.md`, `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `SECURITY.md` and
+the user guide in `website/` (https://u0-code.github.io/u0/).
+
+- The guide is written from the code: it describes what Ghost does now,
+  never what it is meant to do. Work not yet on `main` is at most a short
+  "Coming" note.
+- A change to what a person sees or does (a setting, a key, a label, a
+  command, a file Ghost keeps, what is sent) updates the guide's page for
+  it, in English and in `website/i18n/zh-Hans/`, in the same commit. The
+  reference pages (`reference/settings.md`, `keybindings.md`, `cli.md`,
+  `policy.md`) list every key, action and word; they stay complete.
+- A UI label in the guide is the app's own words; the Chinese pages use
+  its zh-CN string from `crates/desk/locales/app.yml`.
+- No screenshots: the guide is text and keyboard paths.
 
 ## Commits
 
@@ -417,6 +434,8 @@ each commit is what stands in for both. CI only builds: each push to `main`
 has `.github/workflows/app.yml` build Ghost.app with `bundle.sh` and replace
 the `nightly` prerelease with it, which `Casks/ghost@nightly.rb` installs;
 then it builds `ghost-server` on Linux and puts it beside the app.
+A push to `main` that changes `website/` has `.github/workflows/docs.yml`
+build the guide and deploy it to GitHub Pages.
 A tag `v<version>` (the version in Cargo.toml) is released the same way, and
 the workflow commits `Casks/ghost.rb` at that version to `main`. The subject follows CONTRIBUTING.md and is checked
 by `scripts/check-subject.sh` (`just hooks` installs it as a commit hook).

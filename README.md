@@ -22,6 +22,10 @@ way of showing what it did. u0 is not another agent. It has none of its
 own. It is the window you run them all from: pick an agent, give it a
 folder and a task, and follow it the way you would in its own app.
 
+**[The user guide](https://u0-code.github.io/u0/)** ([简体中文](https://u0-code.github.io/u0/zh-Hans/))
+covers installing, every page of the app, the settings, keys and
+commands, and what Ghost keeps and sends.
+
 ## What it does
 
 | | |
