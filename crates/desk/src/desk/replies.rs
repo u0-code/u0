@@ -430,7 +430,7 @@ impl Desk {
                 key,
                 resumed,
                 result,
-            } => self.loaded(key, resumed, result),
+            } => self.loaded(key, resumed, result, cx),
             Event::Weighed { agents, processes } => self.pages.processes = (agents, processes),
             Event::Troubles(lines) => self.pages.troubles = lines,
             // What the server says is here: each agent restaged, those
@@ -761,6 +761,7 @@ impl Desk {
         key: u64,
         resumed: bool,
         result: Result<crate::proto::Opened, crate::acp::Error>,
+        cx: &mut Context<Self>,
     ) {
         match self.sessions.loaded(key, resumed, result) {
             Loaded::Open(said) => {
@@ -770,7 +771,7 @@ impl Desk {
                 if let Some(text) = said {
                     self.begin_turn(key, text);
                 }
-                self.to_bottom();
+                self.to_bottom(cx);
                 self.save_index();
             }
             Loaded::Refused => {

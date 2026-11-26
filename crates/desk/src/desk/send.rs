@@ -223,7 +223,7 @@ impl Desk {
                 self.open_when_running(&agent, key);
             }
         }
-        self.to_bottom();
+        self.to_bottom(cx);
         cx.notify();
     }
 

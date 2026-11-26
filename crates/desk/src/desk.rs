@@ -300,7 +300,7 @@ pub struct Desk {
     pub held: HashMap<PathBuf, crate::repo::Held>,
     /// The thread as a list drawn where it is seen, its lines, and the
     /// session they are of; an item to bring into view once it is drawn.
-    pub list: gpui::ListState,
+    pub list: Entity<gpui::component::message_scroller::MessageScrollerState>,
     pub lines: Vec<crate::thread::Line>,
     pub lines_of: Option<u64>,
     pub reveal: Option<usize>,
@@ -577,7 +577,7 @@ impl Desk {
             command_down: None,
             numbers_shown: false,
             held: HashMap::new(),
-            list: gpui::ListState::new(0, gpui::ListAlignment::Top, px(800.)),
+            list: cx.new(|cx| gpui::component::message_scroller::MessageScrollerState::new(0, cx)),
             lines: Vec::new(),
             lines_of: None,
             reveal: None,
@@ -854,7 +854,7 @@ impl Desk {
             self.look(key);
             self.read_record(key);
         }
-        self.to_bottom();
+        self.to_bottom(cx);
         cx.notify();
     }
 
@@ -1524,7 +1524,7 @@ impl Render for Desk {
                 gpui::WindowBackgroundAppearance::Opaque
             });
         }
-        self.sync_lines();
+        self.sync_lines(cx);
         self.sync_diff(cx);
         self.sync_files(cx);
         self.read_projects();

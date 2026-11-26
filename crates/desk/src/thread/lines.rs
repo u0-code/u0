@@ -1,19 +1,19 @@
-//! The thread as a list drawn only where it is seen: a session of a
-//! thousand items lays out the few on screen, as t3code virtualizes its
-//! rows. The list is kept in step with the session's rows, measured again
-//! only from the first that changed, and stays at its foot while new rows
-//! come in there. Over it, find (⌘F) and a map of the session's turns down
+//! The thread as gpui-kit's `MessageScroller`, a list drawn only where it is
+//! seen: a session of a thousand items lays out the few on screen. The
+//! list is kept in step with the session's rows, measured again only from
+//! the first that changed, and follows its foot while it is read there. Over it, find (⌘F) and a map of the session's turns down
 //! its right edge, both of which bring a row into view, opening what folds
 //! it away.
 
 use gpui::{
-    AnyElement, Context, Div, Entity, ListOffset, SharedString, Window, div, list, prelude::*, px,
-    relative,
+    AnyElement, App, Context, Div, Entity, SharedString, StyleRefinement, Window, div, prelude::*,
+    px, relative,
 };
 
 use gpui::component::input::{Input, InputEvent, InputState};
 use gpui::component::{
     Sizable as _,
+    message_scroller::{MessageScroller, MessageScrollerState},
     tab::{Tab, TabBar},
 };
 
@@ -146,26 +146,24 @@ impl Desk {
 
     /// Bring the list in step with the session on screen: another session
     /// starts it afresh; in the same one, what follows the first line that
-    /// changed is measured again, and a thread read at its foot stays there.
-    pub(crate) fn sync_lines(&mut self) {
+    /// changed is measured again. A thread read at its foot follows it.
+    pub(crate) fn sync_lines(&mut self, cx: &mut App) {
         let lines = self.lines_now();
+        let (old, now) = (self.lines.len(), lines.len());
         if self.lines_of == self.current {
-            let follow = self.at_foot();
             let same = self
                 .lines
                 .iter()
                 .zip(&lines)
                 .take_while(|(a, b)| a == b)
                 .count();
-            if same < self.lines.len() || same < lines.len() {
-                self.list.splice(same..self.lines.len(), lines.len() - same);
-                if follow {
-                    self.to_bottom();
-                }
+            if same < old || same < now {
+                self.list
+                    .update(cx, |l, cx| l.splice(same..old, now - same, cx));
             }
         } else {
             self.lines_of = self.current;
-            self.list.reset(lines.len());
+            self.list.update(cx, |l, cx| l.reset(now, cx));
         }
         self.lines = lines;
         if let Some(item) = self.reveal.take()
@@ -174,23 +172,13 @@ impl Desk {
                 .iter()
                 .position(|l| matches!(l, Line::Row(fold::Row::Item(i)) if *i == item))
         {
-            self.list.scroll_to_reveal_item(ix);
+            self.list.update(cx, |l, cx| l.scroll_to_item(ix, cx));
         }
     }
 
-    /// Whether the thread is read at its foot, within a line of it.
-    fn at_foot(&self) -> bool {
-        let below =
-            self.list.max_offset_for_scrollbar().y + self.list.scroll_px_offset_for_scrollbar().y;
-        below <= px(24.)
-    }
-
-    /// Go to the foot of the thread.
-    pub fn to_bottom(&self) {
-        self.list.scroll_to(ListOffset {
-            item_ix: usize::MAX,
-            offset_in_item: px(0.),
-        });
+    /// Go to the foot of the thread, and follow it.
+    pub fn to_bottom(&self, cx: &mut App) {
+        self.list.update(cx, MessageScrollerState::scroll_to_end);
     }
 
     /// Bring the item `item` into view, opening the folds it is in.
@@ -233,7 +221,7 @@ impl Desk {
     /// line at the top of the thread.
     pub fn step_turn(&mut self, ahead: bool, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
-        let top = self.list.logical_scroll_top().item_ix;
+        let top = self.list.read(cx).logical_scroll_top().item_ix;
         let at = (self.lines.iter().take(top + 1).rev()).find_map(|l| match l {
             Line::Row(
                 fold::Row::Item(i)
@@ -257,10 +245,16 @@ impl Desk {
     /// beside it.
     pub(crate) fn thread_list(&self, column: f32, cx: &mut Context<Self>) -> Div {
         let this = cx.entity().downgrade();
-        let list = list(self.list.clone(), move |ix, window, cx| {
+        // Rows are spaced by themselves, and the turn map stands where a
+        // scrollbar would.
+        let list = MessageScroller::new("thread", self.list.clone(), move |ix, window, cx| {
             this.update(cx, |desk, cx| desk.line(ix, column, window, cx))
                 .unwrap_or_else(|_| div().into_any_element())
         })
+        .scrollbar(false)
+        .with_list_style(StyleRefinement::default().p_0())
+        .with_row_style(StyleRefinement::default().p_0())
+        .with_jump_button_label("To the end")
         .size_full();
         let faces = fonts::faces(cx).clone();
         div()
@@ -273,31 +267,6 @@ impl Desk {
             .children(self.family_tabs(cx))
             .children(self.find.open.then(|| self.find_bar(&faces, cx)))
             .child(div().flex_1().min_h(px(0.)).child(list))
-            // Read back up the thread: the way down again.
-            .when(!self.at_foot(), |d| {
-                d.child(
-                    div()
-                        .absolute()
-                        .bottom(px(14.))
-                        .left_0()
-                        .right_0()
-                        .flex()
-                        .justify_center()
-                        .child(
-                            ui::icon_button("to-end", "arrow-down", "To the end")
-                                .bg(theme::panel())
-                                .border_1()
-                                .border_color(theme::border2())
-                                .rounded_full()
-                                .shadow_lg()
-                                .text_color(theme::text2())
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.to_bottom();
-                                    cx.notify();
-                                })),
-                        ),
-                )
-            })
             .children(self.session().map(|s| Self::turn_map(s, cx)))
     }
 
