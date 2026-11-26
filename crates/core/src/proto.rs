@@ -412,6 +412,9 @@ pub enum Call {
     Screen {
         device: crate::devices::Device,
     },
+    /// Install `AXe` with Homebrew, as you asked in the Devices tab; then
+    /// the devices, listed again.
+    InstallAxe,
     /// How much each part of Ghost's home takes, its worktrees those in
     /// `worktrees`.
     Sizes {
@@ -545,6 +548,7 @@ impl Call {
                 .collect(),
             Self::Install { .. }
             | Self::CancelInstall { .. }
+            | Self::InstallAxe
             | Self::Start { .. }
             | Self::Secret { .. }
             | Self::Stop { .. }
@@ -1616,6 +1620,7 @@ mod tests {
             },
             Call::CliVersion { cli: cli.clone() },
             Call::Watch,
+            Call::InstallAxe,
             Call::SetTask(crate::tasks::Task {
                 id: 1,
                 title: "t".into(),

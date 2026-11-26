@@ -1,7 +1,7 @@
 //! Ghost's tools for the simulators and emulators of the machine the
 //! server runs on (`devices`), as the Devices tab has them: listed, their
 //! screen read, and (asking you first, as every tool that acts does)
-//! started, stopped, touched and typed into.
+//! started, stopped, touched, swiped, scrolled, turned and typed into.
 
 use base64::Engine as _;
 use rmcp::{
@@ -63,9 +63,10 @@ impl Tools {
         Ok(ContentBlock::image(data, kind))
     }
 
-    /// Start or stop a device, touch a point of its screen, type into it,
-    /// press its Home key (an Android one's Back or Recents), or set its
-    /// appearance dark or light.
+    /// Start or stop a device; touch a point of its screen, hold it (a
+    /// long press), swipe from one point to another, or scroll toward a
+    /// side; turn it left or right; type into it, press its Home key (an
+    /// Android one's Back or Recents), or set its appearance dark or light.
     #[tool]
     async fn use_device(&self, Parameters(ask): Parameters<UseDevice>) -> Result<String, String> {
         let device = found(ask.device.clone()).await?;

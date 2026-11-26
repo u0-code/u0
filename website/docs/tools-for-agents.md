@@ -59,7 +59,7 @@ in **Settings › Agents** and switch them off. That agent's id is added to
 | `ask_user` | Ask you a question in the session's thread and wait for the answer, free text or one of `choices`. | Sessions in Ghost |
 | `list_devices` | The iOS simulators and Android emulators on the machine the server runs on: id, name, platform, whether it runs; and what is missing to have any. | Any agent |
 | `device_screen` | What a running device shows now, as an image. | Any agent |
-| `use_device` | Start or stop a device, tap a point, type text, press Home (Back or Recents on Android), or set it dark or light. | Sessions in Ghost; asks you first |
+| `use_device` | Start or stop a device, tap a point, press and hold one, swipe from one point to another, scroll toward a side, rotate it left or right, type text, press Home (Back or Recents on Android), or set it dark or light. | Sessions in Ghost; asks you first |
 | `send_to_session` | Say `prompt` in a session Ghost keeps (`agent`, `session`), as its next turn: a turn going on is let end first, never stopped. With `wait`, gives back what its agent answered; else `wait_for_turn` does. | Sessions in Ghost; asks you first, in that session |
 | `wait_for_turn` | Wait until the turn going on in a session ends (`seconds`, ten minutes if none, an hour at most), and give back what its agent said in its last turn. | Any agent |
 | `interrupt_session` | Stop the turn going on in a session. | Sessions in Ghost; asks you first, in that session |

@@ -726,6 +726,19 @@ impl Server {
                     crate::devices::listed()
                 });
             }
+            Call::InstallAxe => {
+                let send = self.shared.send.clone();
+                self.off(move || {
+                    let done = which::which("brew")
+                        .map_err(|_| "Homebrew is not installed: see brew.sh".to_owned())
+                        .and_then(|brew| crate::devices::install_axe(&brew));
+                    send(Event::Notice(match done {
+                        Ok(()) => Ok("AXe is installed".into()),
+                        Err(why) => Err(("AXe was not installed".into(), why)),
+                    }));
+                    crate::devices::listed()
+                });
+            }
             Call::Screen { device } => self.off(move || Event::Screen {
                 picture: crate::devices::screen(&device),
                 id: device.id,
