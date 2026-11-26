@@ -959,7 +959,7 @@ impl Desk {
             item(
                 w,
                 crate::tr("The agents come from"),
-                crate::tr("The ACP registry, read again every six hours."),
+                crate::tr("The ACP registry, read again each hour."),
                 |_, _, cx| {
                     ui::button("open-registry", crate::tr("Open"), Weight::Quiet)
                         .on_click(cx.listener(|_, _, _, cx| {
