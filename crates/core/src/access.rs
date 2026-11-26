@@ -223,7 +223,7 @@ impl Access {
     /// What the pairing code `code` lets in, while it is still good.
     pub fn live(&self, code: &str) -> Option<Grant> {
         (self.codes.lock().expect("codes").iter())
-            .find(|(c, made, _)| c == code && made.elapsed() < CODE_LIFE)
+            .find(|(c, made, _)| same(c, code) && made.elapsed() < CODE_LIFE)
             .map(|(_, _, grant)| *grant)
     }
 
@@ -258,7 +258,7 @@ impl Access {
         if let Some(pair) = &hello.pair {
             let mut codes = self.codes.lock().expect("codes");
             let at = (codes.iter())
-                .position(|(c, made, _)| c == &pair.code && made.elapsed() < CODE_LIFE)
+                .position(|(c, made, _)| same(c, &pair.code) && made.elapsed() < CODE_LIFE)
                 .ok_or_else(|| {
                     Turned::Away("The pairing link is used up or out of date: make another".into())
                 })?;
@@ -363,6 +363,13 @@ pub fn within(home: &Path, paths: &[&Path]) -> bool {
     paths
         .iter()
         .all(|p| std::fs::canonicalize(p).is_ok_and(|p| roots.iter().any(|r| p.starts_with(r))))
+}
+
+/// Whether a pairing code made is `said`, compared in constant time, as a
+/// webhook's token is: how long a guess matched tells nothing.
+fn same(made: &str, said: &str) -> bool {
+    use subtle::ConstantTimeEq as _;
+    made.as_bytes().ct_eq(said.as_bytes()).into()
 }
 
 /// `N` bytes from the system's randomness (ring's, as the keys are made).

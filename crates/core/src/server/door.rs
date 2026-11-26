@@ -96,6 +96,13 @@ async fn bind(port: Option<u16>) -> std::io::Result<(tokio::net::TcpListener, Op
     Ok((listener, moved))
 }
 
+/// The token of an `Authorization` header of the Bearer scheme, the
+/// scheme read case aside (RFC 9110 §11.1).
+fn bearer(said: &str) -> Option<&str> {
+    let (scheme, token) = said.split_once(' ')?;
+    scheme.eq_ignore_ascii_case("bearer").then(|| token.trim())
+}
+
 impl Shared {
     /// Let `who` in by a new key: the key.
     fn let_in(&self, who: Caller) -> String {
@@ -239,7 +246,7 @@ impl Shared {
                     async move {
                         let key = (req.headers().get(hyper::header::AUTHORIZATION))
                             .and_then(|v| v.to_str().ok())
-                            .and_then(|v| v.strip_prefix("Bearer "))
+                            .and_then(bearer)
                             .unwrap_or_default();
                         let Some(tools) = Tools::of(&this, key) else {
                             let mut refused = hyper::Response::new(
@@ -337,5 +344,17 @@ impl Server {
         let key = self.shared.let_in(Caller::Device(scope));
         self.shared.serve(&key, io).await;
         (self.shared.callers.lock().expect("callers")).remove(&key);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_bearer_token_is_read_whatever_the_case_of_its_scheme() {
+        for said in ["Bearer k1", "bearer k1", "BEARER  k1"] {
+            assert_eq!(super::bearer(said), Some("k1"), "{said}");
+        }
+        assert_eq!(super::bearer("Basic k1"), None);
+        assert_eq!(super::bearer("k1"), None);
     }
 }
