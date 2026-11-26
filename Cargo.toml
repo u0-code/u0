@@ -123,15 +123,18 @@ strip = true
 # can be read (https://github.com/longbridge/gpui-kit/pull/4139), speech
 # recognition favours words given it
 # (https://github.com/longbridge/gpui-kit/pull/4143) and lists the
-# languages it hears (https://github.com/longbridge/gpui-kit/pull/4144).
-# The branch is v0.11.0 with those eight commits; back to crates.io once
+# languages it hears (https://github.com/longbridge/gpui-kit/pull/4144),
+# and the settings can be opened at a page and searched from outside, their
+# pages under headings (https://github.com/longbridge/gpui-kit/pull/4145,
+# https://github.com/longbridge/gpui-kit/pull/4146).
+# The branch is v0.11.0 with those ten commits; back to crates.io once
 # they are released.
 [patch.crates-io]
-gpui-kit = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech" }
-gpui-base = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech" }
-gpui-component = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech" }
-gpui-component-macros = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech" }
-gpui-kit-assets = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech" }
+gpui-kit = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech-settings" }
+gpui-base = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech-settings" }
+gpui-component = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech-settings" }
+gpui-component-macros = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech-settings" }
+gpui-kit-assets = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech-settings" }
 # Temporary, until Zed's gpui has it and gpui-kit moves to a gpui-pre built
 # from it: a window's contents can be drawn zoomed (Window::set_zoom), so
 # the whole interface scales (https://github.com/zed-industries/zed/pull/67479).

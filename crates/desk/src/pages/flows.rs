@@ -8,10 +8,7 @@ use std::time::SystemTime;
 use gpui::component::{Sizable as _, input::Input, tag::Tag};
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
-use super::{
-    card,
-    prefs::{page, said},
-};
+use super::card;
 use crate::{
     desk::{Desk, flows::Showing},
     fonts::Faces,
@@ -22,11 +19,8 @@ use crate::{
 };
 
 impl Desk {
-    /// The Workflows tab; none where the search `q` finds nothing in it.
-    pub(super) fn flows_tab(&self, faces: &Faces, q: &str, cx: &mut Context<Self>) -> Option<Div> {
-        if !said(q, &["Workflows", "workflow", "runs", "steps"]) {
-            return None;
-        }
+    /// The Workflows tab: the workflows, and their runs.
+    pub(super) fn flows_tab(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let folder = crate::workflows::folder(&self.home);
         let mut defs = card().overflow_hidden();
         if self.flows.list.is_empty() {
@@ -145,12 +139,11 @@ impl Desk {
                 }
             }
         }
-        Some(
-            page(
-                faces,
-                super::Tab::Workflows.title(),
-                "Work in stages, run by Ghost's server as one run that outlives a restart: each step's result is kept as it ends, and a step that fails pauses the run there.",
-            )
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(22.))
+            .w_full()
             .child(
                 div()
                     .flex()
@@ -162,7 +155,12 @@ impl Desk {
                             .items_center()
                             .gap(px(12.))
                             .child(ui::label(faces, "Workflows").flex_1())
-                            .children(self.flows.input.as_ref().map(|i| div().w(px(240.)).child(Input::new(i).small()))),
+                            .children(
+                                self.flows
+                                    .input
+                                    .as_ref()
+                                    .map(|i| div().w(px(240.)).child(Input::new(i).small())),
+                            ),
                     )
                     .child(defs),
             )
@@ -179,8 +177,7 @@ impl Desk {
                             .child(filter),
                     )
                     .child(runs),
-            ),
-        )
+            )
     }
 
     /// A run: its workflow and input, where it stands, each step done with

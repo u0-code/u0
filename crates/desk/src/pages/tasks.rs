@@ -13,10 +13,7 @@ use gpui::component::{
 };
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
-use super::{
-    card,
-    prefs::{group_of, page, said, setting},
-};
+use super::{card, list_of, list_row};
 use crate::{
     desk::{Desk, Popup},
     fonts::Faces,
@@ -28,12 +25,8 @@ use crate::{
 };
 
 impl Desk {
-    /// The Scheduled tasks tab; none where the search `q` finds nothing in
-    /// it.
-    pub(super) fn tasks_tab(&self, faces: &Faces, q: &str, cx: &mut Context<Self>) -> Option<Div> {
-        if !said(q, &["Scheduled tasks", "schedule", "every", "daily", "run"]) {
-            return None;
-        }
+    /// The Scheduled tasks tab: the one being written, and the tasks.
+    pub(super) fn tasks_tab(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let new = ui::button("new-task", "New task", Weight::Secondary)
             .on_click(cx.listener(|this, _, window, cx| this.new_task(window, cx)));
         let head = div()
@@ -59,15 +52,13 @@ impl Desk {
                 }
             }
         }
-        Some(
-            page(
-                faces,
-                super::Tab::Tasks.title(),
-                "A prompt said to an agent on a schedule. Ghost's server runs them, so they run while the window is closed; each run's session is in the sidebar.",
-            )
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(22.))
+            .w_full()
             .children(self.task_form(faces, cx))
-            .child(div().flex().flex_col().gap(px(8.)).child(head).child(list)),
-        )
+            .child(div().flex().flex_col().gap(px(8.)).child(head).child(list))
     }
 
     /// A task: its name and prompt, when it runs and how it last went;
@@ -334,13 +325,13 @@ impl Desk {
         let mut rows = vec![
             field("Name", Input::new(&draft.title).small().into_any_element()),
             field("Prompt", Textarea::new(&draft.prompt).into_any_element()),
-            setting(
+            list_row(
                 faces,
                 "Agent",
                 "Who it is said to, with which model.",
                 self.task_agent_pick(faces, cx),
             ),
-            setting(
+            list_row(
                 faces,
                 "Project",
                 "Where it works.",
@@ -356,7 +347,7 @@ impl Desk {
                     .child(when_field)
                     .into_any_element(),
             ),
-            setting(
+            list_row(
                 faces,
                 "Each run",
                 "A session of its own, or the next turn of the first run's.",
@@ -364,7 +355,7 @@ impl Desk {
             ),
         ];
         if !task.same {
-            rows.push(setting(
+            rows.push(list_row(
                 faces,
                 "In a worktree of its own",
                 "Each run's session works on a new branch, away from your checkout.",
@@ -409,7 +400,7 @@ impl Desk {
                     },
                 ))
                 .children(draft.wrong.clone().map(ui::trouble))
-                .child(group_of(rows)),
+                .child(list_of(rows)),
         )
     }
 

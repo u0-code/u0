@@ -3,110 +3,108 @@
 //! yours made, imported, changed and removed; and a picture under the
 //! thread.
 
+use gpui::component::setting::SettingGroup;
 use gpui::component::{
     Sizable as _,
     button::Button,
     menu::{DropdownMenu as _, PopupMenuItem},
 };
-use gpui::{Context, Div, IntoElement, SharedString, div, prelude::*, px};
+use gpui::{App, Context, IntoElement, SharedString, WeakEntity, div, prelude::*, px};
 
-use super::prefs::{group, row};
+use super::prefs::{group, item, whole};
 use crate::{
     desk::Desk,
-    fonts::Faces,
     themes::{self, Themes},
     ui::{self, Weight},
 };
 
 impl Desk {
-    /// The themes group; none where the search `q` finds nothing in it.
-    pub(super) fn themes_group(
-        &self,
-        faces: &Faces,
-        q: &str,
-        cx: &mut Context<Self>,
-    ) -> Option<Div> {
-        let yours: Vec<SharedString> = cx
+    /// The themes group.
+    pub(super) fn themes_group(&self, w: &WeakEntity<Desk>, cx: &App) -> SettingGroup {
+        let yours: Vec<(SharedString, Option<std::path::PathBuf>)> = cx
             .try_global::<Themes>()
             .into_iter()
             .flat_map(|t| t.0.iter())
             .filter(|(_, file)| file.is_some())
-            .map(|(t, _)| t.name.clone())
+            .map(|(t, file)| (t.name.clone(), file.clone()))
             .collect();
         let mut rows = vec![
-            row(
-                faces,
-                q,
+            item(
+                w,
                 "Dark theme",
                 "What the dark look is drawn in: Ghost's own, one it brings, or one of yours.",
-                self.theme_pick(true, cx),
+                |d, _, cx| d.theme_pick(true, cx).into_any_element(),
             ),
-            row(
-                faces,
-                q,
+            item(
+                w,
                 "Light theme",
                 "What the light look is drawn in.",
-                self.theme_pick(false, cx),
+                |d, _, cx| d.theme_pick(false, cx).into_any_element(),
             ),
-            row(
-                faces,
-                q,
+            item(
+                w,
                 "Make a theme",
                 "The theme drawn now, copied into a file of yours and opened in your editor; read the themes again to see what you changed.",
-                div()
-                    .flex()
-                    .gap(px(8.))
-                    .child(
-                        ui::button("theme-duplicate", "Duplicate", Weight::Secondary)
-                            .on_click(cx.listener(|this, _, _, cx| this.duplicate_theme(cx))),
-                    )
-                    .child(
-                        ui::button("theme-import", "Import VS Code theme…", Weight::Secondary)
-                            .on_click(
-                                cx.listener(|_, _, window, cx| Desk::import_theme(window, cx)),
-                            ),
-                    )
-                    .child(
-                        ui::button("theme-read", "Read again", Weight::Quiet)
-                            .on_click(cx.listener(|this, _, _, cx| this.read_themes(cx))),
-                    ),
+                |_, _, cx| {
+                    div()
+                        .flex()
+                        .gap(px(8.))
+                        .child(
+                            ui::button("theme-duplicate", "Duplicate", Weight::Secondary)
+                                .on_click(cx.listener(|this, _, _, cx| this.duplicate_theme(cx))),
+                        )
+                        .child(
+                            ui::button("theme-import", "Import VS Code theme…", Weight::Secondary)
+                                .on_click(
+                                    cx.listener(|_, _, window, cx| Desk::import_theme(window, cx)),
+                                ),
+                        )
+                        .child(
+                            ui::button("theme-read", "Read again", Weight::Quiet)
+                                .on_click(cx.listener(|this, _, _, cx| this.read_themes(cx))),
+                        )
+                        .into_any_element()
+                },
             ),
         ];
         let folder = themes::folder(&self.home);
-        for (n, name) in yours.into_iter().enumerate() {
-            let (path, gone) = (
-                cx.try_global::<Themes>()
-                    .and_then(|t| t.0.iter().find(|(c, _)| c.name == name)?.1.clone()),
-                name.to_string(),
-            );
-            rows.push(row(
-                faces,
-                q,
-                &name,
-                &format!("Yours, in {}", Desk::shown(&folder)),
-                div()
-                    .flex()
-                    .gap(px(8.))
-                    .child(
-                        ui::button(
-                            SharedString::from(format!("theme-edit-{n}")),
-                            "Edit",
-                            Weight::Secondary,
+        for (n, (name, path)) in yours.into_iter().enumerate() {
+            let gone = name.to_string();
+            rows.push(item(
+                w,
+                name,
+                format!("Yours, in {}", Desk::shown(&folder)),
+                move |_, _, cx| {
+                    let (path, gone) = (path.clone(), gone.clone());
+                    div()
+                        .flex()
+                        .gap(px(8.))
+                        .child(
+                            ui::button(
+                                SharedString::from(format!("theme-edit-{n}")),
+                                "Edit",
+                                Weight::Secondary,
+                            )
+                            .on_click(cx.listener(
+                                move |this, _, _, _| {
+                                    if let Some(p) = path.clone() {
+                                        this.edit(p, None);
+                                    }
+                                },
+                            )),
                         )
-                        .on_click(cx.listener(move |this, _, _, _| {
-                            if let Some(p) = path.clone() {
-                                this.edit(p, None);
-                            }
-                        })),
-                    )
-                    .child(
-                        ui::button(
-                            SharedString::from(format!("theme-remove-{n}")),
-                            "Remove",
-                            Weight::Quiet,
+                        .child(
+                            ui::button(
+                                SharedString::from(format!("theme-remove-{n}")),
+                                "Remove",
+                                Weight::Quiet,
+                            )
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.remove_theme(&gone, cx)),
+                            ),
                         )
-                        .on_click(cx.listener(move |this, _, _, cx| this.remove_theme(&gone, cx))),
-                    ),
+                        .into_any_element()
+                },
             ));
         }
         let backdrop = self
@@ -114,37 +112,39 @@ impl Desk {
             .backdrop
             .as_ref()
             .map_or_else(|| "None".to_owned(), |p| Desk::shown(p));
-        rows.push(row(
-            faces,
-            q,
+        rows.push(item(
+            w,
             "Picture under the thread",
-            &format!("Drawn faintly behind the thread and the composer: {backdrop}."),
-            div()
-                .flex()
-                .gap(px(8.))
-                .child(
-                    ui::button("backdrop-choose", "Choose…", Weight::Secondary).on_click(
-                        cx.listener(|_, _, window, cx| Desk::choose_backdrop(window, cx)),
-                    ),
-                )
-                .when(self.settings.backdrop.is_some(), |d| {
-                    d.child(ui::button("backdrop-none", "None", Weight::Quiet).on_click(
-                        cx.listener(|this, _, _, cx| {
-                            this.settings.backdrop = None;
-                            this.save_settings();
-                            cx.notify();
-                        }),
-                    ))
-                }),
+            format!("Drawn faintly behind the thread and the composer: {backdrop}."),
+            |d, _, cx| {
+                div()
+                    .flex()
+                    .gap(px(8.))
+                    .child(
+                        ui::button("backdrop-choose", "Choose…", Weight::Secondary).on_click(
+                            cx.listener(|_, _, window, cx| Desk::choose_backdrop(window, cx)),
+                        ),
+                    )
+                    .when(d.settings.backdrop.is_some(), |d| {
+                        d.child(ui::button("backdrop-none", "None", Weight::Quiet).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.settings.backdrop = None;
+                                this.save_settings();
+                                cx.notify();
+                            }),
+                        ))
+                    })
+                    .into_any_element()
+            },
         ));
-        group(faces, "Themes", rows).map(|g| {
-            g.children(
-                self.pages
-                    .themes_refused
-                    .iter()
-                    .map(|why| ui::trouble(format!("A theme did not read: {why}"))),
-            )
-        })
+        // A theme that did not read says why, under them.
+        for why in &self.pages.themes_refused {
+            let why = format!("A theme did not read: {why}");
+            rows.push(whole(w, &[], move |_, _, _| {
+                ui::trouble(why.clone()).into_any_element()
+            }));
+        }
+        group("Themes", rows)
     }
 
     /// The theme for the dark look (or the light), and a menu of those

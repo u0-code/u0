@@ -8,10 +8,7 @@ use std::collections::BTreeMap;
 
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
-use super::{
-    card,
-    prefs::{page, setting},
-};
+use super::{card, list_row};
 use crate::{
     desk::Desk,
     fonts::Faces,
@@ -131,7 +128,7 @@ impl Desk {
                 .filter(|(k, _)| self.sessions.at(*k).is_some_and(|s| s.meta.agent == *agent))
                 .count();
             agents = agents.child(
-                setting(
+                list_row(
                     faces,
                     &self.name_of(agent),
                     &format!("{sessions} session{}", if sessions == 1 { "" } else { "s" }),
@@ -159,7 +156,7 @@ impl Desk {
                 .unwrap_or_default();
             let key = *key;
             sessions = sessions.child(
-                setting(
+                list_row(
                     faces,
                     &ui::fit(&s.meta.title, 48),
                     &format!("{}{context}", self.name_of(&s.meta.agent)),
@@ -197,13 +194,13 @@ impl Desk {
                 .child(ui::label(faces, label))
                 .child(body)
         };
-        let mut out = page(
-            faces,
-            super::Tab::Usage.title(),
-            "What sessions cost, as their agents said.",
-        )
-        .child(div().flex().child(periods))
-        .child(section("By agent", agents));
+        let mut out = div()
+            .flex()
+            .flex_col()
+            .gap(px(22.))
+            .w_full()
+            .child(div().flex().child(periods))
+            .child(section("By agent", agents));
         if !rows.is_empty() {
             out = out.child(section("By session", sessions));
         }

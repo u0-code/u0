@@ -5,10 +5,7 @@
 
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
-use super::{
-    card,
-    prefs::{page, said, setting},
-};
+use super::{card, list_row};
 use crate::{
     desk::Desk,
     fonts::Faces,
@@ -17,17 +14,8 @@ use crate::{
 };
 
 impl Desk {
-    /// The Diagnostics tab; none where the search `q` finds nothing in it.
-    pub(super) fn diagnostics(
-        &self,
-        faces: &Faces,
-        q: &str,
-        cx: &mut Context<Self>,
-    ) -> Option<Div> {
-        let words = ["Processes", "Diagnostics", "Log", "Errors", "CPU", "Memory"];
-        if !said(q, &words) {
-            return None;
-        }
+    /// The Diagnostics tab's processes, this Mac, and the log's troubles.
+    pub(super) fn diagnostics(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let mut tree = card().overflow_hidden();
         let (agents, processes) = (&self.pages.processes.0, &self.pages.processes.1);
         for (n, p) in processes.procs.iter().enumerate() {
@@ -58,7 +46,7 @@ impl Desk {
                 .on_click(cx.listener(move |this, _, _, _| this.stop_process(pid))),
             };
             tree = tree.child(
-                setting(
+                list_row(
                     faces,
                     &name,
                     &format!("{pid} · {:.1}% CPU · {} MB", p.cpu, p.kb / 1024),
@@ -114,12 +102,11 @@ impl Desk {
                 .child(ui::label(faces, label))
                 .child(body)
         };
-        Some(
-            page(
-                faces,
-                "Diagnostics",
-                "What Ghost runs on this Mac, and what went wrong.",
-            )
+        div()
+            .flex()
+            .flex_col()
+            .gap(px(22.))
+            .w_full()
             .child(
                 div()
                     .flex()
@@ -132,7 +119,6 @@ impl Desk {
                     ),
             )
             .child(section("Processes", tree))
-            .child(section("Warnings and errors in the log", log)),
-        )
+            .child(section("Warnings and errors in the log", log))
     }
 }

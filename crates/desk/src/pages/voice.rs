@@ -1,10 +1,10 @@
 //! Dictation's settings, in the Chat tab: how the key listens, the
 //! language, your dictionary, filler words and clean-up.
 
-use gpui::component::{Selectable as _, scroll::ScrollableElement as _};
-use gpui::{Context, Div, SharedString, div, prelude::*, px};
+use gpui::component::{Selectable as _, scroll::ScrollableElement as _, setting::SettingGroup};
+use gpui::{Context, IntoElement, SharedString, WeakEntity, div, prelude::*, px};
 
-use super::prefs::{group, row, said};
+use super::prefs::{group, item};
 use super::writing::instructions;
 use crate::{
     desk::{Desk, Popup},
@@ -14,79 +14,43 @@ use crate::{
 };
 
 impl Desk {
-    /// The dictation group; none when what is looked for, `q`, is in none
-    /// of it.
-    pub(super) fn dictation_group(
-        &self,
-        faces: &Faces,
-        q: &str,
-        cx: &mut Context<Self>,
-    ) -> Option<Div> {
-        let v = &self.settings.voice;
-        group(
-            faces,
-            "Dictation",
-            vec![
-                row(
-                    faces,
-                    q,
-                    "The dictation key (⇧⌘D)",
-                    "Auto: a press begins and a press ends, or hold it while you talk. Toggle: a press begins, a press ends. Hold: it listens while held. Outside the composer, macOS's dictation types instead.",
-                    Self::pick(
+    /// The dictation group.
+    pub(super) fn dictation_group(w: &WeakEntity<Desk>) -> SettingGroup {
+        group("Dictation", vec![
+                item(w, "The dictation key (⇧⌘D)", "Auto: a press begins and a press ends, or hold it while you talk. Toggle: a press begins, a press ends. Hold: it listens while held. Outside the composer, macOS's dictation types instead.", |d, _, cx| Self::pick(
                         "voice-key",
                         [
                             ("Auto", VoiceKey::Auto),
                             ("Toggle", VoiceKey::Toggle),
                             ("Hold", VoiceKey::Hold),
                         ],
-                        v.key,
+                        d.settings.voice.key,
                         |s, v| s.voice.key = v,
                         cx,
-                    ),
-                ),
-                row(
-                    faces,
-                    q,
-                    "Language",
-                    "Heard by macOS's speech recognition on this Mac alone: a language it can't hear on the device is not sent away.",
-                    self.language_pick(faces, cx),
-                ),
-                row(
-                    faces,
-                    q,
-                    "Filler words",
-                    "“Um”, “uh” and the like.",
-                    Self::pick(
+                    ).into_any_element()),
+                item(w, "Language", "Heard by macOS's speech recognition on this Mac alone: a language it can't hear on the device is not sent away.", |d, faces, cx| d.language_pick(faces, cx).into_any_element()),
+                item(w, "Filler words", "“Um”, “uh” and the like.", |d, _, cx| Self::pick(
                         "voice-fillers",
                         [("Left out", true), ("Kept", false)],
-                        v.no_fillers,
+                        d.settings.voice.no_fillers,
                         |s, v| s.voice.no_fillers = v,
                         cx,
-                    ),
-                ),
-                row(
-                    faces,
-                    q,
-                    "Clean up",
-                    "The writer corrects what was misheard and punctuates it before it goes in; Skip puts it in as heard.",
-                    Self::pick(
+                    ).into_any_element()),
+                item(w, "Clean up", "The writer corrects what was misheard and punctuates it before it goes in; Skip puts it in as heard.", |d, _, cx| Self::pick(
                         "voice-clean",
                         [("As heard", false), ("Cleaned up", true)],
-                        v.clean,
+                        d.settings.voice.clean,
                         |s, v| s.voice.clean = v,
                         cx,
-                    ),
-                ),
-                said(q, &["Dictionary", "words", "dictation"]).then(|| {
-                    instructions(
-                        faces,
-                        "Dictionary",
-                        "Names and terms to listen for, one to a line; “heard = written” writes what is heard otherwise.",
-                        &self.pages.dictionary,
-                    )
-                }),
-            ],
-        )
+                    ).into_any_element()),
+                instructions(
+                    w,
+                    "Dictionary",
+                    "Names and terms to listen for, one to a line; “heard = written” writes what is heard otherwise.",
+                    |d| &d.pages.dictionary,
+                )
+                .keywords(["words", "dictation"]),
+            ])
     }
 
     /// The language dictation listens for, and the menu of those macOS

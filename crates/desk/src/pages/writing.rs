@@ -3,11 +3,15 @@
 
 use agent_client_protocol::v1::schema::SessionConfigOptionCategory as Category;
 use gpui::component::{
-    Selectable as _, Sizable as _, input::Textarea, scroll::ScrollableElement as _, switch::Switch,
+    Selectable as _, Sizable as _,
+    input::{Textarea, TextareaState},
+    scroll::ScrollableElement as _,
+    setting::{SettingItem, SettingPage},
+    switch::Switch,
 };
-use gpui::{Context, Div, Entity, SharedString, div, prelude::*, px};
+use gpui::{Axis, Context, Div, Entity, SharedString, WeakEntity, div, prelude::*, px};
 
-use super::prefs::{group, page, said};
+use super::prefs::{group, item};
 use crate::{
     desk::{Desk, Popup},
     fonts::Faces,
@@ -17,85 +21,66 @@ use crate::{
 };
 
 impl Desk {
-    /// The writer's tab; none when what is looked for, `q`, is in none of
-    /// it.
-    pub(super) fn writing_tab(
-        &self,
-        faces: &Faces,
-        q: &str,
-        cx: &mut Context<Self>,
-    ) -> Option<Div> {
-        let who = said(
-            q,
-            &["Writer", "Who writes", "model", "agent", "titles", "commit"],
-        )
-        .then(|| {
-            super::prefs::setting(
-                faces,
+    /// The writer's tab.
+    pub(super) fn writing_tab(w: &WeakEntity<Desk>) -> SettingPage {
+        let writer = vec![
+            item(
+                w,
                 "Who writes",
                 "In a session of its own, deleted once it answers; it spends what a turn spends.",
-                self.writer_pick(faces, cx),
+                |d, faces, cx| d.writer_pick(faces, cx).into_any_element(),
             )
-        });
-        let next = said(q, &["suggest", "next", "Tab"]).then(|| {
-            super::prefs::setting(
-                faces,
+            .keywords(["Writer", "model", "agent", "titles", "commit"]),
+            item(
+                w,
                 "Suggest what to say next",
                 "After each turn, in the empty composer: Tab takes it, Esc lets it go.",
-                Switch::new("suggest")
-                    .small()
-                    .checked(self.settings.writer.suggest)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.settings.writer.suggest = !this.settings.writer.suggest;
-                        this.save_settings();
-                        cx.notify();
-                    })),
+                |d, _, cx| {
+                    Switch::new("suggest")
+                        .small()
+                        .checked(d.settings.writer.suggest)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.settings.writer.suggest = !this.settings.writer.suggest;
+                            this.save_settings();
+                            cx.notify();
+                        }))
+                        .into_any_element()
+                },
             )
-        });
-        let field = |words: &[&str], name: &str, about: &str, input| {
-            said(q, words).then(|| instructions(faces, name, about, input))
-        };
+            .keywords(["Tab"]),
+        ];
         let yours = vec![
-            field(
-                &["title", "instructions"],
+            instructions(
+                w,
                 "Titles",
                 "Written when you ask a session for one again.",
-                &self.pages.titles,
+                |d| &d.pages.titles,
             ),
-            field(
-                &["branch", "worktree", "instructions"],
+            instructions(
+                w,
                 "Worktree branches",
                 "Named from what you first ask, once the worktree is made.",
-                &self.pages.branches,
+                |d| &d.pages.branches,
             ),
-            field(
-                &["commit", "pull request", "instructions"],
+            instructions(
+                w,
                 "Commit messages and pull requests",
                 "Your style for them, over the repository's own and its template.",
-                &self.pages.changes,
+                |d| &d.pages.changes,
             ),
-            field(
-                &["dictation", "dictated", "clean", "instructions"],
+            instructions(
+                w,
                 "Dictation, cleaned up",
                 "Where you asked for what you dictate to be cleaned up before it goes in.",
-                &self.pages.transcripts,
+                |d| &d.pages.transcripts,
             ),
         ];
-        let groups: Vec<Div> = [
-            group(faces, "The writer", vec![who, next]),
-            group(faces, "Your instructions", yours),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-        (!groups.is_empty()).then(|| {
-            page(
-                faces,
-                super::Tab::Writing.title(),
+        SettingPage::new(super::Tab::Writing.title())
+            .description(
                 "Ghost has no model of its own: an agent of yours writes what Ghost writes for you.",
             )
-            .children(groups)
-        })
+            .group(group("The writer", writer))
+            .group(group("Your instructions", yours))
     }
 
     /// The writer, and the menu to choose another: the session's own
@@ -246,31 +231,16 @@ impl Desk {
     }
 }
 
-/// A field for your instructions under what it is for.
+/// A field for your instructions, `of` the desk's, under what it is for.
 pub(super) fn instructions(
-    faces: &Faces,
+    w: &WeakEntity<Desk>,
     name: &str,
     about: &str,
-    input: &Entity<gpui::component::input::TextareaState>,
-) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(8.))
-        .px(px(16.))
-        .py(px(12.))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(2.))
-                .child(ui::text(faces, name.to_owned()).text_size(px(13.5)))
-                .child(
-                    ui::text(faces, about.to_owned())
-                        .text_size(px(12.5))
-                        .line_height(px(18.))
-                        .text_color(theme::faint()),
-                ),
-        )
-        .child(Textarea::new(input))
+    of: fn(&Desk) -> &Entity<TextareaState>,
+) -> SettingItem {
+    item(w, name.to_owned(), about.to_owned(), move |d, _, _| {
+        Textarea::new(of(d)).into_any_element()
+    })
+    .layout(Axis::Vertical)
+    .keywords(["instructions"])
 }

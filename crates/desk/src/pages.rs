@@ -25,6 +25,7 @@ use gpui::component::{
     input::{Input, InputEvent, InputState, TextareaState},
     progress::Progress,
     scroll::ScrollableElement as _,
+    setting::SettingsState,
     stepper::{Stepper, StepperItem},
 };
 use gpui::{Context, Div, Entity, SharedString, Window, div, prelude::*, px};
@@ -50,7 +51,8 @@ use crate::{
 pub struct Pages {
     pub open: bool,
     pub tab: Tab,
-    pub search: Entity<InputState>,
+    /// The settings' page shown and their search: gpui-kit's.
+    pub settings: Entity<SettingsState>,
     pub agent_search: Entity<InputState>,
     pub prefix: Entity<InputState>,
     /// Your snooze presets as you write them, commas between.
@@ -105,12 +107,10 @@ impl Pages {
         let field = |placeholder: &'static str, window: &mut Window, cx: &mut Context<Desk>| {
             cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
         };
-        let search = field("Search settings", window, cx);
+        let shown = cx.new(|cx| SettingsState::new(window, cx));
         let agent_search = field("Search the ACP registry", window, cx);
-        for input in [&search, &agent_search] {
-            cx.subscribe(input, |_, _, _: &InputEvent, cx| cx.notify())
-                .detach();
-        }
+        cx.subscribe(&agent_search, |_, _, _: &InputEvent, cx| cx.notify())
+            .detach();
         let prefix = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("ghost/")
@@ -146,7 +146,7 @@ impl Pages {
         Self {
             open: false,
             tab: Tab::General,
-            search,
+            settings: shown,
             agent_search,
             prefix,
             snoozes,
@@ -284,6 +284,43 @@ enum Step {
     Todo,
     Now,
     Done,
+}
+
+/// A row of a list in a card: what it is, more of it, and what it ends
+/// in.
+pub(super) fn list_row(faces: &Faces, name: &str, about: &str, end: impl IntoElement) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(16.))
+        .px(px(16.))
+        .py(px(12.))
+        .min_h(px(56.))
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w(px(0.))
+                .gap(px(2.))
+                .child(ui::text(faces, name.to_owned()).text_size(px(13.5)))
+                .child(
+                    ui::text(faces, about.to_owned())
+                        .text_size(px(12.5))
+                        .line_height(px(18.))
+                        .text_color(theme::faint()),
+                ),
+        )
+        .child(end)
+}
+
+/// Rows in one card, a line between each.
+pub(super) fn list_of(rows: Vec<Div>) -> Div {
+    let mut frame = card().overflow_hidden();
+    for (n, r) in rows.into_iter().enumerate() {
+        frame = frame.child(r.when(n > 0, |d| d.border_t_1().border_color(theme::border())));
+    }
+    frame
 }
 
 pub(crate) fn card() -> Div {

@@ -2,25 +2,19 @@
 //! or issues can be on, the CLI found for it here and a token of yours,
 //! kept in the Keychain; and what merging leaves out.
 
-use gpui::component::{Sizable as _, input::Input};
-use gpui::{Context, Div, SharedString, Window, div, prelude::*, px};
+use gpui::component::{Sizable as _, input::Input, setting::SettingPage};
+use gpui::{AnyElement, Context, SharedString, WeakEntity, Window, div, prelude::*, px};
 
-use super::prefs::{group, page, row};
+use super::prefs::{group, item};
 use crate::{
     desk::Desk,
-    fonts::Faces,
     forge::Host,
     ui::{self, Weight},
 };
 
 impl Desk {
-    /// The Source control tab; none where the search `q` finds nothing in it.
-    pub(super) fn source_control(
-        &self,
-        faces: &Faces,
-        q: &str,
-        cx: &mut Context<Self>,
-    ) -> Option<Div> {
+    /// The Source control tab: each host, and what merging leaves out.
+    pub(super) fn source_control(&self, w: &WeakEntity<Desk>) -> SettingPage {
         let hosts = Host::ALL
             .into_iter()
             .enumerate()
@@ -32,78 +26,72 @@ impl Desk {
                     (None, _) => "Read over its API with a token".to_owned(),
                     _ => String::new(),
                 };
-                let kept = seen.is_some_and(|s| s.token);
-                let about = if kept {
+                let about = if seen.is_some_and(|s| s.token) {
                     format!("{cli} · your token is in the Keychain")
                 } else {
                     cli
                 };
-                let control = if kept {
-                    ui::button(
-                        SharedString::from(format!("drop-token-{n}")),
-                        "Remove token",
-                        Weight::Secondary,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| this.set_token(host, None, cx)))
-                    .into_any_element()
-                } else {
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .child(
-                            div()
-                                .w(px(200.))
-                                .child(Input::new(&self.pages.tokens[n]).small().mask_toggle()),
-                        )
-                        .child(
-                            ui::button(
-                                SharedString::from(format!("keep-token-{n}")),
-                                "Keep",
-                                Weight::Secondary,
-                            )
-                            .on_click(cx.listener(
-                                move |this, _, window, cx| {
-                                    this.keep_token(n, window, cx);
-                                },
-                            )),
-                        )
-                        .into_any_element()
-                };
-                row(faces, q, host.name(), &about, control)
+                item(w, host.name(), about, move |d, _, cx| d.token_field(n, cx))
             })
             .collect();
-        let groups: Vec<Div> = [
-            group(faces, "Hosts", hosts),
-            group(
-                faces,
-                "Merging",
-                vec![row(
-                    faces,
-                    q,
-                    "Agents' credits in a squash",
-                    "Co-authored-by lines and footers that credit an agent are taken out of a squashed commit's message; a person's stay.",
-                    Self::pick(
-                        "uncredit",
-                        [("Kept", false), ("Taken out", true)],
-                        self.settings.uncredit,
-                        |s, v| s.uncredit = v,
-                        cx,
-                    ),
-                )],
-            ),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-        (!groups.is_empty()).then(|| {
-            page(
-                faces,
-                "Source control",
+        SettingPage::new("Source control")
+            .description(
                 "Where your projects' code and issues are. A token of yours is used over the CLI's own sign-in, and kept in the macOS Keychain, never in a file; it may be a 1Password reference (op://).",
             )
-            .children(groups)
-        })
+            .group(group("Hosts", hosts))
+            .group(group(
+                "Merging",
+                vec![item(
+                    w,
+                    "Agents' credits in a squash",
+                    "Co-authored-by lines and footers that credit an agent are taken out of a squashed commit's message; a person's stay.",
+                    |d, _, cx| {
+                        Self::pick(
+                            "uncredit",
+                            [("Kept", false), ("Taken out", true)],
+                            d.settings.uncredit,
+                            |s, v| s.uncredit = v,
+                            cx,
+                        )
+                        .into_any_element()
+                    },
+                )],
+            ))
+    }
+
+    /// The `n`th host's token: the way to remove it where one is kept, else
+    /// a field to give one.
+    fn token_field(&self, n: usize, cx: &mut Context<Self>) -> AnyElement {
+        let host = Host::ALL[n];
+        if self.pages.forges.iter().any(|s| s.host == host && s.token) {
+            return ui::button(
+                SharedString::from(format!("drop-token-{n}")),
+                "Remove token",
+                Weight::Secondary,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.set_token(host, None, cx)))
+            .into_any_element();
+        }
+        div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .child(
+                div()
+                    .w(px(200.))
+                    .child(Input::new(&self.pages.tokens[n]).small().mask_toggle()),
+            )
+            .child(
+                ui::button(
+                    SharedString::from(format!("keep-token-{n}")),
+                    "Keep",
+                    Weight::Secondary,
+                )
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.keep_token(n, window, cx);
+                })),
+            )
+            .into_any_element()
     }
 
     /// Keep the token typed for the `n`th host.

@@ -4,10 +4,17 @@
 //! Settings › Connections: the Ghosts elsewhere this Mac has paired with,
 //! the key it made for each, and the one the window is on.
 
-use gpui::component::{Disableable as _, Sizable as _, input::Input, switch::Switch};
-use gpui::{ClipboardItem, Context, Div, SharedString, Window, div, prelude::*, px};
+use gpui::component::{
+    Disableable as _, Sizable as _,
+    input::Input,
+    setting::{SettingGroup, SettingPage},
+    switch::Switch,
+};
+use gpui::{
+    AnyElement, ClipboardItem, Context, Div, SharedString, WeakEntity, Window, div, prelude::*, px,
+};
 
-use super::prefs::{group, page, setting};
+use super::prefs::{group, item, whole};
 use crate::{
     access::Named,
     desk::Desk,
@@ -16,7 +23,6 @@ use crate::{
     link,
     servers::Servers,
     share::{Share, Tunnel},
-    theme,
     ui::{self, Weight},
     when,
 };
@@ -55,29 +61,37 @@ fn qr(link: &str) -> Div {
 }
 
 impl Desk {
-    pub(super) fn sharing_tab(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+    /// Sharing & access: this Ghost reached from other machines.
+    pub(super) fn sharing_tab(&self, w: &WeakEntity<Desk>) -> SettingPage {
         let on = self.transport.elsewhere().unwrap_or("this Mac").to_owned();
-        let lede = format!(
+        let page = SettingPage::new("Sharing & access").description(format!(
             "Reach the Ghost on {on} from another Mac: its agents, sessions, files and terminals, as here."
-        );
+        ));
         let Some(shared) = &self.pages.shared else {
-            return page(faces, "Sharing & access", &lede);
+            return page.group(SettingGroup::new().item(whole(w, &[], |_, faces, _| {
+                ui::fine(faces, "Asking the server how it is shared…").into_any_element()
+            })));
         };
         let serving = shared.serving.as_ref().is_some_and(Result::is_ok);
-        let listen = setting(
-            faces,
+        let listening = match &shared.serving {
+            Some(Ok(port)) => {
+                format!("Listening on 127.0.0.1:{port}, for a tunnel or an ssh -L to reach.")
+            }
+            Some(Err(why)) => why.clone(),
+            None => "Only through 127.0.0.1, and only a device paired with it.".into(),
+        };
+        let asked = shared.serving.is_some();
+        let listen = item(
+            w,
             "Let other machines reach this Ghost",
-            &match &shared.serving {
-                Some(Ok(port)) => {
-                    format!("Listening on 127.0.0.1:{port}, for a tunnel or an ssh -L to reach.")
-                }
-                Some(Err(why)) => why.clone(),
-                None => "Only through 127.0.0.1, and only a device paired with it.".into(),
+            listening,
+            move |_, _, cx| {
+                Switch::new("serve")
+                    .small()
+                    .checked(asked)
+                    .on_click(cx.listener(move |this, _, _, _| this.share(Share::Serve(!serving))))
+                    .into_any_element()
             },
-            Switch::new("serve")
-                .small()
-                .checked(shared.serving.is_some())
-                .on_click(cx.listener(move |this, _, _, _| this.share(Share::Serve(!serving)))),
         );
         let (status, running) = match &shared.tunnel {
             Tunnel::Off => ("Off".to_owned(), false),
@@ -85,36 +99,45 @@ impl Desk {
             Tunnel::Up(host) => (format!("Connected at {host}"), true),
             Tunnel::Down(why) => (format!("Stopped: {why}"), false),
         };
-        let tunnel = setting(
-            faces,
-            "Tunnel (cloudflared)",
-            &status,
+        let tunnel = item(w, "Tunnel (cloudflared)", status, move |_, _, cx| {
             ui::button(
                 "tunnel",
                 if running { "Stop" } else { "Start" },
                 Weight::Secondary,
             )
             .disabled(!serving)
-            .on_click(cx.listener(move |this, _, _, _| this.share(Share::Tunnel(!running)))),
-        );
-        let named = shared.named.clone();
-        let mode = setting(
-            faces,
-            "Address",
-            &match &named {
-                Some(host) => format!("A named tunnel of yours, at {host}."),
-                None => "A quick tunnel: a new address each time it starts, so pair again with a new link.".into(),
-            },
-            match named {
-                Some(_) => ui::button("unname", "Use a quick tunnel", Weight::Quiet)
+            .on_click(cx.listener(move |this, _, _, _| this.share(Share::Tunnel(!running))))
+            .into_any_element()
+        });
+        let named = shared.named.is_some();
+        let address = match &shared.named {
+            Some(host) => format!("A named tunnel of yours, at {host}."),
+            None => {
+                "A quick tunnel: a new address each time it starts, so pair again with a new link."
+                    .into()
+            }
+        };
+        let mode = item(w, "Address", address, move |d, _, cx| {
+            if named {
+                return ui::button("unname", "Use a quick tunnel", Weight::Quiet)
                     .on_click(cx.listener(|this, _, _, _| this.share(Share::Named(None))))
-                    .into_any_element(),
-                None => div()
-                    .flex()
-                    .gap(px(6.))
-                    .child(div().w(px(150.)).child(Input::new(&self.pages.named_host).small()))
-                    .child(div().w(px(150.)).child(Input::new(&self.pages.named_token).small()))
-                    .child(ui::button("name", "Use", Weight::Secondary).on_click(cx.listener(
+                    .into_any_element();
+            }
+            div()
+                .flex()
+                .gap(px(6.))
+                .child(
+                    div()
+                        .w(px(150.))
+                        .child(Input::new(&d.pages.named_host).small()),
+                )
+                .child(
+                    div()
+                        .w(px(150.))
+                        .child(Input::new(&d.pages.named_token).small()),
+                )
+                .child(
+                    ui::button("name", "Use", Weight::Secondary).on_click(cx.listener(
                         |this, _, _, cx| {
                             let host = this.pages.named_host.read(cx).value().trim().to_owned();
                             let token = this.pages.named_token.read(cx).value().trim().to_owned();
@@ -122,163 +145,188 @@ impl Desk {
                                 this.share(Share::Named(Some(Named { token, host })));
                             }
                         },
-                    )))
-                    .into_any_element(),
-            },
-        );
-        let awake = setting(
-            faces,
+                    )),
+                )
+                .into_any_element()
+        });
+        let awake = shared.awake;
+        let keep_awake = item(
+            w,
             "Keep the Mac awake while serving",
             "So that it can be reached with its lid open and no one at it.",
-            Switch::new("serve-awake")
-                .small()
-                .checked(shared.awake)
-                .on_click(cx.listener({
-                    let awake = shared.awake;
-                    move |this, _, _, _| this.share(Share::Awake(!awake))
-                })),
+            move |_, _, cx| {
+                Switch::new("serve-awake")
+                    .small()
+                    .checked(awake)
+                    .on_click(cx.listener(move |this, _, _, _| this.share(Share::Awake(!awake))))
+                    .into_any_element()
+            },
         );
-        let link = setting(
-            faces,
+        let mut pairing = vec![item(
+            w,
             "Pair a device",
             "A link that works once, for ten minutes: open it on the other Mac, or paste it in Settings › Connections there.",
-            ui::button("pair", "Create link", Weight::Primary)
-                .disabled(!serving)
-                .on_click(cx.listener(|this, _, _, _| this.share(Share::Pair))),
-        );
-        let fresh = shared.link.clone().map(|(link, at)| {
-            let copy = link.clone();
+            move |_, _, cx| {
+                ui::button("pair", "Create link", Weight::Primary)
+                    .disabled(!serving)
+                    .on_click(cx.listener(|this, _, _, _| this.share(Share::Pair)))
+                    .into_any_element()
+            },
+        )];
+        if let Some((link, at)) = shared.link.clone() {
             // The link on a line of its own: it is long, and wraps.
-            setting(faces, &link, &format!("Made {}", ago(at)), {
-                ui::button("copy-link", "Copy", Weight::Secondary).on_click(move |_, _, cx| {
-                    cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
-                })
-            })
-        });
-        // Its QR code under it, for a camera to read off this screen.
-        let code = (shared.link.as_ref())
-            .map(|(link, _)| div().p(px(16.)).flex().justify_center().child(qr(link)));
+            let copy = link.clone();
+            pairing.push(item(
+                w,
+                link.clone(),
+                format!("Made {}", ago(at)),
+                move |_, _, _| {
+                    let copy = copy.clone();
+                    ui::button("copy-link", "Copy", Weight::Secondary)
+                        .on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
+                        })
+                        .into_any_element()
+                },
+            ));
+            // Its QR code under it, for a camera to read off this screen.
+            pairing.push(whole(w, &[], move |_, _, _| {
+                div()
+                    .w_full()
+                    .p(px(16.))
+                    .flex()
+                    .justify_center()
+                    .child(qr(&link))
+                    .into_any_element()
+            }));
+        }
+        let none = |_: &mut Desk, _: &Faces, _: &mut Context<Desk>| div().into_any_element();
         let devices = match &shared.devices {
-            Err(why) => vec![Some(setting(faces, "Devices", why, div()))],
-            Ok(devices) if devices.is_empty() => {
-                vec![Some(setting(faces, "No device is paired", "", div()))]
-            }
+            Err(why) => vec![item(w, "Devices", why.clone(), none)],
+            Ok(devices) if devices.is_empty() => vec![item(w, "No device is paired", "", none)],
             Ok(devices) => (devices.iter())
                 .map(|d| {
                     let print = key::fingerprint(&d.key);
                     let public = d.key.clone();
-                    Some(setting(
-                        faces,
-                        &d.label,
-                        &format!(
+                    item(
+                        w,
+                        d.label.clone(),
+                        format!(
                             "{print}. Paired {}; last here {}",
                             ago(d.paired),
                             ago(d.seen)
                         ),
-                        ui::button(
-                            SharedString::from(format!("revoke-{print}")),
-                            "Revoke",
-                            Weight::Secondary,
-                        )
-                        .on_click(cx.listener(move |this, _, _, _| {
-                            this.share(Share::Revoke(public.clone()));
-                        })),
-                    ))
+                        move |_, _, cx| {
+                            let public = public.clone();
+                            ui::button(
+                                SharedString::from(format!("revoke-{print}")),
+                                "Revoke",
+                                Weight::Secondary,
+                            )
+                            .on_click(cx.listener(move |this, _, _, _| {
+                                this.share(Share::Revoke(public.clone()));
+                            }))
+                            .into_any_element()
+                        },
+                    )
                 })
                 .collect(),
         };
-        page(faces, "Sharing & access", &lede)
-            .children(group(
-                faces,
-                "Reach",
-                vec![Some(listen), Some(tunnel), Some(mode), Some(awake)],
-            ))
-            .children(group(faces, "Pairing", vec![Some(link), fresh, code]))
-            .children(group(faces, "Devices paired", devices))
+        page.group(group("Reach", vec![listen, tunnel, mode, keep_awake]))
+            .group(group("Pairing", pairing))
+            .group(group("Devices paired", devices))
     }
 
-    pub(super) fn connections_tab(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let opened = self.transport.elsewhere().map(str::to_owned);
-        let row = |id: SharedString, name: &str, about: &str, here: bool| {
-            setting(
-                faces,
-                name,
-                about,
-                if here {
-                    ui::fine(faces, "This window").into_any_element()
-                } else {
-                    let name = (id.as_ref() != "this-mac").then(|| name.to_owned());
-                    ui::button(id, "Open", Weight::Secondary)
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            this.open_on(name.clone(), window, cx);
-                        }))
-                        .into_any_element()
-                },
-            )
-        };
-        let mut rows = vec![Some(row(
-            "this-mac".into(),
+    /// Connections: the Ghosts elsewhere this Mac has paired with, the key
+    /// it made for each, and the one the window is on.
+    pub(super) fn connections_tab(&self, w: &WeakEntity<Desk>) -> SettingPage {
+        let mut rows = vec![item(
+            w,
             "This Mac",
             "Its own agents and projects.",
-            opened.is_none(),
-        ))];
+            |d, faces, cx| d.server_control(None, faces, cx),
+        )];
         for s in &self.pages.servers.servers {
-            let here = opened.as_ref() == Some(&s.name);
             let name = s.name.clone();
-            rows.push(Some(
-                row(
-                    SharedString::from(format!("open-{}", s.name)),
-                    &s.name,
-                    &format!("{}. Your key: {}", s.host, key::fingerprint(&s.key)),
-                    here,
-                )
-                .child(
-                    ui::button(
-                        SharedString::from(format!("forget-{}", s.name)),
-                        "Forget",
-                        Weight::Quiet,
-                    )
-                    .disabled(here)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.pages.servers.forget(&name);
-                        this.keep_servers();
-                        cx.notify();
-                    })),
-                ),
+            rows.push(item(
+                w,
+                s.name.clone(),
+                format!("{}. Your key: {}", s.host, key::fingerprint(&s.key)),
+                move |d, faces, cx| d.server_control(Some(&name), faces, cx),
             ));
         }
-        let add = setting(
-            faces,
+        let add = item(
+            w,
             "Add server",
             "Paste the link made in Sharing & access on the other machine. This Mac makes a key for it, and sends only its public half.",
-            div()
-                .flex()
-                .gap(px(6.))
-                .child(
-                    div()
-                        .w(px(260.))
-                        .child(Input::new(&self.pages.pair_link).small()),
-                )
-                .child(
-                    ui::button("add-server", "Pair", Weight::Primary)
-                        .loading(self.pages.pairing)
-                        .on_click(cx.listener(|this, _, window, cx| this.pair(window, cx))),
-                ),
+            |d, _, cx| {
+                div()
+                    .flex()
+                    .gap(px(6.))
+                    .child(
+                        div()
+                            .w(px(260.))
+                            .child(Input::new(&d.pages.pair_link).small()),
+                    )
+                    .child(
+                        ui::button("add-server", "Pair", Weight::Primary)
+                            .loading(d.pages.pairing)
+                            .on_click(cx.listener(|this, _, window, cx| this.pair(window, cx))),
+                    )
+                    .into_any_element()
+            },
         );
-        page(
-            faces,
-            "Connections",
-            "The Ghosts on other machines this Mac is paired with. The window opens on one at a time; Ghost restarts to change it.",
-        )
-        .children(group(faces, "Servers", rows))
-        .children(group(faces, "Pair", vec![Some(add)]))
-        .child(
-            ui::fine(
-                faces,
-                "Each key's private half is kept in this Mac's Keychain; a server keeps only the public half.",
+        SettingPage::new("Connections")
+            .description(
+                "The Ghosts on other machines this Mac is paired with. The window opens on one at a time; Ghost restarts to change it. Each key's private half is kept in this Mac's Keychain; a server keeps only the public half.",
             )
-            .text_color(theme::faint()),
-        )
+            .group(group("Servers", rows))
+            .group(group("Pair", vec![add]))
+    }
+
+    /// What can be done with the server `name` (none, this Mac): open the
+    /// window on it, or say it is open here; and forget one elsewhere.
+    fn server_control(
+        &self,
+        name: Option<&str>,
+        faces: &Faces,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let here = self.transport.elsewhere() == name;
+        let open = if here {
+            ui::fine(faces, "This window").into_any_element()
+        } else {
+            let to = name.map(str::to_owned);
+            let id = to
+                .as_ref()
+                .map_or_else(|| "this-mac".into(), |n| format!("open-{n}"));
+            ui::button(SharedString::from(id), "Open", Weight::Secondary)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.open_on(to.clone(), window, cx);
+                }))
+                .into_any_element()
+        };
+        let forget = name.map(|name| {
+            let name = name.to_owned();
+            ui::button(
+                SharedString::from(format!("forget-{name}")),
+                "Forget",
+                Weight::Quiet,
+            )
+            .disabled(here)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.pages.servers.forget(&name);
+                this.keep_servers();
+                cx.notify();
+            }))
+        });
+        div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .child(open)
+            .children(forget)
+            .into_any_element()
     }
 
     /// Ask the server something of sharing.

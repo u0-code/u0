@@ -9,13 +9,14 @@ use gpui::component::{
     Icon, Sizable as _,
     input::Input,
     kbd::Kbd,
-    scroll::ScrollableElement as _,
-    sidebar::{Sidebar, SidebarGroup, SidebarMenu, SidebarMenuItem},
+    setting::{SettingGroup, SettingPage, Settings},
     switch::Switch,
 };
-use gpui::{Context, Pixels, SharedString, Window, div, prelude::*, px};
+use gpui::{
+    AnyElement, App, Context, Pixels, SharedString, WeakEntity, Window, div, prelude::*, px,
+};
 
-use super::card;
+use super::{card, prefs::whole};
 use crate::fonts::Weighted as _;
 use crate::{
     desk::{Desk, Page},
@@ -138,122 +139,105 @@ impl Tab {
 }
 
 impl Desk {
-    /// Every setting and key in which `q` is said, under its tab's title.
-    fn found(&self, faces: &Faces, q: &str, cx: &mut Context<Self>) -> gpui::Div {
-        let pages: Vec<_> = Tab::ALL
-            .into_iter()
-            .filter_map(|tab| self.own_tab(faces, tab, q, cx))
-            .collect();
-        if pages.is_empty() {
-            return div()
-                .px(px(40.))
-                .py(px(28.))
-                .child(ui::fine(faces, format!("No setting says “{q}”.")));
-        }
-        div().flex().flex_col().children(pages)
+    /// The page of `tab`, its settings each drawn by `w`, the desk.
+    fn tab_page(&self, tab: Tab, w: &WeakEntity<Desk>, cx: &App) -> SettingPage {
+        // A page the desk draws whole, found by what it shows.
+        let drawn =
+            |lede: &str,
+             words: &[&'static str],
+             draw: fn(&mut Desk, &Faces, &mut Context<Desk>) -> AnyElement| {
+                SettingPage::new(tab.title())
+                    .description(lede.to_owned())
+                    .group(SettingGroup::new().item(whole(w, words, draw)))
+            };
+        let page = match tab {
+            Tab::Agents => drawn(
+                "Turn on the agents you use. Each runs its own CLI over ACP, with its own sign-in.",
+                &["agents", "registry", "install", "default"],
+                |d, faces, cx| d.agents_tab(faces, cx).into_any_element(),
+            ),
+            Tab::Sessions => drawn(
+                "Sessions put away, and what Ghost keeps on this Mac.",
+                &[
+                    "archived",
+                    "sessions",
+                    "storage",
+                    "tidy",
+                    "records",
+                    "worktrees",
+                    "checkpoints",
+                ],
+                |d, faces, cx| d.sessions_tab(faces, cx).into_any_element(),
+            ),
+            Tab::Usage => drawn(
+                "What sessions cost, as their agents said.",
+                &["usage", "cost", "spent"],
+                |d, faces, cx| d.usage(faces, cx).into_any_element(),
+            ),
+            Tab::Diagnostics => drawn(
+                "What Ghost runs on this Mac, and what went wrong.",
+                &["processes", "diagnostics", "log", "errors", "cpu", "memory"],
+                |d, faces, cx| d.diagnostics(faces, cx).into_any_element(),
+            ),
+            Tab::Tasks => drawn(
+                "A prompt said to an agent on a schedule. Ghost's server runs them, so they run while the window is closed; each run's session is in the sidebar.",
+                &["tasks", "schedule", "every", "daily", "run"],
+                |d, faces, cx| d.tasks_tab(faces, cx).into_any_element(),
+            ),
+            Tab::Workflows => drawn(
+                "Work in stages, run by Ghost's server as one run that outlives a restart: each step's result is kept as it ends, and a step that fails pauses the run there.",
+                &["workflows", "workflow", "runs", "steps"],
+                |d, faces, cx| d.flows_tab(faces, cx).into_any_element(),
+            ),
+            Tab::Projects => self.projects_tab(w),
+            Tab::Sharing => self.sharing_tab(w),
+            Tab::Connections => self.connections_tab(w),
+            _ => self
+                .own_tab(tab, w, cx)
+                .unwrap_or_else(|| SettingPage::new(tab.title())),
+        };
+        page.icon(Icon::empty().path(format!("icons/{}.svg", tab.icon())))
     }
 
-    /// The settings, over the window: the tabs down the left under their
-    /// headings, the search above them; the tab chosen, or what the search
-    /// found, under a header that names it.
+    /// The settings, over the window: gpui-kit's Settings, a page for each
+    /// tab down the left with the search above them; the way to close them
+    /// at the top. A page chosen there is the tab shown.
     pub(crate) fn settings_dialog(
-        &self,
-        faces: &Faces,
+        &mut self,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
-        let q = self.pages.search.read(cx).value().trim().to_lowercase();
-        // The tabs under their headings, a heading where the group changes.
-        let mut groups: Vec<(&str, Vec<SidebarMenuItem>)> = Vec::new();
-        for tab in Tab::ALL {
-            let on = q.is_empty() && self.pages.tab == tab;
-            let item = SidebarMenuItem::new(tab.title())
-                .icon(Icon::empty().path(format!("icons/{}.svg", tab.icon())))
-                .active(on)
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.open_tab(tab, window, cx);
-                }));
-            match groups.last_mut() {
-                Some((heading, items)) if *heading == tab.group() => items.push(item),
-                _ => groups.push((tab.group(), vec![item])),
-            }
+        let chosen = self.pages.settings.read(cx).selected_index().page_ix;
+        if let Some(&tab) = Tab::ALL.get(chosen)
+            && tab != self.pages.tab
+        {
+            self.pages.tab = tab;
+            self.tab_shown(tab, window, cx);
         }
-        let nav = Sidebar::new("settings-nav")
-            .collapsible(false)
-            .w(px(232.))
-            .header(
-                Input::new(&self.pages.search)
-                    .small()
-                    .prefix(ui::icon("search", 13.).text_color(theme::faint())),
-            )
-            .children(groups.into_iter().map(|(heading, items)| {
-                SidebarGroup::new(heading).child(SidebarMenu::new().children(items))
-            }));
-        let shown = if !q.is_empty() {
-            self.found(faces, &q, cx)
-        } else if let Some(own) = self.own_tab(faces, self.pages.tab, "", cx) {
-            own
-        } else if self.pages.tab == Tab::Sessions {
-            self.sessions_tab(faces, cx)
-        } else if self.pages.tab == Tab::Projects {
-            self.projects_tab(faces, cx)
-        } else if self.pages.tab == Tab::Sharing {
-            self.sharing_tab(faces, cx)
-        } else if self.pages.tab == Tab::Connections {
-            self.connections_tab(faces, cx)
-        } else {
-            self.agents_tab(faces, cx)
-        };
-        let header = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(8.))
-            .h(px(48.))
-            .pl(px(24.))
-            .pr(px(12.))
-            .border_b_1()
-            .border_color(theme::border())
-            .child(ui::text(faces, "Settings").text_color(theme::muted()))
-            .child(ui::text(faces, "/").text_color(theme::faint()))
-            .child(
-                ui::text(
-                    faces,
-                    if q.is_empty() {
-                        self.pages.tab.title()
-                    } else {
-                        "Search"
-                    },
-                )
-                .flex_1()
-                .weight(gpui::FontWeight::MEDIUM),
-            )
-            .child(
-                ui::icon_button("close-settings", "x", "Close · Esc")
-                    .on_click(cx.listener(|this, _, window, cx| this.close_settings(window, cx))),
-            );
+        let w = cx.entity().downgrade();
+        // The tabs under their headings, a heading where the group changes.
+        let mut settings = Settings::new("settings")
+            .state(&self.pages.settings)
+            .sidebar_width(px(232.));
+        let mut heading = "";
+        for tab in Tab::ALL {
+            if tab.group() != heading {
+                heading = tab.group();
+                settings = settings.section(heading);
+            }
+            settings = settings.page(self.tab_page(tab, &w, cx));
+        }
         div()
-            .flex()
+            .relative()
             .size_full()
             .bg(theme::bg())
-            .child(nav)
+            .child(settings)
             .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .child(header)
-                    .child(
-                        div()
-                            .id("settings-tab")
-                            .flex()
-                            .flex_col()
-                            .items_center()
-                            .flex_1()
-                            .min_h(px(0.))
-                            .child(shown.w_full())
-                            .overflow_y_scrollbar(),
+                div().absolute().top(px(10.)).right(px(12.)).child(
+                    ui::icon_button("close-settings", "x", "Close · Esc").on_click(
+                        cx.listener(|this, _, window, cx| this.close_settings(window, cx)),
                     ),
+                ),
             )
             .into_any_element()
     }
@@ -376,29 +360,7 @@ impl Desk {
             .flex()
             .flex_col()
             .gap(px(22.))
-            .px(px(40.))
-            .py(px(28.))
-            .max_w(px(760.))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(4.))
-                    .child(
-                        ui::text(faces, "Agents")
-                            .text_size(px(20.))
-                            .line_height(px(28.))
-                            .weight(gpui::FontWeight::SEMIBOLD),
-                    )
-                    .child(
-                        ui::text(
-                            faces,
-                            "Turn on the agents you use. Each runs its own CLI over ACP, with its own sign-in.",
-                        )
-                        .text_size(px(13.5))
-                        .text_color(theme::text2()),
-                    ),
-            )
+            .w_full()
             .children(default.map(|(id, name)| {
                 div()
                     .flex()
@@ -422,18 +384,14 @@ impl Desk {
                                     .text_color(theme::text2()),
                             ),
                     )
-                    .children(crate::keys::keys_of(cx, "new_session").into_iter().map(Kbd::new))
+                    .children(
+                        crate::keys::keys_of(cx, "new_session")
+                            .into_iter()
+                            .map(Kbd::new),
+                    )
             }))
-            .children(
-                self.settings_refused
-                    .clone()
-                    .map(ui::trouble),
-            )
-            .children(
-                self.registry_trouble
-                    .clone()
-                    .map(ui::trouble),
-            )
+            .children(self.settings_refused.clone().map(ui::trouble))
+            .children(self.registry_trouble.clone().map(ui::trouble))
             .when(
                 self.registry.agents.is_empty() && self.registry_trouble.is_none(),
                 |d| d.child(ui::fine(faces, "Reading the registry…")),
@@ -655,15 +613,7 @@ impl Desk {
             .flex()
             .flex_col()
             .gap(px(22.))
-            .px(px(40.))
-            .py(px(28.))
-            .max_w(px(760.))
-            .child(
-                ui::text(faces, "Archived sessions")
-                    .text_size(px(20.))
-                    .line_height(px(28.))
-                    .weight(gpui::FontWeight::SEMIBOLD),
-            )
+            .w_full()
             .child(list)
             .children(self.archived_projects(faces, cx))
             .child(self.storage(faces, cx))

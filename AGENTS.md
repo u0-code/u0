@@ -176,7 +176,7 @@ crates/desk/src/
                 reads the patches (diff), the Files tab and a file read
                 (files), git's scopes, commits and pull request (repo), a
                 side chat in it (side)
-  pages/        the settings dialog and its tabs (settings, prefs, projects, writing,
+  pages/        the settings dialog, gpui-kit's Settings, a page a tab (settings, prefs, projects, writing,
                 usage, voice: dictation's settings, updates: on About, hosts:
                 Source control, looks: Appearance's themes, diagnostics,
                 sharing: Sharing & access and Connections, tasks: Scheduled tasks,
@@ -207,6 +207,7 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
 | A menu opened from a trigger | `Desk::menu`: gpui-kit's Popover, held open by `Desk::popup` |
 | A call from inside the desk's update that may call the desk back (a window call that tells its observers, such as `set_zoom`) | `window.defer`, so it runs once the update is over: the desk updated twice at once panics |
 | Something shown only on hover | `invisible`, and `visible` on `group_hover`, laid over the row; never `hidden`/`flex` on hover, which GPUI can paint without laying out, and panics |
+| A setting in the settings dialog | `prefs::item` (a gpui-kit SettingItem whose control the desk draws), under `prefs::group`; a page drawn whole, `prefs::whole` |
 | What is typed, found | a file path: `rank::paths` (nucleo-matcher); sessions, commands, names: `rank::rank` and `rank::terms` |
 
 ## Data

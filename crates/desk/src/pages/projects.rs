@@ -9,11 +9,12 @@ use gpui::component::{
     button::{Button, ButtonVariants as _},
     input::Input,
     menu::{DropdownMenu as _, PopupMenuItem},
+    setting::{SettingGroup, SettingItem, SettingPage},
     switch::Switch,
 };
-use gpui::{Context, Div, SharedString, Window, div, prelude::*, px};
+use gpui::{AnyElement, Context, Div, SharedString, WeakEntity, Window, div, prelude::*, px};
 
-use super::prefs::{group, group_of, page, setting};
+use super::prefs::{group, item, whole};
 use crate::{
     desk::{Desk, Renaming},
     fonts::Faces,
@@ -22,16 +23,62 @@ use crate::{
 
 impl Desk {
     /// The projects, each a row that opens its page; archived ones too.
-    pub(super) fn projects_tab(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+    /// With a project chosen, its page.
+    pub(super) fn projects_tab(&self, w: &WeakEntity<Desk>) -> SettingPage {
         if let Some(folder) = self.pages.project.clone() {
-            return self.project_page(faces, &folder, cx);
+            return self.project_page(w, &folder);
         }
+        let mut words: Vec<&'static str> = vec!["projects", "folders"];
+        words.extend(["pinned", "archived"]);
+        let list = whole(w, &words, |d, faces, cx| {
+            d.project_list(faces, cx).into_any_element()
+        });
+        let adding = vec![
+            item(
+                w,
+                "New projects go in",
+                format!(
+                    "{}: a project made or cloned in the palette.",
+                    Desk::shown(&self.projects_in())
+                ),
+                |_, _, cx| {
+                    ui::button("projects-in", "Choose…", ui::Weight::Secondary)
+                        .on_click(cx.listener(|_, _, _, cx| Desk::choose_parent(cx)))
+                        .into_any_element()
+                },
+            ),
+            item(
+                w,
+                "Clone into host folders",
+                "A clone goes in <host>/<owner>/<repo> there, as ghq lays them out.",
+                |d, _, cx| {
+                    Switch::new("host-folders")
+                        .small()
+                        .checked(d.settings.host_folders)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.settings.host_folders = !this.settings.host_folders;
+                            this.save_settings();
+                            cx.notify();
+                        }))
+                        .into_any_element()
+                },
+            ),
+        ];
+        SettingPage::new("Projects")
+            .description("The folders you work in, and how each one's sessions begin.")
+            .group(SettingGroup::new().item(list))
+            .group(SettingGroup::new().items(adding))
+    }
+
+    /// The projects, each a row that opens its page.
+    fn project_list(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let mut folders = self.settings.folders.clone();
         folders.sort_by_key(|f| (self.prefs(f).archived, !self.prefs(f).pinned));
-        let rows = folders
-            .into_iter()
-            .enumerate()
-            .map(|(n, folder)| {
+        div()
+            .flex()
+            .flex_col()
+            .w_full()
+            .children(folders.into_iter().enumerate().map(|(n, folder)| {
                 let prefs = self.prefs(&folder);
                 let open = folder.clone();
                 let icon = self.icon_of(&folder);
@@ -40,7 +87,7 @@ impl Desk {
                     .flex()
                     .items_center()
                     .gap(px(12.))
-                    .px(px(16.))
+                    .px(px(4.))
                     .h(px(52.))
                     .cursor_pointer()
                     .hover(|d| d.bg(theme::row_hover()))
@@ -61,76 +108,186 @@ impl Desk {
                         this.pages.project = Some(open.clone());
                         cx.notify();
                     }))
-            })
-            .map(|row| div().child(row))
-            .collect();
-        let adding = vec![
-            setting(
-                faces,
-                "New projects go in",
-                &format!(
-                    "{}: a project made or cloned in the palette.",
-                    Desk::shown(&self.projects_in())
-                ),
-                ui::button("projects-in", "Choose…", ui::Weight::Secondary)
-                    .on_click(cx.listener(|_, _, _, cx| Desk::choose_parent(cx))),
-            ),
-            setting(
-                faces,
-                "Clone into host folders",
-                "A clone goes in <host>/<owner>/<repo> there, as ghq lays them out.",
-                Switch::new("host-folders")
-                    .small()
-                    .checked(self.settings.host_folders)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.settings.host_folders = !this.settings.host_folders;
-                        this.save_settings();
-                        cx.notify();
-                    })),
-            ),
-        ];
-        page(
-            faces,
-            "Projects",
-            "The folders you work in, and how each one's sessions begin.",
-        )
-        .child(group_of(rows))
-        .child(group_of(adding))
+            }))
     }
 
     /// One project's page.
-    fn project_page(&self, faces: &Faces, folder: &Path, cx: &mut Context<Self>) -> Div {
-        let prefs = self.prefs(folder);
-        let dir = folder.to_path_buf();
-        let name = if matches!(&self.renaming, Some(Renaming::Project(f)) if f == folder) {
-            div()
-                .w(px(220.))
-                .child(Input::new(&self.rename).small())
-                .into_any_element()
-        } else {
+    fn project_page(&self, w: &WeakEntity<Desk>, folder: &Path) -> SettingPage {
+        let at = |f: &Path| f.to_path_buf();
+        let dir = at(folder);
+        let mut rows = vec![
+            item(w, "Name", "What the sidebar calls it.", {
+                let dir = dir.clone();
+                move |d, faces, cx| d.project_name_control(&dir, faces, cx)
+            }),
+            item(
+                w,
+                "Icon",
+                "A picture, or letters or an emoji on a colour; Automatic, its own icon file (favicon, app icon) where it has one.",
+                {
+                    let dir = dir.clone();
+                    move |d, _, cx| {
+                        let icon = d.icon_of(&dir);
+                        d.icon_control(&dir, icon, cx).into_any_element()
+                    }
+                },
+            ),
+            item(w, "Agent", "The agent its new sessions begin with.", {
+                let dir = dir.clone();
+                move |d, _, cx| d.project_agent(&dir, cx)
+            }),
+        ];
+        if self.held.get(folder).is_some_and(|h| h.repo) {
+            let dir = dir.clone();
+            rows.push(item(
+                w,
+                "New sessions",
+                "Where they work: in the folder, or a worktree of their own on a new branch.",
+                move |d, _, cx| {
+                    let worktree = d.prefs(&dir).worktree.unwrap_or(d.settings.worktree);
+                    let (local, own): (ui::Pick, ui::Pick) = (
+                        Box::new(Self::on_project(cx, &dir, |d, f, _, cx| {
+                            d.set_project_worktree(f, false, cx);
+                        })),
+                        Box::new(Self::on_project(cx, &dir, |d, f, _, cx| {
+                            d.set_project_worktree(f, true, cx);
+                        })),
+                    );
+                    ui::segmented(
+                        "project-worktree",
+                        vec![("Local", !worktree, local), ("New worktree", worktree, own)],
+                    )
+                    .into_any_element()
+                },
+            ));
+        }
+        let switch =
+            |id: &'static str,
+             on: fn(&crate::settings::Prefs) -> bool,
+             flip: fn(&mut Desk, &Path, &mut Window, &mut Context<Desk>)| {
+                let dir = dir.clone();
+                move |d: &mut Desk, _: &Faces, cx: &mut Context<Desk>| {
+                    Switch::new(id)
+                        .small()
+                        .checked(on(&d.prefs(&dir)))
+                        .on_click(Self::on_project(cx, &dir, flip))
+                        .into_any_element()
+                }
+            };
+        rows.push(item(
+            w,
+            "Pinned",
+            "Pinned projects come first in the sidebar and in project pickers.",
+            switch(
+                "project-pinned",
+                |p| p.pinned,
+                |d, f, _, cx| d.toggle_project_pin(f, cx),
+            ),
+        ));
+        rows.push(item(
+            w,
+            "Pull its default branch",
+            "As Ghost starts and each time it fetches, while it is checked out with nothing changed, and only where it moves straight on.",
+            switch("project-pull", |p| p.pull, |d, f, _, cx| {
+                d.set_prefs(f, cx, |p| p.pull = !p.pull);
+            }),
+        ));
+        rows.push(item(
+            w,
+            "Archived",
+            "Hides the project from the sidebar and project pickers. Sessions and files are kept.",
+            switch(
+                "project-archived",
+                |p| p.archived,
+                |d, f, _, cx| {
+                    if d.prefs(f).archived {
+                        d.restore_project(f, cx);
+                    } else {
+                        d.archive_project(f, cx);
+                    }
+                },
+            ),
+        ));
+        let danger = item(
+            w,
+            "Remove project",
+            "Forgets the project and its sessions here. Files on disk are not touched.",
+            {
+                let dir = dir.clone();
+                move |_, _, cx| {
+                    Button::new("remove-project")
+                        .danger()
+                        .small()
+                        .label("Remove…")
+                        .on_click(Self::on_project(cx, &dir, Desk::ask_remove_project))
+                        .into_any_element()
+                }
+            },
+        );
+        let back = whole(w, &[], |_, _, cx| {
             div()
                 .flex()
-                .items_center()
-                .gap(px(8.))
-                .child(ui::text(faces, self.project_name(folder)).text_size(px(13.5)))
                 .child(
-                    Button::new("rename-project")
+                    Button::new("all-projects")
                         .ghost()
                         .small()
-                        .label("Rename")
-                        .on_click(Self::on_project(cx, &dir, |d, f, window, cx| {
-                            d.begin_rename(Renaming::Project(f.to_path_buf()), window, cx);
+                        .icon(Icon::empty().path("icons/chevron-left.svg"))
+                        .label("Projects")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.pages.project = None;
+                            cx.notify();
                         })),
                 )
                 .into_any_element()
-        };
-        let icon = self.icon_of(folder);
+        });
+        SettingPage::new(self.project_name(folder))
+            .description(Desk::shown(folder))
+            .group(SettingGroup::new().item(back).items(rows))
+            .group(group("Checkouts", self.checkouts(w, folder)))
+            .group(group("Danger zone", vec![danger]))
+    }
+
+    /// The project's name, and the way to rename it, or the field it is
+    /// renamed in.
+    fn project_name_control(
+        &self,
+        folder: &Path,
+        faces: &Faces,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        if matches!(&self.renaming, Some(Renaming::Project(f)) if f == folder) {
+            return div()
+                .w(px(220.))
+                .child(Input::new(&self.rename).small())
+                .into_any_element();
+        }
+        div()
+            .flex()
+            .items_center()
+            .gap(px(8.))
+            .child(ui::text(faces, self.project_name(folder)).text_size(px(13.5)))
+            .child(
+                Button::new("rename-project")
+                    .ghost()
+                    .small()
+                    .label("Rename")
+                    .on_click(Self::on_project(cx, folder, |d, f, window, cx| {
+                        d.begin_rename(Renaming::Project(f.to_path_buf()), window, cx);
+                    })),
+            )
+            .into_any_element()
+    }
+
+    /// The agent the project's new sessions begin with, and the menu of
+    /// those there are.
+    fn project_agent(&self, folder: &Path, cx: &mut Context<Self>) -> AnyElement {
+        let prefs = self.prefs(folder);
         let agent_name = prefs
             .agent
             .as_deref()
             .map_or_else(|| "The one on screen".to_owned(), |a| self.name_of(a));
         let desk = cx.entity();
-        let (menu_dir, menu_agent) = (dir.clone(), prefs.agent.clone());
+        let (menu_dir, menu_agent) = (folder.to_path_buf(), prefs.agent.clone());
         let agents: Vec<(Option<String>, String)> =
             std::iter::once((None, "The one on screen".to_owned()))
                 .chain(
@@ -139,7 +296,7 @@ impl Desk {
                         .map(|s| (Some(s.entry.id.clone()), self.name_of(&s.entry.id))),
                 )
                 .collect();
-        let agent = Button::new("project-agent")
+        Button::new("project-agent")
             .outline()
             .small()
             .label(agent_name)
@@ -155,111 +312,13 @@ impl Desk {
                     );
                 }
                 menu
-            });
-        let worktree = prefs.worktree.unwrap_or(self.settings.worktree);
-        let mut rows = vec![
-            setting(faces, "Name", "What the sidebar calls it.", name),
-            setting(
-                faces,
-                "Icon",
-                "A picture, or letters or an emoji on a colour; Automatic, its own icon file (favicon, app icon) where it has one.",
-                self.icon_control(folder, icon, cx),
-            ),
-            setting(
-                faces,
-                "Agent",
-                "The agent its new sessions begin with.",
-                agent,
-            ),
-        ];
-        if self.held.get(folder).is_some_and(|h| h.repo) {
-            let (local, own): (ui::Pick, ui::Pick) = (
-                Box::new(Self::on_project(cx, &dir, |d, f, _, cx| {
-                    d.set_project_worktree(f, false, cx);
-                })),
-                Box::new(Self::on_project(cx, &dir, |d, f, _, cx| {
-                    d.set_project_worktree(f, true, cx);
-                })),
-            );
-            rows.push(setting(
-                faces,
-                "New sessions",
-                "Where they work: in the folder, or a worktree of their own on a new branch.",
-                ui::segmented(
-                    "project-worktree",
-                    vec![("Local", !worktree, local), ("New worktree", worktree, own)],
-                ),
-            ));
-        }
-        rows.push(setting(
-            faces,
-            "Pinned",
-            "Pinned projects come first in the sidebar and in project pickers.",
-            Switch::new("project-pinned")
-                .small()
-                .checked(prefs.pinned)
-                .on_click(Self::on_project(cx, &dir, |d, f, _, cx| {
-                    d.toggle_project_pin(f, cx);
-                })),
-        ));
-        rows.push(setting(
-            faces,
-            "Pull its default branch",
-            "As Ghost starts and each time it fetches, while it is checked out with nothing changed, and only where it moves straight on.",
-            Switch::new("project-pull")
-                .small()
-                .checked(prefs.pull)
-                .on_click(Self::on_project(cx, &dir, |d, f, _, cx| {
-                    d.set_prefs(f, cx, |p| p.pull = !p.pull);
-                })),
-        ));
-        rows.push(setting(
-            faces,
-            "Archived",
-            "Hides the project from the sidebar and project pickers. Sessions and files are kept.",
-            Switch::new("project-archived")
-                .small()
-                .checked(prefs.archived)
-                .on_click(Self::on_project(cx, &dir, |d, f, _, cx| {
-                    if d.prefs(f).archived {
-                        d.restore_project(f, cx);
-                    } else {
-                        d.archive_project(f, cx);
-                    }
-                })),
-        ));
-        let danger = setting(
-            faces,
-            "Remove project",
-            "Forgets the project and its sessions here. Files on disk are not touched.",
-            Button::new("remove-project")
-                .danger()
-                .small()
-                .label("Remove…")
-                .on_click(Self::on_project(cx, &dir, Desk::ask_remove_project)),
-        );
-        page(faces, &self.project_name(folder), &Desk::shown(folder))
-            .child(
-                div().flex().child(
-                    Button::new("all-projects")
-                        .ghost()
-                        .small()
-                        .icon(Icon::empty().path("icons/chevron-left.svg"))
-                        .label("Projects")
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.pages.project = None;
-                            cx.notify();
-                        })),
-                ),
-            )
-            .child(group_of(rows))
-            .children(group(faces, "Checkouts", self.checkouts(faces, folder, cx)))
-            .children(group(faces, "Danger zone", vec![Some(danger)]))
+            })
+            .into_any_element()
     }
 
     /// Where the project is checked out: its folder, and each of Ghost's
     /// worktrees of it, with the sessions in it, each one removable.
-    fn checkouts(&self, faces: &Faces, folder: &Path, cx: &mut Context<Self>) -> Vec<Option<Div>> {
+    fn checkouts(&self, w: &WeakEntity<Desk>, folder: &Path) -> Vec<SettingItem> {
         let mut worktrees: Vec<(crate::git::Worktree, u64, usize)> = Vec::new();
         for s in self
             .sessions
@@ -273,11 +332,11 @@ impl Desk {
                 None => worktrees.push((wt.clone(), s.key, 1)),
             }
         }
-        let mut rows = vec![setting(
-            faces,
-            &Desk::shown(folder),
+        let mut rows = vec![item(
+            w,
+            Desk::shown(folder),
             "The project's own folder.",
-            div(),
+            |_, _, _| div().into_any_element(),
         )];
         for (n, (wt, key, sessions)) in worktrees.into_iter().enumerate() {
             let about = format!(
@@ -285,10 +344,8 @@ impl Desk {
                 wt.branch,
                 if sessions == 1 { "" } else { "s" }
             );
-            rows.push(setting(
-                faces,
-                &Desk::shown(&wt.path),
-                &about,
+            rows.push(item(w, Desk::shown(&wt.path), about, move |_, _, cx| {
+                let wt = wt.clone();
                 Button::new(SharedString::from(format!("remove-checkout-{n}")))
                     .ghost()
                     .small()
@@ -296,10 +353,11 @@ impl Desk {
                     .tooltip("Its branch is kept; one with changes not committed is refused")
                     .on_click(cx.listener(move |this, _, _, _| {
                         this.remove_checkout(wt.clone(), key);
-                    })),
-            ));
+                    }))
+                    .into_any_element()
+            }));
         }
-        rows.into_iter().map(Some).collect()
+        rows
     }
 
     /// The project's icon, and the menu that changes it; its mark's

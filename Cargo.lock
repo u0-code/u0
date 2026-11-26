@@ -2375,7 +2375,7 @@ dependencies = [
 [[package]]
 name = "gpui-base"
 version = "0.11.0"
-source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus-tab-diff-speech#2f21ad164221c1a7d8deba55610802e800192c58"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus-tab-diff-speech-settings#5eafd3de9b5de0ddaf06c6c1ff63854f85005119"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -2417,7 +2417,7 @@ dependencies = [
 [[package]]
 name = "gpui-component"
 version = "0.11.0"
-source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus-tab-diff-speech#2f21ad164221c1a7d8deba55610802e800192c58"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus-tab-diff-speech-settings#5eafd3de9b5de0ddaf06c6c1ff63854f85005119"
 dependencies = [
  "anyhow",
  "block2 0.6.2",
@@ -2470,7 +2470,7 @@ dependencies = [
 [[package]]
 name = "gpui-component-macros"
 version = "0.11.0"
-source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus-tab-diff-speech#2f21ad164221c1a7d8deba55610802e800192c58"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus-tab-diff-speech-settings#5eafd3de9b5de0ddaf06c6c1ff63854f85005119"
 dependencies = [
  "proc-macro-crate",
  "proc-macro2",
@@ -2481,7 +2481,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit"
 version = "0.11.0"
-source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus-tab-diff-speech#2f21ad164221c1a7d8deba55610802e800192c58"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus-tab-diff-speech-settings#5eafd3de9b5de0ddaf06c6c1ff63854f85005119"
 dependencies = [
  "gpui-base",
  "gpui-component",
@@ -2495,7 +2495,7 @@ dependencies = [
 [[package]]
 name = "gpui-kit-assets"
 version = "0.11.0"
-source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus-tab-diff-speech#2f21ad164221c1a7d8deba55610802e800192c58"
+source = "git+https://github.com/mizorewww/gpui-kit?branch=combined-cjk-kbd-menus-tab-diff-speech-settings#5eafd3de9b5de0ddaf06c6c1ff63854f85005119"
 dependencies = [
  "anyhow",
  "gpui-pre",

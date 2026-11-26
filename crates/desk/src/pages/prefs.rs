@@ -4,13 +4,13 @@
 //! Ghost is. Each row says what happens, and its control says the choice.
 
 use gpui::component::button::ButtonGroup;
+use gpui::component::setting::{SettingField, SettingGroup, SettingItem, SettingPage};
 use gpui::component::{Disableable as _, Sizable as _, input::Input, kbd::Kbd, switch::Switch};
-use gpui::{Context, Div, IntoElement, SharedString, div, prelude::*, px};
+use gpui::{AnyElement, App, Context, Div, SharedString, WeakEntity, div, prelude::*, px};
 
-use super::card;
 use crate::{
     desk::Desk,
-    fonts::{Faces, Weighted as _},
+    fonts::Faces,
     keys,
     settings::{Notify, Quit, Submodules, Width},
     theme,
@@ -18,267 +18,260 @@ use crate::{
 };
 
 impl Desk {
-    /// The page of the tab `tab`, when it is one of Ghost's own.
+    /// The page of the tab `tab`, when it is one of Ghost's own: its
+    /// settings, each drawn by `w`, the desk.
     pub(super) fn own_tab(
         &self,
-        faces: &Faces,
         tab: super::Tab,
-        q: &str,
-        cx: &mut Context<Self>,
-    ) -> Option<Div> {
+        w: &WeakEntity<Desk>,
+        cx: &App,
+    ) -> Option<SettingPage> {
         use super::Tab;
         let (lede, groups) = match tab {
             Tab::General => (
                 "How Ghost tells you things, and what it does while you are away.",
                 vec![
                     group(
-                        faces,
                         "While you are away",
                         vec![
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "When a session ends a turn or needs you",
                                 "From macOS while Ghost is behind, clicked to go to the session; in Ghost while another is on screen.",
-                                Self::pick(
-                                    "notify",
-                                    [
-                                        ("Off", Notify::Off),
-                                        ("Notify", Notify::Banner),
-                                        ("Notify and sound", Notify::BannerAndSound),
-                                    ],
-                                    self.settings.notify,
-                                    |s, v| s.notify = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "notify",
+                                        [
+                                            ("Off", Notify::Off),
+                                            ("Notify", Notify::Banner),
+                                            ("Notify and sound", Notify::BannerAndSound),
+                                        ],
+                                        d.settings.notify,
+                                        |s, v| s.notify = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
-                            self.told(
-                                faces,
-                                q,
-                                ("A turn finished", "Its answer is in."),
-                                |n| &mut n.finished,
-                                cx,
-                            ),
-                            self.told(
-                                faces,
-                                q,
+                            told(w, ("A turn finished", "Its answer is in."), |n| {
+                                &mut n.finished
+                            }),
+                            told(
+                                w,
                                 (
                                     "A turn failed or was stopped",
                                     "It ended in an error, or you stopped it.",
                                 ),
                                 |n| &mut n.failed,
-                                cx,
                             ),
-                            self.told(
-                                faces,
-                                q,
+                            told(
+                                w,
                                 (
                                     "An agent asks before it goes on",
                                     "A permission or a question waits on you.",
                                 ),
                                 |n| &mut n.asks,
-                                cx,
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "Keep the Mac awake while an agent works",
                                 "The display may sleep; a turn going on is not cut short by the Mac sleeping.",
-                                Switch::new("awake")
-                                    .small()
-                                    .checked(self.settings.awake)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.settings.awake = !this.settings.awake;
-                                        this.save_settings();
-                                        this.stay_awake();
-                                        cx.notify();
-                                    })),
+                                |d, _, cx| {
+                                    Switch::new("awake")
+                                        .small()
+                                        .checked(d.settings.awake)
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.settings.awake = !this.settings.awake;
+                                            this.save_settings();
+                                            this.stay_awake();
+                                            cx.notify();
+                                        }))
+                                        .into_any_element()
+                                },
                             ),
                         ],
                     ),
                     group(
-                        faces,
                         "Files",
-                        vec![row(
-                            faces,
-                            q,
+                        vec![item(
+                            w,
                             "Files open in",
                             "A file the agent named, an edit, or keybindings.json.",
-                            self.editor_pick(cx),
+                            |d, _, cx| d.editor_pick(cx).into_any_element(),
                         )],
                     ),
                     group(
-                        faces,
                         "Pull requests",
-                        vec![row(
-                            faces,
-                            q,
+                        vec![item(
+                            w,
                             "Merged as",
                             "How Merge beside a session, and merging once its checks pass, merge a pull request; the PRs page offers each.",
-                            Self::pick(
-                                "merge",
-                                [
-                                    ("Squash", crate::git::Method::Squash),
-                                    ("Merge commit", crate::git::Method::Merge),
-                                    ("Rebase", crate::git::Method::Rebase),
-                                ],
-                                self.settings.merge,
-                                |s, v| s.merge = v,
-                                cx,
-                            ),
+                            |d, _, cx| {
+                                Self::pick(
+                                    "merge",
+                                    [
+                                        ("Squash", crate::git::Method::Squash),
+                                        ("Merge commit", crate::git::Method::Merge),
+                                        ("Rebase", crate::git::Method::Rebase),
+                                    ],
+                                    d.settings.merge,
+                                    |s, v| s.merge = v,
+                                    cx,
+                                )
+                                .into_any_element()
+                            },
                         )],
                     ),
                     group(
-                        faces,
                         "Done for now",
                         vec![
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "A session is done after it is left for",
                                 "It moves to Settled in the sidebar; anything said to it brings it back.",
-                                Self::pick(
-                                    "settle",
-                                    [
-                                        ("3 days", Some(3)),
-                                        ("7 days", Some(7)),
-                                        ("14 days", Some(14)),
-                                        ("30 days", Some(30)),
-                                        ("Never", None),
-                                    ],
-                                    self.settings.settle_days,
-                                    |s, v| s.settle_days = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "settle",
+                                        [
+                                            ("3 days", Some(3)),
+                                            ("7 days", Some(7)),
+                                            ("14 days", Some(14)),
+                                            ("30 days", Some(30)),
+                                            ("Never", None),
+                                        ],
+                                        d.settings.settle_days,
+                                        |s, v| s.settle_days = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "When its pull request merges or closes",
                                 "The session is done then, while it waits on nothing.",
-                                Self::pick(
-                                    "settle-merged",
-                                    [("Settle it", true), ("Leave it", false)],
-                                    self.settings.settle_merged,
-                                    |s, v| s.settle_merged = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "settle-merged",
+                                        [("Settle it", true), ("Leave it", false)],
+                                        d.settings.settle_merged,
+                                        |s, v| s.settle_merged = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "Snooze for",
                                 "The ways to snooze offered first, each as you would type it in Custom…: 1h, 5pm, tomorrow, next week. Commas between.",
-                                div()
-                                    .w(px(220.))
-                                    .child(Input::new(&self.pages.snoozes).small()),
+                                |d, _, _| {
+                                    div()
+                                        .w(px(220.))
+                                        .child(Input::new(&d.pages.snoozes).small())
+                                        .into_any_element()
+                                },
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "Keep sessions with a pull request",
                                 "One whose pull request is open is never done for being left.",
-                                Self::pick(
-                                    "keep-with-pr",
-                                    [("Keep them", true), ("Let them settle", false)],
-                                    self.settings.keep_with_pr,
-                                    |s, v| s.keep_with_pr = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "keep-with-pr",
+                                        [("Keep them", true), ("Let them settle", false)],
+                                        d.settings.keep_with_pr,
+                                        |s, v| s.keep_with_pr = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
                         ],
                     ),
                     group(
-                        faces,
                         "In the background",
                         vec![
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "Fetch each project's remote every",
                                 "So branches and pull requests are up to date; projects set to pull are moved on too.",
-                                Self::pick(
-                                    "fetch-every",
-                                    [
-                                        ("Minute", Some(1)),
-                                        ("5 minutes", Some(5)),
-                                        ("15 minutes", Some(15)),
-                                        ("Never", None),
-                                    ],
-                                    self.settings.fetch_every,
-                                    |s, v| s.fetch_every = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "fetch-every",
+                                        [
+                                            ("Minute", Some(1)),
+                                            ("5 minutes", Some(5)),
+                                            ("15 minutes", Some(15)),
+                                            ("Never", None),
+                                        ],
+                                        d.settings.fetch_every,
+                                        |s, v| s.fetch_every = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "Look for agents' new versions",
                                 "The ACP registry is read again each hour; an agent that stops working is updated to the newest.",
-                                Self::pick(
-                                    "check-agents",
-                                    [("Each hour", true), ("Never", false)],
-                                    self.settings.check_agents,
-                                    |s, v| s.check_agents = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "check-agents",
+                                        [("Each hour", true), ("Never", false)],
+                                        d.settings.check_agents,
+                                        |s, v| s.check_agents = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
                         ],
                     ),
                     group(
-                        faces,
                         "Confirmations",
                         vec![
-                            self.asks(
-                                faces,
-                                q,
-                                ("Unpin", "Ask before a session is unpinned."),
-                                |c| &mut c.unpin,
-                                cx,
-                            ),
-                            self.asks(
-                                faces,
-                                q,
-                                ("Archive", "Ask before a session is archived."),
-                                |c| &mut c.archive,
-                                cx,
-                            ),
-                            self.asks(
-                                faces,
-                                q,
+                            asks(w, ("Unpin", "Ask before a session is unpinned."), |c| {
+                                &mut c.unpin
+                            }),
+                            asks(w, ("Archive", "Ask before a session is archived."), |c| {
+                                &mut c.archive
+                            }),
+                            asks(
+                                w,
                                 (
                                     "Delete",
                                     "Ask before a session and what was said in it are deleted.",
                                 ),
                                 |c| &mut c.delete,
-                                cx,
                             ),
-                            self.asks(
-                                faces,
-                                q,
+                            asks(
+                                w,
                                 (
                                     "Close a terminal",
                                     "Ask before a terminal is closed with something running in it.",
                                 ),
                                 |c| &mut c.terminal,
-                                cx,
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "Quit with ⌘Q",
                                 "Quit in the menu always quits at once.",
-                                Self::pick(
-                                    "quit",
-                                    [
-                                        ("Hold", Quit::Hold),
-                                        ("Double press", Quit::Double),
-                                        ("Direct", Quit::Direct),
-                                    ],
-                                    self.settings.confirm.quit,
-                                    |s, v| s.confirm.quit = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "quit",
+                                        [
+                                            ("Hold", Quit::Hold),
+                                            ("Double press", Quit::Double),
+                                            ("Direct", Quit::Direct),
+                                        ],
+                                        d.settings.confirm.quit,
+                                        |s, v| s.confirm.quit = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
                         ],
                     ),
@@ -288,294 +281,332 @@ impl Desk {
                 "How the thread and what is beside it read.",
                 vec![
                     group(
-                        faces,
                         "Reading",
                         vec![
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "Look",
                                 "Light and dark keep the same amber for what is going on now.",
-                                Self::pick(
-                                    "look",
-                                    [
-                                        ("Dark", crate::settings::Look::Dark),
-                                        ("Light", crate::settings::Look::Light),
-                                        ("As the system", crate::settings::Look::System),
-                                    ],
-                                    self.settings.look,
-                                    |s, v| s.look = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "look",
+                                        [
+                                            ("Dark", crate::settings::Look::Dark),
+                                            ("Light", crate::settings::Look::Light),
+                                            ("As the system", crate::settings::Look::System),
+                                        ],
+                                        d.settings.look,
+                                        |s, v| s.look = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "Size",
                                 "Everything in the window, larger or smaller: ⌘+, ⌘− and ⌘0.",
-                                Self::pick(
-                                    "scale",
-                                    crate::settings::SCALES.map(|s| (format!("{s}%"), s)),
-                                    self.settings.scale,
-                                    |s, v| s.scale = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "scale",
+                                        crate::settings::SCALES.map(|s| (format!("{s}%"), s)),
+                                        d.settings.scale,
+                                        |s, v| s.scale = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "Contrast",
                                 "More draws the greys of what matters less, and the edges, stronger.",
-                                Self::pick(
-                                    "contrast",
-                                    [("As designed", false), ("More", true)],
-                                    self.settings.contrast,
-                                    |s, v| s.contrast = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "contrast",
+                                        [("As designed", false), ("More", true)],
+                                        d.settings.contrast,
+                                        |s, v| s.contrast = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "Glass",
                                 "The window's grounds let the desktop show through, blurred.",
-                                Self::pick(
-                                    "glass",
-                                    [("Solid", false), ("Glass", true)],
-                                    self.settings.glass,
-                                    |s, v| s.glass = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "glass",
+                                        [("Solid", false), ("Glass", true)],
+                                        d.settings.glass,
+                                        |s, v| s.glass = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "Code font",
                                 "What code, commands and numbers are set in.",
-                                Self::pick(
-                                    "mono",
-                                    [
-                                        ("JetBrains Mono", crate::settings::CodeFont::JetBrains),
-                                        ("SF Mono", crate::settings::CodeFont::SfMono),
-                                        ("Menlo", crate::settings::CodeFont::Menlo),
-                                    ],
-                                    self.settings.mono,
-                                    |s, v| s.mono = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "mono",
+                                        [
+                                            (
+                                                "JetBrains Mono",
+                                                crate::settings::CodeFont::JetBrains,
+                                            ),
+                                            ("SF Mono", crate::settings::CodeFont::SfMono),
+                                            ("Menlo", crate::settings::CodeFont::Menlo),
+                                        ],
+                                        d.settings.mono,
+                                        |s, v| s.mono = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "Terminal text",
                                 "How large your terminals' text is, in the code font.",
-                                Self::pick(
-                                    "terminal-size",
-                                    [
-                                        ("Small", crate::settings::TermSize::Small),
-                                        ("Medium", crate::settings::TermSize::Medium),
-                                        ("Large", crate::settings::TermSize::Large),
-                                    ],
-                                    self.settings.terminal_size,
-                                    |s, v| s.terminal_size = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "terminal-size",
+                                        [
+                                            ("Small", crate::settings::TermSize::Small),
+                                            ("Medium", crate::settings::TermSize::Medium),
+                                            ("Large", crate::settings::TermSize::Large),
+                                        ],
+                                        d.settings.terminal_size,
+                                        |s, v| s.terminal_size = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "Terminal shell",
                                 "What a new terminal runs: your login shell, or one named.",
-                                Self::pick(
-                                    "shell",
-                                    [
-                                        ("Login shell", crate::settings::Shell::Login),
-                                        ("zsh", crate::settings::Shell::Zsh),
-                                        ("bash", crate::settings::Shell::Bash),
-                                        ("fish", crate::settings::Shell::Fish),
-                                    ],
-                                    self.settings.shell,
-                                    |s, v| s.shell = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "shell",
+                                        [
+                                            ("Login shell", crate::settings::Shell::Login),
+                                            ("zsh", crate::settings::Shell::Zsh),
+                                            ("bash", crate::settings::Shell::Bash),
+                                            ("fish", crate::settings::Shell::Fish),
+                                        ],
+                                        d.settings.shell,
+                                        |s, v| s.shell = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "Reading width",
                                 "How wide the thread and the composer are.",
-                                Self::pick(
-                                    "width",
-                                    [
-                                        ("Comfortable", Width::Comfortable),
-                                        ("Wide", Width::Wide),
-                                        ("Full", Width::Full),
-                                    ],
-                                    self.settings.width,
-                                    |s, v| s.width = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "width",
+                                        [
+                                            ("Comfortable", Width::Comfortable),
+                                            ("Wide", Width::Wide),
+                                            ("Full", Width::Full),
+                                        ],
+                                        d.settings.width,
+                                        |s, v| s.width = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "What a change added and took away",
                                 "Blue and orange tell them apart without green and red.",
-                                Self::pick(
-                                    "diff-colours",
-                                    [("Green and red", false), ("Blue and orange", true)],
-                                    self.settings.blue_orange,
-                                    |s, v| s.blue_orange = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "diff-colours",
+                                        [("Green and red", false), ("Blue and orange", true)],
+                                        d.settings.blue_orange,
+                                        |s, v| s.blue_orange = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "Times",
                                 "When a message was said, and what Ghost says of times.",
-                                Self::pick(
-                                    "clock",
-                                    [("24-hour", false), ("12-hour", true)],
-                                    self.settings.twelve,
-                                    |s, v| s.twelve = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "clock",
+                                        [("24-hour", false), ("12-hour", true)],
+                                        d.settings.twelve,
+                                        |s, v| s.twelve = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "A diff's long lines",
                                 "Wrapped, they show whole; kept to a line, they are cut at the edge.",
-                                Self::pick(
-                                    "diff-wrap",
-                                    [("Wrap", true), ("Cut", false)],
-                                    self.settings.diff_wrap,
-                                    |s, v| s.diff_wrap = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "diff-wrap",
+                                        [("Wrap", true), ("Cut", false)],
+                                        d.settings.diff_wrap,
+                                        |s, v| s.diff_wrap = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "Changes only in spacing",
                                 "Left out, a diff shows what changed in the words alone.",
-                                Self::pick(
-                                    "spacing",
-                                    [("Shown", false), ("Left out", true)],
-                                    self.settings.no_spacing,
-                                    |s, v| s.no_spacing = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "spacing",
+                                        [("Shown", false), ("Left out", true)],
+                                        d.settings.no_spacing,
+                                        |s, v| s.no_spacing = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "A file's diff opens",
                                 "Side by side widens the column beside the thread.",
-                                Self::pick(
-                                    "diff",
-                                    [("Stacked", false), ("Side by side", true)],
-                                    self.settings.side_by_side,
-                                    |s, v| s.side_by_side = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "diff",
+                                        [("Stacked", false), ("Side by side", true)],
+                                        d.settings.side_by_side,
+                                        |s, v| s.side_by_side = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "A diff's files",
                                 "Folded, each shows its name and counts until opened.",
-                                Self::pick(
-                                    "diff-folded",
-                                    [("Open", false), ("Folded", true)],
-                                    self.settings.diff_folded,
-                                    |s, v| s.diff_folded = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "diff-folded",
+                                        [("Open", false), ("Folded", true)],
+                                        d.settings.diff_folded,
+                                        |s, v| s.diff_folded = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
                         ],
                     ),
-                    self.themes_group(faces, q, cx),
+                    self.themes_group(w, cx),
                 ],
             ),
             Tab::Chat => (
                 "What you write, and what the agent did.",
                 vec![
                     group(
-                        faces,
                         "While a turn goes on",
-                        vec![row(
-                            faces,
-                            q,
+                        vec![item(
+                            w,
                             "What you send waits, or steers",
                             "Steer stops the turn and says it now; waiting says it once the turn ends.",
-                            Self::pick(
-                                "steer",
-                                [("Wait its turn", false), ("Steer", true)],
-                                self.settings.steer,
-                                |s, v| s.steer = v,
-                                cx,
-                            ),
+                            |d, _, cx| {
+                                Self::pick(
+                                    "steer",
+                                    [("Wait its turn", false), ("Steer", true)],
+                                    d.settings.steer,
+                                    |s, v| s.steer = v,
+                                    cx,
+                                )
+                                .into_any_element()
+                            },
                         )],
                     ),
                     group(
-                        faces,
                         "Sending",
-                        vec![row(
-                            faces,
-                            q,
+                        vec![item(
+                            w,
                             "What sends what you write",
                             "Where Return does not send, it breaks the line. The other key (⌘Return, or ⇧⌘Return) begins another session beside it, or while a turn goes on does the opposite of the setting above.",
-                            Self::pick(
-                                "send",
-                                [
-                                    ("Return", crate::settings::SendKey::Return),
-                                    ("⌘Return if multiline", crate::settings::SendKey::Multiline),
-                                    ("⌘Return", crate::settings::SendKey::Command),
-                                ],
-                                self.settings.send,
-                                |s, v| s.send = v,
-                                cx,
-                            ),
+                            |d, _, cx| {
+                                Self::pick(
+                                    "send",
+                                    [
+                                        ("Return", crate::settings::SendKey::Return),
+                                        (
+                                            "⌘Return if multiline",
+                                            crate::settings::SendKey::Multiline,
+                                        ),
+                                        ("⌘Return", crate::settings::SendKey::Command),
+                                    ],
+                                    d.settings.send,
+                                    |s, v| s.send = v,
+                                    cx,
+                                )
+                                .into_any_element()
+                            },
                         )],
                     ),
-                    self.dictation_group(faces, q, cx),
+                    Self::dictation_group(w),
                     group(
-                        faces,
                         "The agent's work",
                         vec![
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "Transcript view (⌃O)",
                                 "Answers shows what you said and its answers; quiet leaves out the calls that went well; normal folds each run of calls into a line; thinking shows its reasoning too; verbose shows every call and step.",
-                                Self::pick(
-                                    "view",
-                                    [
-                                        ("Answers", crate::settings::View::Zen),
-                                        ("Quiet", crate::settings::View::Quiet),
-                                        ("Normal", crate::settings::View::Normal),
-                                        ("Thinking", crate::settings::View::Thinking),
-                                        ("Verbose", crate::settings::View::Verbose),
-                                    ],
-                                    self.settings.view,
-                                    |s, v| s.view = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "view",
+                                        [
+                                            ("Answers", crate::settings::View::Zen),
+                                            ("Quiet", crate::settings::View::Quiet),
+                                            ("Normal", crate::settings::View::Normal),
+                                            ("Thinking", crate::settings::View::Thinking),
+                                            ("Verbose", crate::settings::View::Verbose),
+                                        ],
+                                        d.settings.view,
+                                        |s, v| s.view = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
-                            row(
-                                faces,
-                                q,
+                            item(
+                                w,
                                 "An answer streams in",
                                 "A paragraph at a time holds each back until it is whole.",
-                                Self::pick(
-                                    "paragraphs",
-                                    [("Word by word", false), ("A paragraph at a time", true)],
-                                    self.settings.paragraphs,
-                                    |s, v| s.paragraphs = v,
-                                    cx,
-                                ),
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "paragraphs",
+                                        [("Word by word", false), ("A paragraph at a time", true)],
+                                        d.settings.paragraphs,
+                                        |s, v| s.paragraphs = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
                             ),
                         ],
                     ),
@@ -584,50 +615,54 @@ impl Desk {
             Tab::NewSessions => (
                 "How a session begins in a repository.",
                 vec![group(
-                    faces,
                     "In a repository",
                     vec![
-                        row(
-                            faces,
-                            q,
+                        item(
+                            w,
                             "A new session works",
                             "A project can choose otherwise from its menu.",
-                            Self::pick(
-                                "where",
-                                [("In the folder", false), ("In a new worktree", true)],
-                                self.settings.worktree,
-                                |s, v| s.worktree = v,
-                                cx,
-                            ),
+                            |d, _, cx| {
+                                Self::pick(
+                                    "where",
+                                    [("In the folder", false), ("In a new worktree", true)],
+                                    d.settings.worktree,
+                                    |s, v| s.worktree = v,
+                                    cx,
+                                )
+                                .into_any_element()
+                            },
                         ),
-                        row(
-                            faces,
-                            q,
+                        item(
+                            w,
                             "Worktree branches begin with",
                             "Then the name the writer gives the work, as in ghost/retry-s3-uploads.",
-                            div()
-                                .w(px(160.))
-                                .font_family(faces.mono.clone())
-                                .child(Input::new(&self.pages.prefix).small()),
+                            |d, faces, _| {
+                                div()
+                                    .w(px(160.))
+                                    .font_family(faces.mono.clone())
+                                    .child(Input::new(&d.pages.prefix).small())
+                                    .into_any_element()
+                            },
                         ),
-                        row(
-                            faces,
-                            q,
+                        item(
+                            w,
                             "Or they begin with",
                             "The kind of work, as the writer sees it: feat/, fix/, docs/.",
-                            Self::pick(
-                                "branch-kind",
-                                [("The prefix", false), ("The kind of work", true)],
-                                self.settings.branch_kind,
-                                |s, v| s.branch_kind = v,
-                                cx,
-                            ),
+                            |d, _, cx| {
+                                Self::pick(
+                                    "branch-kind",
+                                    [("The prefix", false), ("The kind of work", true)],
+                                    d.settings.branch_kind,
+                                    |s, v| s.branch_kind = v,
+                                    cx,
+                                )
+                                .into_any_element()
+                            },
                         ),
-                        row(
-                            faces,
-                            q,
+                        item(
+                            w,
                             "Worktree location",
-                            &format!(
+                            format!(
                                 "New worktrees are made in {}, on this Mac. Those made before stay where they are.",
                                 Desk::shown(
                                     &self
@@ -635,100 +670,40 @@ impl Desk {
                                         .worktree_folders(self.transport.home_there(&self.home))[0]
                                 )
                             ),
-                            self.worktree_location(cx),
+                            |d, _, cx| d.worktree_location(cx).into_any_element(),
                         ),
-                        row(
-                            faces,
-                            q,
+                        item(
+                            w,
                             "Submodules",
                             "How far a new worktree's submodules are checked out. Where there are many, the top level alone, or none for a setup script to do.",
-                            Self::pick(
-                                "submodules",
-                                [
-                                    ("Recursive", Submodules::Recursive),
-                                    ("Top level", Submodules::Top),
-                                    ("Skip", Submodules::Skip),
-                                ],
-                                self.settings.submodules,
-                                |s, v| s.submodules = v,
-                                cx,
-                            ),
+                            |d, _, cx| {
+                                Self::pick(
+                                    "submodules",
+                                    [
+                                        ("Recursive", Submodules::Recursive),
+                                        ("Top level", Submodules::Top),
+                                        ("Skip", Submodules::Skip),
+                                    ],
+                                    d.settings.submodules,
+                                    |s, v| s.submodules = v,
+                                    cx,
+                                )
+                                .into_any_element()
+                            },
                         ),
                     ],
                 )],
             ),
-            Tab::Keyboard => return self.keyboard(faces, q, cx),
-            Tab::Writing => return self.writing_tab(faces, q, cx),
-            Tab::Usage => return q.is_empty().then(|| self.usage(faces, cx)),
-            Tab::About => return self.about_ghost(faces, q, cx),
-            Tab::SourceControl => return self.source_control(faces, q, cx),
-            Tab::Diagnostics => return self.diagnostics(faces, q, cx),
-            Tab::Tasks => return self.tasks_tab(faces, q, cx),
-            Tab::Workflows => return self.flows_tab(faces, q, cx),
-            Tab::Agents | Tab::Sessions | Tab::Projects | Tab::Sharing | Tab::Connections => {
-                return None;
-            }
+            Tab::Keyboard => return Some(keyboard(w)),
+            Tab::Writing => return Some(Self::writing_tab(w)),
+            Tab::About => return Some(self.about_ghost(w)),
+            Tab::SourceControl => return Some(self.source_control(w)),
+            _ => return None,
         };
-        let groups: Vec<Div> = groups.into_iter().flatten().collect();
-        (!groups.is_empty()).then(|| page(faces, tab.title(), lede).children(groups))
-    }
-
-    /// Whether what a session did, `name` (`about` saying more), is told:
-    /// the switch for it in
-    /// `settings.notify_on`.
-    fn told(
-        &self,
-        faces: &Faces,
-        q: &str,
-        (name, about): (&'static str, &str),
-        of: fn(&mut crate::settings::NotifyOn) -> &mut bool,
-        cx: &mut Context<Self>,
-    ) -> Option<Div> {
-        let mut on = self.settings.notify_on.clone();
-        let now = *of(&mut on);
-        row(
-            faces,
-            q,
-            name,
-            about,
-            Switch::new(SharedString::from(name))
-                .small()
-                .checked(now)
-                .disabled(self.settings.notify == Notify::Off)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    let told = of(&mut this.settings.notify_on);
-                    *told = !*told;
-                    this.save_settings();
-                    cx.notify();
-                })),
-        )
-    }
-
-    /// Whether Ghost asks before `name` (`about` saying more): the switch
-    /// for it in `settings.confirm`.
-    fn asks(
-        &self,
-        faces: &Faces,
-        q: &str,
-        (name, about): (&'static str, &str),
-        of: fn(&mut crate::settings::Confirm) -> &mut bool,
-        cx: &mut Context<Self>,
-    ) -> Option<Div> {
-        let mut confirm = self.settings.confirm.clone();
-        row(
-            faces,
-            q,
-            name,
-            about,
-            Switch::new(SharedString::from(format!("confirm-{name}")))
-                .small()
-                .checked(*of(&mut confirm))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    let asks = of(&mut this.settings.confirm);
-                    *asks = !*asks;
-                    this.save_settings();
-                    cx.notify();
-                })),
+        Some(
+            SettingPage::new(tab.title())
+                .description(lede)
+                .groups(groups),
         )
     }
 
@@ -813,280 +788,287 @@ impl Desk {
         ui::segmented("editor", choices)
     }
 
-    /// The keys as they are now, yours over the window's, and the file
-    /// yours are kept in.
-    fn keyboard(&self, faces: &Faces, q: &str, cx: &mut Context<Self>) -> Option<Div> {
-        let grouped = |name: &str| keys::GROUPS.iter().position(|(_, g)| g.contains(&name));
-        let mut groups: Vec<(&str, Vec<Option<Div>>)> = keys::GROUPS
-            .iter()
-            .map(|(title, _)| (*title, Vec::new()))
-            .chain(std::iter::once(("Other", Vec::new())))
-            .collect();
-        let mut n = 0;
-        for (name, does, _) in keys::ACTIONS {
-            let bound = keys::keys_of(cx, name);
-            if !said(q, &[does, &keys::written(&bound)]) {
-                continue;
-            }
-            n += 1;
-            let os = cx.platform_info().os;
-            let unparsed: Vec<String> = bound.iter().map(|k| k.unparse(os)).collect();
-            let off = (!bound.is_empty()).then(|| {
+    /// What Ghost is, and where it keeps what it keeps.
+    fn about_ghost(&self, w: &WeakEntity<Desk>) -> SettingPage {
+        let rows = vec![
+            item(
+                w,
+                "The ghost command",
+                "ghost <folder> in a terminal opens the folder here as a project. It goes in ~/.local/bin.",
+                |_, _, cx| {
+                    ui::button("install-command", "Add", Weight::Quiet)
+                        .on_click(cx.listener(|this, _, _, _| this.install_command()))
+                        .into_any_element()
+                },
+            ),
+            item(
+                w,
+                "Where Ghost keeps its files",
+                Desk::shown(&self.home),
+                |d, _, _| {
+                    let home = d.home.clone();
+                    ui::button("show-home", "Show", Weight::Quiet)
+                        .on_click(move |_, _, cx| cx.open_with_system(&home))
+                        .into_any_element()
+                },
+            ),
+            item(
+                w,
+                "Ghost's log",
+                "A file a day in logs/, kept as long as Keep logs says: what to send with a bug.",
+                |d, _, _| {
+                    let logs = d.home.join("logs");
+                    ui::button("show-logs", "Show", Weight::Quiet)
+                        .on_click(move |_, _, cx| cx.open_with_system(&logs))
+                        .into_any_element()
+                },
+            ),
+            item(
+                w,
+                "Keep logs",
+                "The days of log kept; older files go as Ghost starts.",
+                |d, _, cx| {
+                    Self::pick(
+                        "log-days",
+                        [("3 days", 3), ("14 days", 14), ("30 days", 30)],
+                        d.settings.log_days,
+                        |s, v| s.log_days = v,
+                        cx,
+                    )
+                    .into_any_element()
+                },
+            ),
+            item(
+                w,
+                "The agents come from",
+                "The ACP registry, read again every six hours.",
+                |_, _, cx| {
+                    ui::button("open-registry", "Open", Weight::Quiet)
+                        .on_click(cx.listener(|_, _, _, cx| {
+                            cx.open_url("https://agentclientprotocol.com/registry");
+                        }))
+                        .into_any_element()
+                },
+            ),
+        ];
+        SettingPage::new(super::Tab::About.title())
+            .description(format!(
+                "Ghost {} · Agent Client Protocol v1 · macOS",
+                env!("CARGO_PKG_VERSION")
+            ))
+            .group(SettingGroup::new().items(rows))
+            .group(self.updates_group(w))
+    }
+}
+
+/// Whether what a session did, `name` (`about` saying more), is told: the
+/// switch for it in `settings.notify_on`.
+fn told(
+    w: &WeakEntity<Desk>,
+    (name, about): (&'static str, &str),
+    of: fn(&mut crate::settings::NotifyOn) -> &mut bool,
+) -> SettingItem {
+    item(w, name, about, move |d, _, cx| {
+        let mut on = d.settings.notify_on.clone();
+        Switch::new(SharedString::from(name))
+            .small()
+            .checked(*of(&mut on))
+            .disabled(d.settings.notify == Notify::Off)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                let told = of(&mut this.settings.notify_on);
+                *told = !*told;
+                this.save_settings();
+                cx.notify();
+            }))
+            .into_any_element()
+    })
+}
+
+/// Whether Ghost asks before `name` (`about` saying more): the switch for
+/// it in `settings.confirm`.
+fn asks(
+    w: &WeakEntity<Desk>,
+    (name, about): (&'static str, &str),
+    of: fn(&mut crate::settings::Confirm) -> &mut bool,
+) -> SettingItem {
+    item(w, name, about, move |d, _, cx| {
+        let mut confirm = d.settings.confirm.clone();
+        Switch::new(SharedString::from(format!("confirm-{name}")))
+            .small()
+            .checked(*of(&mut confirm))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                let asks = of(&mut this.settings.confirm);
+                *asks = !*asks;
+                this.save_settings();
+                cx.notify();
+            }))
+            .into_any_element()
+    })
+}
+
+/// The keys as they are now, yours over the window's, a setting each
+/// (found by what it does or its keys), and the file yours are kept in.
+fn keyboard(w: &WeakEntity<Desk>) -> SettingPage {
+    let grouped = |name: &str| keys::GROUPS.iter().position(|(_, g)| g.contains(&name));
+    let mut groups: Vec<(&str, Vec<SettingItem>)> = keys::GROUPS
+        .iter()
+        .map(|(title, _)| (*title, Vec::new()))
+        .chain(std::iter::once(("Other", Vec::new())))
+        .collect();
+    for (name, does, _) in keys::ACTIONS {
+        let at = grouped(name).unwrap_or(keys::GROUPS.len());
+        let w = w.clone();
+        groups[at].1.push(
+            SettingItem::new(
+                does,
+                SettingField::render(move |_, _, cx| {
+                    w.update(cx, |d, cx| d.keys_of(name, cx).into_any_element())
+                        .unwrap_or_else(|_| div().into_any_element())
+                }),
+            )
+            .keywords([name]),
+        );
+    }
+    let file = w.clone();
+    let file = SettingItem::render(move |_, _, cx| {
+        file.update(cx, |d, cx| {
+            let faces = crate::fonts::faces(cx).clone();
+            let path = d.home.join("keybindings.json");
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(10.))
+                .child(ui::fine(
+                    &faces,
+                    "A rule is { \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }, with \"when\": \"Terminal\" (or \"Composer\", with !, && and ||) for where it holds, \"action\": \"none\" to take a key away, and \"-new_session\" to take it from that action alone; \"script:dev\" runs the script dev. The last rule that holds wins. Ghost reads the file as it starts.",
+                ))
+                .child(div().flex().child(
+                    ui::button("open-keys", "Open keybindings.json", Weight::Secondary).on_click(
+                        cx.listener(move |this, _, _, _| {
+                            this.edit(path.clone(), Some(b"[]\n"));
+                        }),
+                    ),
+                ))
+                .into_any_element()
+        })
+        .unwrap_or_else(|_| div().into_any_element())
+    })
+    .keywords(["keybindings.json"]);
+    SettingPage::new(super::Tab::Keyboard.title())
+        .description("The keys as they are now, yours over Ghost's.")
+        .groups(
+            groups
+                .into_iter()
+                .filter(|(_, items)| !items.is_empty())
+                .map(|(title, items)| group(title, items)),
+        )
+        .group(SettingGroup::new().item(file))
+}
+
+impl Desk {
+    /// The keys of the action `name`: a click records new ones, the minus
+    /// takes them away, the arrow gives it back Ghost's.
+    fn keys_of(&self, name: &'static str, cx: &mut Context<Self>) -> Div {
+        let faces = crate::fonts::faces(cx).clone();
+        let bound = keys::keys_of(cx, name);
+        let os = cx.platform_info().os;
+        let unparsed: Vec<String> = bound.iter().map(|k| k.unparse(os)).collect();
+        let off = (!bound.is_empty()).then(|| {
+            ui::icon_button(
+                SharedString::from(format!("unassign-{name}")),
+                "minus",
+                "Take its keys away",
+            )
+            .size(px(22.))
+            .text_color(theme::faint())
+            .on_click(cx.listener(move |this, _, _, _| {
+                this.set_keys(name, keys::Keys::Off(unparsed.clone()));
+            }))
+        });
+        let keys = div()
+            .flex()
+            .gap(px(4.))
+            .children(bound.into_iter().map(Kbd::new));
+        div()
+            .flex()
+            .items_center()
+            .child(
+                div()
+                    .id(SharedString::from(format!("record-{name}")))
+                    .cursor_pointer()
+                    .rounded(px(6.))
+                    .px(px(4.))
+                    .hover(|st| st.bg(theme::hover()))
+                    .child(if self.pages.recording == Some(name) {
+                        ui::text(&faces, "Press the keys…  Escape to keep these")
+                            .text_size(px(12.))
+                            .text_color(theme::link())
+                            .into_any_element()
+                    } else {
+                        keys.into_any_element()
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.pages.recording = Some(name);
+                        cx.notify();
+                    })),
+            )
+            .children(off)
+            .child(
                 ui::icon_button(
-                    SharedString::from(format!("unassign-{name}")),
-                    "minus",
-                    "Take its keys away",
+                    SharedString::from(format!("unbind-{name}")),
+                    "retry",
+                    "Back to Ghost's keys",
                 )
                 .size(px(22.))
                 .text_color(theme::faint())
                 .on_click(cx.listener(move |this, _, _, _| {
-                    this.set_keys(name, keys::Keys::Off(unparsed.clone()));
-                }))
-            });
-            let keys = div()
-                .flex()
-                .gap(px(4.))
-                .children(bound.into_iter().map(Kbd::new));
-            let at = grouped(name).unwrap_or(keys::GROUPS.len());
-            groups[at].1.push(Some(
-                div()
-                    .flex()
-                    .items_center()
-                    .h(px(36.))
-                    .px(px(16.))
-                    .child(ui::text(faces, does).flex_1().text_size(px(13.)))
-                    // A click records new keys for it; the arrow gives it
-                    // back Ghost's.
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("record-{name}")))
-                            .cursor_pointer()
-                            .rounded(px(6.))
-                            .px(px(4.))
-                            .hover(|st| st.bg(theme::hover()))
-                            .child(if self.pages.recording == Some(name) {
-                                ui::text(faces, "Press the keys…  Escape to keep these")
-                                    .text_size(px(12.))
-                                    .text_color(theme::link())
-                                    .into_any_element()
-                            } else {
-                                keys.into_any_element()
-                            })
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.pages.recording = Some(name);
-                                cx.notify();
-                            })),
-                    )
-                    .children(off)
-                    .child(
-                        ui::icon_button(
-                            SharedString::from(format!("unbind-{name}")),
-                            "retry",
-                            "Back to Ghost's keys",
-                        )
-                        .size(px(22.))
-                        .text_color(theme::faint())
-                        .on_click(cx.listener(move |this, _, _, _| {
-                            this.set_keys(name, keys::Keys::Ghosts);
-                        })),
-                    ),
-            ));
-        }
-        let path = self.home.join("keybindings.json");
-        let open = ui::button("open-keys", "Open keybindings.json", Weight::Secondary).on_click(
-            cx.listener(move |this, _, _, _| {
-                this.edit(path.clone(), Some(b"[]\n"));
-            }),
-        );
-        if n == 0 {
-            return None;
-        }
-        let page = page(
-            faces,
-            super::Tab::Keyboard.title(),
-            "The keys as they are now, yours over Ghost's.",
-        )
-        .gap(px(22.))
-        .children(
-            groups
-                .into_iter()
-                .filter_map(|(title, rows)| group(faces, title, rows)),
-        );
-        if !q.is_empty() {
-            return Some(page);
-        }
-        Some(page
-            .child(ui::fine(
-                faces,
-                "A rule is { \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }, with \"when\": \"Terminal\" (or \"Composer\", with !, && and ||) for where it holds, \"action\": \"none\" to take a key away, and \"-new_session\" to take it from that action alone; \"script:dev\" runs the script dev. The last rule that holds wins. Ghost reads the file as it starts.",
-            ))
-            .child(div().flex().child(open)))
-    }
-
-    /// What Ghost is, and where it keeps what it keeps.
-    fn about_ghost(&self, faces: &Faces, q: &str, cx: &mut Context<Self>) -> Option<Div> {
-        let home = self.home.clone();
-        let show = ui::button("show-home", "Show", Weight::Quiet)
-            .on_click(move |_, _, cx| cx.open_with_system(&home));
-        let logs = self.home.join("logs");
-        let show_logs = ui::button("show-logs", "Show", Weight::Quiet)
-            .on_click(move |_, _, cx| cx.open_with_system(&logs));
-        let registry = ui::button("open-registry", "Open", Weight::Quiet).on_click(
-            cx.listener(|_, _, _, cx| cx.open_url("https://agentclientprotocol.com/registry")),
-        );
-        let command = ui::button("install-command", "Add", Weight::Quiet)
-            .on_click(cx.listener(|this, _, _, _| this.install_command()));
-        let rows: Vec<Div> = [
-            row(
-                faces,
-                q,
-                "The ghost command",
-                "ghost <folder> in a terminal opens the folder here as a project. It goes in ~/.local/bin.",
-                command,
-            ),
-            row(
-                faces,
-                q,
-                "Where Ghost keeps its files",
-                &Desk::shown(&self.home),
-                show,
-            ),
-            row(
-                faces,
-                q,
-                "Ghost's log",
-                "A file a day in logs/, kept as long as Keep logs says: what to send with a bug.",
-                show_logs,
-            ),
-            row(
-                faces,
-                q,
-                "Keep logs",
-                "The days of log kept; older files go as Ghost starts.",
-                Self::pick(
-                    "log-days",
-                    [("3 days", 3), ("14 days", 14), ("30 days", 30)],
-                    self.settings.log_days,
-                    |s, v| s.log_days = v,
-                    cx,
-                ),
-            ),
-            row(
-                faces,
-                q,
-                "The agents come from",
-                "The ACP registry, read again every six hours.",
-                registry,
-            ),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-        let updates = self.updates_group(faces, q, cx);
-        (!rows.is_empty() || updates.is_some()).then(|| {
-            page(
-                faces,
-                &format!("Ghost {}", env!("CARGO_PKG_VERSION")),
-                "Agent Client Protocol v1 · macOS",
+                    this.set_keys(name, keys::Keys::Ghosts);
+                })),
             )
-            .when(!rows.is_empty(), |p| p.child(group_of(rows)))
-            .children(updates)
+    }
+}
+
+/// A setting as gpui-kit's Settings draws one: what it is, said plainly
+/// (and found by its search), and its control, which the desk, `w`, draws.
+pub(super) fn item(
+    w: &WeakEntity<Desk>,
+    name: impl Into<SharedString>,
+    about: impl Into<SharedString>,
+    control: impl Fn(&mut Desk, &Faces, &mut Context<Desk>) -> AnyElement + 'static,
+) -> SettingItem {
+    let w = w.clone();
+    let about: SharedString = about.into();
+    SettingItem::new(
+        name,
+        SettingField::render(move |_, _, cx| {
+            w.update(cx, |d, cx| {
+                let faces = crate::fonts::faces(cx).clone();
+                control(d, &faces, cx)
+            })
+            .unwrap_or_else(|_| div().into_any_element())
+        }),
+    )
+    .description(about)
+}
+
+/// What the desk, `w`, draws whole as one setting, found by `words`.
+pub(super) fn whole(
+    w: &WeakEntity<Desk>,
+    words: &[&'static str],
+    draw: impl Fn(&mut Desk, &Faces, &mut Context<Desk>) -> AnyElement + 'static,
+) -> SettingItem {
+    let w = w.clone();
+    SettingItem::render(move |_, _, cx| {
+        w.update(cx, |d, cx| {
+            let faces = crate::fonts::faces(cx).clone();
+            draw(d, &faces, cx)
         })
-    }
-}
-
-/// A tab's page: its title and what it is for, then its groups.
-pub(super) fn page(faces: &Faces, title: &str, lede: &str) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(22.))
-        .px(px(40.))
-        .py(px(28.))
-        .max_w(px(760.))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .child(
-                    ui::text(faces, title.to_owned())
-                        .text_size(px(20.))
-                        .line_height(px(28.))
-                        .weight(gpui::FontWeight::SEMIBOLD),
-                )
-                .child(
-                    ui::text(faces, lede.to_owned())
-                        .text_size(px(13.5))
-                        .text_color(theme::text2()),
-                ),
-        )
-}
-
-/// The rows left by the search under a caption, in one frame; none when
-/// the search left none.
-pub(super) fn group(faces: &Faces, caption: &str, rows: Vec<Option<Div>>) -> Option<Div> {
-    let rows: Vec<Div> = rows.into_iter().flatten().collect();
-    (!rows.is_empty()).then(|| {
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(8.))
-            .child(ui::label(faces, caption))
-            .child(group_of(rows))
+        .unwrap_or_else(|_| div().into_any_element())
     })
+    .keywords(words.iter().copied())
 }
 
-/// Rows in one frame, a line between each.
-pub(super) fn group_of(rows: Vec<Div>) -> Div {
-    let mut frame = card().overflow_hidden();
-    for (n, r) in rows.into_iter().enumerate() {
-        frame = frame.child(r.when(n > 0, |d| d.border_t_1().border_color(theme::border())));
-    }
-    frame
-}
-
-/// Whether what is looked for, `q` (lower case), is in any of `words`;
-/// nothing looked for is in all.
-pub(super) fn said(q: &str, words: &[&str]) -> bool {
-    q.is_empty() || words.iter().any(|w| w.to_lowercase().contains(q))
-}
-
-/// A setting: what happens, said plainly, and its control; none when
-/// what is looked for, `q`, is in neither.
-pub(super) fn row(
-    faces: &Faces,
-    q: &str,
-    name: &str,
-    about: &str,
-    control: impl IntoElement,
-) -> Option<Div> {
-    said(q, &[name, about]).then(|| setting(faces, name, about, control))
-}
-
-/// A row: what it is, said plainly, and its control.
-pub(super) fn setting(faces: &Faces, name: &str, about: &str, control: impl IntoElement) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .gap(px(16.))
-        .px(px(16.))
-        .py(px(12.))
-        .min_h(px(56.))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_w(px(0.))
-                .gap(px(2.))
-                .child(ui::text(faces, name.to_owned()).text_size(px(13.5)))
-                .child(
-                    ui::text(faces, about.to_owned())
-                        .text_size(px(12.5))
-                        .line_height(px(18.))
-                        .text_color(theme::faint()),
-                ),
-        )
-        .child(control)
+/// Settings under a caption.
+pub(super) fn group(caption: &str, items: Vec<SettingItem>) -> SettingGroup {
+    SettingGroup::new().title(caption.to_owned()).items(items)
 }

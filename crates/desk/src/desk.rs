@@ -1354,22 +1354,21 @@ impl Desk {
         cx: &mut Context<Self>,
     ) {
         self.pages.tab = tab;
-        self.pages
-            .search
-            .update(cx, |i, cx| i.set_value("", window, cx));
-        match tab {
-            crate::pages::Tab::Sessions => self.measure(),
-            crate::pages::Tab::Appearance => self.read_themes(cx),
-            crate::pages::Tab::SourceControl => self.transport.send(crate::proto::Call::Forges),
-            crate::pages::Tab::Usage => self.read_spent(),
-            crate::pages::Tab::Diagnostics => self.diagnose(),
-            crate::pages::Tab::Sharing => {
-                self.transport.send(Call::Share(crate::share::Share::Look));
-            }
-            crate::pages::Tab::Connections => self.read_servers(),
-            crate::pages::Tab::Workflows => self.read_flows(window, cx),
-            _ => {}
-        }
+        let page_ix = crate::pages::Tab::ALL
+            .iter()
+            .position(|t| *t == tab)
+            .unwrap_or(0);
+        self.pages.settings.update(cx, |s, cx| {
+            s.set_query("", window, cx);
+            s.set_selected_index(
+                gpui::component::setting::SelectIndex {
+                    page_ix,
+                    group_ix: None,
+                },
+                cx,
+            );
+        });
+        self.tab_shown(tab, window, cx);
         if !self.pages.open {
             self.pages.open = true;
             let desk = cx.entity();
@@ -1377,12 +1376,11 @@ impl Desk {
                 Over::new(
                     desk.clone(),
                     |d, window, cx| {
-                        let faces = fonts::faces(cx).clone();
                         // Held to the dialog's height, not grown to what it
                         // holds, so each column scrolls on its own.
                         div()
                             .h(crate::pages::settings_height(window))
-                            .child(d.settings_dialog(&faces, cx))
+                            .child(d.settings_dialog(window, cx))
                             .into_any_element()
                     },
                     cx,
@@ -1403,8 +1401,31 @@ impl Desk {
             });
         }
         self.popup = Popup::Closed;
-        window.focus(&self.pages.search.focus_handle(cx), cx);
+        window.focus(&self.pages.settings.focus_handle(cx), cx);
         cx.notify();
+    }
+
+    /// What a tab shows, measured afresh as it is shown: Sessions and
+    /// Usage, the themes, the hosts, sharing and the servers paired.
+    pub(crate) fn tab_shown(
+        &mut self,
+        tab: crate::pages::Tab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match tab {
+            crate::pages::Tab::Sessions => self.measure(),
+            crate::pages::Tab::Appearance => self.read_themes(cx),
+            crate::pages::Tab::SourceControl => self.transport.send(crate::proto::Call::Forges),
+            crate::pages::Tab::Usage => self.read_spent(),
+            crate::pages::Tab::Diagnostics => self.diagnose(),
+            crate::pages::Tab::Sharing => {
+                self.transport.send(Call::Share(crate::share::Share::Look));
+            }
+            crate::pages::Tab::Connections => self.read_servers(),
+            crate::pages::Tab::Workflows => self.read_flows(window, cx),
+            _ => {}
+        }
     }
 
     /// Close the settings; the keys go back to the composer.
