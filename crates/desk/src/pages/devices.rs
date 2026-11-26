@@ -327,10 +327,17 @@ impl Desk {
         (self.pages.servers.held(port))
             .map(|s| {
                 let name = s.name.clone();
+                let held = (self.machines.iter()).find(|m| m.host != Host::HERE && m.name == name);
+                let here = crate::update::this_build();
+                let runs = match held.and_then(|m| m.version.as_ref()) {
+                    Some(v) if *v == here => format!(" It runs {v}, as this Mac does."),
+                    Some(v) => format!(" It runs {v}; this Mac runs {here}."),
+                    None => String::new(),
+                };
                 item(
                     w,
                     s.name.clone(),
-                    format!("{}. Your key: {}", s.host, key::fingerprint(&s.key)),
+                    format!("{}. Your key: {}.{runs}", s.host, key::fingerprint(&s.key)),
                     move |d, faces, cx| d.server_control(&name, faces, cx),
                 )
             })

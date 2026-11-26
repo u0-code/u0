@@ -108,6 +108,8 @@ pub struct Machine {
     pub elsewhere: std::collections::BTreeMap<String, Vec<(PathBuf, usize)>>,
     /// What each CLI of yours an agent there runs says its version is.
     pub cli_versions: HashMap<PathBuf, String>,
+    /// The build of Ghost it runs, as its welcome said.
+    pub version: Option<String>,
 }
 
 impl Machine {
@@ -126,6 +128,7 @@ impl Machine {
             gone: Vec::new(),
             elsewhere: std::collections::BTreeMap::new(),
             cli_versions: HashMap::new(),
+            version: None,
         }
     }
 

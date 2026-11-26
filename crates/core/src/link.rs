@@ -303,6 +303,7 @@ async fn serve(server: &Arc<Server>, stream: TcpStream) -> Result<(), String> {
     let welcome = Welcome {
         boot: outbox.boot,
         name: server_name(server.home()),
+        version: crate::update::this_build(),
         home: server.home().to_path_buf(),
         resumed,
         said: at,

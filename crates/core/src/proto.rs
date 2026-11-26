@@ -772,7 +772,7 @@ pub enum Event {
 
 /// The version of what is said over a link (`link`): a desk and a server
 /// that speak another are refused, each told to update.
-pub const PROTOCOL: u32 = 3;
+pub const PROTOCOL: u32 = 4;
 
 /// The first thing a server says over a link: a nonce made for it, for
 /// the desk to sign (`key`).
@@ -815,6 +815,8 @@ pub struct Welcome {
     pub boot: u64,
     /// The server's name for itself: its machine's.
     pub name: String,
+    /// The build it runs, as `update::this_build` says it.
+    pub version: String,
     /// Ghost's home there: where its worktrees and scratch folders are.
     pub home: PathBuf,
     /// All said since the desk's `since` follows; else what it had of

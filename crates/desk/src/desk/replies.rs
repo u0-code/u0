@@ -206,6 +206,7 @@ impl Desk {
             State::Up(welcome) => {
                 let was = std::mem::replace(&mut m.up, hub::Up::On);
                 m.home = welcome.home;
+                m.version = Some(welcome.version);
                 if welcome.resumed {
                     if matches!(was, hub::Up::Lost(_)) {
                         self.done(format!("{name} is back"), None);
