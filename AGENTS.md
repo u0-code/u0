@@ -298,8 +298,13 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   and runs them (`Call::SetTask`, `Event::Tasks`), each run a session kept
   in the index like any other. A task on a webhook (`Schedule::Hook`) runs
   when `POST /hook/<token>` reaches the link's listener (and its tunnel),
-  its body put where the prompt says `{{body}}`; nothing holds a call made
-  while no server runs. Workflows are your JSON files in
+  what it sent put where the prompt says `{{body}}`, `{{body.<a>.<b>}}`,
+  `{{header.<name>}}`, marked as data from outside. A hook may be
+  `signed` (HMAC-SHA256 of the body, its secret `hook/<token>` in the
+  Keychain; else 401), hold `only` rules (`at` is one of `is`; else 204),
+  and runs each delivery its sender names once (200 again);
+  `Call::RotateHook` gives it a new token, its secret moved. Nothing holds
+  a call made while no server runs. Workflows are your JSON files in
   `~/.ghost/workflows/`, read as they are listed or started; their runs
   are the server's, in `~/.ghost/runs.json`.
 - A secret (an agent's variable marked so, a forge's token) is kept in the

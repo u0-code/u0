@@ -72,7 +72,7 @@ description: 按计划或由 Webhook 运行提示，并把智能体、命令和�
 | `agent` | 智能体 ID | |
 | `model`、`mode` | 字符串或 `null` | 要设置的模型和会话模式。`null`：智能体的默认值。 |
 | `project` | 路径 | |
-| `schedule` | 对象 | `{"every": 分钟数}`、`{"daily": {"minute": 午夜后的分钟数, "days": [0–6，0 为周日]}}`（`days` 为空表示每天，按本地时间）、`{"once": Unix 秒数}`，或 `{"hook": "<token>"}`。 |
+| `schedule` | 对象 | `{"every": 分钟数}`、`{"daily": {"minute": 午夜后的分钟数, "days": [0–6，0 为周日]}}`（`days` 为空表示每天，按本地时间）、`{"once": Unix 秒数}`，或 `{"hook": {"token": "<token>", "signed": 布尔值, "only": [{"at": "body.action", "is": ["opened"]}]}}`。 |
 | `paused` | 布尔值 | |
 | `same` | 布尔值 | 同一个会话，继续进行。 |
 | `worktree` | 布尔值 | 每次运行都在新工作树中。 |
@@ -94,15 +94,18 @@ description: 按计划或由 Webhook 运行提示，并把智能体、命令和�
 POST /hook/<token>
 ```
 
-- 令牌是你选择 **通过 Webhook** 时生成的 22 个随机字符。它是保护这个地址的唯一手段：任何拿到它的人都能运行该任务。请妥善保密。
+- 令牌是你选择 **通过 Webhook** 时生成的 22 个随机字符。**新地址** 会给任务一个新的令牌：旧地址不再运行它。
+- **已签名**：只有正文用任务的密钥签名的调用才会运行它：正文的 HMAC-SHA256，十六进制，位于 `X-Hub-Signature-256`（`sha256=…`，与 GitHub 的签名方式相同）或 `X-Signature-256` 中。按发送方所持的样子输入密钥；它保存在运行该任务的 Mac 的钥匙串中（`hook/<token>`），并随 **新地址** 一起转移。不签名时，令牌是保护这个地址的唯一手段：任何拿到它的人都能运行该任务。
 - 该地址由 Ghost 监听其他设备的地方提供，所以必须开启监听（**设置 › 设备**，见[远程控制](remote.md)）。表单会显示 `http://127.0.0.1:<port>/hook/<token>`，隧道开启时还会显示 `https://<tunnel host>/hook/<token>`。
-- 请求正文（最多 1 MiB）会替换提示中的每个 `{{body}}`，并用 `<webhook-data untrusted>` … `</webhook-data>` 包起来，让智能体知道它来自外部。提示中没有 `{{body}}` 时，不使用正文。
-- 任务运行时 Ghost 返回 `202 Accepted`；令牌未知、任务已暂停，或[策略](reference/policy.md)禁止 Webhook 时，返回 `404 Not Found`。
+- **仅当** 用于限定哪些调用会运行它：例如 `body.action = opened, closed; header.x-github-event = pull_request` 这样的规则，每条是 JSON 正文的一个字段（`body.<a>.<b>`）或一个请求头（`header.<name>`）以及它可取的值，用 `;` 分隔。每条规则都必须成立。留空时每个调用都会运行它。
+- 发送方命名的投递（`X-GitHub-Delivery`、`X-GitLab-Event-UUID` 或 `X-Delivery-Id`）只运行一次；再次发送时什么也不运行。
+- 请求正文（最多 1 MiB）会替换提示中的每个 `{{body}}`，`{{body.<a>.<b>}}` 替换为它的一个字段，`{{header.<name>}}` 替换为一个请求头，每个都用 `<webhook-data untrusted>` … `</webhook-data>` 包起来，让智能体知道它来自外部。提示中没有它们时，不使用正文。
+- 任务运行时 Ghost 返回 `202 Accepted`；**仅当** 中的某条规则不成立时返回 `204 No Content`；之前已收到过的投递返回 `200 OK`；未按要求签名的调用返回 `401 Unauthorized`；正文过长返回 `413`；令牌未知、任务已暂停，或[策略](reference/policy.md)禁止 Webhook 时，返回 `404 Not Found`。
 - Ghost 未运行时收到的调用不会被保留。
 
 :::note 即将推出
 
-签名 Webhook（HMAC 密钥、过滤器、重放保护和轮换）、启动工作流或在会话事件上运行的任务，以及表单中的 Webhook 签名，正在完善中，尚未包含在当前版本里。
+启动工作流或在会话事件上运行的任务，正在完善中，尚未包含在当前版本里。
 
 :::
 

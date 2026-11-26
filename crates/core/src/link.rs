@@ -228,7 +228,7 @@ async fn respond(
         && let Some(token) = req.uri().path().strip_prefix("/hook/")
     {
         let token = token.to_owned();
-        return hook(server, &token, req.into_body()).await;
+        return hook(server, &token, req).await;
     }
     let asks = |name, value: &str| {
         (req.headers().get_all(name).iter())
@@ -298,12 +298,21 @@ pub fn serve_here() -> Result<(), String> {
 /// The most of a webhook call's body taken: more is refused.
 const HOOK_BODY: usize = 1 << 20;
 
-/// A call to the webhook task of `token` (`Schedule::Hook`), `body` read
-/// whole within [`WAIT`] and [`HOOK_BODY`]: 202 when the task runs, 404
-/// where there is none, 413 for a body too long, 408 for one too slow.
-async fn hook(server: &Arc<Server>, token: &str, body: hyper::body::Incoming) -> Answer {
+/// A call to the webhook task of `token` (`Schedule::Hook`), its body read
+/// whole within [`WAIT`] and [`HOOK_BODY`]: 202 when the task runs, 204
+/// when the call is not one it runs for, 200 for a delivery heard before,
+/// 401 for one not signed as it must be, 404 where there is no task, 413
+/// for a body too long, 408 for one too slow.
+async fn hook(
+    server: &Arc<Server>,
+    token: &str,
+    req: hyper::Request<hyper::body::Incoming>,
+) -> Answer {
     use http_body_util::BodyExt as _;
     use hyper::{StatusCode, body::Body as _};
+
+    use crate::tasks::{Call, Hooked};
+    let (head, body) = req.into_parts();
     // Said too long by its Content-Length, it is refused before any of it
     // is read.
     if body.size_hint().lower() > HOOK_BODY as u64 {
@@ -315,11 +324,20 @@ async fn hook(server: &Arc<Server>, token: &str, body: hyper::body::Incoming) ->
         Ok(Err(_)) => return status(StatusCode::PAYLOAD_TOO_LARGE),
         Err(_) => return status(StatusCode::REQUEST_TIMEOUT),
     };
-    if server.hook(token, &String::from_utf8_lossy(&body)) {
-        status(StatusCode::ACCEPTED)
-    } else {
-        status(StatusCode::NOT_FOUND)
-    }
+    let headers = (head.headers.iter())
+        .filter_map(|(n, v)| Some((n.as_str().to_owned(), v.to_str().ok()?.to_owned())))
+        .collect();
+    let call = Call {
+        headers,
+        body: &body,
+    };
+    status(match server.hook(token, &call) {
+        Hooked::Ran => StatusCode::ACCEPTED,
+        Hooked::Skipped => StatusCode::NO_CONTENT,
+        Hooked::Again => StatusCode::OK,
+        Hooked::Unsigned => StatusCode::UNAUTHORIZED,
+        Hooked::Nowhere => StatusCode::NOT_FOUND,
+    })
 }
 
 type Socket<S> = WebSocketStream<S>;
@@ -974,7 +992,11 @@ mod tests {
             model: None,
             mode: None,
             project: home.path().to_path_buf(),
-            schedule: crate::tasks::Schedule::Hook("tok".into()),
+            schedule: crate::tasks::Schedule::Hook(crate::tasks::Hook {
+                token: "tok".into(),
+                signed: false,
+                only: Vec::new(),
+            }),
             paused: false,
             same: false,
             worktree: false,
@@ -1032,9 +1054,74 @@ mod tests {
             crate::tasks::load(home.path()).is_ok_and(|t| t.tasks[0].runs == 1)
         });
         assert!(ran, "the task ran once");
+    }
+
+    #[test]
+    fn a_signed_webhook_runs_for_its_secret_its_filters_and_each_delivery_once() {
+        use std::io::{Read as _, Write as _};
+        let home = tempfile::tempdir().unwrap();
+        let hook = crate::tasks::Hook {
+            token: "tok".into(),
+            signed: true,
+            only: vec![crate::tasks::Only {
+                at: "header.x-github-event".into(),
+                is: vec!["push".into()],
+            }],
+        };
+        crate::secrets::set(&crate::tasks::Hook::secret("tok"), Some("s3cret")).unwrap();
+        let task = serde_json::json!({"id": 1, "title": "On a push", "prompt": "Look",
+            "agent": "nowhere", "project": home.path(), "schedule": {"hook": hook}});
+        std::fs::write(
+            home.path().join("tasks.json"),
+            serde_json::to_vec(&serde_json::json!({"tasks": [task]})).unwrap(),
+        )
+        .unwrap();
+        let (server, port) = server(home.path());
+        let body = "{\"ref\":\"main\"}";
+        let sign = |secret: &str| {
+            let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, secret.as_bytes());
+            let tag = ring::hmac::sign(&key, body.as_bytes());
+            let hex = tag.as_ref().iter().fold(String::new(), |mut hex, b| {
+                use std::fmt::Write as _;
+                let _ = write!(hex, "{b:02x}");
+                hex
+            });
+            format!("sha256={hex}")
+        };
+        let call = |token: &str, signature: &str, event: &str, delivery: &str| {
+            let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+            write!(
+                s,
+                "POST /hook/{token} HTTP/1.1\r\nHost: x\r\nX-Hub-Signature-256: {signature}\r\nX-GitHub-Event: {event}\r\nX-GitHub-Delivery: {delivery}\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+            let mut answer = String::new();
+            s.read_to_string(&mut answer).unwrap();
+            answer[..12].to_owned()
+        };
+        assert_eq!(call("tok", "sha256=00", "push", "d0"), "HTTP/1.1 401");
+        assert_eq!(call("tok", &sign("other"), "push", "d0"), "HTTP/1.1 401");
+        assert_eq!(call("tok", &sign("s3cret"), "issues", "d1"), "HTTP/1.1 204");
+        assert_eq!(call("tok", &sign("s3cret"), "push", "d2"), "HTTP/1.1 202");
+        assert_eq!(call("tok", &sign("s3cret"), "push", "d2"), "HTTP/1.1 200");
+        // Rotated, the old address runs it no more; the secret goes along.
+        server.handle(Call::RotateHook(1));
+        // Read as the writer gets to it.
+        let token = (0..100)
+            .find_map(|_| {
+                std::thread::sleep(Duration::from_millis(20));
+                match &crate::tasks::load(home.path()).ok()?.tasks[0].schedule {
+                    crate::tasks::Schedule::Hook(h) if h.token != "tok" => Some(h.token.clone()),
+                    _ => None,
+                }
+            })
+            .expect("a new address");
+        assert_eq!(call("tok", &sign("s3cret"), "push", "d3"), "HTTP/1.1 404");
+        assert_eq!(call(&token, &sign("s3cret"), "push", "d4"), "HTTP/1.1 202");
         assert_eq!(
-            crate::tasks::Schedule::filled("Look at {{body}}", "x"),
-            "Look at <webhook-data untrusted>\nx\n</webhook-data>"
+            crate::secrets::get(&crate::tasks::Hook::secret("tok")),
+            Ok(None)
         );
     }
 

@@ -456,6 +456,9 @@ pub enum Call {
     DropTask(u64),
     /// Run the task `id` now, whatever its schedule says.
     RunTask(u64),
+    /// Give the webhook task `id` a new address, its secret moved to it:
+    /// the old one runs it no more.
+    RotateHook(u64),
     /// The workflows and their runs: answered, as each change to a run
     /// is, with [`Event::Workflows`].
     Workflows,
@@ -579,6 +582,7 @@ impl Call {
             | Self::DropTask(_)
             | Self::RunTask(_)
             | Self::Device { .. }
+            | Self::RotateHook(_)
             | Self::StartFlow { .. }
             | Self::AnswerFlow { .. }
             | Self::ResumeFlow(_)
@@ -1559,6 +1563,7 @@ mod tests {
             Call::ResumeFlow(1),
             Call::CancelFlow(1),
             Call::RunTask(1),
+            Call::RotateHook(1),
             Call::Keep(vec![meta]),
             Call::Forget {
                 agent: "a".into(),

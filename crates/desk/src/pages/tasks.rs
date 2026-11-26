@@ -360,7 +360,7 @@ impl Desk {
                         days: Vec::new(),
                     },
                     2 => Schedule::Once(0),
-                    _ => Schedule::Hook(crate::access::random::<16>()),
+                    _ => Schedule::Hook(crate::tasks::Hook::new()),
                 };
             })
         };
@@ -434,7 +434,7 @@ impl Desk {
                 .gap(px(8.))
                 .child(div().w(px(200.)).child(Input::new(&draft.at).small()))
                 .child(ui::fine(faces, crate::tr("tomorrow, 5pm, in 3h"))),
-            Schedule::Hook(token) => self.hook_addresses(faces, token),
+            Schedule::Hook(hook) => self.hook_addresses(faces, hook, cx),
         };
         div()
             .flex()
@@ -530,8 +530,15 @@ impl Desk {
 
 impl Desk {
     /// Where a webhook task is called: here, while Ghost listens, and
-    /// through the tunnel while one is up; what it does with the call.
-    fn hook_addresses(&self, faces: &Faces, token: &str) -> Div {
+    /// through the tunnel while one is up; a new address for it; whether a
+    /// call must be signed, and by what secret; what a call must be.
+    fn hook_addresses(
+        &self,
+        faces: &Faces,
+        hook: &crate::tasks::Hook,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let token = &hook.token;
         let shared = self.pages.shared.as_ref();
         let port = shared.and_then(|s| s.serving.clone()?.ok());
         let tunnel = shared.and_then(|s| match &s.tunnel {
@@ -541,7 +548,7 @@ impl Desk {
         let mut at: Vec<String> = Vec::new();
         at.extend(port.map(|p| format!("http://127.0.0.1:{p}/hook/{token}")));
         at.extend(tunnel.map(|h| format!("https://{h}/hook/{token}")));
-        let mut out = div().flex().flex_col().gap(px(4.));
+        let mut out = div().flex().flex_col().gap(px(6.));
         if at.is_empty() {
             out = out.child(ui::fine(
                 faces,
@@ -554,10 +561,61 @@ impl Desk {
         for a in at {
             out = out.child(ui::fine_mono(faces, a));
         }
-        out.child(ui::fine(
-            faces,
-            crate::tr("A POST to it runs the task; {{body}} in what it says is what was sent, marked as data from outside. A call made while Ghost is not running is not held: the sender has to send it again."),
-        ))
+        let Some(draft) = self.tasks.draft.as_ref() else {
+            return out;
+        };
+        let signed = hook.signed;
+        let id = draft.task.id;
+        let renew = ui::button("hook-renew", crate::tr("New address"), Weight::Quiet)
+            .tooltip(crate::tr("The address it has now runs it no more"))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if id != 0 {
+                    this.call(this.pages.on, crate::proto::Call::RotateHook(id));
+                }
+                if let Some(Schedule::Hook(h)) =
+                    this.tasks.draft.as_mut().map(|d| &mut d.task.schedule)
+                {
+                    h.token = crate::tasks::Hook::new().token;
+                }
+                cx.notify();
+            }));
+        let sign = gpui::component::switch::Switch::new("hook-signed")
+            .label(crate::tr("Signed"))
+            .small()
+            .checked(signed)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                if let Some(Schedule::Hook(h)) =
+                    this.tasks.draft.as_mut().map(|d| &mut d.task.schedule)
+                {
+                    h.signed = !signed;
+                }
+                cx.notify();
+            }));
+        out = out.child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .child(renew)
+                .child(sign),
+        );
+        if signed {
+            out = out
+                .child(div().w(px(320.)).child(Input::new(&draft.secret).small()))
+                .child(ui::fine(
+                    faces,
+                    crate::tr("Only a call whose body is signed by this secret runs it: HMAC-SHA256, hex, in X-Hub-Signature-256 (sha256=…, as GitHub signs) or X-Signature-256. The secret is kept in the Keychain of the Mac it runs on."),
+                ));
+        }
+        out.child(div().w(px(420.)).child(Input::new(&draft.only).small()))
+            .child(ui::fine(
+                faces,
+                crate::tr("Only when (none: every call): body.<field> or header.<name> = one of these, each such rule after a ; . A delivery sent again (X-GitHub-Delivery) runs it once."),
+            ))
+            .child(ui::fine(
+                faces,
+                crate::tr("A POST to it runs the task; {{body}}, {{body.<field>}} or {{header.<name>}} in what it says is what was sent, marked as data from outside. A call made while Ghost is not running is not held: the sender has to send it again."),
+            ))
     }
 }
 

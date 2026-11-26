@@ -100,6 +100,9 @@ struct Shared {
     /// What each watched pull request last stood at, by its session's
     /// agent and id (`scheduled::Shared::watch_prs`).
     watched: Arc<Mutex<HashMap<(String, SessionId), String>>>,
+    /// The webhook deliveries heard, by task, the last thousand: one sent
+    /// again does not run twice.
+    deliveries: Arc<Mutex<std::collections::VecDeque<(u64, String)>>>,
     /// Who each key lets in to Ghost's tools (`tools`).
     callers: door::Callers,
     /// What is counted, and sent as far as you let it.
@@ -265,6 +268,7 @@ impl Server {
                 runs: Arc::new(Mutex::new(runs)),
                 watched: Arc::default(),
                 callers: door::Callers::default(),
+                deliveries: Arc::default(),
                 telemetry,
             },
             installs: Mutex::default(),
@@ -439,6 +443,7 @@ impl Server {
             Call::SetTask(task) => self.shared.set_task(task),
             Call::DropTask(id) => self.drop_task(id),
             Call::RunTask(id) => self.run_task(id),
+            Call::RotateHook(id) => self.rotate_hook(id),
             Call::Workflows => self.say_flows(),
             Call::StartFlow { workflow, input } => self.start_flow(workflow, input),
             Call::AnswerFlow { run, choice } => self.answer_flow(run, choice),

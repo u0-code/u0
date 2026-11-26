@@ -37,10 +37,32 @@ impl Server {
             .change_tasks(|all| all.tasks.retain(|t| t.id != id));
     }
 
-    /// Run the webhook task of `token`, called with `body`: whether there
-    /// is one to run.
-    pub(crate) fn hook(&self, token: &str, body: &str) -> bool {
-        self.shared.hook(token, body)
+    /// Run the webhook task of `token` as `call` asks: what came of it.
+    pub(crate) fn hook(&self, token: &str, call: &tasks::Call) -> tasks::Hooked {
+        self.shared.hook(token, call)
+    }
+
+    /// Give the webhook task `id` a new address: the old one runs it no
+    /// more, and its secret goes with it.
+    pub(super) fn rotate_hook(&self, id: u64) {
+        let mut moved = None;
+        self.shared.change_tasks(|all| {
+            if let Some(t) = all.tasks.iter_mut().find(|t| t.id == id)
+                && let tasks::Schedule::Hook(hook) = &mut t.schedule
+            {
+                let new = tasks::Hook::new().token;
+                moved = Some((std::mem::replace(&mut hook.token, new.clone()), new));
+            }
+        });
+        if let Some((old, new)) = moved {
+            let secret = crate::secrets::get(&tasks::Hook::secret(&old));
+            if let Ok(Some(secret)) = secret
+                && let Err(why) = crate::secrets::set(&tasks::Hook::secret(&new), Some(&secret))
+            {
+                tracing::warn!("a webhook's secret was not kept: {why}");
+            }
+            let _ = crate::secrets::set(&tasks::Hook::secret(&old), None);
+        }
     }
 
     /// Run the task `id` now, unless a run of it goes on.
@@ -164,26 +186,54 @@ impl Shared {
         }
     }
 
-    /// Run the task `id`: its run marked going, its next one set, and the
-    /// turn said; then how it went kept.
-    /// Run the webhook task of `token` with what its caller sent, `body`:
-    /// whether there is one, not paused, and the policy lets webhooks run.
-    fn hook(&self, token: &str, body: &str) -> bool {
+    /// Run the webhook task of `token`, not paused, as `call` asks: unless
+    /// the policy lets no webhook run, it is not signed as the task wants,
+    /// one of its `only` does not hold, or it is a delivery heard before.
+    fn hook(&self, token: &str, call: &tasks::Call) -> tasks::Hooked {
+        use tasks::Hooked;
         if let Err(why) = crate::policy::allows(crate::policy::Limit::Webhooks) {
             tracing::info!("a webhook was not run: {why}");
-            return false;
+            return Hooked::Nowhere;
         }
-        let id = (tasks::load(&self.home).ok())
-            .and_then(|all| {
-                all.tasks
-                    .into_iter()
-                    .find(|t| !t.paused && t.schedule == tasks::Schedule::Hook(token.to_owned()))
+        let found = (tasks::load(&self.home).ok()).and_then(|all| {
+            all.tasks.into_iter().find_map(|t| match &t.schedule {
+                tasks::Schedule::Hook(h) if h.token == token && !t.paused => {
+                    Some((t.id, h.clone()))
+                }
+                _ => None,
             })
-            .map(|t| t.id);
-        id.inspect(|id| self.run(*id, Some(body))).is_some()
+        });
+        let Some((id, hook)) = found else {
+            return Hooked::Nowhere;
+        };
+        if hook.signed {
+            let secret = crate::secrets::get(&tasks::Hook::secret(token));
+            if !secret.is_ok_and(|s| s.is_some_and(|s| tasks::Hook::signed_by(call, &s))) {
+                return Hooked::Unsigned;
+            }
+        }
+        if !hook.lets(call) {
+            return Hooked::Skipped;
+        }
+        if let Some(delivery) = call.delivery() {
+            let mut heard = self.deliveries.lock().expect("deliveries");
+            let this = (id, delivery.to_owned());
+            if heard.contains(&this) {
+                return Hooked::Again;
+            }
+            heard.push_back(this);
+            while heard.len() > 1000 {
+                heard.pop_front();
+            }
+        }
+        self.run(id, Some(call));
+        Hooked::Ran
     }
 
-    fn run(&self, id: u64, body: Option<&str>) {
+    /// Run the task `id`: its run marked going, its next one set, and the
+    /// turn said, its prompt filled from `call` where a webhook's runs it;
+    /// then how it went kept.
+    fn run(&self, id: u64, call: Option<&tasks::Call>) {
         let now = store::secs(std::time::SystemTime::now());
         let mut task = None;
         self.change_tasks(|all| {
@@ -208,8 +258,8 @@ impl Shared {
             task = Some(t.clone());
         });
         let Some(mut task) = task else { return };
-        if let Some(body) = body {
-            task.prompt = tasks::Schedule::filled(&task.prompt, body);
+        if let Some(call) = call {
+            task.prompt = call.fill(&task.prompt);
         }
         let this = self.clone();
         acp::runtime().spawn(async move {

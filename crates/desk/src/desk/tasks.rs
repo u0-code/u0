@@ -13,7 +13,7 @@ use crate::{
     proto::Call,
     session::{Session, State},
     store::{self, Meta},
-    tasks::{Schedule, Task},
+    tasks::{Only, Schedule, Task},
     when,
 };
 
@@ -47,8 +47,44 @@ pub struct Draft {
     /// The time of day of a daily one: gpui-kit's time field, on the
     /// clock your settings show.
     pub time: Entity<TimeFieldState>,
+    /// A webhook task's secret, as typed: kept on its server once saved.
+    pub secret: Entity<InputState>,
+    /// What a webhook call must be to run it: `at = a, b; at = c`.
+    pub only: Entity<InputState>,
     /// Why it was not kept.
     pub wrong: Option<String>,
+}
+
+/// A webhook task's `only` as written: `body.action = opened, closed;
+/// header.x-github-event = push`.
+pub fn only_said(only: &[Only]) -> String {
+    (only.iter())
+        .map(|o| format!("{} = {}", o.at, o.is.join(", ")))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// A webhook task's `only` read from how it is written; or why not.
+pub fn only_read(text: &str) -> Result<Vec<Only>, String> {
+    (text.split(';').map(str::trim).filter(|o| !o.is_empty()))
+        .map(|o| {
+            let (at, is) = o
+                .split_once('=')
+                .ok_or_else(|| format!("“{o}” says no value: at = a, b"))?;
+            let at = at.trim();
+            if !(at.starts_with("body.") || at.starts_with("header.")) {
+                return Err(format!("“{at}” is not body.… or header.…"));
+            }
+            Ok(Only {
+                at: at.to_owned(),
+                is: is
+                    .split(',')
+                    .map(|v| v.trim().to_owned())
+                    .filter(|v| !v.is_empty())
+                    .collect(),
+            })
+        })
+        .collect()
 }
 
 impl Desk {
@@ -123,6 +159,10 @@ impl Desk {
             ),
             Schedule::Hook(_) => ("60".to_owned(), "09:00".to_owned(), 9 * 60),
         };
+        let only = match &task.schedule {
+            Schedule::Hook(hook) => only_said(&hook.only),
+            _ => String::new(),
+        };
         let cycle = if self.settings.twelve {
             HourCycle::H12
         } else {
@@ -153,6 +193,17 @@ impl Desk {
             every: field(every, crate::tr("Minutes, or 2h"), window, cx),
             at: field(at, "tomorrow, 5pm, in 3h".into(), window, cx),
             time,
+            secret: cx.new(|cx| {
+                InputState::new(window, cx)
+                    .masked(true)
+                    .placeholder(crate::tr("Its secret, as the sender has it"))
+            }),
+            only: field(
+                only,
+                "body.action = opened; header.x-github-event = pull_request".into(),
+                window,
+                cx,
+            ),
             task,
             wrong: None,
         };
@@ -177,7 +228,19 @@ impl Desk {
             .trim()
             .clone_into(&mut task.prompt);
         let (every, at) = (read(&draft.every, cx), read(&draft.at, cx));
+        let secret = read(&draft.secret, cx);
+        let only = match only_read(&read(&draft.only, cx)) {
+            Ok(only) => only,
+            Err(why) => {
+                draft.wrong = Some(why);
+                cx.notify();
+                return;
+            }
+        };
+        // Signed before, its secret is kept already.
+        let was_signed = matches!(&draft.task.schedule, Schedule::Hook(h) if h.signed);
         let now = SystemTime::now();
+        let mut keep = None;
         let wrong = match &mut task.schedule {
             _ if task.prompt.is_empty() => Some("Say what to ask the agent."),
             _ if task.agent.is_empty() || task.project.as_os_str().is_empty() => {
@@ -205,7 +268,15 @@ impl Desk {
                 }
                 None => Some("Say when, such as tomorrow, 5pm or in 3h."),
             },
-            Schedule::Hook(_) => None,
+            Schedule::Hook(hook) if hook.signed && secret.is_empty() && !was_signed => {
+                Some("Give its secret, or turn signing off.")
+            }
+            Schedule::Hook(hook) => {
+                hook.only = only;
+                keep = (hook.signed && !secret.is_empty())
+                    .then(|| (crate::tasks::Hook::secret(&hook.token), secret));
+                None
+            }
         };
         if let Some(why) = wrong {
             draft.wrong = Some(crate::tr(why).into());
@@ -214,6 +285,10 @@ impl Desk {
         }
         if task.title.is_empty() {
             task.title = crate::ui::fit(task.prompt.lines().next().unwrap_or_default(), 40);
+        }
+        if let Some((account, value)) = keep {
+            let value = Some(value);
+            self.call(self.pages.on, Call::Secret { account, value });
         }
         self.call(self.pages.on, Call::SetTask(task));
         self.tasks.draft = None;
@@ -286,5 +361,21 @@ impl Desk {
             }
         }
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn what_a_webhook_call_must_be_reads_as_written_and_a_rule_unlike_one_is_refused() {
+        let only = only_read("body.action = opened, closed; header.x-github-event = push").unwrap();
+        assert_eq!(only.len(), 2);
+        assert_eq!(only[0].is, ["opened", "closed"]);
+        assert_eq!(only_read(&only_said(&only)).unwrap(), only);
+        assert!(only_read("action = opened").is_err());
+        assert!(only_read("body.action").is_err());
+        assert!(only_read("").unwrap().is_empty());
     }
 }

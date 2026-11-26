@@ -76,10 +76,166 @@ pub enum Schedule {
     /// none, every day), in this computer's time zone.
     Daily { minute: u16, days: Vec<u8> },
     /// Each time its address is called, as t3code's webhook tasks: a POST
-    /// to `/hook/<this token>` where Ghost listens (and through its tunnel,
+    /// to `/hook/<its token>` where Ghost listens (and through its tunnel,
     /// while one is up). Nothing holds a call made while Ghost is not
     /// running: the sender has to deliver it again.
-    Hook(String),
+    Hook(Hook),
+}
+
+/// A webhook task's address, and what a call to it must be to run it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Hook {
+    /// The token in its address, `/hook/<token>`: made anew to rotate it.
+    pub token: String,
+    /// A call must be signed: its body's HMAC-SHA256 by a secret kept in
+    /// the Keychain (`secret`), hex, in `X-Hub-Signature-256` (`sha256=`
+    /// first, as GitHub signs) or `X-Signature-256`.
+    #[serde(default)]
+    pub signed: bool,
+    /// Each must hold of a call for it to run the task.
+    #[serde(default)]
+    pub only: Vec<Only>,
+}
+
+/// What must hold of a webhook call: the value `at` (`body.a.b`, a
+/// field of its JSON body; `header.x-github-event`) is one of `is`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Only {
+    pub at: String,
+    pub is: Vec<String>,
+}
+
+/// A call to a webhook task, as it came: its headers (names in lower
+/// case) and body.
+pub struct Call<'a> {
+    pub headers: Vec<(String, String)>,
+    pub body: &'a [u8],
+}
+
+/// What came of a call to a webhook task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hooked {
+    Ran,
+    /// One of its `only` did not hold: nothing runs.
+    Skipped,
+    /// The same delivery again (its delivery header said so): nothing runs.
+    Again,
+    /// Not signed by its secret.
+    Unsigned,
+    /// No task, or a paused one, has that token.
+    Nowhere,
+}
+
+/// The headers a sender names a delivery by, so that one sent again does
+/// not run twice.
+const DELIVERY: [&str; 3] = ["x-github-delivery", "x-gitlab-event-uuid", "x-delivery-id"];
+
+impl Hook {
+    /// A new address, unsigned, for every call.
+    pub fn new() -> Self {
+        Self {
+            token: crate::access::random::<16>(),
+            signed: false,
+            only: Vec::new(),
+        }
+    }
+
+    /// Where its secret is kept (`secrets`).
+    pub fn secret(token: &str) -> String {
+        format!("hook/{token}")
+    }
+
+    /// Whether `call` is signed by `secret`: its body's HMAC-SHA256,
+    /// compared in constant time.
+    pub fn signed_by(call: &Call, secret: &str) -> bool {
+        let Some(said) = ["x-hub-signature-256", "x-signature-256"]
+            .iter()
+            .find_map(|h| call.header(h))
+        else {
+            return false;
+        };
+        let hex = said.trim().trim_start_matches("sha256=");
+        let tag: Option<Vec<u8>> = (0..hex.len())
+            .step_by(2)
+            .map(|i| {
+                hex.get(i..i + 2)
+                    .and_then(|b| u8::from_str_radix(b, 16).ok())
+            })
+            .collect();
+        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, secret.as_bytes());
+        tag.is_some_and(|tag| ring::hmac::verify(&key, call.body, &tag).is_ok())
+    }
+
+    /// Whether each of its `only` holds of `call`.
+    pub fn lets(&self, call: &Call) -> bool {
+        self.only
+            .iter()
+            .all(|o| call.value(&o.at).is_some_and(|v| o.is.contains(&v)))
+    }
+}
+
+impl Default for Hook {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Call<'_> {
+    pub fn header(&self, name: &str) -> Option<&str> {
+        (self.headers.iter()).find_map(|(n, v)| (n == name).then_some(v.as_str()))
+    }
+
+    /// The delivery it names itself by, where its sender says one.
+    pub fn delivery(&self) -> Option<&str> {
+        DELIVERY.iter().find_map(|h| self.header(h))
+    }
+
+    /// The value `at` names in it: `header.<name>`, or `body.<a>.<b>`, a
+    /// field of its JSON body (a string as it is, else as JSON).
+    pub fn value(&self, at: &str) -> Option<String> {
+        if let Some(name) = at.strip_prefix("header.") {
+            return self.header(&name.to_lowercase()).map(str::to_owned);
+        }
+        let path = at.strip_prefix("body.")?;
+        let json: serde_json::Value = serde_json::from_slice(self.body).ok()?;
+        let found = path.split('.').try_fold(&json, |v, key| v.get(key))?;
+        Some(
+            found
+                .as_str()
+                .map_or_else(|| found.to_string(), str::to_owned),
+        )
+    }
+
+    /// `prompt` with what this call sent put where it says `{{body}}`,
+    /// `{{body.<a>.<b>}}` or `{{header.<name>}}`: each marked as data from
+    /// outside, not words of yours.
+    pub fn fill(&self, prompt: &str) -> String {
+        let mark = |v: &str| format!("<webhook-data untrusted>\n{v}\n</webhook-data>");
+        let mut out = String::with_capacity(prompt.len());
+        let mut rest = prompt;
+        while let Some(at) = rest.find("{{") {
+            out.push_str(&rest[..at]);
+            let after = &rest[at + 2..];
+            let Some(end) = after.find("}}") else {
+                out.push_str(&rest[at..]);
+                rest = "";
+                break;
+            };
+            let name = &after[..end];
+            match name {
+                "body" => out.push_str(&mark(&String::from_utf8_lossy(self.body))),
+                _ if name.starts_with("body.") || name.starts_with("header.") => {
+                    out.push_str(&mark(&self.value(name).unwrap_or_default()));
+                }
+                _ => out.push_str(&rest[at..at + 2 + end + 2]),
+            }
+            rest = &after[end + 2..];
+        }
+        out.push_str(rest);
+        out
+    }
 }
 
 /// How a task's last run went.
@@ -111,15 +267,6 @@ impl Schedule {
             }
             Self::Hook(_) => None,
         }
-    }
-
-    /// What a call to a webhook task says, put where its prompt says
-    /// `{{body}}`: marked as data from outside, not words of yours.
-    pub fn filled(prompt: &str, body: &str) -> String {
-        prompt.replace(
-            "{{body}}",
-            &format!("<webhook-data untrusted>\n{body}\n</webhook-data>"),
-        )
     }
 
     /// As said in a list: "Every 30 min", "Weekdays at 09:00", "Once, Tue 3 Nov 15:00".
@@ -219,6 +366,33 @@ mod tests {
             days: vec![0, 6],
         };
         assert_eq!(some.said(false), "Sun, Sat at 17:05");
+    }
+
+    #[test]
+    fn a_webhook_call_fills_the_prompt_marked_as_data_from_outside() {
+        let call = Call {
+            headers: vec![("x-github-event".into(), "push".into())],
+            body: br#"{"ref": "main", "head": {"n": 3}}"#,
+        };
+        let mark = |v: &str| format!("<webhook-data untrusted>\n{v}\n</webhook-data>");
+        assert_eq!(
+            call.fill("On {{body.ref}} ({{header.x-github-event}}), {{body.head.n}} {{other}}"),
+            format!(
+                "On {} ({}), {} {{{{other}}}}",
+                mark("main"),
+                mark("push"),
+                mark("3")
+            )
+        );
+        assert!(call.fill("{{body}}").contains(r#""ref": "main""#));
+        let only = |is: &str| Hook {
+            only: vec![Only {
+                at: "body.ref".into(),
+                is: vec![is.into()],
+            }],
+            ..Hook::new()
+        };
+        assert!(only("main").lets(&call) && !only("dev").lets(&call));
     }
 
     #[test]

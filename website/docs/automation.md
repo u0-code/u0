@@ -81,7 +81,7 @@ edit it while Ghost is closed:
 | `agent` | agent id | |
 | `model`, `mode` | string or `null` | The model, and the session mode, to set. `null`: the agent's default. |
 | `project` | path | |
-| `schedule` | object | `{"every": minutes}`, `{"daily": {"minute": minutes after midnight, "days": [0–6, 0 is Sunday]}}` (an empty `days` is every day, in local time), `{"once": Unix seconds}`, or `{"hook": "<token>"}`. |
+| `schedule` | object | `{"every": minutes}`, `{"daily": {"minute": minutes after midnight, "days": [0–6, 0 is Sunday]}}` (an empty `days` is every day, in local time), `{"once": Unix seconds}`, or `{"hook": {"token": "<token>", "signed": bool, "only": [{"at": "body.action", "is": ["opened"]}]}}`. |
 | `paused` | bool | |
 | `same` | bool | One session, continued. |
 | `worktree` | bool | Each run in a new worktree. |
@@ -111,28 +111,45 @@ POST /hook/<token>
 ```
 
 - The token is 22 random characters made when you choose **On webhook**.
-  It is the only thing that protects the address: anyone who has it can
-  run the task. Keep it secret.
+  **New address** gives the task a new one: the old address runs it no
+  more.
+- **Signed**: only a call whose body is signed with the task's secret
+  runs it: the body's HMAC-SHA256, in hex, in `X-Hub-Signature-256`
+  (`sha256=…`, as GitHub signs) or `X-Signature-256`. Type the secret as
+  the sender has it; it is kept in the Keychain of the Mac the task runs
+  on (`hook/<token>`), and moves with **New address**. Unsigned, the token
+  is the only thing that protects the address: anyone who has it can run
+  the task.
 - The address is served where Ghost listens for other devices, so
   listening must be on (**Settings › Devices**, see
   [Remote control](remote.md)). The form shows
   `http://127.0.0.1:<port>/hook/<token>` and, while a tunnel is up,
   `https://<tunnel host>/hook/<token>`.
+- **Only when** narrows the calls that run it: rules such as
+  `body.action = opened, closed; header.x-github-event = pull_request`,
+  each a field of the JSON body (`body.<a>.<b>`) or a header
+  (`header.<name>`) and the values it may be, separated by `;`. Every rule
+  must hold. Empty, every call runs it.
+- A delivery its sender names (`X-GitHub-Delivery`,
+  `X-GitLab-Event-UUID` or `X-Delivery-Id`) runs it once; sent again, it
+  runs nothing.
 - The request body (up to 1 MiB) replaces each `{{body}}` in the prompt,
+  `{{body.<a>.<b>}}` a field of it and `{{header.<name>}}` a header, each
   wrapped in `<webhook-data untrusted>` … `</webhook-data>` so the agent
-  knows it came from outside. Without `{{body}}` in the prompt the body is
-  not used.
-- Ghost answers `202 Accepted` when the task runs, and `404 Not Found` for
-  an unknown token, a paused task, or when a [policy](reference/policy.md)
-  forbids webhooks.
+  knows it came from outside. Without them in the prompt the body is not
+  used.
+- Ghost answers `202 Accepted` when the task runs; `204 No Content` when
+  a rule of **Only when** does not hold; `200 OK` for a delivery heard
+  before; `401 Unauthorized` for a call not signed as it must be;
+  `413` for a body too long; and `404 Not Found` for an unknown token, a
+  paused task, or when a [policy](reference/policy.md) forbids
+  webhooks.
 - A call made while Ghost is not running is not kept.
 
 :::note Coming
 
-Signed webhooks (an HMAC secret, filters, replay protection and rotation),
-tasks that start a workflow or run on a session's events, and webhook
-signing in the form are being finished and are not in the current build
-yet.
+Tasks that start a workflow or run on a session's events are being
+finished and are not in the current build yet.
 
 :::
 
