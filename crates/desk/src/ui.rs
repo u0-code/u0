@@ -150,14 +150,15 @@ pub fn led_button(
     }
 }
 
-/// The head of a section: small capitals, faint, as the side columns and
-/// pages set them. GPUI has no letter spacing, so the capitals carry it.
+/// The head of a section, in the side columns and on pages: in sentence
+/// case and muted, as gpui-kit's settings set a group's title, so a head
+/// reads the same wherever it is.
 pub fn label(faces: &Faces, text: &str) -> Div {
-    self::text(faces, text.to_uppercase())
-        .text_size(px(crate::style::CAPTION))
-        .line_height(px(16.))
+    self::text(faces, text.to_owned())
+        .text_size(px(crate::style::LABEL))
+        .line_height(px(18.))
         .weight(gpui::FontWeight::MEDIUM)
-        .text_color(theme::faint())
+        .text_color(theme::muted())
 }
 
 /// Something gone wrong, said where it happened (in a thread, on a page):

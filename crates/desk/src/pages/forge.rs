@@ -44,6 +44,16 @@ fn when_of(text: &str) -> String {
     when::parse(text).map_or_else(String::new, |t| when::ago(t, std::time::SystemTime::now()))
 }
 
+/// A state as the filter says it, in sentence case as its neighbours.
+fn state_word(state: &str) -> &'static str {
+    match state {
+        "open" => "Open",
+        "closed" => "Closed",
+        "merged" => "Merged",
+        _ => "All",
+    }
+}
+
 impl Desk {
     pub(crate) fn forge_page(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let f = &self.forge;
@@ -61,7 +71,7 @@ impl Desk {
                         d.list_forge(cx);
                     });
                 });
-                (*st, f.state == *st, pick)
+                (state_word(st), f.state == *st, pick)
             })
             .collect();
         let part_picks: Vec<(&'static str, bool, ui::Pick)> = PARTS

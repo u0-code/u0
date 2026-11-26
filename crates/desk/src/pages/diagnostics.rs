@@ -3,6 +3,7 @@
 //! memory and this Mac's load, each stopped from here; and the warnings
 //! and errors in Ghost's log.
 
+use gpui::component::button::ButtonVariants as _;
 use gpui::component::{
     list::ListItem,
     setting::{SettingGroup, SettingItem},
@@ -127,7 +128,7 @@ impl Desk {
                     Some(id) => ui::button(
                         SharedString::from(format!("let-go-{ix}")),
                         "Let it go",
-                        Weight::Quiet,
+                        Weight::Secondary,
                     )
                     .on_click(move |_, _, cx| {
                         stop.update(cx, |this, cx| {
@@ -139,8 +140,9 @@ impl Desk {
                     None => ui::button(
                         SharedString::from(format!("stop-{ix}")),
                         "Stop",
-                        Weight::Quiet,
+                        Weight::Secondary,
                     )
+                    .danger()
                     .on_click(move |_, _, cx| stop.read(cx).stop_process(pid)),
                 };
                 ListItem::new(ix)

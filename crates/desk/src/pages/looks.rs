@@ -60,7 +60,7 @@ impl Desk {
                                 ),
                         )
                         .child(
-                            ui::button("theme-read", "Read again", Weight::Quiet)
+                            ui::button("theme-read", "Read again", Weight::Secondary)
                                 .on_click(cx.listener(|this, _, _, cx| this.read_themes(cx))),
                         )
                         .into_any_element()
