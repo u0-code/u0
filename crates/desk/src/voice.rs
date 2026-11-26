@@ -1,22 +1,14 @@
-//! What you say, heard on this Mac: the microphone through `AVAudioEngine`
-//! into Apple's speech recognition (`SFSpeechRecognizer`), on the device
-//! alone, so nothing is sent away. It is the
-//! system's, not a model of Ghost's own. What it hears comes back to the
-//! window as `Msg::Heard`, put in the composer once it ends; and Ghost
-//! reads text aloud with the system's voice.
+//! What you say, heard on this Mac by gpui-kit's speech: the system's
+//! speech recognition, on the device alone, so nothing is sent away. It is
+//! the system's, not a model of Ghost's own. Here, what you asked of what
+//! is heard (your dictionary, the fillers left out), the languages it
+//! hears; and text read aloud with the system's voice.
 
-use crate::hub::{Msg, Sender};
+use std::sync::OnceLock;
+
+use gpui::component::speech::{SpeechLocale, SystemRecognizer};
+
 use crate::settings::Voice;
-
-/// What speech recognition says, as it hears.
-pub enum Heard {
-    /// Whether you let Ghost use speech recognition, once asked.
-    Allowed(bool),
-    /// All heard so far.
-    Words(String),
-    /// It ended: all it heard, or why it could not hear.
-    Ended(Result<String, String>),
-}
 
 /// Words that are said while thinking, not meant: left out of what is
 /// heard where you asked.
@@ -99,198 +91,19 @@ fn replace_words(text: &str, from: &str, to: &str) -> String {
     out
 }
 
-#[cfg(target_os = "macos")]
-pub use mac::{Listening, allowed, ask, languages, listen, speak, stop_speaking};
+/// The languages speech recognition hears on this Mac alone, by name in
+/// yours: read once, as reading them makes a recognizer for each.
+pub fn languages() -> &'static [SpeechLocale] {
+    static ALL: OnceLock<Vec<SpeechLocale>> = OnceLock::new();
+    ALL.get_or_init(SystemRecognizer::supported_locales)
+}
 
+/// The system's voice, which reads aloud.
 #[cfg(target_os = "macos")]
 mod mac {
-    use std::ptr::NonNull;
-
-    use block2::RcBlock;
-    use objc2::{AllocAnyThread as _, rc::Retained};
-    use objc2_avf_audio::{
-        AVAudioEngine, AVAudioPCMBuffer, AVAudioTime, AVSpeechBoundary, AVSpeechSynthesizer,
-        AVSpeechUtterance,
-    };
-    use objc2_foundation::{NSArray, NSBundle, NSError, NSLocale, NSString, ns_string};
-    use objc2_speech::{
-        SFSpeechAudioBufferRecognitionRequest, SFSpeechRecognitionResult, SFSpeechRecognitionTask,
-        SFSpeechRecognizer, SFSpeechRecognizerAuthorizationStatus as Status,
-    };
-
-    use super::{Heard, Msg, Sender};
-
-    /// Hearing now: the microphone's sound going to a recognition task.
-    pub struct Listening {
-        engine: Retained<AVAudioEngine>,
-        request: Retained<SFSpeechAudioBufferRecognitionRequest>,
-        task: Retained<SFSpeechRecognitionTask>,
-    }
-
-    impl Listening {
-        /// Stop listening; what was heard still ends as `Heard::Ended`.
-        pub fn finish(&self) {
-            self.stop();
-            // SAFETY: the request is the one the task reads, made here.
-            unsafe { self.request.endAudio() };
-        }
-
-        /// Stop listening, and let what was heard go.
-        pub fn cancel(&self) {
-            self.stop();
-            // SAFETY: the task made by `listen`.
-            unsafe { self.task.cancel() };
-        }
-
-        fn stop(&self) {
-            // SAFETY: the engine made by `listen`, on the main thread; the
-            // tap on bus 0 is the one `listen` installed.
-            unsafe {
-                self.engine.stop();
-                self.engine.inputNode().removeTapOnBus(0);
-            }
-        }
-    }
-
-    /// Whether you let Ghost use speech recognition; none, not asked yet.
-    /// Run outside its bundle, Ghost has not said why it would listen,
-    /// and macOS would end it for asking: then it may not.
-    pub fn allowed() -> Option<bool> {
-        let said = NSBundle::mainBundle()
-            .objectForInfoDictionaryKey(ns_string!("NSSpeechRecognitionUsageDescription"));
-        if said.is_none() {
-            return Some(false);
-        }
-        // SAFETY: a class method that reads a status.
-        match unsafe { SFSpeechRecognizer::authorizationStatus() } {
-            Status::NotDetermined => None,
-            status => Some(status == Status::Authorized),
-        }
-    }
-
-    /// Ask macOS whether Ghost may use speech recognition: the answer
-    /// comes as `Heard::Allowed`.
-    pub fn ask(tx: Sender) {
-        let answered = RcBlock::new(move |status: Status| {
-            let _ = tx.send(Msg::Heard(Heard::Allowed(status == Status::Authorized)));
-        });
-        // SAFETY: the block is copied by the framework and only sends on a
-        // channel, which may be done from any thread.
-        unsafe { SFSpeechRecognizer::requestAuthorization(&answered) };
-    }
-
-    /// Begin listening in `language` (a locale; none, the system's), for
-    /// `words` among others: what is heard comes as `Heard::Words`, then
-    /// `Heard::Ended`.
-    pub fn listen(
-        language: Option<&str>,
-        words: &[String],
-        tx: Sender,
-    ) -> Result<Listening, String> {
-        // SAFETY: Speech and AVFAudio objects made and used here on the
-        // main thread. The tap's block runs on an audio thread and only
-        // appends buffers to the request, which Apple documents as safe
-        // from any thread; the result block only sends on a channel.
-        unsafe {
-            let recognizer = match language {
-                Some(id) => SFSpeechRecognizer::initWithLocale(
-                    SFSpeechRecognizer::alloc(),
-                    &NSLocale::localeWithLocaleIdentifier(&NSString::from_str(id)),
-                ),
-                None => SFSpeechRecognizer::init(SFSpeechRecognizer::alloc()),
-            }
-            .ok_or("Speech recognition does not hear this language")?;
-            if !recognizer.isAvailable() {
-                return Err("Speech recognition is not available just now".to_owned());
-            }
-            // On this Mac alone: a language heard only on Apple's servers
-            // is not heard at all.
-            if !recognizer.supportsOnDeviceRecognition() {
-                return Err("macOS can't hear this language on this Mac alone: choose \
-                            another, or add it under System Settings › Keyboard › Dictation"
-                    .to_owned());
-            }
-            let request = SFSpeechAudioBufferRecognitionRequest::new();
-            request.setShouldReportPartialResults(true);
-            request.setAddsPunctuation(true);
-            request.setRequiresOnDeviceRecognition(true);
-            let words: Vec<Retained<NSString>> =
-                words.iter().map(|w| NSString::from_str(w)).collect();
-            request.setContextualStrings(&NSArray::from_retained_slice(&words));
-
-            let engine = AVAudioEngine::new();
-            let input = engine.inputNode();
-            let format = input.outputFormatForBus(0);
-            let fed = request.clone();
-            let tap = RcBlock::new(
-                move |buffer: NonNull<AVAudioPCMBuffer>, _: NonNull<AVAudioTime>| {
-                    fed.appendAudioPCMBuffer(buffer.as_ref());
-                },
-            );
-            input.installTapOnBus_bufferSize_format_block(
-                0,
-                1024,
-                Some(&format),
-                RcBlock::as_ptr(&tap),
-            );
-            engine.prepare();
-            engine
-                .startAndReturnError()
-                .map_err(|e| e.localizedDescription().to_string())?;
-
-            let heard = RcBlock::new(
-                move |result: *mut SFSpeechRecognitionResult, error: *mut NSError| {
-                    let heard = if let Some(result) = result.as_ref() {
-                        let text = result.bestTranscription().formattedString().to_string();
-                        if result.isFinal() {
-                            Heard::Ended(Ok(text))
-                        } else {
-                            Heard::Words(text)
-                        }
-                    } else if let Some(error) = error.as_ref() {
-                        Heard::Ended(Err(error.localizedDescription().to_string()))
-                    } else {
-                        return;
-                    };
-                    let _ = tx.send(Msg::Heard(heard));
-                },
-            );
-            let task = recognizer.recognitionTaskWithRequest_resultHandler(&request, &heard);
-            Ok(Listening {
-                engine,
-                request,
-                task,
-            })
-        }
-    }
-
-    /// The languages speech recognition hears: each locale with its name
-    /// in yours, by name.
-    pub fn languages() -> Vec<(String, String)> {
-        // SAFETY: class methods and Foundation objects read here.
-        let mut all: Vec<(String, String)> = unsafe {
-            let here = NSLocale::currentLocale();
-            SFSpeechRecognizer::supportedLocales()
-                .allObjects()
-                .to_vec()
-                .into_iter()
-                .map(|locale| {
-                    let id = locale.localeIdentifier();
-                    let name = here.localizedStringForLocaleIdentifier(&id).to_string();
-                    let id = id.to_string();
-                    // A locale macOS has no name for goes by its own.
-                    let name = if name.trim().is_empty() {
-                        id.clone()
-                    } else {
-                        name
-                    };
-                    (id, name)
-                })
-                .collect()
-        };
-        all.sort_by(|a, b| a.1.cmp(&b.1));
-        all
-    }
+    use objc2::rc::Retained;
+    use objc2_avf_audio::{AVSpeechBoundary, AVSpeechSynthesizer, AVSpeechUtterance};
+    use objc2_foundation::NSString;
 
     thread_local! {
         /// The system's voice, made once on the main thread.
@@ -320,39 +133,15 @@ mod mac {
     }
 }
 
+#[cfg(target_os = "macos")]
+pub use mac::{speak, stop_speaking};
+
+/// Where there is no system voice, nothing is read aloud.
 #[cfg(not(target_os = "macos"))]
-pub use elsewhere::{Listening, allowed, ask, languages, listen, speak, stop_speaking};
+pub fn speak(_: &str) {}
 
-/// Where there is no Apple speech recognition, there is no dictation.
 #[cfg(not(target_os = "macos"))]
-mod elsewhere {
-    use super::Sender;
-
-    pub struct Listening;
-
-    impl Listening {
-        pub fn finish(&self) {}
-        pub fn cancel(&self) {}
-    }
-
-    pub fn allowed() -> Option<bool> {
-        Some(true)
-    }
-
-    pub fn ask(_: Sender) {}
-
-    pub fn listen(_: Option<&str>, _: &[String], _: Sender) -> Result<Listening, String> {
-        Err("Dictation is heard by macOS's speech recognition".to_owned())
-    }
-
-    pub fn languages() -> Vec<(String, String)> {
-        Vec::new()
-    }
-
-    pub fn speak(_: &str) {}
-
-    pub fn stop_speaking() {}
-}
+pub fn stop_speaking() {}
 
 #[cfg(test)]
 mod tests {

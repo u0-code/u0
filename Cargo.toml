@@ -16,7 +16,7 @@ publish = false
 
 [workspace.dependencies]
 ghost-core = { path = "crates/core" }
-gpui = { package = "gpui-kit", version = "=0.11.0", default-features = false, features = ["component", "assets", "syntect"] }
+gpui = { package = "gpui-kit", version = "=0.11.0", default-features = false, features = ["component", "assets", "syntect", "speech"] }
 # The protocol: its connection and its types (the schema it pins). What goes
 # over the wire to an agent is defined there, never again here.
 agent-client-protocol = { version = "=5.6.0", features = ["unstable_session_fork"] }
@@ -74,13 +74,10 @@ getrandom = "0.3"
 ring = "0.17"
 qrcode = { version = "0.14", default-features = false }
 cocoa = "0.26"
-# Speech to text on this Mac (Apple's Speech framework, on device) and the
-# microphone it hears (AVFAudio), with the blocks they call back.
+# Text read aloud on this Mac (AVFAudio's speech synthesizer).
 objc2 = "0.6"
-block2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSArray", "NSBundle", "NSError", "NSLocale", "NSObject"] }
-objc2-speech = { version = "0.3", default-features = false, features = ["std", "block2", "SFSpeechRecognizer", "SFSpeechRecognitionRequest", "SFSpeechRecognitionResult", "SFSpeechRecognitionTask", "SFSpeechRecognitionTaskHint", "SFTranscription", "objc2-avf-audio"] }
-objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "block2", "AVAudioEngine", "AVAudioNode", "AVAudioIONode", "AVAudioBuffer", "AVAudioFormat", "AVAudioTime", "AVAudioTypes", "AVSpeechSynthesis"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString"] }
+objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "AVSpeechSynthesis"] }
 objc = "0.2"
 
 [workspace.lints.rust]
@@ -123,15 +120,18 @@ strip = true
 # can hold submenus (https://github.com/longbridge/gpui-kit/pull/4134), a
 # tab bar's tabs have a context menu each
 # (https://github.com/longbridge/gpui-kit/pull/4138), and a diff file's lines
-# can be read (https://github.com/longbridge/gpui-kit/pull/4139).
-# The branch is v0.11.0 with those six commits; back to crates.io once they
-# are released.
+# can be read (https://github.com/longbridge/gpui-kit/pull/4139), speech
+# recognition favours words given it
+# (https://github.com/longbridge/gpui-kit/pull/4143) and lists the
+# languages it hears (https://github.com/longbridge/gpui-kit/pull/4144).
+# The branch is v0.11.0 with those eight commits; back to crates.io once
+# they are released.
 [patch.crates-io]
-gpui-kit = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff" }
-gpui-base = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff" }
-gpui-component = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff" }
-gpui-component-macros = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff" }
-gpui-kit-assets = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff" }
+gpui-kit = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech" }
+gpui-base = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech" }
+gpui-component = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech" }
+gpui-component-macros = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech" }
+gpui-kit-assets = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech" }
 # Temporary, until Zed's gpui has it and gpui-kit moves to a gpui-pre built
 # from it: a window's contents can be drawn zoomed (Window::set_zoom), so
 # the whole interface scales (https://github.com/zed-industries/zed/pull/67479).

@@ -97,9 +97,9 @@ impl Desk {
             || "As the system".to_owned(),
             |id| {
                 voice::languages()
-                    .into_iter()
-                    .find(|(l, _)| l == id)
-                    .map_or_else(|| id.clone(), |(_, name)| name)
+                    .iter()
+                    .find(|l| l.tag() == id)
+                    .map_or_else(|| id.clone(), |l| l.name().to_string())
             },
         );
         let trigger = ui::opener("voice-language")
@@ -132,8 +132,8 @@ impl Desk {
                     .w(px(260.))
                     .max_h(px(420.))
                     .child(pick(None, "As the system".to_owned(), cx));
-                for (id, name) in voice::languages() {
-                    list = list.child(pick(Some(id), name, cx));
+                for l in voice::languages() {
+                    list = list.child(pick(Some(l.tag().to_string()), l.name().to_string(), cx));
                 }
                 list.overflow_y_scrollbar()
             },

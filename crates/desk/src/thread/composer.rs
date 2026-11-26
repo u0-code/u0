@@ -141,14 +141,16 @@ impl Desk {
     /// the way to go on without it.
     fn dictation_row(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<Div> {
         let d = self.dictation.as_ref()?;
-        let (said, end) = match (&d.cleaning, &d.listening) {
+        let listening =
+            d.speech.read(cx).status() == gpui::component::speech::SpeechStatus::Recording;
+        let (said, end) = match (&d.cleaning, listening) {
             (Some(_), _) => ("Cleaning up what you said…".to_owned(), "Skip"),
-            (None, Some(_)) if d.heard.is_empty() => ("Listening…".to_owned(), "Done"),
-            (None, Some(_)) => (d.heard.clone(), "Done"),
-            (None, None) if d.heard.is_empty() => {
+            (None, true) if d.heard.is_empty() => ("Listening…".to_owned(), "Done"),
+            (None, true) => (d.heard.clone(), "Done"),
+            (None, false) if d.heard.is_empty() => {
                 ("Waiting for speech recognition…".to_owned(), "Cancel")
             }
-            (None, None) => (d.heard.clone(), "Cancel"),
+            (None, false) => (d.heard.clone(), "Cancel"),
         };
         let cleaning = d.cleaning.is_some();
         Some(

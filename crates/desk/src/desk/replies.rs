@@ -139,7 +139,6 @@ impl Desk {
                 }
             }
             Msg::OnPath(found) => self.on_path = found,
-            Msg::Heard(heard) => self.heard(heard, window, cx),
             Msg::Update(update) => self.updated(update, cx),
             Msg::Keys(Ok(yours)) => {
                 cx.clear_key_bindings();

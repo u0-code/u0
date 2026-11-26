@@ -4,16 +4,19 @@
 
 use std::time::{Duration, Instant};
 
-use gpui::{Context, Window};
+use gpui::component::speech::{
+    SpeechError, SpeechEvent, SpeechState, SpeechStatus, SystemRecognizer,
+};
+use gpui::{AppContext as _, Context, Entity, Subscription, Window};
 
 use super::Desk;
-use crate::{settings::VoiceKey, voice, voice::Heard};
+use crate::{settings::VoiceKey, voice};
 
 /// Dictation under way.
 pub struct Dictation {
-    /// Listening, till it is finished; none while permission is asked or
-    /// once what was heard is ending.
-    pub listening: Option<voice::Listening>,
+    /// The system's speech recognition, hearing till it is finished.
+    pub speech: Entity<SpeechState>,
+    _heard: Subscription,
     /// All heard so far.
     pub heard: String,
     /// When it began, which tells a tap of the key from a hold.
@@ -43,18 +46,25 @@ impl Desk {
             Some(_) => self.finish_dictation(cx),
             None => {
                 window.focus(&composer, cx);
+                let v = &self.settings.voice;
+                let (words, _) = voice::dictionary(&v.dictionary);
+                let mut recognizer = SystemRecognizer::new().expected_phrases(words);
+                if let Some(language) = &v.language {
+                    recognizer = recognizer.locale(language.clone());
+                }
+                let speech = cx.new(|cx| SpeechState::new(cx).recognizer(recognizer));
+                let heard = cx.subscribe_in(&speech, window, |this, _, e, window, cx| {
+                    this.heard(e, window, cx);
+                });
                 self.dictation = Some(Dictation {
-                    listening: None,
+                    speech: speech.clone(),
+                    _heard: heard,
                     heard: String::new(),
                     since: Instant::now(),
                     held: by_key,
                     cleaning: None,
                 });
-                match voice::allowed() {
-                    Some(true) => self.listen(cx),
-                    Some(false) => self.not_allowed(),
-                    None => voice::ask(self.tx.clone()),
-                }
+                speech.update(cx, SpeechState::start);
             }
         }
         cx.notify();
@@ -77,44 +87,29 @@ impl Desk {
         }
     }
 
-    fn listen(&mut self, cx: &mut Context<Self>) {
-        let v = &self.settings.voice;
-        let (words, _) = voice::dictionary(&v.dictionary);
-        match voice::listen(v.language.as_deref(), &words, self.tx.clone()) {
-            Ok(listening) => {
-                if let Some(d) = &mut self.dictation {
-                    d.listening = Some(listening);
-                }
-            }
-            Err(why) => {
-                self.dictation = None;
-                self.trouble("Ghost couldn't listen", Some(why), None);
-            }
-        }
-        cx.notify();
-    }
-
     fn not_allowed(&mut self) {
         self.dictation = None;
         self.trouble(
             "Ghost may not use speech recognition",
             Some(
                 "Allow it in System Settings › Privacy & Security › Speech Recognition, \
-                 and the microphone under Microphone. Ghost run outside Ghost.app (from \
-                 cargo) may not listen at all."
+                 and the microphone under Microphone."
                     .to_owned(),
             ),
             None,
         );
     }
 
-    /// Stop listening: what was heard goes in once it ends.
+    /// Stop listening: what was heard goes in once it ends. Asked again,
+    /// or before it listened, it is let go.
     pub(crate) fn finish_dictation(&mut self, cx: &mut Context<Self>) {
-        match self.dictation.as_mut().map(|d| d.listening.take()) {
-            Some(Some(listening)) => listening.finish(),
-            // Still asked for permission: nothing was heard.
-            Some(None) => self.dictation = None,
-            None => {}
+        let Some(d) = &self.dictation else { return };
+        let speech = d.speech.clone();
+        if speech.read(cx).status() == SpeechStatus::Recording {
+            speech.update(cx, SpeechState::stop);
+        } else {
+            speech.update(cx, SpeechState::cancel);
+            self.dictation = None;
         }
         cx.notify();
     }
@@ -123,9 +118,7 @@ impl Desk {
     /// cleans it up, put it in as it was heard.
     pub(crate) fn cancel_dictation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(d) = self.dictation.take() {
-            if let Some(listening) = d.listening {
-                listening.cancel();
-            }
+            d.speech.update(cx, SpeechState::cancel);
             if let Some(heard) = d.cleaning {
                 self.put_dictated(&heard, window, cx);
             }
@@ -134,41 +127,44 @@ impl Desk {
     }
 
     /// What speech recognition said.
-    pub(super) fn heard(&mut self, heard: Heard, window: &mut Window, cx: &mut Context<Self>) {
+    fn heard(&mut self, said: &SpeechEvent, window: &mut Window, cx: &mut Context<Self>) {
         let Some(d) = &mut self.dictation else {
             return;
         };
-        match heard {
-            Heard::Allowed(true) => self.listen(cx),
-            Heard::Allowed(false) => self.not_allowed(),
-            Heard::Words(words) => d.heard = words,
-            Heard::Ended(ended) => {
-                // Nothing said is no news; what was heard before a fault
-                // is kept.
-                let heard = match ended {
-                    Ok(text) => text,
-                    Err(_) if !d.heard.is_empty() || d.listening.is_none() => d.heard.clone(),
-                    Err(why) => {
-                        self.dictation = None;
-                        self.trouble("Ghost couldn't hear that", Some(why), None);
-                        cx.notify();
-                        return;
-                    }
+        let heard = match said {
+            SpeechEvent::Started | SpeechEvent::Cancelled => return,
+            SpeechEvent::Partial(words) => {
+                d.heard = words.to_string();
+                cx.notify();
+                return;
+            }
+            SpeechEvent::Final(text) => text.to_string(),
+            SpeechEvent::Error(SpeechError::PermissionDenied) => return self.not_allowed(),
+            // What was heard before a fault is kept.
+            SpeechEvent::Error(_) if !d.heard.is_empty() => d.heard.clone(),
+            SpeechEvent::Error(why) => {
+                let why = match why {
+                    SpeechError::Unsupported => "macOS can't hear this language on this Mac \
+                        alone: choose another, or add it under System Settings › Keyboard › \
+                        Dictation. Ghost run outside Ghost.app (from cargo) can't listen at all."
+                        .to_owned(),
+                    why => why.to_string(),
                 };
-                if let Some(listening) = d.listening.take() {
-                    listening.cancel();
-                }
-                let text = voice::tidy(&heard, &self.settings.voice);
-                match self.current {
-                    Some(key) if self.settings.voice.clean && !text.is_empty() => {
-                        d.cleaning = Some(text.clone());
-                        self.ask_writer(key, crate::writer::Ask::Transcript { heard: text });
-                    }
-                    _ => {
-                        self.dictation = None;
-                        self.put_dictated(&text, window, cx);
-                    }
-                }
+                self.dictation = None;
+                self.trouble("Ghost couldn't hear that", Some(why), None);
+                cx.notify();
+                return;
+            }
+        };
+        let text = voice::tidy(&heard, &self.settings.voice);
+        match self.current {
+            Some(key) if self.settings.voice.clean && !text.is_empty() => {
+                d.cleaning = Some(text.clone());
+                self.ask_writer(key, crate::writer::Ask::Transcript { heard: text });
+            }
+            _ => {
+                self.dictation = None;
+                self.put_dictated(&text, window, cx);
             }
         }
         cx.notify();

@@ -40,8 +40,6 @@ pub enum Msg {
     /// A picture to go with what you write: a window you chose, captured,
     /// or a file dropped in, read; nothing if you let it be.
     Attached(Option<crate::desk::mention::Attached>),
-    /// What speech recognition heard, as you dictate.
-    Heard(crate::voice::Heard),
     /// Where an update of Ghost's own stands.
     Update(crate::desk::updates::Update),
     /// How the link to the server elsewhere stands.

@@ -153,8 +153,8 @@ crates/desk/src/
   sessions.rs   the sessions on the desk, by key and by the agent's id; what agents say of them
   macos.rs      what Ghost asks of macOS: icon, badge, dictation, a notification's
                 sound, the Keychain
-  voice.rs      what you say, heard by Apple's speech recognition on this Mac alone;
-                text read aloud
+  voice.rs      what you say, heard by gpui-kit's speech (the system's recognizer, on
+                this Mac alone): your dictionary, the fillers; text read aloud
   keys.rs       the window's actions and keys; ~/.ghost/keybindings.json
   desk.rs       the window's state, actions and layout
   desk/         by subject: kept, lists, projects, mention, gitview, runs,
