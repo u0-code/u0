@@ -49,6 +49,7 @@ use crate::{
     tidy, writer,
 };
 
+mod door;
 mod flows;
 mod happened;
 mod scheduled;
@@ -100,7 +101,7 @@ struct Shared {
     /// agent and id (`scheduled::Shared::watch_prs`).
     watched: Arc<Mutex<HashMap<(String, SessionId), String>>>,
     /// Who each key lets in to Ghost's tools (`tools`).
-    callers: tools::Callers,
+    callers: door::Callers,
     /// What is counted, and sent as far as you let it.
     telemetry: Arc<crate::telemetry::Telemetry>,
 }
@@ -263,7 +264,7 @@ impl Server {
                 tasks: Arc::new(Mutex::new(tasks)),
                 runs: Arc::new(Mutex::new(runs)),
                 watched: Arc::default(),
-                callers: tools::Callers::default(),
+                callers: door::Callers::default(),
                 telemetry,
             },
             installs: Mutex::default(),

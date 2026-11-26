@@ -218,8 +218,12 @@ codex mcp add ghost -- /Applications/Ghost.app/Contents/MacOS/ghost-desk --mcp
 `--mcp` speaks MCP on its standard input and output and passes it to the
 Ghost running with the same home (`GHOST_HOME`), on `127.0.0.1`, with a
 key in `~/.ghost/mcp.json` that only you can read. On a machine with no
-window it is `ghost-server --mcp`; from elsewhere, `ssh host ghost-server
---mcp`. Such an agent reads (the sessions, what was said, a diff, what
+window it is `ghost-server --mcp`. An agent that speaks MCP over HTTP is
+given `http://127.0.0.1:<http>/mcp` from the same file, its key as a
+bearer token. From another Mac paired with this one, `ghost --mcp --on
+<name>` reaches its tools over the link the window uses, signed with
+that Mac's key: a read-only device's agent reads, one of full scope may
+act as below. Such an agent reads (the sessions, what was said, a diff, what
 happened since it last looked, a turn waited on). With **Agents outside
 Ghost may act** (Settings › Agents) it may also say something in a
 session, as its next turn, or stop its turn: each asked of you in that

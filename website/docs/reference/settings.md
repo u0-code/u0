@@ -33,6 +33,7 @@ Rules for the file:
 | `env` | map: agent id → (name → value or `null`) | `{}` | Variables each agent starts with. `null` means the value is a secret kept in the Keychain. On the agent's page. |
 | `models` | map: agent id → list of model ids | `{}` | Model ids of your own, offered beside those the agent lists. |
 | `favourites` | list of `{agent, model}` | `[]` | Models starred in the model picker, listed first there. |
+| `outside_acts` | bool | `false` | Whether an agent outside Ghost may say something in a session or stop its turn through [Ghost's tools](../tools-for-agents.md#access-levels), each asked of you there. **Settings › Agents › Agents outside Ghost may act**. |
 | `no_tools` | list of agent ids | `[]` | Agents whose sessions are not given [Ghost's tools](../tools-for-agents.md). The switch is on the agent's page. |
 | `check_agents` | bool | `true` | Read the ACP registry again every hour for newer agent versions. **General › In the background**. |
 

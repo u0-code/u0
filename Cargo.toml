@@ -23,8 +23,8 @@ gpui = { package = "gpui-kit", version = "=0.11.0", default-features = false, fe
 # over the wire to an agent is defined there, never again here.
 agent-client-protocol = { version = "=5.6.0", features = ["unstable_session_fork", "unstable_end_turn_token_usage"] }
 # Ghost's tools, given to an agent: the official MCP SDK, one server
-# spoken over a stream (`server/tools`).
-rmcp = { version = "3.11", default-features = false, features = ["server", "macros"] }
+# spoken over a stream or as streamable HTTP on 127.0.0.1 (`server/door`).
+rmcp = { version = "3.11", default-features = false, features = ["server", "macros", "transport-streamable-http-server"] }
 # The telemetry batch's JSON Schema: the version rmcp's tools derive with.
 schemars = "1.2"
 anyhow = "1.0.104"

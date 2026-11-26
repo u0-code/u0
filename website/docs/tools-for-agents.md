@@ -58,10 +58,16 @@ There are two kinds of caller:
   agent's own questions use, with **Allow**, **Always allow** and
   **Reject**. **Always allow** holds for that tool in that session until
   the session's connection ends.
-- **An agent outside Ghost** (below). It may only read:
-  `list_sessions`, `read_session`, `read_diff`, `wait_for_turn`,
-  `events`, `list_devices` and `device_screen`. A tool that acts or asks you answers that only an agent
-  in a Ghost session can do it.
+- **An agent outside Ghost** (below). It reads: `list_sessions`,
+  `read_session`, `read_diff`, `wait_for_turn`, `events`, `list_devices`
+  and `device_screen`. With **Settings › Agents › Agents outside Ghost may
+  act** on (`outside_acts`), it may also `send_to_session` and
+  `interrupt_session`, each asked of you on that session's card. Any
+  other tool that acts or asks you answers that only an agent in a Ghost
+  session can do it.
+- **An agent on another Mac**, reaching this Mac's tools through a
+  paired device's link (`--mcp --on`, below): it reads, and acts as far as
+  that device may (a read-only device's agent only reads).
 
 ## Using them from an agent outside Ghost
 
@@ -78,9 +84,27 @@ machine's Ghost, run it there over SSH: `ssh host ghost-server --mcp`.
 
 If Ghost is not running with that home, `--mcp` exits saying so.
 
-:::note Coming
+### Over HTTP
 
-Ghost's tools over streamable HTTP, and reaching other paired Macs, are
-being finished and are not in the current build yet.
+An agent that speaks MCP's streamable HTTP is given the same tools at
 
-:::
+```
+http://127.0.0.1:<http>/mcp
+```
+
+with `<http>` and the key from `<home>/mcp.json`, the key sent as
+`Authorization: Bearer <key>`. It is the same caller as `--mcp` with no
+session: it reads, and acts as `outside_acts` lets it. Ghost keeps no MCP
+session; it answers only `127.0.0.1`, `localhost` and `::1` by name, and no
+request from a web page (one with an `Origin`).
+
+### On another Mac
+
+From a Mac paired with another, an agent reaches that Mac's tools over
+the link the window uses, signed with this Mac's key for it:
+
+```bash
+ghost --mcp --on <name>
+```
+
+`<name>` is the server's name, as **Macs this Mac controls** lists it.

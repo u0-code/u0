@@ -123,7 +123,8 @@ crates/core/src/
                 server/flows: the workflows' runs, step by step; server/tools: Ghost's
                 tools, the one MCP server (rmcp), given to each session it opens (its
                 devices' tools in server/tools/devices); server/happened: the turns
-                going on and what happened, for the tools
+                going on and what happened, for the tools; server/door: how agents
+                reach the tools (a pipe, HTTP, a link), who calls
   mcp.rs        how an agent reaches the tools: `--mcp`, the pipe to them; mcp.json
   proto.rs      the Ghost protocol: Call (desk to server), Event (server to desk);
                 Hello and Welcome, which begin a link
@@ -360,9 +361,13 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   of a server's own show, while the window's own (its look, its keys)
   are this Mac's. What an agent needs before it starts is the server's
   to say (`Event::Here`).
-- Ghost's tools (`server/tools`) listen on `127.0.0.1` at a port
-  `~/.ghost/mcp.json` names, with a key only that file holds (mode 0600),
-  both made anew as the server starts. A session (of an agent not in
+- Ghost's tools (`server/tools`) listen on `127.0.0.1` at two ports
+  `~/.ghost/mcp.json` names (`port`, the pipe of `--mcp`, a key on a line
+  first; `http`, MCP's streamable HTTP, the key as a bearer token, no
+  session kept), with a key only that file holds (mode 0600), all made
+  anew as the server starts. `--mcp --on <server>` reaches a paired
+  server's tools over a link (`Then::Tools`), signed in as a desk; an
+  agent there reads, and acts as its device's scope lets it. A session (of an agent not in
   `settings.no_tools`, its page's switch) is given them through
   ACP's `mcpServers` as this program run with `--mcp`, with a key of its
   own (`GHOST_MCP_KEY`) that says which session calls; an agent outside

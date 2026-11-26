@@ -39,7 +39,8 @@ Ghost 打开会话时，通过 ACP 的 `mcpServers` 把服务器作为一个要�
 调用方有两类：
 
 - **Ghost 中的会话。** 它可以调用所有工具。会执行操作的工具（`delegate_task`、`open_pr`、`schedule_task`、`use_device`、`send_to_session`、`interrupt_session`）会先在该会话的对话中用权限卡片询问你，这与智能体自身提问所用的卡片相同，有 **Allow**、**Always allow** 和 **Reject**。**Always allow** 在该会话中对该工具一直有效，直到会话的连接结束。
-- **Ghost 之外的智能体**（见下文）。它只能读取：`list_sessions`、`read_session`、`read_diff`、`wait_for_turn`、`events`、`list_devices` 和 `device_screen`。会执行操作或向你提问的工具会回答：只有 Ghost 会话中的智能体才能这样做。
+- **Ghost 之外的智能体**（见下文）。它可以读取：`list_sessions`、`read_session`、`read_diff`、`wait_for_turn`、`events`、`list_devices` 和 `device_screen`。打开 **设置 › 智能体 › Ghost 之外的智能体可以执行操作**（`outside_acts`）后，它还可以 `send_to_session` 和 `interrupt_session`，每次都在那个会话的卡片上询问你。其他会执行操作或向你提问的工具会回答：只有 Ghost 会话中的智能体才能这样做。
+- **另一台 Mac 上的智能体**，通过已配对设备的连接访问这台 Mac 的工具（`--mcp --on`，见下文）：它可以读取，并在该设备允许的范围内执行操作（只读设备的智能体只能读取）。
 
 ## 从 Ghost 之外的智能体使用 {#using-them-from-an-agent-outside-ghost}
 
@@ -54,8 +55,22 @@ codex mcp add ghost -- /Applications/Ghost.app/Contents/MacOS/ghost-desk --mcp
 
 如果没有以该主目录运行的 Ghost，`--mcp` 会退出并说明原因。
 
-:::note 即将推出
+### 通过 HTTP {#over-http}
 
-通过可流式 HTTP 提供 Ghost 的工具，以及访问其他已配对的 Mac，正在完善中，尚未包含在当前版本里。
+使用 MCP 可流式 HTTP 的智能体，可以在以下地址使用相同的工具：
 
-:::
+```
+http://127.0.0.1:<http>/mcp
+```
+
+`<http>` 和密钥都来自 `<home>/mcp.json`，密钥以 `Authorization: Bearer <key>` 发送。它与不带会话的 `--mcp` 是同一类调用方：可以读取，并在 `outside_acts` 允许时执行操作。Ghost 不保存 MCP 会话；它只响应以 `127.0.0.1`、`localhost` 和 `::1` 为名的请求，并拒绝来自网页的请求（带有 `Origin` 的请求）。
+
+### 在另一台 Mac 上 {#on-another-mac}
+
+在与另一台 Mac 配对的 Mac 上，智能体可以通过窗口所用的连接访问那台 Mac 的工具，以这台 Mac 为它生成的密钥签名：
+
+```bash
+ghost --mcp --on <name>
+```
+
+`<name>` 是服务器的名称，即 **这台 Mac 控制的 Mac** 中列出的名称。

@@ -368,9 +368,10 @@ fn welcome(server: &Server, scope: Scope) -> Welcome {
 
 /// Carry bytes between `ws` (as binary messages) and `near`, until either
 /// ends.
-async fn carry<S>(mut ws: Socket<S>, mut near: TcpStream) -> Result<(), String>
+async fn carry<S, N>(mut ws: Socket<S>, mut near: N) -> Result<(), String>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+    N: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     let mut buf = vec![0u8; 64 << 10];
@@ -457,6 +458,19 @@ pub fn forward(way: Way, kept: String, there: u16) -> Result<Forward, String> {
     Ok(Forward { there, port, task })
 }
 
+/// Reach the tools of the server `way` over a link of their own, coming
+/// in with `key`, and carry MCP between them and `here` until either ends.
+pub async fn tools<H>(way: &Way, key: &Key, here: H) -> Result<(), String>
+where
+    H: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    match dial(way, hello(key, None, None, Then::Tools)).await {
+        Ok((ws, _)) => carry(ws, here).await,
+        Err(Dial::Failed(why) | Dial::Refused(why)) => Err(why),
+        Err(Dial::Waiting(name)) => Err(waiting(&name)),
+    }
+}
+
 /// Why a device let in is cut off: its access ended, as it says; else it
 /// was unpaired.
 fn cut(why: Turned) -> String {
@@ -513,6 +527,17 @@ async fn serve(server: &Arc<Server>, mut ws: Upgraded) -> Result<(), String> {
             return refuse_as(ws, CloseCode::Again, &name).await;
         }
     };
+    if hello.then == Then::Tools {
+        let welcome = welcome(server, scope);
+        let text = serde_json::to_string(&welcome).expect("a welcome serializes");
+        ws.send(Message::text(text))
+            .await
+            .map_err(|e| e.to_string())?;
+        let (near, far) = tokio::io::duplex(64 << 10);
+        let tooled = server.clone();
+        tokio::spawn(async move { tooled.tools_for(scope, far).await });
+        return carry(ws, near).await;
+    }
     if let Then::Forward(port) = hello.then {
         if scope != Scope::Full {
             return refuse(ws, "This device may only watch here: no port is forwarded").await;
@@ -1305,6 +1330,58 @@ mod tests {
         pair_as(&server, port, &watcher, read);
         let refused = forward(here(port), watcher, there).unwrap();
         assert_eq!(ask(&refused), "", "nothing is carried for a watcher");
+    }
+
+    #[test]
+    fn an_agent_on_a_paired_device_reaches_the_tools_and_acts_only_with_full_scope() {
+        use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
+        let home = tempfile::tempdir().unwrap();
+        let (server, port) = server(home.path());
+        let meta = serde_json::json!({"agent": "a", "id": "s1", "project": home.path(),
+            "folder": home.path(), "title": "Build", "begun": 5, "updated": 7});
+        server.handle(Call::Keep(vec![serde_json::from_value(meta).unwrap()]));
+        // What an agent there is told, sending to s1, by a device of `grant`.
+        let send = |grant: crate::access::Grant| {
+            let kept = kept();
+            pair_as(&server, port, &kept, grant);
+            crate::acp::runtime().block_on(async move {
+                let (mine, theirs) = tokio::io::duplex(1 << 16);
+                let way = here(port);
+                tokio::spawn(async move { tools(&way, &key(&kept), theirs).await });
+                let (read, mut write) = tokio::io::split(mine);
+                let mut lines = tokio::io::BufReader::new(read).lines();
+                let say = [
+                    serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+                        "protocolVersion": "2025-06-18", "capabilities": {},
+                        "clientInfo": {"name": "stand-in", "version": "1"}}}),
+                    serde_json::json!({"jsonrpc": "2.0", "method": "notifications/initialized"}),
+                    serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
+                        "name": "send_to_session",
+                        "arguments": {"agent": "a", "session": "s1", "prompt": "Go"}}}),
+                ];
+                for line in say {
+                    write.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+                }
+                loop {
+                    let line = lines.next_line().await.unwrap().unwrap();
+                    let said: serde_json::Value = serde_json::from_str(&line).unwrap();
+                    if said["id"] == 2 {
+                        break said["result"]["content"][0]["text"].as_str().unwrap().to_owned();
+                    }
+                }
+            })
+        };
+        let read = crate::access::Grant {
+            scope: crate::access::Scope::Read,
+            ..crate::access::Grant::default()
+        };
+        assert!(send(read).contains("may only read"));
+        // Of full scope, it is asked of you in the session (here no agent
+        // runs it to ask, so it is not allowed).
+        assert_eq!(
+            send(crate::access::Grant::default()),
+            "You did not allow it"
+        );
     }
 
     #[test]

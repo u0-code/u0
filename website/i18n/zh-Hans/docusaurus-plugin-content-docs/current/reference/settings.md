@@ -23,6 +23,7 @@ Ghost 把设置保存在其主目录（`~/.ghost`，或 `GHOST_HOME`）中的 `s
 | `env` | 映射：智能体 ID →（名称 → 值或 `null`） | `{}` | 每个智能体启动时带的变量。`null` 表示该值是保存在钥匙串中的机密。在该智能体的页面中。 |
 | `models` | 映射：智能体 ID → 模型 ID 列表 | `{}` | 你自己的模型 ID，与智能体列出的模型一起提供。 |
 | `favourites` | `{agent, model}` 列表 | `[]` | 在模型选择器中加星标的模型，在那里排在最前。 |
+| `outside_acts` | 布尔值 | `false` | Ghost 之外的智能体是否可以通过 [Ghost 的工具](../tools-for-agents.md#access-levels)在会话中发言或停止其一轮，每次都在那里询问你。**设置 › 智能体 › Ghost 之外的智能体可以执行操作**。 |
 | `no_tools` | 智能体 ID 列表 | `[]` | 其会话不提供 [Ghost 的工具](../tools-for-agents.md)的智能体。开关在该智能体的页面中。 |
 | `check_agents` | bool | `true` | 每小时重新读取 ACP 注册表，查找更新的智能体版本。**通用 › 在后台**。 |
 

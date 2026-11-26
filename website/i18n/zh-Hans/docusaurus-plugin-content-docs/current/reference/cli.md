@@ -49,7 +49,7 @@ Linux 上没有 `ghost service`。请在 systemd 或你自己的其他进程管�
 ghost-server --mcp
 ```
 
-在标准输入和输出上使用 MCP 通信，并把一切转交给使用同一主目录运行的 Ghost。见 [Ghost 的工具](../tools-for-agents.md)。
+在标准输入和输出上使用 MCP 通信，并把一切转交给使用同一主目录运行的 Ghost。`--mcp --on <name>` 则通过签名连接转交给这台 Mac 已配对的服务器 `<name>`。见 [Ghost 的工具](../tools-for-agents.md)。
 
 ## 环境变量 {#environment}
 

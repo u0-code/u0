@@ -1,41 +1,39 @@
 //! Ghost's tools: the one MCP server Ghost gives agents (rmcp's), over
-//! what the server already does for the desk. It listens on 127.0.0.1
-//! (`mcp`); each session Ghost opens or opens again is given it, through
-//! ACP's `mcpServers`, with a key of its own that says which session
-//! calls; an agent outside Ghost comes in with the key in `mcp.json`.
+//! what the server already does for the desk, reached as `door` says.
 //!
-//! What only reads (the sessions, what was said in one, a diff) any of them
-//! may call. What acts (a session handed a task, a pull request opened, a
-//! task scheduled) and what asks you is for a session of Ghost's alone:
-//! each asks you first on the same card an agent's own question is, in that
-//! session's thread, unless you allowed it always there.
+//! What only reads (the sessions, what was said in one, a diff, what
+//! happened) any caller may call. What acts, or asks you, is for an agent
+//! in a session of Ghost's, asked of you first in its thread; one that
+//! acts on a session it names (says something in it, stops its turn) is
+//! also for an agent outside Ghost where your settings let it, or on a
+//! device paired of full scope, asked of you first in that session. Each
+//! is asked on the same card an agent's own question is, unless you
+//! allowed it always.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
 
 use agent_client_protocol::v1::schema::{
     CancelNotification, CreateElicitationRequest, ElicitationAction, ElicitationContentValue,
-    ElicitationFormMode, ElicitationSchema, ElicitationSessionScope, EnvVariable, McpServer,
-    McpServerStdio, PermissionOption, PermissionOptionKind, RequestPermissionOutcome,
-    RequestPermissionRequest, SessionId, StringPropertySchema, ToolCallUpdate,
-    ToolCallUpdateFields,
+    ElicitationFormMode, ElicitationSchema, ElicitationSessionScope, PermissionOption,
+    PermissionOptionKind, RequestPermissionOutcome, RequestPermissionRequest, SessionId,
+    StringPropertySchema, ToolCallUpdate, ToolCallUpdateFields,
 };
 use rmcp::{
-    ServerHandler, ServiceExt as _, handler::server::wrapper::Parameters, schemars, tool,
-    tool_handler, tool_router,
+    ServerHandler, handler::server::wrapper::Parameters, schemars, tool, tool_handler, tool_router,
 };
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, BufReader};
 
 mod devices;
 
-use super::Shared;
+use super::{Shared, door::Caller};
 use crate::{
+    access::Scope,
     acp::{self, Answer},
-    git, mcp,
+    git,
     proto::Event,
     repo::{self, GitAction},
     settings::Settings,
@@ -43,94 +41,7 @@ use crate::{
     tasks::{Schedule, Task},
 };
 
-/// Who each key lets in.
-pub(super) type Callers = Arc<Mutex<HashMap<String, Caller>>>;
-
-/// Who calls Ghost's tools, and so what it may do.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum Caller {
-    /// An agent outside Ghost, by the key in `mcp.json`: it reads, and
-    /// acts on a session only where your settings let it
-    /// (`outside_acts`), asked of you in that session.
-    Outside,
-    /// An agent in a session of Ghost's (its agent, and its id once it
-    /// has one): what acts is asked of you in its own session.
-    Session(String, Option<SessionId>),
-}
-
 impl Shared {
-    /// Listen for agents calling Ghost's tools, from now on: the door
-    /// written in the home, each one let in by its key served on a task
-    /// of its own.
-    pub(super) fn serve_tools(&self) {
-        let this = self.clone();
-        acp::runtime().spawn(async move {
-            let listener = match tokio::net::TcpListener::bind(("127.0.0.1", 0)).await {
-                Ok(l) => l,
-                Err(e) => {
-                    tracing::warn!("Ghost's tools are not served: {e}");
-                    return;
-                }
-            };
-            let door = mcp::Door {
-                port: listener.local_addr().map_or(0, |a| a.port()),
-                key: crate::access::random::<32>(),
-            };
-            // Its key lets in before the door names it.
-            (this.callers.lock().expect("callers")).insert(door.key.clone(), Caller::Outside);
-            if let Err(e) = mcp::open(&this.home, &door) {
-                tracing::warn!("Ghost's tools are not served: {e}");
-                return;
-            }
-            while let Ok((stream, _)) = listener.accept().await {
-                let this = this.clone();
-                tokio::spawn(async move {
-                    let mut stream = BufReader::new(stream);
-                    let mut key = String::new();
-                    // A key is a line, and short.
-                    let read = (&mut stream).take(256).read_line(&mut key).await;
-                    let key = key.trim_end().to_owned();
-                    if read.is_err() || !this.callers.lock().expect("callers").contains_key(&key) {
-                        return;
-                    }
-                    let tools = Tools {
-                        shared: this,
-                        key,
-                        always: Arc::default(),
-                    };
-                    if let Ok(serving) = tools.serve(stream).await {
-                        let _ = serving.waiting().await;
-                    }
-                });
-            }
-        });
-    }
-
-    /// Ghost's tools, for a session of `agent` (its id where it has one):
-    /// the key it calls with, and the server to give it as it is opened;
-    /// none where you switched them off for that agent.
-    pub(super) fn tools(&self, agent: &str, id: Option<SessionId>) -> (String, Vec<McpServer>) {
-        if Settings::load(&self.home)
-            .0
-            .no_tools
-            .iter()
-            .any(|a| a == agent)
-        {
-            return (String::new(), Vec::new());
-        }
-        let key = crate::access::random::<32>();
-        (self.callers.lock().expect("callers"))
-            .insert(key.clone(), Caller::Session(agent.to_owned(), id));
-        let program = std::env::current_exe().unwrap_or_else(|_| "ghost".into());
-        let server = McpServerStdio::new("ghost", program)
-            .args(vec!["--mcp".into()])
-            .env(vec![
-                EnvVariable::new("GHOST_HOME", self.home.display().to_string()),
-                EnvVariable::new(mcp::KEY, key.clone()),
-            ]);
-        (key, vec![McpServer::Stdio(server)])
-    }
-
     /// The session `id` of `agent`, as the index keeps it.
     fn meta(&self, agent: &str, id: &SessionId) -> Option<Meta> {
         (self.index.lock().expect("index").as_ref().ok())?
@@ -138,13 +49,6 @@ impl Shared {
             .iter()
             .find(|m| m.agent == agent && m.id.as_ref() == Some(id))
             .cloned()
-    }
-
-    /// The session opened with the key `key` is `id`.
-    pub(super) fn bind(&self, key: &str, id: SessionId) {
-        if let Some(Caller::Session(_, at)) = self.callers.lock().expect("callers").get_mut(key) {
-            *at = Some(id);
-        }
     }
 
     /// Ask you `ask` (made with the number it is asked under) in the
@@ -162,11 +66,11 @@ impl Shared {
 
 /// One agent's connection to Ghost's tools.
 #[derive(Clone)]
-struct Tools {
+pub(super) struct Tools {
     shared: Shared,
     /// The key it came in with.
     key: String,
-    /// The tools you allowed always in its session.
+    /// The tools you allowed always to it.
     always: Arc<Mutex<HashSet<&'static str>>>,
 }
 
@@ -177,6 +81,19 @@ const OUTSIDE: &str = "Only an agent in a session of Ghost's can do this: Ghost 
 const READS: &str = "This agent may only read here: let agents outside Ghost act on a session in Settings › Agents, or start one in Ghost.";
 
 impl Tools {
+    /// The tools for the caller `key` lets in; none where it lets no one.
+    pub(super) fn of(shared: &Shared, key: &str) -> Option<Self> {
+        let always = (shared.callers.lock().expect("callers"))
+            .get(key)?
+            .always
+            .clone();
+        Some(Self {
+            shared: shared.clone(),
+            key: key.to_owned(),
+            always,
+        })
+    }
+
     /// The session it calls from, and how the index keeps it; none for an
     /// agent outside Ghost.
     fn session(&self) -> Option<(SessionId, Meta)> {
@@ -192,7 +109,7 @@ impl Tools {
     fn caller(&self) -> Option<Caller> {
         (self.shared.callers.lock().expect("callers"))
             .get(&self.key)
-            .cloned()
+            .map(|c| c.who.clone())
     }
 
     /// Ask you whether `tool` may do what `title` says, with `input`, in
@@ -225,6 +142,11 @@ impl Tools {
             Some(Caller::Session(..)) => self.allowed(tool, title, input).await.map(|_| meta),
             Some(Caller::Outside) if Settings::load(&self.shared.home).0.outside_acts => {
                 let title = format!("An agent outside Ghost: {title}");
+                self.ask(tool, title, input, agent, on.clone()).await?;
+                Ok(meta)
+            }
+            Some(Caller::Device(Scope::Full)) => {
+                let title = format!("An agent on another device: {title}");
                 self.ask(tool, title, input, agent, on.clone()).await?;
                 Ok(meta)
             }
@@ -753,7 +675,7 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::{proto::Call, registry::Entry, server::tests::server};
+    use crate::{mcp, proto::Call, registry::Entry, server::tests::server};
 
     /// A stand-in for an MCP client: JSON-RPC lines through the door, after
     /// the key it came with.
@@ -837,6 +759,55 @@ mod tests {
             "title": title, "begun": 5, "updated": 7,
         }))
         .unwrap()
+    }
+
+    /// What the tools answer over HTTP at the door of `home` to `message`,
+    /// with `key` as the bearer token: the status line and the body.
+    fn over_http(home: &std::path::Path, key: &str, message: &Value) -> (String, String) {
+        use std::io::Read as _;
+        let door = door(home);
+        let mut s = std::net::TcpStream::connect(("127.0.0.1", door.http)).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let body = message.to_string();
+        write!(
+            s,
+            "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {key}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nMCP-Protocol-Version: 2025-06-18\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+            door.http,
+            body.len()
+        )
+        .unwrap();
+        let mut said = String::new();
+        let _ = s.read_to_string(&mut said);
+        let (head, body) = said.split_once("\r\n\r\n").unwrap_or((&said, ""));
+        (
+            head.lines().next().unwrap_or_default().to_owned(),
+            body.to_owned(),
+        )
+    }
+
+    #[test]
+    fn the_tools_answer_streamable_http_on_this_mac_by_a_key_alone() {
+        let home = tempfile::tempdir().unwrap();
+        let (server, _said) = server(home.path());
+        server.handle(Call::Keep(vec![meta(home.path(), "Fix the build")]));
+        let key = door(home.path()).key;
+        let hello = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-06-18", "capabilities": {},
+            "clientInfo": {"name": "stand-in", "version": "1"}}});
+        let (status, body) = over_http(home.path(), &key, &hello);
+        assert!(status.contains("200"), "{status} {body}");
+        assert!(body.contains("\"ghost\""), "{body}");
+        let list = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+            "params": {"name": "list_sessions", "arguments": {}}});
+        let (_, body) = over_http(home.path(), &key, &list);
+        assert!(body.contains("Fix the build"), "{body}");
+        let send = json!({"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
+            "name": "send_to_session",
+            "arguments": {"agent": "a", "session": "s1", "prompt": "Go"}}});
+        let (_, body) = over_http(home.path(), &key, &send);
+        assert!(body.contains("may only read"), "{body}");
+        let (status, _) = over_http(home.path(), "not a key", &list);
+        assert!(status.contains("401"), "{status}");
     }
 
     #[test]

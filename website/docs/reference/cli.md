@@ -68,7 +68,9 @@ ghost-server --mcp
 ```
 
 Speaks MCP on standard input and output and passes everything to the
-Ghost running with the same home. See [Ghost's tools](../tools-for-agents.md).
+Ghost running with the same home. `--mcp --on <name>` passes it instead
+to the server `<name>` this Mac is paired with, over a signed link. See
+[Ghost's tools](../tools-for-agents.md).
 
 ## Environment
 

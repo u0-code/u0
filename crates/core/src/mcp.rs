@@ -8,6 +8,11 @@
 //! A session of Ghost's starts it with a key of its own in [`KEY`], which
 //! says which session calls; an agent outside Ghost (`claude mcp add ghost
 //! -- …/ghost --mcp`) starts it with none, and is let in by the file's.
+//! The same tools speak MCP's streamable HTTP at the file's `http` port,
+//! the key as a bearer token. `ghost --mcp --on <server>` reaches the
+//! tools of a server this Mac is paired with instead, over a link of its
+//! own, signed in as the window is: there it acts as that Mac's scope
+//! lets it.
 
 use std::{
     io::Write as _,
@@ -25,7 +30,11 @@ pub const KEY: &str = "GHOST_MCP_KEY";
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Door {
+    /// Where the pipe of `--mcp` reaches, after the key on a line.
     pub port: u16,
+    /// Where MCP's streamable HTTP is answered: `http://127.0.0.1:<it>/mcp`,
+    /// with the key as a bearer token.
+    pub http: u16,
     pub key: String,
 }
 
@@ -46,8 +55,13 @@ pub(crate) fn open(home: &Path, door: &Door) -> std::io::Result<()> {
 /// Where the program was started as `ghost --mcp`, be the pipe, and end
 /// with it.
 pub fn when_asked() {
-    if std::env::args().nth(1).as_deref() == Some("--mcp") {
-        let code = pipe().map_or_else(
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("--mcp") {
+        let piped = match args.get(1..) {
+            Some([on, name]) if on == "--on" => pipe_on(name),
+            _ => pipe(),
+        };
+        let code = piped.map_or_else(
             |why| {
                 eprintln!("{why}");
                 1
@@ -77,4 +91,17 @@ fn pipe() -> Result<(), String> {
         })
         .map(|_| ())
         .map_err(|e| format!("Ghost's tools could not be reached: {e}"))
+}
+
+/// Pass what is said on the standard input to the tools of the server
+/// this Mac is paired with as `name`, over a link signed with this Mac's
+/// key for it, and what they say back to the standard output.
+fn pipe_on(name: &str) -> Result<(), String> {
+    let servers = crate::servers::Servers::load(&crate::settings::home())?;
+    let server = (servers.servers.iter())
+        .find(|s| s.name == name)
+        .ok_or_else(|| format!("This Mac is not paired with {name}"))?;
+    let (way, key) = server.reach()?;
+    let here = tokio::io::join(tokio::io::stdin(), tokio::io::stdout());
+    crate::acp::runtime().block_on(crate::link::tools(&way, &key, here))
 }

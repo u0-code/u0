@@ -951,6 +951,9 @@ pub enum Then {
     /// server's), its bytes carried both ways: for a device of full
     /// scope.
     Forward(u16),
+    /// Ghost's tools, MCP carried both ways (`ghost --mcp --on`): an
+    /// agent on the device reads, and acts as its scope lets it.
+    Tools,
 }
 
 /// A pairing code made on the server, and the name of the device pairing.
