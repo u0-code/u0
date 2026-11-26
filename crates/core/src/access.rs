@@ -222,18 +222,21 @@ impl Access {
     }
 }
 
+/// `N` bytes from the system's randomness (ring's, as the keys are made).
+fn bytes<const N: usize>() -> [u8; N] {
+    ring::rand::generate(&ring::rand::SystemRandom::new())
+        .expect("the system's randomness")
+        .expose()
+}
+
 /// `N` random bytes, as URL-safe base64.
 pub fn random<const N: usize>() -> String {
-    let mut bytes = [0u8; N];
-    getrandom::fill(&mut bytes).expect("the system's randomness");
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes::<N>())
 }
 
 /// A number from the system's randomness.
 pub fn number() -> u64 {
-    let mut bytes = [0u8; 8];
-    getrandom::fill(&mut bytes).expect("the system's randomness");
-    u64::from_le_bytes(bytes)
+    u64::from_le_bytes(bytes())
 }
 
 #[cfg(test)]

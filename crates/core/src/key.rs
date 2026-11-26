@@ -7,12 +7,9 @@
 
 use base64::Engine as _;
 use ring::signature::{ED25519, Ed25519KeyPair, KeyPair as _, UnparsedPublicKey};
-use sha2::Digest as _;
+use ssh_key::{HashAlg, PublicKey, public::Ed25519PublicKey};
 
 use crate::proto::PROTOCOL;
-
-/// OpenSSH's name for the kind of key.
-const KIND: &str = "ssh-ed25519";
 
 /// A key pair, and its private half as it is kept: PKCS#8, base64.
 pub struct Key {
@@ -49,13 +46,15 @@ impl Key {
     /// Its public half, as a line of `authorized_keys` has it:
     /// `ssh-ed25519 AAAA…`.
     pub fn public(&self) -> String {
-        let raw = self.pair.public_key().as_ref();
-        let mut blob = Vec::with_capacity(51);
-        for part in [KIND.as_bytes(), raw] {
-            blob.extend_from_slice(&u32::try_from(part.len()).expect("short").to_be_bytes());
-            blob.extend_from_slice(part);
-        }
-        format!("{KIND} {}", b64().encode(blob))
+        let raw = self
+            .pair
+            .public_key()
+            .as_ref()
+            .try_into()
+            .expect("32 bytes");
+        PublicKey::from(Ed25519PublicKey(raw))
+            .to_openssh()
+            .expect("an Ed25519 key writes")
     }
 
     /// Its signature of the server's `nonce`, base64.
@@ -74,31 +73,26 @@ fn b64() -> base64::engine::GeneralPurpose {
     base64::engine::general_purpose::STANDARD
 }
 
-/// The wire form of the public key `public` (`ssh-ed25519 AAAA…`), and its
-/// 32 bytes; none where it is not such a key.
-fn blob(public: &str) -> Option<(Vec<u8>, [u8; 32])> {
-    let blob = b64().decode(public.strip_prefix(KIND)?.trim()).ok()?;
-    let raw = blob.strip_prefix(b"\0\0\0\x0bssh-ed25519\0\0\0\x20")?;
-    let raw = raw.try_into().ok()?;
-    Some((blob, raw))
+/// The Ed25519 key written `public` (`ssh-ed25519 AAAA…`), and its 32
+/// bytes; none where it is not such a key.
+fn parse(public: &str) -> Option<(PublicKey, [u8; 32])> {
+    let key = PublicKey::from_openssh(public).ok()?;
+    let raw = key.key_data().ed25519()?.0;
+    Some((key, raw))
 }
 
 /// The fingerprint of the public key `public`, as `ssh-keygen -l` shows
 /// it: `SHA256:…`.
 pub fn fingerprint(public: &str) -> String {
-    blob(public).map_or_else(
+    parse(public).map_or_else(
         || "not a key".into(),
-        |(blob, _)| {
-            let digest = sha2::Sha256::digest(blob);
-            let text = base64::engine::general_purpose::STANDARD_NO_PAD.encode(digest);
-            format!("SHA256:{text}")
-        },
+        |(key, _)| key.fingerprint(HashAlg::Sha256).to_string(),
     )
 }
 
 /// Whether `signature` is the signature of `nonce` by the key `public`.
 pub fn verify(public: &str, nonce: &str, signature: &str) -> bool {
-    let (Some((_, raw)), Ok(signature)) = (blob(public), b64().decode(signature)) else {
+    let (Some((_, raw)), Ok(signature)) = (parse(public), b64().decode(signature)) else {
         return false;
     };
     UnparsedPublicKey::new(&ED25519, raw)
