@@ -71,8 +71,9 @@ fn modes_of(s: &Session) -> Option<(Option<String>, Vec<Mode>)> {
 }
 
 /// The icon a mode is drawn with, by what its id or name says it lets the
-/// agent do: plan only, edit without asking, anything at all, or ask
-/// first; agents name the same ways of working in their own words.
+/// agent do: plan only, edit without asking, decide for itself, anything
+/// at all, or ask first; agents name the same ways of working in their own
+/// words. Each has an icon of its own.
 fn mode_icon(id: &str, name: &str) -> &'static str {
     let words = format!("{id} {name}").to_lowercase();
     let has = |w: &[&str]| w.iter().any(|w| words.contains(w));
@@ -80,8 +81,10 @@ fn mode_icon(id: &str, name: &str) -> &'static str {
         "list"
     } else if has(&["bypass", "full", "yolo", "danger", "never"]) {
         "alert"
-    } else if has(&["edit", "auto", "accept"]) {
+    } else if has(&["edit", "accept"]) {
         "pencil"
+    } else if has(&["auto"]) {
+        "play"
     } else {
         "user"
     }

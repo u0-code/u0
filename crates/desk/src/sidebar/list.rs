@@ -1135,7 +1135,7 @@ fn session_menu(
         } else {
             "Never settle on its own"
         },
-        "pin",
+        "circle-dot",
         on(|d, key, _, cx| d.mark(key, cx, |f| f.kept = !f.kept)),
     ));
     if !f.busy {
