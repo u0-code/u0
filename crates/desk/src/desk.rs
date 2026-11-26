@@ -455,13 +455,11 @@ impl Desk {
             }
         })
         .detach();
-        // While something goes on, draw again a few times a second, so that
-        // what breathes breathes and the time beside a turn counts.
+        // While something goes on, draw again each second, so that the
+        // time beside a turn counts.
         cx.spawn(async move |this, cx| {
             loop {
-                cx.background_executor()
-                    .timer(Duration::from_millis(150))
-                    .await;
+                cx.background_executor().timer(Duration::from_secs(1)).await;
                 let Ok(()) = this.update(cx, |this, cx| {
                     if this.busy() {
                         cx.notify();

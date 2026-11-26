@@ -263,19 +263,23 @@ pub fn dot(color: Hsla) -> Div {
 }
 
 /// Something going on now: the amber dot in a faint ring of its own colour,
-/// breathing.
-pub fn live_dot() -> Div {
-    breathing(
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .size(px(12.))
-            .rounded_full()
-            .bg(theme::accent().opacity(0.16))
-            .child(dot(theme::accent())),
-    )
+/// breathing slowly, from full down to a third and back. The breath is the
+/// GPU's, moving the drawn dot's alpha: nothing is laid out again for it.
+pub fn live_dot() -> Svg {
+    use gpui::{Easing, TimedTransformation, Transformation};
+    svg()
+        .path("icons/live-dot.svg")
+        .size(px(12.))
+        .flex_none()
+        .text_color(theme::accent())
+        .with_timed_transformation(
+            TimedTransformation::new(BREATH)
+                .from(Transformation::alpha(1.))
+                .to(Transformation::alpha(0.35))
+                .alternate()
+                .with_easing(Easing::EaseInOut)
+                .with_max_fps(30.),
+        )
 }
 
 /// A piece of text that stays on one line. It is as wide as it may be: in
@@ -369,18 +373,6 @@ pub fn short_path(path: &Path, home: Option<&Path>) -> String {
 
 /// How long one breath of something going on takes.
 const BREATH: std::time::Duration = std::time::Duration::from_millis(2400);
-
-/// A mark that breathes, slowly: something going on now, from full down to
-/// a third and back. It is drawn at the point of its breath the clock is
-/// at; the desk draws again a few times a second while something is going
-/// on, which is enough for a breath this slow.
-pub fn breathing(d: Div) -> Div {
-    static EPOCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-    let t = EPOCH.get_or_init(std::time::Instant::now).elapsed();
-    let phase = (t.as_millis() % BREATH.as_millis()) as f32 / BREATH.as_millis() as f32;
-    let wave = f32::midpoint(1., (phase * std::f32::consts::TAU).cos());
-    d.opacity(0.35 + 0.65 * wave)
-}
 
 #[cfg(test)]
 mod tests {
