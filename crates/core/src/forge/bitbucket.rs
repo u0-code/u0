@@ -214,6 +214,7 @@ fn detail(v: &Value, comments: &Value) -> Detail {
                 line: first.pointer("/inline/to").and_then(Value::as_u64),
                 resolved: !first["resolution"].is_null(),
                 outdated: false,
+                bots: false,
                 said: vec![one(c)],
             });
         }

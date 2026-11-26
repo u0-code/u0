@@ -85,7 +85,8 @@ pub struct Detail {
 
 /// A conversation on a line of a pull request: where (its line on the new
 /// side; none where the line is gone), whether it is resolved or its line
-/// has changed since, and what was said, first to last.
+/// has changed since, whether only bots spoke in it, and what was said,
+/// first to last.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Thread {
     pub id: String,
@@ -93,6 +94,7 @@ pub struct Thread {
     pub line: Option<u64>,
     pub resolved: bool,
     pub outdated: bool,
+    pub bots: bool,
     pub said: Vec<Said>,
 }
 
@@ -309,7 +311,7 @@ pub fn answer(dir: &Path, kind: Kind, ask: Ask) -> Answer {
 }
 
 /// GitHub's query for a pull request's conversations on its lines.
-const THREADS: &str = "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved isOutdated path line comments(first:100){nodes{author{login} body createdAt}}}}}}}";
+const THREADS: &str = "query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved isOutdated path line comments(first:100){nodes{author{login __typename} body createdAt}}}}}}}";
 
 /// The conversations in what GitHub answered `THREADS`.
 fn threads(said: &str) -> Result<Vec<Thread>, String> {
@@ -329,6 +331,8 @@ fn threads(said: &str) -> Result<Vec<Thread>, String> {
             line: t["line"].as_u64(),
             resolved: t["isResolved"].as_bool().unwrap_or(false),
             outdated: t["isOutdated"].as_bool().unwrap_or(false),
+            bots: (all(t, "/comments/nodes").iter())
+                .all(|c| c.pointer("/author/__typename").and_then(|v| v.as_str()) == Some("Bot")),
             said: all(t, "/comments/nodes")
                 .iter()
                 .map(|c| crate::forge::said(c, "/author/login", "/createdAt", "commented", "/body"))
@@ -810,8 +814,10 @@ mod tests {
     fn a_pull_requests_conversations_read_with_where_they_are_and_who_said_what() {
         let said = r#"{"data":{"repository":{"pullRequest":{"reviewThreads":{"nodes":[
             {"id":"T1","isResolved":false,"isOutdated":false,"path":"src/a.rs","line":3,
-             "comments":{"nodes":[{"author":{"login":"ann"},"body":"why?","createdAt":"t1"},
-                                  {"author":{"login":"bo"},"body":"because","createdAt":"t2"}]}},
+             "comments":{"nodes":[{"author":{"login":"ann","__typename":"User"},"body":"why?","createdAt":"t1"},
+                                  {"author":{"login":"bo","__typename":"User"},"body":"because","createdAt":"t2"}]}},
+            {"id":"T3","isResolved":false,"isOutdated":false,"path":"src/c.rs","line":1,
+             "comments":{"nodes":[{"author":{"login":"lint","__typename":"Bot"},"body":"x","createdAt":"t3"}]}},
             {"id":"T2","isResolved":true,"isOutdated":true,"path":"src/b.rs","line":null,
              "comments":{"nodes":[]}}]}}}}}"#;
         let read = threads(said).unwrap();
@@ -820,8 +826,9 @@ mod tests {
             (Some(3), "bo")
         );
         assert_eq!(
-            (read[1].line, read[1].resolved, read[1].outdated),
+            (read[2].line, read[2].resolved, read[2].outdated),
             (None, true, true)
         );
+        assert_eq!((read[0].bots, read[1].bots), (false, true));
     }
 }

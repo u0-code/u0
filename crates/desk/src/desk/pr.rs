@@ -34,6 +34,9 @@ pub struct Review {
     /// The conversation being answered, and the field for it.
     pub replying: Option<String>,
     pub reply: Entity<InputState>,
+    /// The conversations resolved or only bots' shown too, as they are
+    /// not at first.
+    pub all_threads: bool,
     /// The guide to it: for which pull request, at which commit, and what
     /// the writer wrote (none while it writes).
     pub guide: Option<(u64, String, Option<Written>)>,
@@ -75,6 +78,7 @@ impl Review {
             note,
             replying: None,
             reply,
+            all_threads: false,
             guide: None,
         }
     }

@@ -52,6 +52,9 @@ pub enum GitAction {
     /// Merge it as the method says; a squash without the agents' credits
     /// where the second is so.
     Merge(git::Method, bool),
+    /// Bring the branch's pull request up to date with its base: by a
+    /// merge, or a rebase where it is so.
+    UpdateBranch(bool),
     /// Make this branch, from where it is, and check it out.
     NewBranch(String),
     /// Bring in what the upstream has.
@@ -73,6 +76,7 @@ impl GitAction {
             Self::Switch(_) => "switch the branch",
             Self::RenameBranch(_) => "rename the branch",
             Self::Merge(..) => "merge the pull request",
+            Self::UpdateBranch(_) => "update the branch",
             Self::Pull => "pull",
             Self::NewBranch(_) => "make the branch",
             Self::Init => "make it a repository",
@@ -353,6 +357,9 @@ pub fn git_action(
             git::merge_pr(dir, *how, *uncredit).map(|_| "The pull request is merged".into())
         }
 
+        // On the host: what it made here comes with a pull.
+        GitAction::UpdateBranch(rebase) => git::update_branch(dir, *rebase)
+            .map(|_| "The pull request is up to date with its base; pull to have it here".into()),
         GitAction::Pull => git::pull(dir).map(|_| "Pulled".into()),
         GitAction::NewBranch(b) => git::branch_off(dir, b).map(|()| format!("On {b}, new")),
         GitAction::Init => {

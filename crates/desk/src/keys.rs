@@ -645,8 +645,16 @@ pub fn handle(cx: &mut App, shown: &Shown) {
     on::<CopyId>(cx, shown, |d, _, cx| {
         d.copy_of_session(|s| s.meta.id.as_ref().map(|i| i.0.to_string()), cx);
     });
-    on::<Settle>(cx, shown, |d, _, cx| {
+    on::<Settle>(cx, shown, |d, window, cx| {
         if let Some(key) = d.current {
+            // Settled, it leaves what is at hand: the next session comes
+            // up, as t3code's settle and advance.
+            if d.sessions
+                .at(key)
+                .is_some_and(|s| s.meta.flags.settled.is_none())
+            {
+                d.step_session(1, window, cx);
+            }
             d.toggle_settled(key, cx);
         }
     });

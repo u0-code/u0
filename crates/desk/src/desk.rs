@@ -2039,7 +2039,14 @@ impl Desk {
     /// Open a file the agent named (`src/a.rs`, `/x/y.rs:12`), from the
     /// folder of the session on screen, in your editor.
     pub fn open_named(&self, named: &str) {
-        self.edit(self.full_path(named), None);
+        let (path, line) = (self.full_path(named), line_of(named).map(str::to_owned));
+        hub::edit(
+            path,
+            line,
+            self.settings.editor.clone(),
+            None,
+            self.tx.clone(),
+        );
     }
 
     /// Where the file `named` (`src/a.rs`, `a.rs:12`) is: from the folder
@@ -2072,8 +2079,22 @@ impl Desk {
 
     /// Open `path` in your editor, off the window's thread (`hub::edit`).
     pub fn edit(&self, path: PathBuf, start: Option<&'static [u8]>) {
-        hub::edit(path, self.settings.editor.clone(), start, self.tx.clone());
+        hub::edit(
+            path,
+            None,
+            self.settings.editor.clone(),
+            start,
+            self.tx.clone(),
+        );
     }
+}
+
+/// The line (`12`, or `12:5` with its column) a file named as a compiler
+/// writes it (`src/a.rs:12:5:`) is at, where it says one.
+fn line_of(named: &str) -> Option<&str> {
+    let (_, at) = named.split_once(':')?;
+    let at = at.trim_end_matches(':');
+    (!at.is_empty() && at.split(':').all(|n| n.parse::<u32>().is_ok())).then_some(at)
 }
 
 /// A column lying over the session's where the window has no room for it
@@ -2107,4 +2128,17 @@ fn mirror(settings: &settings::Settings, cx: &mut gpui::App) {
     theme::set_themes(settings.theme_dark.clone(), settings.theme_light.clone());
     fonts::set_mono(cx, settings.mono);
     theme::kit(cx);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::line_of;
+
+    #[test]
+    fn a_file_named_with_its_line_opens_at_that_line() {
+        assert_eq!(line_of("src/main.rs:12:5:"), Some("12:5"));
+        assert_eq!(line_of("/x/a.rs:40"), Some("40"));
+        assert_eq!(line_of("src/main.rs"), None);
+        assert_eq!(line_of("a.rs:warning"), None);
+    }
 }

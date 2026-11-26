@@ -288,6 +288,7 @@ fn detail(v: &Value, threads: &Value) -> Detail {
                 .and_then(Value::as_u64),
             resolved: !matches!(text(t, "/status").as_str(), "active" | "pending"),
             outdated: false,
+            bots: false,
             said: comments(t),
         })
         .collect();

@@ -1110,6 +1110,9 @@ pub struct Pr {
     pub draft: bool,
     /// It cannot be merged as it is: it conflicts with its base.
     pub conflicts: bool,
+    /// Its base has moved on since it branched: it can be brought up to
+    /// date (`update_branch`).
+    pub behind: bool,
     /// Its checks: how many passed, failed, and are still going.
     pub passed: usize,
     pub failed: usize,
@@ -1127,7 +1130,7 @@ pub fn read_pr(dir: &Path) -> Option<Pr> {
             "pr",
             "view",
             "--json",
-            "number,title,url,state,isDraft,reviewDecision,statusCheckRollup,mergeable",
+            "number,title,url,state,isDraft,reviewDecision,statusCheckRollup,mergeable,mergeStateStatus",
         ],
     )
     .ok()?;
@@ -1156,6 +1159,7 @@ pub fn read_pr(dir: &Path) -> Option<Pr> {
         state: v["state"].as_str().unwrap_or_default().to_lowercase(),
         draft: v["isDraft"].as_bool().unwrap_or(false),
         conflicts: v["mergeable"].as_str() == Some("CONFLICTING"),
+        behind: v["mergeStateStatus"].as_str() == Some("BEHIND"),
         passed: count(&|w| matches!(w, "SUCCESS" | "NEUTRAL" | "SKIPPED")),
         failed: count(&|w| {
             matches!(
@@ -1170,6 +1174,17 @@ pub fn read_pr(dir: &Path) -> Option<Pr> {
             .to_lowercase()
             .replace('_', " "),
     })
+}
+
+/// Bring the pull request of the branch `dir` is on up to date with its
+/// base, on the host, as GitHub's Update branch does: a merge of the base
+/// into it, or with `rebase` its commits put on the base again.
+pub fn update_branch(dir: &Path, rebase: bool) -> Result<String, String> {
+    let mut args = vec!["pr", "update-branch"];
+    if rebase {
+        args.push("--rebase");
+    }
+    yours(dir, "gh", &args)
 }
 
 /// The open pull requests (`what` "pr") or issues ("issue") of the

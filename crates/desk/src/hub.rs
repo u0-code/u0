@@ -330,7 +330,15 @@ pub fn read_picture(path: PathBuf, tx: Sender) {
 /// else the first of `desk::EDITORS` on the PATH, else the app macOS opens
 /// text in. A file not there is first written as `start`, or with none is
 /// said to be missing.
-pub fn edit(path: PathBuf, chosen: Option<String>, start: Option<&'static [u8]>, tx: Sender) {
+/// With `line` (`12`, or `12:5` with its column), at that line, where
+/// the editor takes one.
+pub fn edit(
+    path: PathBuf,
+    line: Option<String>,
+    chosen: Option<String>,
+    start: Option<&'static [u8]>,
+    tx: Sender,
+) {
     acp::runtime().spawn_blocking(move || {
         let shown = crate::desk::Desk::shown(&path);
         let there = path.exists() || start.is_some_and(|s| crate::whole::write(&path, s).is_ok());
@@ -345,7 +353,22 @@ pub fn edit(path: PathBuf, chosen: Option<String>, start: Option<&'static [u8]>,
         let editor = (chosen.as_deref().and_then(|c| which::which(c).ok()))
             .or_else(|| (crate::desk::EDITORS.into_iter()).find_map(|(c, _)| which::which(c).ok()));
         let opened = match editor {
-            Some(cmd) => std::process::Command::new(cmd).arg(&path).status(),
+            Some(cmd) => {
+                let mut command = std::process::Command::new(&cmd);
+                match &line {
+                    // VS Code and Cursor go to a line with -g; Zed and
+                    // Sublime Text read it after the name.
+                    Some(line) => {
+                        let at = format!("{}:{line}", path.display());
+                        let goes = cmd
+                            .file_name()
+                            .is_some_and(|n| n == "code" || n == "cursor");
+                        command.args(goes.then_some("-g")).arg(at)
+                    }
+                    None => command.arg(&path),
+                }
+                .status()
+            }
             None => std::process::Command::new("open")
                 .arg("-t")
                 .arg(&path)

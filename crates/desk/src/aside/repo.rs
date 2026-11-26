@@ -357,6 +357,9 @@ impl Desk {
         let url = pr.url.clone();
         let key = s.key;
         let open = pr.state == "open" && !pr.draft;
+        if pr.behind {
+            checks.push((crate::tr("behind its base"), theme::faint()));
+        }
         if pr.conflicts {
             checks.push((crate::tr("conflicts with its base"), theme::coral()));
         }
@@ -427,6 +430,20 @@ impl Desk {
                             d.child(ui::button("fix-checks", crate::tr("Have it fix the checks"), Weight::Quiet).on_click(
                                 cx.listener(|this, _, _, cx| {
                                     this.say("The pull request's checks failed. Look at them (gh pr checks, and the failed runs' logs), fix what broke, commit and push.", cx);
+                                }),
+                            ))
+                        })
+                        // Its base moved on: brought up to date on the host,
+                        // as GitHub's Update branch, by a merge or a rebase.
+                        .when(open && pr.behind && !pr.conflicts, |d| {
+                            d.child(ui::button("update-branch", crate::tr("Update branch"), Weight::Quiet).on_click(
+                                cx.listener(|this, _, _, cx| {
+                                    this.git_action(crate::repo::GitAction::UpdateBranch(false), cx);
+                                }),
+                            ))
+                            .child(ui::button("update-rebase", crate::tr("Update with rebase"), Weight::Quiet).on_click(
+                                cx.listener(|this, _, _, cx| {
+                                    this.git_action(crate::repo::GitAction::UpdateBranch(true), cx);
                                 }),
                             ))
                         })

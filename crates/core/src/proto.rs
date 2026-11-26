@@ -1146,7 +1146,7 @@ mod tests {
                 key: 1,
                 pr: Some(of(json!({
                     "number": 7, "title": "Fix", "url": "https://example.com/7", "state": "open",
-                    "draft": false, "conflicts": false, "passed": 3, "failed": 0, "going": 1,
+                    "draft": false, "conflicts": false, "behind": false, "passed": 3, "failed": 0, "going": 1,
                     "review": "",
                 }))),
             },

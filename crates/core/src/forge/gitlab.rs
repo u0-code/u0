@@ -234,6 +234,7 @@ fn detail(v: &Value, discussions: &Value) -> Detail {
                     .and_then(Value::as_u64),
                 resolved: d.pointer("/notes/0/resolved").and_then(Value::as_bool) == Some(true),
                 outdated: false,
+                bots: false,
                 said: notes(d),
             })
             .collect(),

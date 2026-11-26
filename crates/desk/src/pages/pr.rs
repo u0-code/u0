@@ -140,8 +140,28 @@ impl Desk {
         if d.threads.is_empty() {
             list = list.child(ui::fine(faces, crate::tr("No conversations on its lines.")));
         }
-        let mut threads: Vec<_> = d.threads.iter().collect();
+        // Resolved conversations, and those only bots spoke in, wait behind
+        // a count, as t3code's filter keeps them.
+        let all = self.forge.pr.all_threads;
+        let (mut threads, hidden): (Vec<_>, Vec<_>) =
+            (d.threads.iter()).partition(|t| all || !(t.resolved || t.bots));
         threads.sort_by_key(|t| t.resolved);
+        if !hidden.is_empty() || all {
+            let label = if all {
+                crate::tr("Hide the resolved and the bots'")
+            } else {
+                crate::tr_with("Show %{n} hidden", &[("n", &hidden.len())])
+            };
+            list =
+                list.child(
+                    div().child(ui::button("pr-hidden", label, Weight::Quiet).on_click(
+                        cx.listener(|this, _, _, cx| {
+                            this.forge.pr.all_threads = !this.forge.pr.all_threads;
+                            cx.notify();
+                        }),
+                    )),
+                );
+        }
         for t in threads {
             let (id, resolved) = (t.id.clone(), t.resolved);
             let place = match t.line {

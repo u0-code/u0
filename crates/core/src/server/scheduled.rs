@@ -606,6 +606,7 @@ mod tests {
             state: "open".into(),
             draft: false,
             conflicts: false,
+            behind: false,
             passed,
             failed,
             going,

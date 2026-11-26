@@ -87,8 +87,9 @@ impl Desk {
             .children(Self::queued_list(faces, s, column, cx))
             .children(self.held_banner(column, cx))
             .children(Self::branch_banner(s, column))
-            .child(match s.eliciting() {
-                // What the agent asks for stands in its place till answered.
+            .child(match s.eliciting().filter(|_| !self.composer.typing()) {
+                // What the agent asks for stands in its place till answered,
+                // once you pause typing.
                 Some(e) => self.form_panel(faces, s, e, column, cx).into_any_element(),
                 None => div()
                     .id("composer")
