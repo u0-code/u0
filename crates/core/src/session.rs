@@ -371,8 +371,11 @@ pub struct Session {
     pub host: crate::servers::Host,
     /// What of it the desk keeps between runs (`sessions.json`).
     pub meta: store::Meta,
-    /// The git branch the folder was on when the session began.
+    /// The git branch the folder is on, as last read.
     pub branch: Option<String>,
+    /// The branch it was on when you last said something in it, while
+    /// Ghost runs: a turn sent after it changed goes on on another.
+    pub ran_on: Option<String>,
     /// Whether the folder is in a git repository: then each turn is
     /// checkpointed, and can be undone.
     pub repo: bool,
@@ -861,6 +864,7 @@ impl Session {
                 tags: Vec::new(),
             },
             branch: None,
+            ran_on: None,
             repo: false,
             wants_worktree: false,
             begin: None,

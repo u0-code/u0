@@ -339,6 +339,10 @@ impl Desk {
         // A branch renamed, or another checked out, is the session's now.
         match (action, &result) {
             (crate::repo::GitAction::RenameBranch(name), Ok(_)) => {
+                // Renamed, it is the branch it ran on still.
+                if s.ran_on == s.branch {
+                    s.ran_on = Some(name.clone());
+                }
                 s.branch = Some(name.clone());
                 if let Some(wt) = &mut s.meta.worktree {
                     wt.branch.clone_from(name);

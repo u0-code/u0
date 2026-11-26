@@ -146,6 +146,7 @@ impl Desk {
         let Some(session) = self.sessions.at_mut(key) else {
             return;
         };
+        session.ran_on.clone_from(&session.branch);
         if session.state == State::Working || session.state == State::Opening {
             if on_screen {
                 self.follow_up(key, &text, self.settings.steer, cx);

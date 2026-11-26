@@ -997,12 +997,13 @@ impl Desk {
             self.save_index();
         }
         self.refresh_git(key);
+        // Its branch read again: it may have changed since it ran.
+        self.look(key);
         let closed = self
             .sessions
             .at(key)
             .is_some_and(|s| s.state == State::Closed && !s.recorded);
         if closed {
-            self.look(key);
             self.read_record(key);
         }
         self.to_bottom(cx);

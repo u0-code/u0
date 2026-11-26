@@ -86,6 +86,7 @@ impl Desk {
             .children(Self::changes_row(faces, s, column, cx))
             .children(Self::queued_list(faces, s, column, cx))
             .children(self.held_banner(column, cx))
+            .children(Self::branch_banner(s, column))
             .child(match s.eliciting() {
                 // What the agent asks for stands in its place till answered.
                 Some(e) => self.form_panel(faces, s, e, column, cx).into_any_element(),
@@ -636,6 +637,21 @@ impl Desk {
                     });
                 }),
         )
+    }
+
+    /// Over the box, where the folder's branch changed since you last said
+    /// something in the session: what goes next goes on on another branch.
+    fn branch_banner(s: &Session, column: f32) -> Option<impl IntoElement> {
+        let (was, now) = (s.ran_on.as_ref()?, s.branch.as_ref()?);
+        (was != now).then(|| {
+            gpui::component::alert::Alert::warning(
+                SharedString::from(format!("branch-{}", s.key)),
+                format!("It last ran on {was}; what you send now goes on on {now}."),
+            )
+            .title("The branch changed")
+            .w(px(column))
+            .mb(px(8.))
+        })
     }
 
     /// Over the box, while the session has a goal (`/goal`): what done
