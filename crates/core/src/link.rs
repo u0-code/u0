@@ -167,7 +167,7 @@ pub async fn listen(
         let (server, tls) = (server.clone(), tls.clone());
         links.spawn(async move {
             let ended = match tls {
-                None => http(server, stream).await,
+                None => Box::pin(http(server, stream)).await,
                 Some(tls) => match tokio::time::timeout(WAIT, tls.accept(stream)).await {
                     Ok(Ok(stream)) => Box::pin(http(server, stream)).await,
                     Ok(Err(e)) => Err(e.to_string()),
@@ -397,16 +397,22 @@ fn welcome(server: &Server, scope: Scope) -> Welcome {
 }
 
 /// Carry bytes between `ws` (as binary messages) and `near`, until either
-/// ends.
-async fn carry<S, N>(mut ws: Socket<S>, mut near: N) -> Result<(), String>
+/// ends, or `lasts` does: then `ws` is closed, saying why.
+async fn carry<S, N>(
+    mut ws: Socket<S>,
+    mut near: N,
+    lasts: impl std::future::Future<Output = String>,
+) -> Result<(), String>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     N: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     let mut buf = vec![0u8; 64 << 10];
+    tokio::pin!(lasts);
     loop {
         tokio::select! {
+            why = &mut lasts => return refuse(ws, &why).await,
             heard = ws.next() => match heard {
                 Some(Ok(Message::Binary(bytes))) => {
                     near.write_all(&bytes).await.map_err(|e| e.to_string())?;
@@ -474,7 +480,7 @@ pub fn forward(way: Way, kept: String, there: u16) -> Result<Forward, String> {
                 let Ok(key) = key else { return };
                 match dial(&way, hello(&key, None, None, Then::Forward(there))).await {
                     Ok((ws, _)) => {
-                        if let Err(why) = carry(ws, near).await {
+                        if let Err(why) = carry(ws, near, std::future::pending()).await {
                             tracing::info!("port {there} carried no more: {why}");
                         }
                     }
@@ -535,9 +541,30 @@ where
     H: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
     match dial(way, hello(key, None, None, Then::Tools)).await {
-        Ok((ws, _)) => carry(ws, here).await,
+        Ok((ws, _)) => carry(ws, here, std::future::pending()).await,
         Err(Dial::Failed(why) | Dial::Refused(why)) => Err(why),
         Err(Dial::Waiting(name)) => Err(waiting(&name)),
+    }
+}
+
+/// Until the device known by `device`, let in with `scope`, may no longer
+/// come in as it did: unpaired, its access ended, or its scope changed
+/// (it comes in again as it now may). Why it is cut off. Every kind of
+/// link a device makes (a desk's, a port carried, the tools) lasts this
+/// long, and no longer.
+async fn lasts(server: &Server, device: &str, scope: Scope) -> String {
+    let mut access = server.access().changes();
+    let mut ping = tokio::time::interval(PING);
+    loop {
+        tokio::select! {
+            _ = access.changed() => {}
+            _ = ping.tick() => {}
+        }
+        match server.access().lets_in(device) {
+            Ok(now) if now == scope => {}
+            Ok(_) => return "What this device may do changed: it comes in again".into(),
+            Err(why) => return cut(why),
+        }
     }
 }
 
@@ -581,7 +608,7 @@ async fn serve(server: &Arc<Server>, mut ws: Upgraded) -> Result<(), String> {
     // Its device is now paired, or last here now, or waits: Settings ›
     // Devices shows it so, wherever it is open.
     server.share(crate::share::Share::Look);
-    let (device, mut scope) = match admitted {
+    let (device, scope) = match admitted {
         Ok(admitted) => admitted,
         Err(Turned::Away(why) | Turned::Ended(why)) => return refuse(ws, &why).await,
         // Told by its close's code, with the server's name, so that a
@@ -606,7 +633,7 @@ async fn serve(server: &Arc<Server>, mut ws: Upgraded) -> Result<(), String> {
         let (near, far) = tokio::io::duplex(64 << 10);
         let tooled = server.clone();
         tokio::spawn(async move { tooled.tools_for(scope, far).await });
-        return carry(ws, near).await;
+        return carry(ws, near, lasts(server, &device, scope)).await;
     }
     if let Then::Forward(port) = hello.then {
         if scope != Scope::Full {
@@ -621,7 +648,7 @@ async fn serve(server: &Arc<Server>, mut ws: Upgraded) -> Result<(), String> {
         ws.send(Message::text(text))
             .await
             .map_err(|e| e.to_string())?;
-        return carry(ws, near).await;
+        return carry(ws, near, lasts(server, &device, scope)).await;
     }
     // Asked as it paired, and so by its code: pair back with it.
     let back = match hello.pair.and_then(|p| p.back) {
@@ -632,7 +659,8 @@ async fn serve(server: &Arc<Server>, mut ws: Upgraded) -> Result<(), String> {
     let mut said = outbox.said.subscribe();
     // What was missed goes first.
     said.mark_changed();
-    let mut access = server.access().changes();
+    let ends = lasts(server, &device, scope);
+    tokio::pin!(ends);
     let (mut at, resumed) = outbox.resume(hello.since);
     let welcome = Welcome {
         resumed,
@@ -691,15 +719,8 @@ async fn serve(server: &Arc<Server>, mut ws: Upgraded) -> Result<(), String> {
                 }
                 ws.flush().await.map_err(|e| e.to_string())?;
             }
-            // Unpaired, its access ended or changed: so it is from now on.
-            _ = access.changed() => match server.access().lets_in(&device) {
-                Ok(now) => scope = now,
-                Err(why) => return refuse(ws, &cut(why)).await,
-            },
-            _ = ping.tick() => match server.access().lets_in(&device) {
-                Ok(_) => next = Some(Message::Ping(Bytes::new())),
-                Err(why) => return refuse(ws, &cut(why)).await,
-            },
+            why = &mut ends => return refuse(ws, &why).await,
+            _ = ping.tick() => next = Some(Message::Ping(Bytes::new())),
         }
     }
 }
@@ -1599,6 +1620,53 @@ esac; done"#;
         };
         let refused = say(3, read, true).unwrap_err();
         assert!(refused.contains("only watch"), "{refused}");
+    }
+
+    #[test]
+    fn a_port_carried_and_the_tools_are_cut_off_when_their_device_is_revoked_or_narrowed() {
+        use std::io::{Read as _, Write as _};
+        let home = tempfile::tempdir().unwrap();
+        let (server, port) = server(home.path());
+        // A dev server there that holds each connection open.
+        let dev = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let there = dev.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            while let Ok((c, _)) = dev.accept() {
+                held.push(c);
+            }
+        });
+        let mine = kept();
+        pair_as(&server, port, &mine, crate::access::Grant::default());
+        let public = key(&mine).public();
+        let forwarded = forward(here(port), mine.clone(), there).unwrap();
+        let mut c = std::net::TcpStream::connect(("127.0.0.1", forwarded.port)).unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        c.write_all(b"hello").unwrap();
+        // The tools, over a link of their own.
+        let (mcp, theirs) = tokio::io::duplex(1 << 16);
+        let way = here(port);
+        let tools_key = key(&mine);
+        let tools =
+            crate::acp::runtime().spawn(async move { tools(&way, &tools_key, theirs).await });
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!tools.is_finished(), "the tools link stands");
+        // Narrowed to read only: the tools link it opened as full ends.
+        server
+            .access()
+            .change(|k| k.devices[0].scope = crate::access::Scope::Read);
+        let ended = crate::acp::runtime()
+            .block_on(async { tokio::time::timeout(Duration::from_secs(10), tools).await });
+        assert!(ended.is_ok(), "the tools link was cut");
+        // Revoked: the connection carried is closed.
+        server.access().revoke(&public);
+        let mut rest = Vec::new();
+        let read = c.read_to_end(&mut rest);
+        assert!(
+            read.is_ok(),
+            "the port carried was closed, not left open: {read:?}"
+        );
+        drop(mcp);
     }
 
     #[test]
