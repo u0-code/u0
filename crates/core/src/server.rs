@@ -232,8 +232,8 @@ impl Server {
         }
         let outbox = Arc::new(Outbox::default());
         let kept = outbox.clone();
-        // The tests send nowhere.
-        let endpoint = (!cfg!(test)).then_some(crate::telemetry::ENDPOINT);
+        // The tests send nowhere, and nor does a build made by hand.
+        let endpoint = crate::telemetry::endpoint(crate::update::BUILT_AS).filter(|_| !cfg!(test));
         let telemetry = crate::telemetry::Telemetry::new(&home, endpoint);
         let counted = telemetry.clone();
         let server = Arc::new(Self {

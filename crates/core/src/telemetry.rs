@@ -35,6 +35,12 @@ use crate::{
 /// Where the batches go: the Worker in `telemetry/`.
 pub const ENDPOINT: &str = "https://ghost-telemetry.aac6fef-aed.workers.dev";
 
+/// Where a build on `channel` sends its batches: nowhere from a `dev`
+/// build, one made by hand, whose runs are tests and would count as use.
+pub fn endpoint(channel: &str) -> Option<&'static str> {
+    (channel != "dev").then_some(ENDPOINT)
+}
+
 /// How often the server looks whether a day's batch is due.
 const LOOK: Duration = Duration::from_hours(1);
 
@@ -804,6 +810,13 @@ mod tests {
         assert_eq!(serde_json::to_value(&next[0]).unwrap()["id"], id.as_str());
         due(&mut kept, Some(Level::Off), 103, &facts());
         assert_eq!(kept.id, None);
+    }
+
+    #[test]
+    fn a_build_made_by_hand_never_sends() {
+        assert_eq!(endpoint("dev"), None);
+        assert_eq!(endpoint("nightly"), Some(ENDPOINT));
+        assert_eq!(endpoint("stable"), Some(ENDPOINT));
     }
 
     #[test]

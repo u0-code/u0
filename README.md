@@ -216,7 +216,7 @@ a new install id. On a server with no window, set `"telemetry": 0` to `3`
 in its `settings.json`.
 
 - **0, Off**: once, at the first launch, never again (not after an
-  update): Ghost's version, commit and channel (stable, nightly, dev), the
+  update): Ghost's version, commit and channel (stable or nightly), the
   system (`macos 26`, or `linux`) and the processor. No id.
 - **1, Basic**: each day, that and a random id of this install, the
   agents switched on (their ACP registry ids and versions), the number of
@@ -234,6 +234,8 @@ repository, branch or session, a host name, an email, a token or the
 words of an error. Nothing above level 0 goes before you confirm the
 level. Batches go to a Cloudflare Worker ([telemetry/](telemetry/)),
 which keeps them and the country they came from, not the address.
+A build made by hand (channel `dev`) sends nothing at any level: its runs
+are tests, not use.
 
 ## Managed by an organisation
 
