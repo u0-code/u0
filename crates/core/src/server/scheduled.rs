@@ -10,7 +10,10 @@ use agent_client_protocol::v1::schema::{
     SetSessionModeRequest, StopReason,
 };
 
-use super::{Server, Shared, choose_model};
+use super::{
+    Server, Shared, choose_model,
+    happened::{Happened, Milestone},
+};
 use crate::{
     acp::{self, Agent},
     git,
@@ -67,7 +70,7 @@ impl Server {
 
     /// Run the task `id` now, unless a run of it goes on.
     pub(super) fn run_task(&self, id: u64) {
-        self.shared.run(id, None);
+        self.shared.run(id, str::to_owned);
     }
 
     /// The tasks as they are, to the desk.
@@ -98,9 +101,25 @@ impl Shared {
     }
 
     /// Look for tasks due every [`TICK`], at the pull requests watched
-    /// every [`PRS`], and tidy every [`TIDY`] (first a tick from now), from
-    /// now on.
+    /// every [`PRS`], and tidy every [`TIDY`] (first a tick from now); and
+    /// run the tasks on what happens in sessions as it does, from now on.
     pub(super) fn schedule(&self) {
+        let this = self.clone();
+        // What happens from now on, even before the task below begins.
+        let mut kept = this.happened.subscribe();
+        let mut last = kept.borrow().back().map_or(0, |m| m.n);
+        acp::runtime().spawn(async move {
+            while kept.changed().await.is_ok() {
+                let new: Vec<Milestone> = (kept.borrow_and_update().iter())
+                    .filter(|m| m.n > last)
+                    .cloned()
+                    .collect();
+                last = new.last().map_or(last, |m| m.n);
+                for m in &new {
+                    this.on(m);
+                }
+            }
+        });
         let this = self.clone();
         acp::runtime().spawn(async move {
             let every = |first: Duration, period| {
@@ -182,7 +201,7 @@ impl Shared {
             Err(_) => Vec::new(),
         };
         for id in due {
-            self.run(id, None);
+            self.run(id, str::to_owned);
         }
     }
 
@@ -226,14 +245,53 @@ impl Shared {
                 heard.pop_front();
             }
         }
-        self.run(id, Some(call));
+        self.run(id, |prompt| call.fill(prompt));
         Hooked::Ran
     }
 
-    /// Run the task `id`: its run marked going, its next one set, and the
-    /// turn said, its prompt filled from `call` where a webhook's runs it;
-    /// then how it went kept.
-    fn run(&self, id: u64, call: Option<&tasks::Call>) {
+    /// Run each task, not paused, that runs on what `m` says happened: in
+    /// a session Ghost did not turn on its own, and in the task's project
+    /// where it says so. Its prompt is told what happened where it says
+    /// `{{event}}`, marked as data from outside.
+    fn on(&self, m: &Milestone) {
+        if m.by_ghost {
+            return;
+        }
+        let meta = self.meta(&m.agent, &m.session);
+        let (moment, said) = match &m.what {
+            Happened::TurnEnded(how) => {
+                (tasks::Moment::TurnEnded, format!("its turn ended ({how})"))
+            }
+            Happened::Asks(what) => (tasks::Moment::Asks, format!("its agent asks: {what}")),
+        };
+        let title = meta.as_ref().map_or("", |m| m.title.as_str());
+        let event = format!(
+            "<event untrusted>\nIn “{title}” ({} session {}): {said}\n</event>",
+            m.agent, m.session.0
+        );
+        let due: Vec<u64> = match &*self.tasks.lock().expect("tasks") {
+            Ok(all) => (all.tasks.iter())
+                .filter(|t| !t.paused)
+                .filter(|t| match &t.schedule {
+                    tasks::Schedule::On { moment: on, here } => {
+                        *on == moment
+                            && (!here || meta.as_ref().is_some_and(|m| m.project == t.project))
+                    }
+                    _ => false,
+                })
+                .map(|t| t.id)
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+        for id in due {
+            self.run(id, |prompt| prompt.replace("{{event}}", &event));
+        }
+    }
+
+    /// Run the task `id`: its run marked going, its next one set, and its
+    /// prompt (filled by `fill`, for what ran it) said, or its workflow
+    /// begun with it; then how it went kept.
+    fn run(&self, id: u64, fill: impl FnOnce(&str) -> String) {
         let now = store::secs(std::time::SystemTime::now());
         let mut task = None;
         self.change_tasks(|all| {
@@ -258,18 +316,21 @@ impl Shared {
             task = Some(t.clone());
         });
         let Some(mut task) = task else { return };
-        if let Some(call) = call {
-            task.prompt = call.fill(&task.prompt);
-        }
+        task.prompt = fill(&task.prompt);
         let this = self.clone();
         acp::runtime().spawn(async move {
-            let result = this.turn_with(&task, |_| {}).await;
+            let result = match &task.workflow {
+                Some(flow) => (this.start_flow(flow.clone(), task.prompt.clone()))
+                    .map(|_| None)
+                    .map_err(|why| (None, why)),
+                None => this.turn_with(&task, |_| {}).await.map(Some),
+            };
             this.change_tasks(|all| {
                 let Some(t) = all.tasks.iter_mut().find(|t| t.id == task.id) else {
                     return;
                 };
                 let (session, error) = match result {
-                    Ok(id) => (Some(id), None),
+                    Ok(id) => (id, None),
                     Err((id, why)) => (id, Some(why)),
                 };
                 if t.same && t.session.is_none() {
@@ -395,6 +456,7 @@ impl Shared {
             None => (self.open(&agent, task).await.map_err(|e| (None, e))?, true),
         };
         let id = meta.id.clone().expect("a session opened has an id");
+        self.happened.by_ghost(&task.agent, &id);
         opened(&id);
         let failed = |why: String| (Some(id.clone()), why);
         // The desk is told, with what was said in it so far, read after all
@@ -598,6 +660,7 @@ fn wake(meta: &Meta, id: SessionId, said: String) -> Task {
         paused: false,
         same: true,
         worktree: false,
+        workflow: None,
         session: Some(id),
         next: None,
         last: None,
@@ -740,6 +803,7 @@ done"#,
             paused: false,
             same: true,
             worktree: false,
+            workflow: None,
             session: None,
             next: None,
             last: None,

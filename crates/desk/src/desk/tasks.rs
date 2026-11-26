@@ -117,6 +117,7 @@ impl Desk {
             paused: false,
             same: false,
             worktree: false,
+            workflow: None,
             session: None,
             next: None,
             last: None,
@@ -157,7 +158,9 @@ impl Desk {
                 when::said_at(store::time(*at), SystemTime::now(), false),
                 9 * 60,
             ),
-            Schedule::Hook(_) => ("60".to_owned(), "09:00".to_owned(), 9 * 60),
+            Schedule::Hook(_) | Schedule::On { .. } => {
+                ("60".to_owned(), "09:00".to_owned(), 9 * 60)
+            }
         };
         let only = match &task.schedule {
             Schedule::Hook(hook) => only_said(&hook.only),
@@ -271,6 +274,7 @@ impl Desk {
             Schedule::Hook(hook) if hook.signed && secret.is_empty() && !was_signed => {
                 Some("Give its secret, or turn signing off.")
             }
+            Schedule::On { .. } => None,
             Schedule::Hook(hook) => {
                 hook.only = only;
                 keep = (hook.signed && !secret.is_empty())

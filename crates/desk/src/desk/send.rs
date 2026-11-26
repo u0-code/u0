@@ -119,6 +119,7 @@ impl Desk {
             paused: false,
             same: true,
             worktree: false,
+            workflow: None,
             session: s.meta.id.clone(),
             next: None,
             last: None,

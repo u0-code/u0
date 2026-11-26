@@ -47,6 +47,7 @@ commands, and what Ghost keeps and sends.
 | **What it used, and your limits** | ⌘U: what each session cost and the tokens it took, by agent and by model, as the agent said; where each limit stands and when it resets, as Claude's adapter says it. A turn a limit stopped goes on by itself when the limit resets. |
 | **Keys** | ⌘K the palette, ⌘N a new session, ⌘1–⌘9 and ⌘[ ⌘] between sessions, ⌘F find, ⌘J the commands drawer, ⌘⇧M the model, ⌘U usage, ⇧⌘B the right column over the thread, Esc closes a menu. Your own in `~/.ghost/keybindings.json`: `[{"key": "cmd-k", "action": "palette"}]`. |
 | **In your language** | English, Simplified Chinese, German, Spanish, French, Japanese, Korean, Brazilian Portuguese, Russian or Swedish (t3code's languages), as the system is or as Settings › Appearance › Language says; what agents say stays as they say it. |
+| **Tasks and workflows that start themselves** | Settings › Scheduled tasks: a prompt said to an agent, or a workflow begun with it, every so often, at a time of day, once, when its webhook is called (signed with a secret, narrowed to the calls it is for, each delivery run once, its address renewed at will), or when a turn of yours ends or an agent asks you. |
 | **A repository's own commands** | `ghost.json` at its root names commands (`{"scripts": [{"name": "dev", "command": "npm run dev"}]}`) run from the drawer; one marked `"worktree": true` runs in each new worktree. |
 
 ## How it works

@@ -23,28 +23,9 @@ impl Server {
 
     /// Begin a run of the workflow `workflow` with `input`.
     pub(super) fn start_flow(&self, workflow: String, input: String) {
-        if let Err(why) = workflows::find(&self.shared.home, &workflow) {
-            (self.shared.send)(Event::Notice(Err((
-                format!("Couldn't start {workflow}"),
-                why,
-            ))));
-            return;
-        }
-        let mut id = 0;
-        self.shared.change_runs(|all| {
-            id = all.runs.iter().map(|r| r.id).max().unwrap_or(0) + 1;
-            all.runs.push(Run {
-                id,
-                workflow,
-                input,
-                began: store::secs(std::time::SystemTime::now()),
-                state: State::Going,
-                done: Vec::new(),
-                turn: None,
-            });
-        });
-        if id > 0 {
-            self.shared.advance(id);
+        let name = format!("Couldn't start {workflow}");
+        if let Err(why) = self.shared.start_flow(workflow, input) {
+            (self.shared.send)(Event::Notice(Err((name, why))));
         }
     }
 
@@ -117,6 +98,30 @@ impl Server {
 }
 
 impl Shared {
+    /// Begin a run of the workflow `workflow` with `input`: its number, or
+    /// why not.
+    pub(super) fn start_flow(&self, workflow: String, input: String) -> Result<u64, String> {
+        workflows::find(&self.home, &workflow)?;
+        let mut id = 0;
+        self.change_runs(|all| {
+            id = all.runs.iter().map(|r| r.id).max().unwrap_or(0) + 1;
+            all.runs.push(Run {
+                id,
+                workflow,
+                input,
+                began: store::secs(std::time::SystemTime::now()),
+                state: State::Going,
+                done: Vec::new(),
+                turn: None,
+            });
+        });
+        if id == 0 {
+            return Err("The runs kept do not read".into());
+        }
+        self.advance(id);
+        Ok(id)
+    }
+
     /// The workflows and the runs, to the desk.
     fn say_flows(&self) {
         let runs = self.runs.lock().expect("runs").clone();
@@ -293,6 +298,7 @@ impl Shared {
             paused: false,
             same: session.is_some(),
             worktree: *worktree,
+            workflow: None,
             session,
             next: None,
             last: None,
@@ -365,6 +371,40 @@ mod tests {
                 return runs;
             }
         }
+    }
+
+    #[test]
+    fn a_turn_of_yours_ending_begins_the_workflow_of_a_task_on_it_and_one_of_ghosts_does_not() {
+        let home = tempfile::tempdir().unwrap();
+        let flows = workflows::folder(home.path());
+        std::fs::create_dir(&flows).unwrap();
+        let ask = serde_json::json!({"steps": [
+            {"ask": {"name": "go", "title": "Go?", "choices": ["Yes"]}}]});
+        std::fs::write(flows.join("review.json"), ask.to_string()).unwrap();
+        let task = serde_json::json!({"id": 1, "title": "Review each turn", "agent": "a",
+            "prompt": "Look at {{event}}", "project": home.path(), "workflow": "review",
+            "schedule": {"on": {"moment": "turn_ended", "here": false}}});
+        let tasks = serde_json::json!({"tasks": [task]});
+        std::fs::write(home.path().join("tasks.json"), tasks.to_string()).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let server = Server::new(home.path().to_path_buf(), move |e| {
+            let _ = tx.send(e);
+        });
+        let (mine, ghosts) = (SessionId::new("s1"), SessionId::new("s2"));
+        server.shared.happened.by_ghost("a", &ghosts);
+        server.shared.happened.end("a", &ghosts, "end_turn".into());
+        server.shared.happened.end("a", &mine, "end_turn".into());
+        let runs = until(&rx, |r| r.state == State::Asking);
+        assert_eq!(runs.len(), 1, "one run, for the turn of yours");
+        assert_eq!(runs[0].workflow, "review");
+        assert!(runs[0].input.starts_with("Look at <event untrusted>"));
+        assert!(
+            runs[0]
+                .input
+                .contains("a session s1): its turn ended (end_turn)"),
+            "{}",
+            runs[0].input
+        );
     }
 
     #[test]

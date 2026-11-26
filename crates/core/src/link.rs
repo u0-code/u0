@@ -1000,6 +1000,7 @@ mod tests {
             paused: false,
             same: false,
             worktree: false,
+            workflow: None,
             session: None,
             next: None,
             last: None,

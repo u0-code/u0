@@ -20,6 +20,7 @@ use crate::{
     desk::{Desk, Popup},
     fonts::Faces,
     store,
+    tasks::Moment,
     tasks::{DAYS, Schedule, Task},
     theme,
     ui::{self, Weight},
@@ -40,6 +41,9 @@ impl Desk {
                 &[("when", &when::said_at(store::time(at), now, twelve))],
             ),
             None if matches!(task.schedule, Schedule::Hook(_)) => crate::tr("When called"),
+            None if matches!(task.schedule, Schedule::On { .. }) => {
+                task.schedule.said(twelve).into()
+            }
             None => crate::tr("Not scheduled"),
         };
         let status = task.last.as_ref().map(|r| match (&r.error, r.going) {
@@ -253,6 +257,12 @@ impl Desk {
                 crate::tr("Where it works."),
                 |d, _, cx| d.task_project_pick(cx).into_any_element(),
             ),
+            item(
+                w,
+                "Each run",
+                "Says its prompt to the agent, or begins a workflow with it as the input.",
+                |d, _, cx| d.task_flow_pick(cx).into_any_element(),
+            ),
             item(w, crate::tr("Schedule"), "", |d, faces, cx| {
                 d.task_schedule(faces, cx).into_any_element()
             })
@@ -360,7 +370,11 @@ impl Desk {
                         days: Vec::new(),
                     },
                     2 => Schedule::Once(0),
-                    _ => Schedule::Hook(crate::tasks::Hook::new()),
+                    3 => Schedule::Hook(crate::tasks::Hook::new()),
+                    _ => Schedule::On {
+                        moment: Moment::TurnEnded,
+                        here: true,
+                    },
                 };
             })
         };
@@ -386,6 +400,11 @@ impl Desk {
                     crate::tr("On webhook"),
                     matches!(task.schedule, Schedule::Hook(_)),
                     kind(3, cx),
+                ),
+                (
+                    crate::tr("On an event"),
+                    matches!(task.schedule, Schedule::On { .. }),
+                    kind(4, cx),
                 ),
             ],
         );
@@ -435,6 +454,45 @@ impl Desk {
                 .child(div().w(px(200.)).child(Input::new(&draft.at).small()))
                 .child(ui::fine(faces, crate::tr("tomorrow, 5pm, in 3h"))),
             Schedule::Hook(hook) => self.hook_addresses(faces, hook, cx),
+            Schedule::On { moment, here } => {
+                let (moment, here) = (*moment, *here);
+                let on = |m: Moment, cx: &mut Context<Self>| {
+                    draft_pick(cx, move |draft| {
+                        if let Schedule::On { moment, .. } = &mut draft.task.schedule {
+                            *moment = m;
+                        }
+                    })
+                };
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(8.))
+                    .child(ui::segmented(
+                        "task-moment",
+                        vec![
+                            ("A turn ends", moment == Moment::TurnEnded, on(Moment::TurnEnded, cx)),
+                            ("An agent asks", moment == Moment::Asks, on(Moment::Asks, cx)),
+                        ],
+                    ))
+                    .child(
+                        gpui::component::switch::Switch::new("task-here")
+                            .label("In this task's project alone")
+                            .small()
+                            .checked(here)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if let Some(Schedule::On { here: h, .. }) =
+                                    this.tasks.draft.as_mut().map(|d| &mut d.task.schedule)
+                                {
+                                    *h = !here;
+                                }
+                                cx.notify();
+                            })),
+                    )
+                    .child(ui::fine(
+                        faces,
+                        "In a session of yours, not one Ghost turns on its own (a task's, a workflow's), so that no task runs on its own runs. {{event}} in what it says is what happened, marked as data from outside.",
+                    ))
+            }
         };
         div()
             .flex()
@@ -480,6 +538,41 @@ impl Desk {
                         (draft.task.agent, draft.task.model) = (agent, model);
                     }
                 })
+            },
+            cx,
+        )
+    }
+
+    /// What each run of the task being written does: says its prompt, or
+    /// begins one of the workflows with it; and the menu to choose.
+    fn task_flow_pick(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let flow = (self.tasks.draft.as_ref()).and_then(|d| d.task.workflow.clone());
+        let trigger = ui::opener("task-flow")
+            .selected(self.popup == Popup::TaskFlow)
+            .child(flow.map_or_else(|| "Says its prompt".to_owned(), |f| format!("Begins {f}")));
+        self.menu(
+            Popup::TaskFlow,
+            trigger,
+            |d, menu, desk, _| {
+                let chosen = d.tasks.draft.as_ref().and_then(|d| d.task.workflow.clone());
+                let pick = |flow: Option<String>| {
+                    move |this: &mut Desk, _: &mut gpui::Window, cx: &mut Context<Desk>| {
+                        if let Some(draft) = &mut this.tasks.draft {
+                            draft.task.workflow.clone_from(&flow);
+                        }
+                        cx.notify();
+                    }
+                };
+                let says =
+                    Self::menu_item(desk, "Says its prompt", pick(None)).checked(chosen.is_none());
+                let flows = (d.flows.list.iter().filter_map(|f| f.as_ref().ok())).map(|f| {
+                    let name = f.name.clone();
+                    Self::menu_item(desk, format!("Begins {name}"), pick(Some(name.clone())))
+                        .checked(chosen.as_ref() == Some(&name))
+                });
+                std::iter::once(says)
+                    .chain(flows)
+                    .fold(menu.min_w(px(260.)), PopupMenu::item)
             },
             cx,
         )

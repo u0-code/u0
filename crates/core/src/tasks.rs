@@ -49,6 +49,11 @@ pub struct Task {
     /// Each new session works in a worktree of its own.
     #[serde(default)]
     pub worktree: bool,
+    /// The workflow each run starts, its prompt (filled as a webhook's or
+    /// an event's is) the run's input; none, the prompt is said to the
+    /// agent.
+    #[serde(default)]
+    pub workflow: Option<String>,
     /// The session its runs are said in, once there is one: its first
     /// run's, where each is said in the same one, or the one it was set
     /// from.
@@ -80,6 +85,20 @@ pub enum Schedule {
     /// while one is up). Nothing holds a call made while Ghost is not
     /// running: the sender has to deliver it again.
     Hook(Hook),
+    /// Each time something happens in a session of yours (not one Ghost
+    /// turns on its own: a task's, a workflow's), in its project alone
+    /// where `here`.
+    On { moment: Moment, here: bool },
+}
+
+/// What happens in a session that a task can run on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Moment {
+    /// A turn ended.
+    TurnEnded,
+    /// Its agent asks you something, and waits.
+    Asks,
 }
 
 /// A webhook task's address, and what a call to it must be to run it.
@@ -265,7 +284,7 @@ impl Schedule {
             Self::Daily { minute, days } => {
                 when::next_daily(store::time(after), *minute, days).map(store::secs)
             }
-            Self::Hook(_) => None,
+            Self::Hook(_) | Self::On { .. } => None,
         }
     }
 
@@ -296,6 +315,14 @@ impl Schedule {
                 }
             }
             Self::Hook(_) => "On webhook".into(),
+            Self::On {
+                moment: Moment::TurnEnded,
+                ..
+            } => "When a turn ends".into(),
+            Self::On {
+                moment: Moment::Asks,
+                ..
+            } => "When an agent asks".into(),
         }
     }
 }
@@ -412,6 +439,7 @@ mod tests {
                 paused: false,
                 same: true,
                 worktree: false,
+                workflow: None,
                 session: None,
                 next: Some(10),
                 last: None,

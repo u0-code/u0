@@ -24,6 +24,11 @@ pub(super) struct Milestone {
     pub agent: String,
     pub session: SessionId,
     pub what: Happened,
+    /// In a session Ghost turns on its own (a task's, a workflow's, one
+    /// an agent said something in): no task runs on it, so none runs on
+    /// its own runs.
+    #[serde(skip)]
+    pub by_ghost: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -53,6 +58,8 @@ pub(super) struct Happenings {
     turning: watch::Sender<HashSet<(String, SessionId)>>,
     /// The last of what happened, the latest last.
     kept: watch::Sender<VecDeque<Milestone>>,
+    /// The sessions Ghost has turned on its own, by agent and id.
+    ghost: std::sync::Mutex<HashSet<(String, SessionId)>>,
 }
 
 impl Happenings {
@@ -71,8 +78,20 @@ impl Happenings {
         self.happened(agent, id, Happened::TurnEnded(how));
     }
 
+    /// The session `id` of `agent` is turned by Ghost on its own.
+    pub fn by_ghost(&self, agent: &str, id: &SessionId) {
+        (self.ghost.lock().expect("ghost")).insert((agent.to_owned(), id.clone()));
+    }
+
+    /// What tells each time something happens.
+    pub fn subscribe(&self) -> watch::Receiver<VecDeque<Milestone>> {
+        self.kept.subscribe()
+    }
+
     /// `what` happened in the session `id` of `agent`.
     pub fn happened(&self, agent: &str, id: &SessionId, what: Happened) {
+        let by_ghost =
+            (self.ghost.lock().expect("ghost")).contains(&(agent.to_owned(), id.clone()));
         self.kept.send_modify(|kept| {
             let n = kept.back().map_or(1, |m| m.n + 1);
             kept.push_back(Milestone {
@@ -81,6 +100,7 @@ impl Happenings {
                 agent: agent.to_owned(),
                 session: id.clone(),
                 what,
+                by_ghost,
             });
             while kept.len() > KEPT {
                 kept.pop_front();

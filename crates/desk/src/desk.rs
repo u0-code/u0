@@ -149,6 +149,7 @@ pub enum Popup {
     TaskAgent,
     /// The project of the task being written.
     TaskProject,
+    TaskFlow,
     /// The project Settings' choices a project may hold are set for.
     Scope,
 }

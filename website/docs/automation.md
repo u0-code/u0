@@ -24,7 +24,8 @@ Open **Settings › Scheduled tasks** and choose **New task**:
 | **Prompt** | What is said to the agent each time. |
 | **Agent** | Who it is said to, and with which model. |
 | **Project** | Where it works. |
-| **Schedule** | **Every** (minutes, or a duration such as `2h`), **Daily** (a time, and the days of the week; none chosen means every day), **Once** (such as `tomorrow`, `5pm`, `in 3h`), or **On webhook**. |
+| **Each run** | **Says its prompt** to the agent, or **Begins** one of your [workflows](#workflows), the prompt (filled as a webhook's or an event's is) its input. |
+| **Schedule** | **Every** (minutes, or a duration such as `2h`), **Daily** (a time, and the days of the week; none chosen means every day), **Once** (such as `tomorrow`, `5pm`, `in 3h`), **On webhook**, or **On an event**. |
 | **Each run** | **A new session each run**, or **One session, continued** (each run is the next turn of the first run's session). |
 | **In a worktree of its own** | With a new session each run: each run works on a new branch, away from your checkout. |
 
@@ -43,6 +44,16 @@ How runs behave:
 - A failed run shows its error under the task.
 
 `ghost tasks` lists the tasks from a terminal.
+
+### On an event
+
+A task **On an event** runs as something happens in a session of yours:
+**A turn ends**, or **An agent asks** you something. **In this task's
+project alone** limits it to sessions in the task's project. It runs only
+on sessions you started, never on one Ghost turned on its own (a task's
+or a workflow's), so no task runs on its own runs. `{{event}}` in the
+prompt is what happened, marked as data from outside (`<event
+untrusted>`).
 
 ### tasks.json
 
@@ -81,7 +92,8 @@ edit it while Ghost is closed:
 | `agent` | agent id | |
 | `model`, `mode` | string or `null` | The model, and the session mode, to set. `null`: the agent's default. |
 | `project` | path | |
-| `schedule` | object | `{"every": minutes}`, `{"daily": {"minute": minutes after midnight, "days": [0–6, 0 is Sunday]}}` (an empty `days` is every day, in local time), `{"once": Unix seconds}`, or `{"hook": {"token": "<token>", "signed": bool, "only": [{"at": "body.action", "is": ["opened"]}]}}`. |
+| `schedule` | object | `{"every": minutes}`, `{"daily": {"minute": minutes after midnight, "days": [0–6, 0 is Sunday]}}` (an empty `days` is every day, in local time), `{"once": Unix seconds}`, or `{"hook": {"token": "<token>", "signed": bool, "only": [{"at": "body.action", "is": ["opened"]}]}}`, or `{"on": {"moment": "turn_ended" or "asks", "here": bool}}`. |
+| `workflow` | string or `null` | The workflow each run begins, its filled prompt the input. |
 | `paused` | bool | |
 | `same` | bool | One session, continued. |
 | `worktree` | bool | Each run in a new worktree. |
@@ -146,12 +158,6 @@ POST /hook/<token>
   webhooks.
 - A call made while Ghost is not running is not kept.
 
-:::note Coming
-
-Tasks that start a workflow or run on a session's events are being
-finished and are not in the current build yet.
-
-:::
 
 ## Workflows
 

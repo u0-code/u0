@@ -43,7 +43,7 @@ use crate::{
 
 impl Shared {
     /// The session `id` of `agent`, as the index keeps it.
-    fn meta(&self, agent: &str, id: &SessionId) -> Option<Meta> {
+    pub(super) fn meta(&self, agent: &str, id: &SessionId) -> Option<Meta> {
         (self.index.lock().expect("index").as_ref().ok())?
             .sessions
             .iter()
@@ -419,6 +419,7 @@ impl Tools {
             paused: false,
             same: false,
             worktree: ask.worktree,
+            workflow: None,
             session: None,
             next: None,
             last: None,
@@ -493,6 +494,7 @@ impl Tools {
             paused: false,
             same: false,
             worktree: false,
+            workflow: None,
             session: None,
             next: None,
             last: None,
@@ -530,6 +532,7 @@ impl Tools {
             paused: false,
             same: true,
             worktree: false,
+            workflow: None,
             session: Some(id.clone()),
             next: None,
             last: None,

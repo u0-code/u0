@@ -304,7 +304,12 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   Keychain; else 401), hold `only` rules (`at` is one of `is`; else 204),
   and runs each delivery its sender names once (200 again);
   `Call::RotateHook` gives it a new token, its secret moved. Nothing holds
-  a call made while no server runs. Workflows are your JSON files in
+  a call made while no server runs. A task on an event (`Schedule::On`)
+  runs as a turn ends, or an agent asks you, in a session of yours: not
+  one Ghost turns on its own (`Happenings::by_ghost`), so that no task
+  runs on its own runs. A task with a `workflow` begins a run of it, its
+  filled prompt the input: schedules, webhooks and events start
+  workflows so. Workflows are your JSON files in
   `~/.ghost/workflows/`, read as they are listed or started; their runs
   are the server's, in `~/.ghost/runs.json`.
 - A secret (an agent's variable marked so, a forge's token) is kept in the
