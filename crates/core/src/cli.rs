@@ -15,6 +15,9 @@ use ssh_key::sha2::{Digest as _, Sha256};
 
 use crate::{access, key::Key, servers, settings, store, tasks, when};
 
+mod doctor;
+mod threads;
+
 /// The `ghost` command, as clap reads it: its words, or folders to open.
 #[derive(Debug, clap::Parser)]
 #[command(
@@ -49,10 +52,67 @@ enum Word {
     },
     /// This home: the agents on, the server, the tasks, the service.
     Status,
-    /// The sessions kept, the latest first.
-    Sessions,
+    /// What of this home is not as Ghost needs it, and what to do.
+    Doctor,
     /// The scheduled tasks, and when each runs next.
     Tasks,
+    /// The sessions kept; what was said in one; something said in one.
+    Thread {
+        #[command(subcommand)]
+        what: Thread,
+    },
+    /// The workflows and their runs; a run begun.
+    Workflow {
+        #[command(subcommand)]
+        what: Flow,
+    },
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum Thread {
+    /// The sessions kept, the latest first, each with its agent and id.
+    List,
+    /// What was said in a session.
+    Show { agent: String, session: String },
+    /// Begin a session in a project (`.`: this folder) with what to say.
+    Start {
+        project: PathBuf,
+        prompt: String,
+        /// The agent, by its registry id; none, the first on.
+        #[arg(long)]
+        agent: Option<String>,
+        /// Wait for its answer, and print it.
+        #[arg(long)]
+        wait: bool,
+        /// The server paired with to ask; none, this Mac's service.
+        #[arg(long)]
+        on: Option<String>,
+    },
+    /// Say something in a session, as its next turn (one going on is let
+    /// end first).
+    Send {
+        agent: String,
+        session: String,
+        prompt: String,
+        #[arg(long)]
+        wait: bool,
+        #[arg(long)]
+        on: Option<String>,
+    },
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum Flow {
+    /// The workflows, and their runs.
+    List,
+    /// Begin a run of a workflow with an input.
+    Start {
+        name: String,
+        #[arg(default_value = "")]
+        input: String,
+        #[arg(long)]
+        on: Option<String>,
+    },
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -92,8 +152,24 @@ pub fn when_asked() {
             Word::Serve => crate::link::serve_here(),
             Word::Service { what } => service(&home, &what),
             Word::Status => status(&home).map(|s| print!("{s}")),
-            Word::Sessions => sessions(&home).map(|s| print!("{s}")),
+            Word::Doctor => {
+                let (said, well) = doctor::doctor(&home);
+                print!("{said}");
+                if well {
+                    Ok(())
+                } else {
+                    Err("Some of it is not well: see above.".into())
+                }
+            }
             Word::Tasks => tasks_of(&home).map(|s| print!("{s}")),
+            Word::Thread { what } => thread(&home, what).map(|s| println!("{}", s.trim_end())),
+            Word::Workflow { what } => match what {
+                Flow::List => threads::workflows(&home),
+                Flow::Start { name, input, on } => {
+                    threads::start(&home, on.as_deref(), name, input)
+                }
+            }
+            .map(|s| println!("{}", s.trim_end())),
         }
     } else if cli.shell {
         open(&cli.folders)
@@ -351,29 +427,50 @@ fn status(home: &Path) -> Result<String, String> {
     Ok(out)
 }
 
-/// The sessions kept, the latest first: when, the agent, the project and
-/// the title.
-fn sessions(home: &Path) -> Result<String, String> {
-    let mut index = store::load(home)?.sessions;
-    index.retain(|m| !m.flags.archived);
-    index.sort_by_key(|m| std::cmp::Reverse(m.updated));
-    let now = std::time::SystemTime::now();
-    let mut out = String::new();
-    for m in index {
-        let project = m.project.file_name().map_or_else(
-            || m.project.display().to_string(),
-            |n| n.to_string_lossy().into_owned(),
-        );
-        let _ = writeln!(
-            out,
-            "{:>5}  {:<14} {:<20} {}",
-            when::ago(m.updated, now),
-            m.agent,
+/// What `ghost thread` asks.
+fn thread(home: &Path, what: Thread) -> Result<String, String> {
+    let here = |p: PathBuf| std::fs::canonicalize(&p).map_err(|e| format!("{}: {e}", p.display()));
+    match what {
+        Thread::List => threads::list(home),
+        Thread::Show { agent, session } => threads::show(home, &agent, &session),
+        Thread::Start {
             project,
-            m.title
-        );
+            prompt,
+            agent,
+            wait,
+            on,
+        } => threads::say(
+            home,
+            on.as_deref(),
+            agent,
+            None,
+            &here(project)?,
+            prompt,
+            wait,
+        ),
+        Thread::Send {
+            agent,
+            session,
+            prompt,
+            wait,
+            on,
+        } => {
+            let index = store::load(home)?;
+            let project = (index.sessions.iter())
+                .find(|m| m.agent == agent && m.id.as_ref().is_some_and(|id| *id.0 == *session))
+                .map(|m| m.project.clone())
+                .ok_or_else(|| format!("Ghost keeps no session {session} of {agent}"))?;
+            threads::say(
+                home,
+                on.as_deref(),
+                Some(agent),
+                Some(session),
+                &project,
+                prompt,
+                wait,
+            )
+        }
     }
-    Ok(out)
 }
 
 /// The scheduled tasks: each by its number, its schedule, when it runs
@@ -419,6 +516,29 @@ mod tests {
         );
         let cli = read(&["--shell", "a", "b"]).unwrap();
         assert_eq!(cli.folders, [PathBuf::from("a"), PathBuf::from("b")]);
+        let cli = read(&[
+            "--shell",
+            "thread",
+            "send",
+            "a",
+            "s1",
+            "Now fix it",
+            "--wait",
+            "--on",
+            "box",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.word,
+            Some(Word::Thread {
+                what: Thread::Send {
+                    wait: true,
+                    on: Some(_),
+                    ..
+                }
+            })
+        ));
+        assert!(read(&["--shell", "workflow", "start", "release"]).is_ok());
         let cli = read(&["--mcp", "--on", "box"]).unwrap();
         assert!(cli.mcp && cli.on.as_deref() == Some("box"));
         assert!(read(&["--on", "box"]).is_err(), "--on is --mcp's");

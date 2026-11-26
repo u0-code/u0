@@ -34,12 +34,25 @@ so; add it in your shell's profile.
 | `ghost status` | This home: the agents switched on, whether the server listens, the service, the scheduled tasks. |
 | `ghost sessions` | The sessions kept (not archived), the latest first: how long ago, the agent, the project and the title. |
 | `ghost tasks` | The scheduled tasks: number, schedule, next run and title. |
+| `ghost doctor` | What of this home is not well (settings, the files Ghost keeps, the agents on, the service), and what to do; exits non-zero if anything is not. |
+| `ghost thread list` | The sessions kept, the latest first, each with its agent and id. |
+| `ghost thread show <agent> <id>` | What was said in a session. |
+| `ghost thread start <project> "<prompt>"` | Begin a session in a project (`.`: this folder). `--agent <id>` names the agent (none: the first on), `--wait` waits for its answer and prints it. |
+| `ghost thread send <agent> <id> "<prompt>"` | Say something in a session, as its next turn (a turn going on is let end first). `--wait` as above. |
+| `ghost workflow list` | The workflows, and their runs. |
+| `ghost workflow start <name> [input]` | Begin a run of a workflow. |
 | `ghost help`, `ghost --help` | The list above; `ghost <command> --help` says more of one. |
 
 `ghost-server` takes the same words (`ghost-server status`, …). With none,
 it serves, as `ghost serve` does. `ghost --version` (or
 `ghost-server --version`) prints the build: its version, commit and
 channel. A word Ghost does not know is refused, with what it takes.
+
+What acts (`thread start`, `thread send`, `workflow start`) is asked of
+this Mac's service, or, with `--on <name>`, of a Mac this one is paired
+with, over a link signed with this Mac's key as the window's is. A Mac
+that may only read there is refused. With no service and no `--on`, they
+say to install the service.
 
 ## The launchd service
 

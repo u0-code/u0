@@ -476,6 +476,46 @@ pub fn forward(way: Way, kept: String, there: u16) -> Result<Forward, String> {
     Ok(Forward { there, port, task })
 }
 
+/// Ask the server `way`, coming in with `key`, `call` as a desk would, and
+/// hand what it says to `heard` until it has what it waits for.
+pub async fn ask<T>(
+    way: &Way,
+    key: &Key,
+    call: Call,
+    mut heard: impl FnMut(Event) -> Option<Result<T, String>>,
+) -> Result<T, String> {
+    let (mut ws, _) = match dial(way, hello(key, None, None, Then::Desk)).await {
+        Ok(reached) => reached,
+        Err(Dial::Failed(why) | Dial::Refused(why)) => return Err(why),
+        Err(Dial::Waiting(name)) => return Err(waiting(&name)),
+    };
+    let text = serde_json::to_string(&call).expect("a call serializes");
+    ws.send(Message::text(text))
+        .await
+        .map_err(|e| e.to_string())?;
+    loop {
+        match ws.next().await {
+            Some(Ok(Message::Text(t))) => {
+                if let Ok((_, event)) = serde_json::from_str::<(u64, Event)>(&t)
+                    && let Some(done) = heard(event)
+                {
+                    let _ = ws.close(None).await;
+                    return done;
+                }
+            }
+            Some(Ok(Message::Close(f))) => {
+                return Err(f.map_or_else(
+                    || "The server closed the link".into(),
+                    |f| f.reason.to_string(),
+                ));
+            }
+            Some(Err(e)) => return Err(e.to_string()),
+            None => return Err("The server closed the link".into()),
+            Some(Ok(_)) => {}
+        }
+    }
+}
+
 /// Reach the tools of the server `way` over a link of their own, coming
 /// in with `key`, and carry MCP between them and `here` until either ends.
 pub async fn tools<H>(way: &Way, key: &Key, here: H) -> Result<(), String>
@@ -1470,6 +1510,73 @@ mod tests {
             send(crate::access::Grant::default()),
             "You did not allow it"
         );
+    }
+
+    #[test]
+    fn a_terminal_says_a_prompt_over_a_link_and_is_told_the_session_and_its_answer() {
+        let home = tempfile::tempdir().unwrap();
+        // An agent that opens `t1` and answers each prompt in it.
+        let agent = home.path().join("agent.sh");
+        let script = r#"id() { printf '%s' "$line" | sed -E 's/.*"id":("[^"]*"|[0-9]+).*/\1/'; }
+while read line; do case "$line" in
+*'"initialize"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1}}\n' "$(id)" ;;
+*'"session/new"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"t1"}}\n' "$(id)" ;;
+*'"session/prompt"'*) printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"t1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Found it."}}}}'
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$(id)" ;;
+esac; done"#;
+        std::fs::write(&agent, script).unwrap();
+        std::fs::write(
+            home.path().join("registry.json"),
+            r#"{"agents":[{"id":"a","name":"A","version":"1","distribution":{}}]}"#,
+        )
+        .unwrap();
+        let settings = serde_json::json!({"enabled": ["a"], "folders": [home.path()],
+            "commands": {"a": format!("/bin/sh {}", agent.display())}});
+        std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
+        let (server, port) = server(home.path());
+        // Each its own tag: a turn before goes on, and is told every desk.
+        let say = |tag: u64, grant: crate::access::Grant, wait: bool| {
+            let mine = kept();
+            pair_as(&server, port, &mine, grant);
+            let call = Call::Say {
+                tag,
+                agent: "a".into(),
+                session: None,
+                project: home.path().to_path_buf(),
+                prompt: "Why are the tests slow?".into(),
+            };
+            crate::acp::runtime().block_on(ask(&here(port), &key(&mine), call, |e| match e {
+                Event::Turned { tag: t, .. } if t != tag => None,
+                Event::Turned {
+                    session: Err(why), ..
+                } => Some(Err(why)),
+                Event::Turned {
+                    session: Ok(id),
+                    answer,
+                    ..
+                } => match answer {
+                    Some(answer) if wait => Some(Ok(answer)),
+                    _ if wait => None,
+                    _ => Some(Ok(id.0.to_string())),
+                },
+                Event::Notice(Err((what, _))) => Some(Err(what)),
+                _ => None,
+            }))
+        };
+        assert_eq!(
+            say(1, crate::access::Grant::default(), false),
+            Ok("t1".into())
+        );
+        assert_eq!(
+            say(2, crate::access::Grant::default(), true),
+            Ok("Found it.".into())
+        );
+        let read = crate::access::Grant {
+            scope: crate::access::Scope::Read,
+            ..crate::access::Grant::default()
+        };
+        let refused = say(3, read, true).unwrap_err();
+        assert!(refused.contains("only watch"), "{refused}");
     }
 
     #[test]

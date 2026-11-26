@@ -197,9 +197,20 @@ ghost service install      # run that server from login (launchd); the window us
 ghost service status       # whether it runs, and where it logs
 ghost service uninstall    # stop it, and take it out of login
 ghost status               # the agents on, the server, the tasks, the service
-ghost sessions             # the sessions kept, the latest first
+ghost doctor               # what of this home is not well, and what to do
 ghost tasks                # the scheduled tasks, and when each runs next
+ghost thread list          # the sessions kept, the latest first, with their ids
+ghost thread show A ID     # what was said in one
+ghost thread start . "Find why the tests are slow" --wait
+ghost thread send A ID "Now fix it" --wait
+ghost workflow list        # the workflows and their runs
+ghost workflow start release v1.2
 ```
+
+What acts (`thread start`, `thread send`, `workflow start`) is asked of
+this Mac's service, or of a Mac this one is paired with (`--on <name>`),
+over a link signed in by this Mac's key as the window is: a Mac that may
+only watch there is refused.
 
 The service is a launchd agent of yours (`~/Library/LaunchAgents`), its
 own for each `GHOST_HOME`. Installing it pairs this Mac's window with it,

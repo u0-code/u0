@@ -351,6 +351,75 @@ impl Shared {
         });
     }
 
+    /// Say `prompt` to `agent` in its session `session`, once the turn
+    /// going on there ends, or in a new one in `project`; and tell, under
+    /// `tag`, the session as it is known and what it answered.
+    pub(super) fn say_in(
+        &self,
+        tag: u64,
+        agent: String,
+        session: Option<SessionId>,
+        project: std::path::PathBuf,
+        prompt: String,
+    ) {
+        let this = self.clone();
+        acp::runtime().spawn(async move {
+            if let Some(id) = &session {
+                (this.happened)
+                    .idle(&agent, id, Duration::from_hours(1))
+                    .await;
+            }
+            let task = Task {
+                id: 0,
+                title: prompt
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .chars()
+                    .take(40)
+                    .collect(),
+                prompt,
+                agent,
+                model: None,
+                mode: None,
+                project,
+                schedule: tasks::Schedule::Every(0),
+                paused: false,
+                same: session.is_some(),
+                worktree: false,
+                workflow: None,
+                session,
+                next: None,
+                last: None,
+                runs: 0,
+            };
+            let send = this.send.clone();
+            let told = move |id: &SessionId| {
+                send(Event::Turned {
+                    tag,
+                    session: Ok(id.clone()),
+                    answer: None,
+                });
+            };
+            let turned = match this.turn_with(&task, told).await {
+                Ok(id) => {
+                    let answer = this.said_in(&task.agent, &id, true).await;
+                    Event::Turned {
+                        tag,
+                        session: Ok(id),
+                        answer: Some(answer),
+                    }
+                }
+                Err((_, why)) => Event::Turned {
+                    tag,
+                    session: Err(why),
+                    answer: None,
+                },
+            };
+            (this.send)(turned);
+        });
+    }
+
     /// Look at each pull request a session watches: where its checks
     /// finished, or a review came in, since it was last looked at, say so
     /// in the session, as a turn; one merged or closed is watched no more.

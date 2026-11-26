@@ -10,7 +10,6 @@ use super::{Server, Shared};
 use crate::{
     acp,
     proto::Event,
-    session::{Item, Session},
     store::{self, Job},
     tasks::{Schedule, Task},
     workflows::{self, Done, Run, Runs, State, Step, Workflow},
@@ -334,23 +333,7 @@ impl Shared {
         store::queue(Job::Then(Box::new(move || {
             let _ = tx.send(store::read(&path));
         })));
-        let mut thread = Session::new(0, agent, std::path::PathBuf::new());
-        thread.replay(rx.await.ok().flatten().unwrap_or_default());
-        let from = if last {
-            (thread.items.iter())
-                .rposition(|i| matches!(i, Item::You(_)))
-                .map_or(0, |at| at + 1)
-        } else {
-            0
-        };
-        (thread.items[from..].iter())
-            .filter_map(|i| match i {
-                Item::You(text) => Some(format!("You: {text}")),
-                Item::Agent(text) => Some(text.clone()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n\n")
+        crate::session::said(rx.await.ok().flatten().unwrap_or_default(), last)
     }
 }
 

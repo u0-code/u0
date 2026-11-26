@@ -456,6 +456,17 @@ pub enum Call {
     DropTask(u64),
     /// Run the task `id` now, whatever its schedule says.
     RunTask(u64),
+    /// Say `prompt` to `agent` in its session `session` (its next turn,
+    /// the one going on let end first), or in a new one in `project`:
+    /// answered, under `tag`, as the session is known and as its turn
+    /// ends, with [`Event::Turned`]. What `ghost thread` asks.
+    Say {
+        tag: u64,
+        agent: String,
+        session: Option<SessionId>,
+        project: PathBuf,
+        prompt: String,
+    },
     /// Give the webhook task `id` a new address, its secret moved to it:
     /// the old one runs it no more.
     RotateHook(u64),
@@ -582,6 +593,7 @@ impl Call {
             | Self::DropTask(_)
             | Self::RunTask(_)
             | Self::Device { .. }
+            | Self::Say { .. }
             | Self::RotateHook(_)
             | Self::StartFlow { .. }
             | Self::AnswerFlow { .. }
@@ -729,6 +741,13 @@ pub enum Event {
     },
     /// A task's turn in the session `meta` begins (`ended` none), with the
     /// session's record so far where `record`; or it ended, how.
+    /// What came of the `Call::Say` of `tag`: its session, or why it was
+    /// not said; and once its turn ends, what the agent answered.
+    Turned {
+        tag: u64,
+        session: Result<SessionId, String>,
+        answer: Option<String>,
+    },
     TaskTurn {
         meta: Box<store::Meta>,
         record: Option<Vec<store::Event>>,
@@ -1564,6 +1583,13 @@ mod tests {
             Call::ResumeFlow(1),
             Call::CancelFlow(1),
             Call::RunTask(1),
+            Call::Say {
+                tag: 1,
+                agent: "a".into(),
+                session: None,
+                project: "/p".into(),
+                prompt: "Go".into(),
+            },
             Call::RotateHook(1),
             Call::Keep(vec![meta]),
             Call::Forget {
@@ -1760,6 +1786,11 @@ mod tests {
                 ended: Some(Ok(StopReason::EndTurn)),
             },
             Event::Index(Ok(index)),
+            Event::Turned {
+                tag: 1,
+                session: Ok(SessionId::new("s1")),
+                answer: Some("Done.".into()),
+            },
             Event::Shared(Box::new(crate::share::Shared {
                 serving: Some(Ok(4317)),
                 tunnel: crate::share::Tunnel::Up("a.trycloudflare.com".into()),

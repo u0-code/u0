@@ -426,6 +426,9 @@ impl Desk {
             _ if host != self.pages.on && Self::of_dialog(&event) => {}
             Event::Sizes(sizes) => self.pages.sizes = sizes,
             Event::Tidied(said) => self.pages.tidied = Some(said),
+            // What `ghost thread` waits for: the window shows the turn as
+            // any task's (`Event::TaskTurn`).
+            Event::Turned { .. } => {}
             Event::Looked {
                 key,
                 folder,

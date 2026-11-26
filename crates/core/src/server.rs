@@ -444,6 +444,13 @@ impl Server {
             Call::DropTask(id) => self.drop_task(id),
             Call::RunTask(id) => self.run_task(id),
             Call::RotateHook(id) => self.rotate_hook(id),
+            Call::Say {
+                tag,
+                agent,
+                session,
+                project,
+                prompt,
+            } => self.shared.say_in(tag, agent, session, project, prompt),
             Call::Workflows => self.say_flows(),
             Call::StartFlow { workflow, input } => self.start_flow(workflow, input),
             Call::AnswerFlow { run, choice } => self.answer_flow(run, choice),

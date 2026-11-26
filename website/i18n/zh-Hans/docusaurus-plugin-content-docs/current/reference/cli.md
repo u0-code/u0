@@ -30,9 +30,18 @@ description: ghost 命令、ghost-server 和 --mcp。
 | `ghost status` | 此主目录的情况：已开启的智能体、服务器是否在监听、服务、计划任务。 |
 | `ghost sessions` | 保留的（未归档的）会话，最新的在前：多久之前、智能体、项目和标题。 |
 | `ghost tasks` | 计划任务：编号、计划、下次运行时间和标题。 |
+| `ghost doctor` | 此主目录中哪些地方不正常（设置、Ghost 保存的文件、已开启的智能体、服务），以及该怎么做；有任何不正常时以非零状态退出。 |
+| `ghost thread list` | 保留的会话，最新的在前，每个都带有它的智能体和 ID。 |
+| `ghost thread show <agent> <id>` | 会话中说过的内容。 |
+| `ghost thread start <project> "<prompt>"` | 在项目中开始一个会话（`.`：当前文件夹）。`--agent <id>` 指定智能体（未指定：第一个已开启的），`--wait` 等待其回答并打印。 |
+| `ghost thread send <agent> <id> "<prompt>"` | 在会话中说些什么，作为它的下一轮（正在进行的一轮会先让它结束）。`--wait` 同上。 |
+| `ghost workflow list` | 工作流及其运行记录。 |
+| `ghost workflow start <name> [input]` | 开始工作流的一次运行。 |
 | `ghost help`、`ghost --help` | 上面的列表；`ghost <command> --help` 会详细说明某个命令。 |
 
 `ghost-server` 接受相同的子命令（`ghost-server status` 等）。不带任何子命令时，它会像 `ghost serve` 一样提供服务。`ghost --version`（或 `ghost-server --version`）会打印构建信息：版本、提交和渠道。Ghost 不认识的子命令会被拒绝，并说明它接受什么。
+
+会执行操作的命令（`thread start`、`thread send`、`workflow start`）会请求这台 Mac 的服务，或者带 `--on <name>` 时请求这台 Mac 已配对的另一台 Mac，通过以这台 Mac 的密钥签名的连接，与窗口的方式相同。在那里只能读取的 Mac 会被拒绝。既没有服务也没有 `--on` 时，它们会提示你安装服务。
 
 ## launchd 服务 {#the-launchd-service}
 

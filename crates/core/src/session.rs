@@ -1521,6 +1521,29 @@ fn informational(c: &agent_client_protocol::v1::schema::ContentChunk) -> Option<
         .then(|| own.get("level").and_then(|l| l.as_str()).unwrap_or("info"))
 }
 
+/// What was said in a session, as its record `events` has it: what the
+/// agent said in its last turn (`last`), or all of it, with what you said
+/// led by "You:".
+pub fn said(events: Vec<store::Event>, last: bool) -> String {
+    let mut thread = Session::new(0, "", std::path::PathBuf::new());
+    thread.replay(events);
+    let from = if last {
+        (thread.items.iter())
+            .rposition(|i| matches!(i, Item::You(_)))
+            .map_or(0, |at| at + 1)
+    } else {
+        0
+    };
+    (thread.items[from..].iter())
+        .filter_map(|i| match i {
+            Item::You(text) => Some(format!("You: {text}")),
+            Item::Agent(text) => Some(text.clone()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

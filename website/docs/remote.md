@@ -190,10 +190,3 @@ no server is reached (`servers.json`); pair again after moving it away.
 A named tunnel's token is stored in `devices.json` as plain text.
 
 :::
-
-:::note Coming
-
-`ghost thread`, `ghost workflow` and `ghost doctor` acting over a signed
-link are being finished and are not in the current build yet.
-
-:::

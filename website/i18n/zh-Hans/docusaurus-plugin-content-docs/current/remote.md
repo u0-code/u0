@@ -126,9 +126,3 @@ Pair a desk with it, once, in the next ten minutes: ghost://pair?host=…
 命名隧道的令牌以明文形式存储在 `devices.json` 中。
 
 :::
-
-:::note 即将推出
-
-通过签名连接执行 `ghost thread`、`ghost workflow` 和 `ghost doctor`，这些功能正在完成中，当前版本尚未包含。
-
-:::
