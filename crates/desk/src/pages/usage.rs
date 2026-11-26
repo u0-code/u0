@@ -6,12 +6,12 @@
 
 use std::collections::BTreeMap;
 
-use gpui::{Context, Div, SharedString, div, prelude::*, px};
+use gpui::component::setting::{SettingGroup, SettingItem};
+use gpui::{Context, IntoElement, SharedString, WeakEntity, div, prelude::*, px};
 
-use super::{card, list_row};
+use super::prefs::{group, item};
 use crate::{
     desk::Desk,
-    fonts::Faces,
     store::Spend,
     theme,
     ui::{self, Weight},
@@ -85,8 +85,8 @@ impl Desk {
         }
     }
 
-    /// The usage page.
-    pub(super) fn usage(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+    /// The usage page: its period, what each agent and session cost.
+    pub(super) fn usage(&self, w: &WeakEntity<Desk>) -> Vec<SettingGroup> {
         let since = self.pages.period.map_or(0, |days| {
             crate::store::secs(std::time::SystemTime::now()).saturating_sub(days * 86_400)
         });
@@ -108,43 +108,47 @@ impl Desk {
             let total = |r: &BTreeMap<String, f64>| r.values().sum::<f64>();
             total(&b.1).total_cmp(&total(&a.1))
         });
-        let periods = ui::segmented(
-            "usage-period",
-            PERIODS
+        let period = item(w, "Period", "⇧⌘1 to ⇧⌘5 choose it.", |d, _, cx| {
+            let picks = PERIODS
                 .iter()
                 .map(|&(label, days)| {
                     let pick: ui::Pick = Box::new(cx.listener(move |this, _, _, cx| {
                         this.pages.period = days;
                         cx.notify();
                     }));
-                    (label, self.pages.period == days, pick)
+                    (label, d.pages.period == days, pick)
                 })
-                .collect(),
-        );
-        let mut agents = card().overflow_hidden();
-        for (n, (agent, cost)) in by_agent.iter().enumerate() {
+                .collect();
+            ui::segmented("usage-period", picks).into_any_element()
+        });
+        let mut agents: Vec<SettingItem> = Vec::new();
+        for (agent, cost) in &by_agent {
             let sessions = rows
                 .iter()
                 .filter(|(k, _)| self.sessions.at(*k).is_some_and(|s| s.meta.agent == *agent))
                 .count();
-            agents = agents.child(
-                list_row(
-                    faces,
-                    &self.name_of(agent),
-                    &format!("{sessions} session{}", if sessions == 1 { "" } else { "s" }),
-                    ui::text(faces, amounts(cost)).text_size(px(13.5)),
-                )
-                .when(n > 0, |d| d.border_t_1().border_color(theme::border())),
-            );
+            let said = amounts(cost);
+            agents.push(item(
+                w,
+                self.name_of(agent),
+                format!("{sessions} session{}", if sessions == 1 { "" } else { "s" }),
+                move |_, faces, _| {
+                    ui::text(faces, said.clone())
+                        .text_size(px(13.5))
+                        .into_any_element()
+                },
+            ));
         }
         if by_agent.is_empty() {
-            agents = agents.child(div().px(px(16.)).py(px(14.)).child(ui::fine(
-                faces,
+            agents.push(item(
+                w,
+                "Nothing said",
                 "No agent said what a session cost in this time. Not every agent says; Ghost does not guess.",
-            )));
+                |_, _, _| div().into_any_element(),
+            ));
         }
-        let mut sessions = card().overflow_hidden();
-        for (n, (key, cost)) in rows.iter().enumerate() {
+        let mut sessions: Vec<SettingItem> = Vec::new();
+        for (key, cost) in &rows {
             let Some(s) = self.sessions.at(*key) else {
                 continue;
             };
@@ -154,18 +158,18 @@ impl Desk {
                 .filter(|u| u.size > 0)
                 .map(|u| format!(" · {}k of {}k in context", u.used / 1000, u.size / 1000))
                 .unwrap_or_default();
-            let key = *key;
-            sessions = sessions.child(
-                list_row(
-                    faces,
-                    &ui::fit(&s.meta.title, 48),
-                    &format!("{}{context}", self.name_of(&s.meta.agent)),
+            let (key, said) = (*key, amounts(cost));
+            sessions.push(item(
+                w,
+                ui::fit(&s.meta.title, 48),
+                format!("{}{context}", self.name_of(&s.meta.agent)),
+                move |_, faces, cx| {
                     div()
                         .flex()
                         .items_center()
                         .gap(px(8.))
                         .child(
-                            ui::text(faces, amounts(cost))
+                            ui::text(faces, said.clone())
                                 .text_size(px(12.5))
                                 .text_color(theme::text2()),
                         )
@@ -181,33 +185,21 @@ impl Desk {
                                     this.show(key, window, cx);
                                 },
                             )),
-                        ),
-                )
-                .when(n > 0, |d| d.border_t_1().border_color(theme::border())),
-            );
+                        )
+                        .into_any_element()
+                },
+            ));
         }
-        let section = |label: &str, body: Div| {
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(8.))
-                .child(ui::label(faces, label))
-                .child(body)
-        };
-        let mut out = div()
-            .flex()
-            .flex_col()
-            .gap(px(22.))
-            .w_full()
-            .child(div().flex().child(periods))
-            .child(section("By agent", agents));
-        if !rows.is_empty() {
-            out = out.child(section("By session", sessions));
+        let mut groups = vec![
+            SettingGroup::new().item(period),
+            group("By agent", agents).description(
+                "Limits and their reset times are not shown: no agent says them over ACP yet.",
+            ),
+        ];
+        if !sessions.is_empty() {
+            groups.push(group("By session", sessions));
         }
-        out.child(ui::fine(
-            faces,
-            "Limits and their reset times are not shown: no agent says them over ACP yet.",
-        ))
+        groups
     }
 }
 

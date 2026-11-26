@@ -9,14 +9,12 @@ use gpui::component::{
     Sizable as _,
     input::Input,
     kbd::Kbd,
-    setting::{SettingGroup, SettingPage, Settings},
+    setting::{SettingGroup, SettingItem, SettingPage, Settings},
     switch::Switch,
 };
-use gpui::{
-    AnyElement, App, Context, Pixels, SharedString, WeakEntity, Window, div, prelude::*, px,
-};
+use gpui::{App, Context, Pixels, SharedString, WeakEntity, Window, div, prelude::*, px};
 
-use super::{card, prefs::whole};
+use super::prefs::{group, item, whole};
 use crate::fonts::Weighted as _;
 use crate::{
     desk::{Desk, Page},
@@ -136,53 +134,32 @@ impl Tab {
 impl Desk {
     /// The page of `tab`, its settings each drawn by `w`, the desk.
     fn tab_page(&self, tab: Tab, w: &WeakEntity<Desk>, cx: &App) -> SettingPage {
-        // A page the desk draws whole, found by what it shows.
-        let drawn =
-            |lede: &str,
-             words: &[&'static str],
-             draw: fn(&mut Desk, &Faces, &mut Context<Desk>) -> AnyElement| {
-                SettingPage::new(tab.title())
-                    .description(lede.to_owned())
-                    .group(SettingGroup::new().item(whole(w, words, draw)))
-            };
+        let paged = |lede: &str, groups: Vec<SettingGroup>| {
+            SettingPage::new(tab.title())
+                .description(lede.to_owned())
+                .groups(groups)
+        };
         let page = match tab {
-            Tab::Agents => drawn(
+            Tab::Agents => paged(
                 "Turn on the agents you use. Each runs its own CLI over ACP, with its own sign-in.",
-                &["agents", "registry", "install", "default"],
-                |d, faces, cx| d.agents_tab(faces, cx).into_any_element(),
+                self.agents(w, cx),
             ),
-            Tab::Sessions => drawn(
+            Tab::Sessions => paged(
                 "Sessions put away, and what Ghost keeps on this Mac.",
-                &[
-                    "archived",
-                    "sessions",
-                    "storage",
-                    "tidy",
-                    "records",
-                    "worktrees",
-                    "checkpoints",
-                ],
-                |d, faces, cx| d.sessions_tab(faces, cx).into_any_element(),
+                self.sessions_tab(w),
             ),
-            Tab::Usage => drawn(
-                "What sessions cost, as their agents said.",
-                &["usage", "cost", "spent"],
-                |d, faces, cx| d.usage(faces, cx).into_any_element(),
-            ),
-            Tab::Diagnostics => drawn(
+            Tab::Usage => paged("What sessions cost, as their agents said.", self.usage(w)),
+            Tab::Diagnostics => paged(
                 "What Ghost runs on this Mac, and what went wrong.",
-                &["processes", "diagnostics", "log", "errors", "cpu", "memory"],
-                |d, faces, cx| d.diagnostics(faces, cx).into_any_element(),
+                self.diagnostics(w),
             ),
-            Tab::Tasks => drawn(
+            Tab::Tasks => paged(
                 "A prompt said to an agent on a schedule. Ghost's server runs them, so they run while the window is closed; each run's session is in the sidebar.",
-                &["tasks", "schedule", "every", "daily", "run"],
-                |d, faces, cx| d.tasks_tab(faces, cx).into_any_element(),
+                self.tasks(w),
             ),
-            Tab::Workflows => drawn(
+            Tab::Workflows => paged(
                 "Work in stages, run by Ghost's server as one run that outlives a restart: each step's result is kept as it ends, and a step that fails pauses the run there.",
-                &["workflows", "workflow", "runs", "steps"],
-                |d, faces, cx| d.flows_tab(faces, cx).into_any_element(),
+                self.flows(w),
             ),
             Tab::Projects => self.projects_tab(w),
             Tab::Devices => self.devices_tab(w),
@@ -237,8 +214,7 @@ impl Desk {
     }
 
     /// The agents of the registry: switched on and off, installed.
-    fn agents_tab(&self, faces: &Faces, cx: &mut Context<Self>) -> gpui::Div {
-        let mut list = card().overflow_hidden();
+    fn agents(&self, w: &WeakEntity<Desk>, cx: &App) -> Vec<SettingGroup> {
         // What runs here, and what answers the search, from the registry.
         let query = self
             .pages
@@ -268,81 +244,63 @@ impl Desk {
                 e.name.to_lowercase(),
             )
         });
-        for (n, e) in agents.into_iter().enumerate() {
-            let on = self.settings.enabled.contains(&e.id);
-            let here = self.here.get(&e.id).cloned().unwrap_or_default();
-            let installed = self.here.contains_key(&e.id) && here.missing.is_none();
-            let name = self.name_of(&e.id);
-            let how = match e.way() {
-                Way::Archive => "binary",
-                Way::Runner { runner, .. } => runner,
-                Way::None => "unavailable",
-            };
-            // Installed, which version, signed in: as far as each is known.
-            let version = here.installed.unwrap_or_else(|| e.version.clone());
-            let signed = match self.slot(&e.id).map(|s| &s.auth) {
-                Some(crate::hub::Auth::Ready) => " · signed in",
-                Some(crate::hub::Auth::Needed(_)) => " · needs sign-in",
-                _ => "",
-            };
-            let line = match (installed, on, e.way()) {
-                (true, true, _) => format!("{version} · {how}{signed}"),
-                (true, false, Way::Archive) => format!("{version} installed · off"),
-                (true, false, _) => format!("runs with {how} · off"),
-                (false, _, _) => "not installed".to_owned(),
-            };
-            let (id, page_id) = (e.id.clone(), e.id.clone());
-            let control = if installed || on {
-                Switch::new(SharedString::from(format!("toggle-{id}")))
-                    .small()
-                    .checked(on)
-                    .on_click(cx.listener(move |this, _, _, cx| this.toggle_agent(&id, cx)))
-                    .into_any_element()
-            } else {
-                ui::button(
-                    SharedString::from(format!("get-{id}")),
-                    "Install",
-                    Weight::Secondary,
-                )
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.open_page(Page::Agent(id.clone()), window, cx);
-                }))
-                .into_any_element()
-            };
-            list = list.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(12.))
-                    .px(px(16.))
-                    .py(px(12.))
-                    .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
-                    .child(div().when(!on, |d| d.opacity(0.45)).child(ui::mark(
-                        faces,
-                        &self.mark_of(&e.id),
-                        24.,
-                    )))
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("aname-{n}")))
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w(px(0.))
-                            .cursor_pointer()
-                            .child(ui::text(faces, name).weight(gpui::FontWeight::MEDIUM))
-                            .child(ui::fine(faces, line))
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.open_page(Page::Agent(page_id.clone()), window, cx);
-                            })),
-                    )
-                    .child(control),
-            );
+        let mut head: Vec<SettingItem> = Vec::new();
+        if let Some(first) = self.slots.first() {
+            let id = first.entry.id.clone();
+            // Said, not chosen here: the first agent on is it.
+            head.push(item(
+                w,
+                "Default for new sessions",
+                "The first agent switched on.",
+                move |d, faces, cx| {
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .child(ui::mark(faces, &d.mark_of(&id), 14.))
+                        .child(
+                            ui::text(faces, d.name_of(&id))
+                                .text_size(px(12.5))
+                                .text_color(theme::text2()),
+                        )
+                        .children(
+                            crate::keys::keys_of(cx, "new_session")
+                                .into_iter()
+                                .map(Kbd::new),
+                        )
+                        .into_any_element()
+                },
+            ));
         }
-        let default = self
-            .slots
-            .first()
-            .map(|s| (s.entry.id.clone(), self.name_of(&s.entry.id)));
+        for trouble in [self.settings_refused.clone(), self.registry_trouble.clone()]
+            .into_iter()
+            .flatten()
+        {
+            head.push(whole(w, &[], move |_, _, _| {
+                ui::trouble(trouble.clone()).into_any_element()
+            }));
+        }
+        if self.registry.agents.is_empty() && self.registry_trouble.is_none() {
+            head.push(item(w, "Reading the registry…", "", |_, _, _| {
+                div().into_any_element()
+            }));
+        }
+        head.push(whole(w, &["search"], |d, _, _| {
+            Input::new(&d.pages.agent_search)
+                .small()
+                .prefix(ui::icon("search", 14.).text_color(theme::faint()))
+                .into_any_element()
+        }));
+        let rows = agents
+            .into_iter()
+            .map(|e| {
+                let id = e.id.clone();
+                whole(w, &[], move |d, faces, cx| {
+                    d.agent_row(faces, &id, cx).into_any_element()
+                })
+                .keywords([e.name.clone(), e.id.clone()])
+            })
+            .collect();
         let read = self.registry_read.map_or_else(
             || "Registry not read yet".to_owned(),
             |t| match when::ago(t, SystemTime::now()).as_str() {
@@ -350,267 +308,258 @@ impl Desk {
                 ago => format!("Registry checked {ago} ago"),
             },
         );
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(22.))
-            .w_full()
-            .children(default.map(|(id, name)| {
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(12.))
-                    .child(
-                        ui::text(faces, "Default for new sessions")
-                            .flex_1()
-                            .text_size(px(13.5)),
-                    )
-                    // Said, not chosen here: the first agent on is it.
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(6.))
-                            .child(ui::mark(faces, &self.mark_of(&id), 14.))
-                            .child(
-                                ui::text(faces, name)
-                                    .text_size(px(12.5))
-                                    .text_color(theme::text2()),
-                            ),
-                    )
-                    .children(
-                        crate::keys::keys_of(cx, "new_session")
-                            .into_iter()
-                            .map(Kbd::new),
-                    )
-            }))
-            .children(self.settings_refused.clone().map(ui::trouble))
-            .children(self.registry_trouble.clone().map(ui::trouble))
-            .when(
-                self.registry.agents.is_empty() && self.registry_trouble.is_none(),
-                |d| d.child(ui::fine(faces, "Reading the registry…")),
-            )
-            .child(
-                Input::new(&self.pages.agent_search)
-                    .small()
-                    .prefix(ui::icon("search", 14.).text_color(theme::faint())),
-            )
-            .child(list)
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .child(
-                        ui::button("refresh", "Read the registry again", Weight::Secondary)
-                            .on_click(cx.listener(|this, _, _, cx| this.refresh_registry(cx))),
-                    )
-                    .child(div().flex_1())
-                    .child(ui::fine(faces, read)),
-            )
-            .child(ui::fine(
-                faces,
-                format!(
-                    "Ghost keeps its settings and the agents it installs in {}.",
-                    Desk::shown(&self.home)
-                ),
-            ))
+        vec![
+            SettingGroup::new().items(head),
+            group("Agents", rows).description(format!(
+                "Ghost keeps its settings and the agents it installs in {}.",
+                Desk::shown(&self.home)
+            )),
+            SettingGroup::new().item(item(w, read, "", |_, _, cx| {
+                ui::button("refresh", "Read the registry again", Weight::Secondary)
+                    .on_click(cx.listener(|this, _, _, cx| this.refresh_registry(cx)))
+                    .into_any_element()
+            })),
+        ]
     }
 
-    /// What Ghost keeps on this machine, how much, and tidying it.
-    fn storage(&self, faces: &Faces, cx: &mut Context<Self>) -> gpui::Div {
-        use crate::tidy::Tidy;
-        let mut rows = card().overflow_hidden();
-        for (n, (label, bytes)) in self.pages.sizes.iter().enumerate() {
-            rows = rows.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .px(px(16.))
-                    .py(px(8.))
-                    .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
-                    .child(ui::text(faces, label.clone()).flex_1().text_size(px(13.)))
-                    .child(ui::fine(faces, crate::tidy::shown(*bytes))),
-            );
-        }
-        let button = |id: &'static str, label: &'static str, what: Tidy| {
-            ui::button(id, label, Weight::Secondary)
-                .on_click(cx.listener(move |this, _, _, cx| this.tidy(what, cx)))
+    /// An agent of the registry, `id`: its logo and name (a click opens its
+    /// page), how it stands here, and its switch or the way to install it.
+    fn agent_row(&self, faces: &Faces, id: &str, cx: &mut Context<Self>) -> gpui::Div {
+        let Some(e) = self.registry.agents.iter().find(|e| e.id == id) else {
+            return div();
+        };
+        let on = self.settings.enabled.contains(&e.id);
+        let here = self.here.get(&e.id).cloned().unwrap_or_default();
+        let installed = self.here.contains_key(&e.id) && here.missing.is_none();
+        let name = self.name_of(&e.id);
+        let how = match e.way() {
+            Way::Archive => "binary",
+            Way::Runner { runner, .. } => runner,
+            Way::None => "unavailable",
+        };
+        // Installed, which version, signed in: as far as each is known.
+        let version = here.installed.unwrap_or_else(|| e.version.clone());
+        let signed = match self.slot(&e.id).map(|s| &s.auth) {
+            Some(crate::hub::Auth::Ready) => " · signed in",
+            Some(crate::hub::Auth::Needed(_)) => " · needs sign-in",
+            _ => "",
+        };
+        let line = match (installed, on, e.way()) {
+            (true, true, _) => format!("{version} · {how}{signed}"),
+            (true, false, Way::Archive) => format!("{version} installed · off"),
+            (true, false, _) => format!("runs with {how} · off"),
+            (false, _, _) => "not installed".to_owned(),
+        };
+        let (id, page_id) = (e.id.clone(), e.id.clone());
+        let control = if installed || on {
+            Switch::new(SharedString::from(format!("toggle-{id}")))
+                .small()
+                .checked(on)
+                .on_click(cx.listener(move |this, _, _, cx| this.toggle_agent(&id, cx)))
+                .into_any_element()
+        } else {
+            ui::button(
+                SharedString::from(format!("get-{id}")),
+                "Install",
+                Weight::Secondary,
+            )
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.open_page(Page::Agent(id.clone()), window, cx);
+            }))
+            .into_any_element()
         };
         div()
             .flex()
-            .flex_col()
+            .items_center()
             .gap(px(12.))
+            .w_full()
+            .child(div().when(!on, |d| d.opacity(0.45)).child(ui::mark(
+                faces,
+                &self.mark_of(&e.id),
+                24.,
+            )))
             .child(
-                ui::text(faces, "On this Mac")
-                    .text_size(px(16.))
-                    .weight(gpui::FontWeight::SEMIBOLD),
+                div()
+                    .id(SharedString::from(format!("aname-{page_id}")))
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .cursor_pointer()
+                    .child(ui::text(faces, name).weight(gpui::FontWeight::MEDIUM))
+                    .child(ui::fine(faces, line))
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.open_page(Page::Agent(page_id.clone()), window, cx);
+                    })),
             )
-            .child(rows)
-            // What no session keeps is known only from the index: while it
-            // does not read, every record, worktree and checkpoint looks so.
-            .when(self.store_refused.is_none(), |d| {
-                d.child(
+            .child(control)
+    }
+
+    /// What Ghost keeps on this machine, how much, and tidying it.
+    fn storage(&self, w: &WeakEntity<Desk>) -> SettingGroup {
+        use crate::tidy::Tidy;
+        let mut items: Vec<SettingItem> = (self.pages.sizes.iter())
+            .map(|(label, bytes)| {
+                let size = crate::tidy::shown(*bytes);
+                item(w, label.clone(), "", move |_, faces, _| {
+                    ui::fine(faces, size.clone()).into_any_element()
+                })
+            })
+            .collect();
+        // What no session keeps is known only from the index: while it
+        // does not read, every record, worktree and checkpoint looks so.
+        if self.store_refused.is_none() {
+            items.push(item(
+                w,
+                "Tidy",
+                self.pages.tidied.clone().unwrap_or_default(),
+                |_, _, cx| {
+                    let button = |id: &'static str, label: &'static str, what: Tidy| {
+                        ui::button(id, label, Weight::Secondary)
+                            .on_click(cx.listener(move |this, _, _, cx| this.tidy(what, cx)))
+                    };
                     div()
                         .flex()
                         .flex_wrap()
+                        .justify_end()
                         .gap(px(8.))
-                        .child(button("tidy-records", "Remove records no session keeps", Tidy::Records))
-                        .child(button("tidy-worktrees", "Remove worktrees no session works in", Tidy::Worktrees))
-                        .child(button("tidy-checkpoints", "Remove checkpoints of earlier runs", Tidy::Checkpoints)),
-                )
-            })
-            .children(self.pages.tidied.clone().map(|said| ui::fine(faces, said)))
-            .child(ui::fine(
-                faces,
-                format!(
-                    "In {}. A worktree with changes not committed is left as it is; undo reaches only the turns of this run.",
-                    Desk::shown(&self.home)
-                ),
-            ))
+                        .child(button(
+                            "tidy-records",
+                            "Remove records no session keeps",
+                            Tidy::Records,
+                        ))
+                        .child(button(
+                            "tidy-worktrees",
+                            "Remove worktrees no session works in",
+                            Tidy::Worktrees,
+                        ))
+                        .child(button(
+                            "tidy-checkpoints",
+                            "Remove checkpoints of earlier runs",
+                            Tidy::Checkpoints,
+                        ))
+                        .into_any_element()
+                },
+            ));
+        }
+        if let Some(refused) = self.store_refused.clone() {
+            items.push(whole(w, &[], move |_, _, _| {
+                ui::trouble(refused.clone()).into_any_element()
+            }));
+        }
+        group("On this Mac", items).description(format!(
+            "In {}. A worktree with changes not committed is left as it is; undo reaches only the turns of this run.",
+            Desk::shown(&self.home)
+        ))
     }
 
     /// Projects archived: out of the list until restored here.
-    fn archived_projects(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<gpui::Div> {
-        let archived: Vec<_> = self
-            .settings
-            .prefs
-            .iter()
+    fn archived_projects(&self, w: &WeakEntity<Desk>) -> Option<SettingGroup> {
+        let items: Vec<SettingItem> = (self.settings.prefs.iter())
             .filter(|(_, p)| p.archived)
-            .map(|(f, _)| f.clone())
-            .collect();
-        if archived.is_empty() {
-            return None;
-        }
-        let mut list = card().overflow_hidden();
-        for (n, folder) in archived.into_iter().enumerate() {
-            let name = self.project_name(&folder);
-            let f = folder.clone();
-            list = list.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(12.))
-                    .px(px(16.))
-                    .py(px(10.))
-                    .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
-                    .child(ui::icon("folder", 16.).text_color(theme::faint()))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w(px(0.))
-                            .child(ui::text(faces, name).text_size(px(13.5)))
-                            .child(ui::fine(faces, Desk::shown(&folder))),
-                    )
-                    .child(
+            .enumerate()
+            .map(|(n, (folder, _))| {
+                let f = folder.clone();
+                item(
+                    w,
+                    self.project_name(folder),
+                    Desk::shown(folder),
+                    move |_, _, cx| {
+                        let f = f.clone();
                         ui::button(
                             SharedString::from(format!("restore-p-{n}")),
                             "Restore",
                             Weight::Secondary,
                         )
-                        .on_click(cx.listener(move |this, _, _, cx| this.restore_project(&f, cx))),
-                    ),
-            );
-        }
-        Some(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(12.))
-                .child(
-                    ui::text(faces, "Archived projects")
-                        .text_size(px(16.))
-                        .weight(gpui::FontWeight::SEMIBOLD),
+                        .on_click(cx.listener(move |this, _, _, cx| this.restore_project(&f, cx)))
+                        .into_any_element()
+                    },
                 )
-                .child(list),
-        )
+            })
+            .collect();
+        (!items.is_empty()).then(|| group("Archived projects", items))
     }
 
     /// Sessions put away: archived ones, restored or deleted here; and what
     /// Ghost keeps of them on this machine.
-    fn sessions_tab(&self, faces: &Faces, cx: &mut Context<Self>) -> gpui::Div {
-        let mut list = card().overflow_hidden();
-        let archived: Vec<_> = self
-            .sessions
-            .all
-            .iter()
+    fn sessions_tab(&self, w: &WeakEntity<Desk>) -> Vec<SettingGroup> {
+        let mut list: Vec<SettingItem> = (self.sessions.all.iter())
             .filter(|s| s.meta.flags.archived && !self.deleting(s.key))
+            .map(|s| {
+                let key = s.key;
+                whole(w, &[], move |d, faces, cx| {
+                    d.archived_row(faces, key, cx).into_any_element()
+                })
+                .keywords([s.meta.title.clone()])
+            })
             .collect();
-        for (n, s) in archived.iter().enumerate() {
-            let key = s.key;
-            list = list.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(12.))
-                    .px(px(16.))
-                    .py(px(10.))
-                    .when(n > 0, |d| d.border_t_1().border_color(theme::border()))
-                    .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.))
-                    // Opened to read, it says it is archived, with Restore.
-                    .child(
-                        div()
-                            .id(SharedString::from(format!("read-{key}")))
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w(px(0.))
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.show(key, window, cx);
-                            }))
-                            .child(ui::one_line(
-                                ui::text(faces, s.meta.title.clone()).text_size(px(13.5)),
-                            ))
-                            .child(ui::fine(
-                                faces,
-                                format!(
-                                    "{} · {}",
-                                    Desk::shown(&s.meta.project),
-                                    when::ago(s.meta.updated, SystemTime::now())
-                                ),
-                            )),
-                    )
-                    .child(
-                        ui::button(
-                            SharedString::from(format!("restore-{key}")),
-                            "Restore",
-                            Weight::Secondary,
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| this.restore(key, cx))),
-                    )
-                    .child(
-                        ui::button(
-                            SharedString::from(format!("delete-{key}")),
-                            "Delete",
-                            Weight::Quiet,
-                        )
-                        .on_click(cx.listener(
-                            move |this, _, window, cx| {
-                                this.ask_delete(vec![key], window, cx);
-                            },
-                        )),
-                    ),
-            );
+        if list.is_empty() {
+            list.push(item(
+                w,
+                "Nothing archived",
+                "A session archived from its menu waits here, read only, until it is restored.",
+                |_, _, _| div().into_any_element(),
+            ));
         }
-        if archived.is_empty() {
-            list = list.child(
-                div()
-                    .px(px(16.))
-                    .py(px(14.))
-                    .child(ui::fine(faces, "Nothing archived. A session archived from its menu waits here, read only, until it is restored.")),
-            );
-        }
+        let mut groups = vec![group("Archived sessions", list)];
+        groups.extend(self.archived_projects(w));
+        groups.push(self.storage(w));
+        groups
+    }
+
+    /// A session archived, `key`: its agent, title, project and when (a
+    /// click reads it, saying it is archived), Restore and Delete.
+    fn archived_row(&self, faces: &Faces, key: u64, cx: &mut Context<Self>) -> gpui::Div {
+        let Some(s) = self.sessions.at(key) else {
+            return div();
+        };
         div()
             .flex()
-            .flex_col()
-            .gap(px(22.))
+            .items_center()
+            .gap(px(12.))
             .w_full()
-            .child(list)
-            .children(self.archived_projects(faces, cx))
-            .child(self.storage(faces, cx))
-            .children(self.store_refused.clone().map(ui::trouble))
+            .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.))
+            // Opened to read, it says it is archived, with Restore.
+            .child(
+                div()
+                    .id(SharedString::from(format!("read-{key}")))
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .cursor_pointer()
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.show(key, window, cx);
+                    }))
+                    .child(ui::one_line(
+                        ui::text(faces, s.meta.title.clone()).text_size(px(13.5)),
+                    ))
+                    .child(ui::fine(
+                        faces,
+                        format!(
+                            "{} · {}",
+                            Desk::shown(&s.meta.project),
+                            when::ago(s.meta.updated, SystemTime::now())
+                        ),
+                    )),
+            )
+            .child(
+                ui::button(
+                    SharedString::from(format!("restore-{key}")),
+                    "Restore",
+                    Weight::Secondary,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.restore(key, cx))),
+            )
+            .child(
+                ui::button(
+                    SharedString::from(format!("delete-{key}")),
+                    "Delete",
+                    Weight::Quiet,
+                )
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.ask_delete(vec![key], window, cx);
+                })),
+            )
     }
 }

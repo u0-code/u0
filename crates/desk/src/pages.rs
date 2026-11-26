@@ -18,6 +18,7 @@ mod usage;
 mod voice;
 mod writing;
 
+pub(crate) use diagnostics::process_tree;
 pub use settings::{Tab, height as settings_height};
 
 use gpui::component::{
@@ -89,6 +90,8 @@ pub struct Pages {
     /// What Ghost runs (the agents among it, by id and process id), and
     /// the warnings and errors in its log: Settings › Diagnostics.
     pub processes: (Vec<(String, u32)>, crate::diagnostics::Processes),
+    /// Those processes as gpui-kit's tree.
+    pub process_tree: Entity<gpui::component::tree::TreeState>,
     pub troubles: Vec<String>,
     /// How sharing this Ghost stands, as its server last said.
     pub shared: Option<crate::share::Shared>,
@@ -168,6 +171,7 @@ impl Pages {
             forges: Vec::new(),
             themes_refused: Vec::new(),
             processes: Default::default(),
+            process_tree: cx.new(|cx| gpui::component::tree::TreeState::new(cx)),
             troubles: Vec::new(),
 
             tokens: crate::forge::Host::ALL.map(|_| {
@@ -286,44 +290,7 @@ enum Step {
     Done,
 }
 
-/// A row of a list in a card: what it is, more of it, and what it ends
-/// in.
-pub(super) fn list_row(faces: &Faces, name: &str, about: &str, end: impl IntoElement) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .gap(px(16.))
-        .px(px(16.))
-        .py(px(12.))
-        .min_h(px(56.))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_w(px(0.))
-                .gap(px(2.))
-                .child(ui::text(faces, name.to_owned()).text_size(px(13.5)))
-                .child(
-                    ui::text(faces, about.to_owned())
-                        .text_size(px(12.5))
-                        .line_height(px(18.))
-                        .text_color(theme::faint()),
-                ),
-        )
-        .child(end)
-}
-
-/// Rows in one card, a line between each.
-pub(super) fn list_of(rows: Vec<Div>) -> Div {
-    let mut frame = card().overflow_hidden();
-    for (n, r) in rows.into_iter().enumerate() {
-        frame = frame.child(r.when(n > 0, |d| d.border_t_1().border_color(theme::border())));
-    }
-    frame
-}
-
-pub(crate) fn card() -> Div {
+fn card() -> Div {
     div()
         .flex()
         .flex_col()

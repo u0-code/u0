@@ -454,7 +454,11 @@ impl Desk {
                 resumed,
                 result,
             } => self.loaded(key, resumed, result, cx),
-            Event::Weighed { agents, processes } => self.pages.processes = (agents, processes),
+            Event::Weighed { agents, processes } => {
+                let items = crate::pages::process_tree(&processes.procs);
+                (self.pages.process_tree).update(cx, |t, cx| t.set_items(items, cx));
+                self.pages.processes = (agents, processes);
+            }
             Event::Troubles(lines) => self.pages.troubles = lines,
             // What the server says is here: each agent restaged, those
             // that can start started, those not here installed.

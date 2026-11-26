@@ -5,10 +5,15 @@
 
 use std::time::SystemTime;
 
-use gpui::component::{Sizable as _, input::Input, tag::Tag};
-use gpui::{Context, Div, SharedString, div, prelude::*, px};
+use gpui::component::{
+    Sizable as _,
+    input::Input,
+    setting::{SettingGroup, SettingItem},
+    tag::Tag,
+};
+use gpui::{Context, Div, IntoElement, SharedString, WeakEntity, div, prelude::*, px};
 
-use super::card;
+use super::prefs::{group, item, whole};
 use crate::{
     desk::{Desk, flows::Showing},
     fonts::Faces,
@@ -20,164 +25,128 @@ use crate::{
 
 impl Desk {
     /// The Workflows tab: the workflows, and their runs.
-    pub(super) fn flows_tab(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+    pub(super) fn flows(&self, w: &WeakEntity<Desk>) -> Vec<SettingGroup> {
         let folder = crate::workflows::folder(&self.home);
-        let mut defs = card().overflow_hidden();
+        let mut defs: Vec<SettingItem> = Vec::new();
+        if self.flows.input.is_some() {
+            defs.push(item(
+                w,
+                "Input",
+                "What the run begins with: Return starts it.",
+                |d, _, _| {
+                    (d.flows.input.as_ref())
+                        .map_or_else(div, |i| div().w(px(240.)).child(Input::new(i).small()))
+                        .into_any_element()
+                },
+            ));
+        }
         if self.flows.list.is_empty() {
-            defs = defs.child(div().px(px(16.)).py(px(14.)).child(ui::fine(
-                faces,
+            defs.push(item(
+                w,
+                "No workflows yet",
                 format!(
-                    "No workflows yet. Each is a JSON file in {}: its steps say a prompt to an agent, run a command, or ask you.",
+                    "Each is a JSON file in {}: its steps say a prompt to an agent, run a command, or ask you.",
                     Desk::shown(&folder)
                 ),
-            )));
+                |_, _, _| div().into_any_element(),
+            ));
         }
         for (n, flow) in self.flows.list.iter().enumerate() {
-            let row = div()
-                .flex()
-                .items_center()
-                .gap(px(16.))
-                .px(px(16.))
-                .py(px(12.))
-                .when(n > 0, |d| d.border_t_1().border_color(theme::border()));
-            defs = defs.child(match flow {
-                Err((name, why)) => row.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w(px(0.))
-                        .gap(px(2.))
-                        .child(ui::text(faces, name.clone()).text_size(px(13.5)))
-                        .child(
-                            ui::text(faces, why.clone())
-                                .text_size(px(12.5))
-                                .text_color(theme::coral()),
-                        ),
-                ),
+            defs.push(match flow {
+                Err((name, why)) => {
+                    let why = why.clone();
+                    whole(w, &[], move |_, faces, _| {
+                        ui::text(faces, why.clone())
+                            .text_size(px(12.5))
+                            .text_color(theme::coral())
+                            .into_any_element()
+                    })
+                    .keywords([name.clone()])
+                }
                 Ok(flow) => {
                     let steps: Vec<&str> = flow.steps.iter().map(Step::name).collect();
+                    let about = if flow.about.is_empty() {
+                        steps.join(" → ")
+                    } else {
+                        format!("{}\n{}", flow.about, steps.join(" → "))
+                    };
                     let name = flow.name.clone();
-                    row.child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w(px(0.))
-                            .gap(px(2.))
-                            .child(ui::text(faces, flow.name.clone()).text_size(px(13.5)))
-                            .when(!flow.about.is_empty(), |d| {
-                                d.child(
-                                    ui::text(faces, flow.about.clone())
-                                        .text_size(px(12.5))
-                                        .text_color(theme::text2()),
-                                )
-                            })
-                            .child(ui::fine(faces, steps.join(" → "))),
-                    )
-                    .child(
+                    item(w, flow.name.clone(), about, move |_, _, cx| {
+                        let name = name.clone();
                         ui::button(
                             SharedString::from(format!("flow-start-{n}")),
                             "Start",
                             Weight::Secondary,
                         )
-                        .on_click(cx.listener(
-                            move |this, _, window, cx| {
-                                this.start_flow(name.clone(), window, cx);
-                            },
-                        )),
-                    )
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.start_flow(name.clone(), window, cx);
+                        }))
+                        .into_any_element()
+                    })
                 }
             });
         }
-        let showing = self.flows.showing;
-        let show = |label: &'static str,
-                    which: Showing,
-                    cx: &mut Context<Self>|
-         -> (&'static str, bool, ui::Pick) {
-            (
-                label,
-                showing == which,
-                Box::new(cx.listener(move |this, _, _, cx| {
-                    this.flows.showing = which;
-                    cx.notify();
-                })),
-            )
-        };
-        let filter = ui::segmented(
-            "flow-showing",
-            vec![
-                show("Needs you", Showing::NeedsYou, cx),
-                show("Going", Showing::Going, cx),
-                show("All", Showing::All, cx),
-            ],
+        let showing = item(
+            w,
+            "Showing",
+            "Those that need you, those going, or all.",
+            |d, _, cx| {
+                let showing = d.flows.showing;
+                let show =
+                    |label: &'static str, which: Showing| -> (&'static str, bool, ui::Pick) {
+                        (
+                            label,
+                            showing == which,
+                            Box::new(cx.listener(move |this, _, _, cx| {
+                                this.flows.showing = which;
+                                cx.notify();
+                            })),
+                        )
+                    };
+                ui::segmented(
+                    "flow-showing",
+                    vec![
+                        show("Needs you", Showing::NeedsYou),
+                        show("Going", Showing::Going),
+                        show("All", Showing::All),
+                    ],
+                )
+                .into_any_element()
+            },
         );
-        let mut runs = card().overflow_hidden();
+        let mut runs = vec![showing];
         match &self.flows.runs {
-            Err(why) => runs = runs.child(div().p(px(12.)).child(ui::trouble(why.clone()))),
+            Err(why) => {
+                let why = why.clone();
+                runs.push(whole(w, &[], move |_, _, _| {
+                    ui::trouble(why.clone()).into_any_element()
+                }));
+            }
             Ok(all) => {
                 let shown: Vec<&Run> = (all.iter().rev())
-                    .filter(|r| match showing {
+                    .filter(|r| match self.flows.showing {
                         Showing::NeedsYou => matches!(r.state, State::Asking | State::Paused(_)),
                         Showing::Going => r.state == State::Going,
                         Showing::All => true,
                     })
                     .collect();
                 if shown.is_empty() {
-                    runs = runs.child(
-                        div()
-                            .px(px(16.))
-                            .py(px(14.))
-                            .child(ui::fine(faces, "No runs here.")),
-                    );
+                    runs.push(item(w, "No runs here.", "", |_, _, _| {
+                        div().into_any_element()
+                    }));
                 }
-                for (n, run) in shown.into_iter().enumerate() {
-                    runs = runs.child(
-                        self.flow_run_row(faces, run, cx)
-                            .when(n > 0, |d| d.border_t_1().border_color(theme::border())),
+                for run in shown {
+                    let (run, named) = (run.clone(), run.workflow.clone());
+                    runs.push(
+                        whole(w, &[], move |d, faces, cx| {
+                            d.flow_run_row(faces, &run, cx).into_any_element()
+                        })
+                        .keywords([named]),
                     );
                 }
             }
         }
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(22.))
-            .w_full()
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(8.))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(12.))
-                            .child(ui::label(faces, "Workflows").flex_1())
-                            .children(
-                                self.flows
-                                    .input
-                                    .as_ref()
-                                    .map(|i| div().w(px(240.)).child(Input::new(i).small())),
-                            ),
-                    )
-                    .child(defs),
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(8.))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .child(ui::label(faces, "Runs").flex_1())
-                            .child(filter),
-                    )
-                    .child(runs),
-            )
+        vec![group("Workflows", defs), group("Runs", runs)]
     }
 
     /// A run: its workflow and input, where it stands, each step done with
@@ -310,8 +279,6 @@ impl Desk {
             .flex()
             .flex_col()
             .gap(px(2.))
-            .px(px(16.))
-            .py(px(12.))
             .child(
                 div()
                     .flex()

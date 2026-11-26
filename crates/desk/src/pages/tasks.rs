@@ -8,12 +8,13 @@ use gpui::component::{
     Selectable as _, Sizable as _,
     input::{Input, Textarea},
     menu::PopupMenu,
+    setting::{SettingGroup, SettingItem},
     switch::Switch,
     tag::Tag,
 };
-use gpui::{Context, Div, SharedString, div, prelude::*, px};
+use gpui::{Axis, Context, Div, IntoElement, SharedString, WeakEntity, div, prelude::*, px};
 
-use super::{card, list_of, list_row};
+use super::prefs::{group, item, whole};
 use crate::{
     desk::{Desk, Popup},
     fonts::Faces,
@@ -25,42 +26,6 @@ use crate::{
 };
 
 impl Desk {
-    /// The Scheduled tasks tab: the one being written, and the tasks.
-    pub(super) fn tasks_tab(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let new = ui::button("new-task", "New task", Weight::Secondary)
-            .on_click(cx.listener(|this, _, window, cx| this.new_task(window, cx)));
-        let head = div()
-            .flex()
-            .items_center()
-            .child(ui::label(faces, "Tasks").flex_1())
-            .when(self.tasks.draft.is_none(), |d| d.child(new));
-        let mut list = card().overflow_hidden();
-        match &self.tasks.list {
-            Err(why) => list = list.child(div().p(px(12.)).child(ui::trouble(why.clone()))),
-            Ok(tasks) if tasks.is_empty() => {
-                list = list.child(div().px(px(16.)).py(px(14.)).child(ui::fine(
-                    faces,
-                    "No tasks yet. A task says its prompt to an agent on a schedule, as a session of its own.",
-                )));
-            }
-            Ok(tasks) => {
-                for (n, task) in tasks.iter().enumerate() {
-                    list = list.child(
-                        self.task_row(faces, task, cx)
-                            .when(n > 0, |d| d.border_t_1().border_color(theme::border())),
-                    );
-                }
-            }
-        }
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(22.))
-            .w_full()
-            .children(self.task_form(faces, cx))
-            .child(div().flex().flex_col().gap(px(8.)).child(head).child(list))
-    }
-
     /// A task: its name and prompt, when it runs and how it last went;
     /// its switch, and its menu.
     fn task_row(&self, faces: &Faces, task: &Task, cx: &mut Context<Self>) -> Div {
@@ -99,8 +64,6 @@ impl Desk {
             .flex()
             .items_center()
             .gap(px(16.))
-            .px(px(16.))
-            .py(px(12.))
             .child(
                 div()
                     .flex()
@@ -196,21 +159,176 @@ impl Desk {
         )
     }
 
+    /// The Scheduled tasks tab: the one being written, and the tasks.
+    pub(super) fn tasks(&self, w: &WeakEntity<Desk>) -> Vec<SettingGroup> {
+        let mut list: Vec<SettingItem> = Vec::new();
+        if self.tasks.draft.is_none() {
+            list.push(item(
+                w,
+                "A new task",
+                "Its prompt, said to an agent on a schedule.",
+                |_, _, cx| {
+                    ui::button("new-task", "New task", Weight::Secondary)
+                        .on_click(cx.listener(|this, _, window, cx| this.new_task(window, cx)))
+                        .into_any_element()
+                },
+            ));
+        }
+        match &self.tasks.list {
+            Err(why) => {
+                let why = why.clone();
+                list.push(whole(w, &[], move |_, _, _| {
+                    ui::trouble(why.clone()).into_any_element()
+                }));
+            }
+            Ok(tasks) if tasks.is_empty() => list.push(item(
+                w,
+                "No tasks yet",
+                "A task says its prompt to an agent on a schedule, as a session of its own.",
+                |_, _, _| div().into_any_element(),
+            )),
+            Ok(tasks) => {
+                for task in tasks {
+                    let (task, named) = (task.clone(), task.title.clone());
+                    list.push(
+                        whole(w, &[], move |d, faces, cx| {
+                            d.task_row(faces, &task, cx).into_any_element()
+                        })
+                        .keywords([named]),
+                    );
+                }
+            }
+        }
+        let mut groups: Vec<SettingGroup> = self.task_form(w).into_iter().collect();
+        groups.push(group("Tasks", list));
+        groups
+    }
+
     /// The task being written: what it says and to whom, where, when, and
-    /// where each run goes.
-    fn task_form(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<Div> {
+    /// where each run goes; then cancelled or kept.
+    fn task_form(&self, w: &WeakEntity<Desk>) -> Option<SettingGroup> {
         let draft = self.tasks.draft.as_ref()?;
         let task = &draft.task;
-        let field = |name: &str, input: gpui::AnyElement| {
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(6.))
-                .px(px(16.))
-                .py(px(12.))
-                .child(ui::text(faces, name.to_owned()).text_size(px(13.5)))
-                .child(input)
+        let mut items = Vec::new();
+        if let Some(wrong) = draft.wrong.clone() {
+            items.push(whole(w, &[], move |_, _, _| {
+                ui::trouble(wrong.clone()).into_any_element()
+            }));
+        }
+        items.extend([
+            item(w, "Name", "", |d, _, _| {
+                d.tasks.draft.as_ref().map_or_else(
+                    || div().into_any_element(),
+                    |draft| Input::new(&draft.title).small().into_any_element(),
+                )
+            })
+            .layout(Axis::Vertical),
+            item(w, "Prompt", "", |d, _, _| {
+                d.tasks.draft.as_ref().map_or_else(
+                    || div().into_any_element(),
+                    |draft| Textarea::new(&draft.prompt).into_any_element(),
+                )
+            })
+            .layout(Axis::Vertical),
+            item(
+                w,
+                "Agent",
+                "Who it is said to, with which model.",
+                |d, faces, cx| d.task_agent_pick(faces, cx).into_any_element(),
+            ),
+            item(w, "Project", "Where it works.", |d, _, cx| {
+                d.task_project_pick(cx).into_any_element()
+            }),
+            item(w, "Schedule", "", |d, faces, cx| {
+                d.task_schedule(faces, cx).into_any_element()
+            })
+            .layout(Axis::Vertical),
+            item(
+                w,
+                "Each run",
+                "A session of its own, or the next turn of the first run's.",
+                |d, _, cx| {
+                    let same = d.tasks.draft.as_ref().is_some_and(|d| d.task.same);
+                    ui::segmented(
+                        "task-same",
+                        vec![
+                            (
+                                "A new session each run",
+                                !same,
+                                draft_pick(cx, |d| d.task.same = false),
+                            ),
+                            (
+                                "One session, continued",
+                                same,
+                                draft_pick(cx, |d| d.task.same = true),
+                            ),
+                        ],
+                    )
+                    .into_any_element()
+                },
+            ),
+        ]);
+        if !task.same {
+            items.push(item(
+                w,
+                "In a worktree of its own",
+                "Each run's session works on a new branch, away from your checkout.",
+                |d, _, cx| {
+                    Switch::new("task-worktree")
+                        .small()
+                        .checked(d.tasks.draft.as_ref().is_some_and(|d| d.task.worktree))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if let Some(d) = &mut this.tasks.draft {
+                                d.task.worktree = !d.task.worktree;
+                            }
+                            cx.notify();
+                        }))
+                        .into_any_element()
+                },
+            ));
+        }
+        let (save, buttons) = (if task.id == 0 { "Add task" } else { "Save" }, w.clone());
+        Some(
+            group(
+                if task.id == 0 {
+                    "New task"
+                } else {
+                    "Edit task"
+                },
+                items,
+            )
+            .footer(move |_, _| {
+                let (cancel, keep) = (buttons.clone(), buttons.clone());
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_end()
+                    .gap(px(8.))
+                    .w_full()
+                    .child(ui::button("task-cancel", "Cancel", Weight::Quiet).on_click(
+                        move |_, _, cx| {
+                            let _ = cancel.update(cx, |this, cx| {
+                                this.tasks.draft = None;
+                                cx.notify();
+                            });
+                        },
+                    ))
+                    .child(ui::button("task-save", save, Weight::Primary).on_click(
+                        move |_, _, cx| {
+                            let _ = keep.update(cx, Desk::save_task);
+                        },
+                    ))
+            }),
+        )
+    }
+
+    /// When the task being written runs: every while, each day at a time
+    /// (on some days), or once.
+    fn task_schedule(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+        let Some(draft) = self.tasks.draft.as_ref() else {
+            return div();
         };
+        let task = &draft.task;
         let kind = |k: u8, cx: &mut Context<Self>| {
             draft_pick(cx, move |draft| {
                 draft.task.schedule = match k {
@@ -289,110 +407,12 @@ impl Desk {
                 .child(div().w(px(200.)).child(Input::new(&draft.at).small()))
                 .child(ui::fine(faces, "tomorrow, 5pm, in 3h")),
         };
-        let runs = ui::segmented(
-            "task-same",
-            vec![
-                (
-                    "A new session each run",
-                    !task.same,
-                    draft_pick(cx, |d| d.task.same = false),
-                ),
-                (
-                    "One session, continued",
-                    task.same,
-                    draft_pick(cx, |d| d.task.same = true),
-                ),
-            ],
-        );
-        let worktree = Switch::new("task-worktree")
-            .small()
-            .checked(task.worktree)
-            .on_click(cx.listener(|this, _, _, cx| {
-                if let Some(d) = &mut this.tasks.draft {
-                    d.task.worktree = !d.task.worktree;
-                }
-                cx.notify();
-            }));
-        let mut rows = vec![
-            field("Name", Input::new(&draft.title).small().into_any_element()),
-            field("Prompt", Textarea::new(&draft.prompt).into_any_element()),
-            list_row(
-                faces,
-                "Agent",
-                "Who it is said to, with which model.",
-                self.task_agent_pick(faces, cx),
-            ),
-            list_row(
-                faces,
-                "Project",
-                "Where it works.",
-                self.task_project_pick(cx),
-            ),
-            field(
-                "Schedule",
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(8.))
-                    .child(schedule)
-                    .child(when_field)
-                    .into_any_element(),
-            ),
-            list_row(
-                faces,
-                "Each run",
-                "A session of its own, or the next turn of the first run's.",
-                runs,
-            ),
-        ];
-        if !task.same {
-            rows.push(list_row(
-                faces,
-                "In a worktree of its own",
-                "Each run's session works on a new branch, away from your checkout.",
-                worktree,
-            ));
-        }
-        let buttons = div()
+        div()
             .flex()
-            .items_center()
-            .justify_end()
+            .flex_col()
             .gap(px(8.))
-            .px(px(16.))
-            .py(px(12.))
-            .child(
-                ui::button("task-cancel", "Cancel", Weight::Quiet).on_click(cx.listener(
-                    |this, _, _, cx| {
-                        this.tasks.draft = None;
-                        cx.notify();
-                    },
-                )),
-            )
-            .child(
-                ui::button(
-                    "task-save",
-                    if task.id == 0 { "Add task" } else { "Save" },
-                    Weight::Primary,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.save_task(cx))),
-            );
-        rows.push(buttons);
-        Some(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(8.))
-                .child(ui::label(
-                    faces,
-                    if task.id == 0 {
-                        "New task"
-                    } else {
-                        "Edit task"
-                    },
-                ))
-                .children(draft.wrong.clone().map(ui::trouble))
-                .child(list_of(rows)),
-        )
+            .child(schedule)
+            .child(when_field)
     }
 
     /// The agent and model the task being written is said to, and the menu
