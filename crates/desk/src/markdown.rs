@@ -9,7 +9,7 @@ use std::{borrow::Cow, fmt::Write as _};
 
 use gpui::{
     App, ClickEvent, Context, Div, IntoElement, Overflow, SharedString, StyleRefinement,
-    WeakEntity, WhiteSpace, Window,
+    WeakEntity, Window,
     component::{
         menu::{ContextMenuExt as _, PopupMenuItem},
         text::{
@@ -38,12 +38,12 @@ pub fn render(faces: &Faces, key: &str, text: &str, cx: &mut Context<Desk>) -> i
     // out no wider than the block. Its first line starts under the buttons
     // in its corner, as under the kit's own label there.
     let code_block = StyleRefinement::default().pt(px(30.));
-    // A table keeps its cells on one line and scrolls sideways rather than
-    // breaking a number.
+    // A table fits the column: gpui-kit keeps its narrow columns (a
+    // number, a name) whole and wraps its widest, and scrolls sideways only
+    // past what wrapping can give. Cells kept on one line scrolled at once,
+    // with no scrollbar to say so, and the last column was out of reach.
     let mut table = StyleRefinement::default();
     table.overflow.x = Some(Overflow::Scroll);
-    let mut cell = StyleRefinement::default();
-    cell.text.white_space = Some(WhiteSpace::Nowrap);
     let style = TextViewStyle::default()
         .heading_font_size(|level, _| {
             px(match level {
@@ -53,8 +53,7 @@ pub fn render(faces: &Faces, key: &str, text: &str, cx: &mut Context<Desk>) -> i
             })
         })
         .code_block(code_block)
-        .table(table)
-        .table_cell(cell);
+        .table(table);
     div()
         .w_full()
         .min_w(px(0.))
