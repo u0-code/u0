@@ -77,11 +77,9 @@ pub fn command(entry: &Entry, host: &str) -> Option<String> {
         (None, Some(p)) => ("uvx", p),
         (None, None) => return None,
     };
-    let mut inner = format!("{runner} {}", p.package);
-    for a in &p.args {
-        inner.push(' ');
-        inner.push_str(a);
-    }
+    // The registry's words, each one word on that machine's shell.
+    let words = std::iter::once(&p.package).chain(&p.args);
+    let inner = format!("{runner} {}", shell_words::join(words));
     Some(over(host, &inner))
 }
 
@@ -97,7 +95,8 @@ pub fn shell_in(dir: &Path, then: &str) -> String {
 /// there is found.
 fn over(host: &str, command: &str) -> String {
     format!(
-        "ssh -T {host} {}",
+        "ssh -T -- {} {}",
+        shell_words::quote(host),
         shell_words::quote(&format!("bash -lc {}", shell_words::quote(command)))
     )
 }
@@ -131,8 +130,23 @@ mod tests {
         let line = command(&e, "devbox").unwrap();
         let launch = crate::registry::launch_with(&e, Path::new("/"), Some(&line));
         if let Ok(l) = launch {
-            assert_eq!(l.args, ["-T", "devbox", "bash -lc 'npx -y @x/c@1 --acp'"]);
+            assert_eq!(
+                l.args,
+                ["-T", "--", "devbox", "bash -lc 'npx -y @x/c@1 --acp'"]
+            );
         }
+        // What the registry says is a word on that machine, never a command.
+        let e: Entry = serde_json::from_str(
+            r#"{"id":"c","name":"C","version":"1","distribution":{"uvx":{"package":"c; touch pwned","args":[]}}}"#,
+        )
+        .unwrap();
+        let words = shell_words::split(&command(&e, "-oProxyCommand=x").unwrap()).unwrap();
+        assert_eq!(words[..4], ["ssh", "-T", "--", "-oProxyCommand=x"]);
+        let there = shell_words::split(&words[4]).unwrap();
+        assert_eq!(
+            shell_words::split(&there[2]).unwrap(),
+            ["uvx", "c; touch pwned"]
+        );
         // A folder is gone into whatever it is named, a quote and all.
         let dir = tempfile::Builder::new()
             .prefix("ghost it's ")

@@ -224,7 +224,7 @@ impl Shared {
             .or(flow.project.as_ref())
             .cloned()
             .ok_or("Name a project or a dir for it")?;
-        let line = run.fill(command);
+        let line = run.command(command);
         let name = flow.steps[run.done.len()].name().to_owned();
         let out = tokio::task::spawn_blocking(move || {
             std::process::Command::new("/bin/sh")

@@ -558,7 +558,7 @@ impl Desk {
         };
         if !self.tunnels.iter().any(|(p, _)| *p == port) {
             match std::process::Command::new("ssh")
-                .args(["-N", "-L", &format!("{port}:localhost:{port}"), host])
+                .args(["-N", "-L", &format!("{port}:localhost:{port}"), "--", host])
                 .stdin(std::process::Stdio::null())
                 .spawn()
             {

@@ -43,7 +43,7 @@ impl Pty {
         let (mut command, title) = if let Some(host) = host {
             let mut c = CommandBuilder::new("ssh");
             let there = crate::remote::shell_in(dir, "exec \"$SHELL\" -l");
-            c.args(["-t", host, &there]);
+            c.args(["-t", "--", host, &there]);
             if let Some(home) = std::env::var_os("HOME") {
                 c.cwd(home);
             }

@@ -54,7 +54,8 @@ pub enum Step {
         after: Option<String>,
     },
     /// Run `command` in a shell, in the project (or `dir`); its result is
-    /// what it printed. One that fails pauses the run.
+    /// what it printed. Each `{{name}}` in it is one word, quoted. One that
+    /// fails pauses the run.
     Run {
         name: String,
         command: String,
@@ -135,10 +136,44 @@ impl Run {
     /// `text` with the run's input and its steps' results put in for
     /// `{{input}}` and `{{name}}`.
     pub fn fill(&self, text: &str) -> String {
-        let mut out = text.replace("{{input}}", &self.input);
-        for d in &self.done {
-            out = out.replace(&format!("{{{{{}}}}}", d.name), d.result.trim());
+        self.put(text, str::to_owned)
+    }
+
+    /// A `run` step's `command` filled as `fill` does, each value put in
+    /// as one word, quoted for the shell: what an agent answered is never
+    /// run as a command of its own.
+    pub fn command(&self, command: &str) -> String {
+        self.put(command, |v| shell_words::quote(v).into_owned())
+    }
+
+    /// `text` with each `{{name}}` known put in as `each` writes its value,
+    /// in one pass: a value put in is never read again for more.
+    fn put(&self, text: &str, each: impl Fn(&str) -> String) -> String {
+        let mut out = String::with_capacity(text.len());
+        let mut rest = text;
+        while let Some(at) = rest.find("{{") {
+            out.push_str(&rest[..at]);
+            let after = &rest[at + 2..];
+            let found = after.find("}}").and_then(|end| {
+                let name = &after[..end];
+                let value = if name == "input" {
+                    Some(self.input.as_str())
+                } else {
+                    (self.done.iter())
+                        .find(|d| d.name == name)
+                        .map(|d| d.result.trim())
+                };
+                value.map(|v| (v, end))
+            });
+            if let Some((value, end)) = found {
+                out.push_str(&each(value));
+                rest = &after[end + 2..];
+            } else {
+                out.push_str("{{");
+                rest = after;
+            }
         }
+        out.push_str(rest);
         out
     }
 
@@ -257,5 +292,36 @@ mod tests {
         };
         assert_eq!(run.fill("Ship {{input}}? {{notes}}"), "Ship v1.4? 3 fixes");
         assert_eq!(run.fill("{{later}}"), "{{later}}");
+    }
+
+    #[test]
+    fn what_an_agent_answered_goes_into_a_command_as_one_word_and_never_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let said = "fixes; touch pwned '$(touch pwned)`touch pwned`";
+        let run = Run {
+            id: 1,
+            workflow: "w".into(),
+            input: "v1 {{notes}}".into(),
+            began: 0,
+            state: State::Going,
+            done: vec![Done {
+                name: "notes".into(),
+                result: format!("{said}\n"),
+                session: None,
+            }],
+            turn: None,
+        };
+        let line = run.command("printf '%s|' {{input}} {{notes}} {{later}}");
+        let out = std::process::Command::new("/bin/sh")
+            .args(["-c", &line])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        assert_eq!(
+            String::from_utf8_lossy(&out.stdout),
+            format!("v1 {{{{notes}}}}|{said}|{{{{later}}}}|")
+        );
+        assert!(!dir.path().join("pwned").exists());
     }
 }
