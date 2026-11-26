@@ -15,6 +15,8 @@ use crate::{
 impl Desk {
     /// The Source control tab: each host, and what merging leaves out.
     pub(super) fn source_control(&self, w: &WeakEntity<Desk>) -> SettingPage {
+        // A token holds everywhere: with a project chosen, it is not changed.
+        let scoped = self.pages.scope.is_some();
         let hosts = Host::ALL
             .into_iter()
             .enumerate()
@@ -31,7 +33,7 @@ impl Desk {
                 } else {
                     cli
                 };
-                item(w, host.name(), about, move |d, _, cx| d.token_field(n, cx))
+                item(w, host.name(), about, move |d, _, cx| d.token_field(n, cx)).disabled(scoped)
             })
             .collect();
         SettingPage::new("Source control")

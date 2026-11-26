@@ -27,6 +27,9 @@ impl Desk {
         cx: &App,
     ) -> Option<SettingPage> {
         use super::Tab;
+        // With a project chosen atop a page, only what a project may hold
+        // can be changed: the rest holds everywhere, and is shown so.
+        let scoped = self.pages.scope.is_some();
         let (lede, groups) = match tab {
             Tab::General => (
                 "How Ghost tells you things, and what it does while you are away.",
@@ -53,10 +56,10 @@ impl Desk {
                                     )
                                     .into_any_element()
                                 },
-                            ),
+                            ).disabled(scoped),
                             told(w, ("A turn finished", "Its answer is in."), |n| {
                                 &mut n.finished
-                            }),
+                            }).disabled(scoped),
                             told(
                                 w,
                                 (
@@ -64,7 +67,7 @@ impl Desk {
                                     "It ended in an error, or you stopped it.",
                                 ),
                                 |n| &mut n.failed,
-                            ),
+                            ).disabled(scoped),
                             told(
                                 w,
                                 (
@@ -72,7 +75,7 @@ impl Desk {
                                     "A permission or a question waits on you.",
                                 ),
                                 |n| &mut n.asks,
-                            ),
+                            ).disabled(scoped),
                             item(
                                 w,
                                 "Keep the Mac awake while an agent works",
@@ -90,7 +93,7 @@ impl Desk {
                                         }))
                                         .into_any_element()
                                 },
-                            ),
+                            ).disabled(scoped),
                         ],
                     ),
                     group(
@@ -100,7 +103,7 @@ impl Desk {
                             "Files open in",
                             "A file the agent named, an edit, or keybindings.json.",
                             |d, _, cx| d.editor_pick(cx).into_any_element(),
-                        )],
+                        ).disabled(scoped)],
                     ),
                     group(
                         "Pull requests",
@@ -147,7 +150,7 @@ impl Desk {
                                     )
                                     .into_any_element()
                                 },
-                            ),
+                            ).disabled(scoped),
                             item(
                                 w,
                                 "When its pull request merges or closes",
@@ -162,7 +165,7 @@ impl Desk {
                                     )
                                     .into_any_element()
                                 },
-                            ),
+                            ).disabled(scoped),
                             item(
                                 w,
                                 "Snooze for",
@@ -173,7 +176,7 @@ impl Desk {
                                         .child(Input::new(&d.pages.snoozes).small())
                                         .into_any_element()
                                 },
-                            ),
+                            ).disabled(scoped),
                             item(
                                 w,
                                 "Keep sessions with a pull request",
@@ -188,7 +191,7 @@ impl Desk {
                                     )
                                     .into_any_element()
                                 },
-                            ),
+                            ).disabled(scoped),
                         ],
                     ),
                     group(
@@ -228,7 +231,7 @@ impl Desk {
                                     )
                                     .into_any_element()
                                 },
-                            ),
+                            ).disabled(scoped),
                             item(
                                 w,
                                 "Look for agents' new versions",
@@ -243,7 +246,7 @@ impl Desk {
                                     )
                                     .into_any_element()
                                 },
-                            ),
+                            ).disabled(scoped),
                         ],
                     ),
                     group(
@@ -289,7 +292,7 @@ impl Desk {
                                     )
                                     .into_any_element()
                                 },
-                            ),
+                            ).disabled(scoped),
                         ],
                     ),
                 ],
@@ -670,7 +673,7 @@ impl Desk {
                                     )
                                     .into_any_element()
                                 },
-                            ),
+                            ).disabled(scoped),
                             item(
                                 w,
                                 "Worktree branches begin with",
@@ -682,7 +685,7 @@ impl Desk {
                                         .child(Input::new(&d.pages.prefix).small())
                                         .into_any_element()
                                 },
-                            ),
+                            ).disabled(scoped),
                             item(
                                 w,
                                 "Or they begin with",
@@ -706,7 +709,7 @@ impl Desk {
                                     Desk::shown(&self.worktree_folders(crate::hub::Host::HERE)[0])
                                 ),
                                 |d, _, cx| d.worktree_location(cx).into_any_element(),
-                            ),
+                            ).disabled(scoped),
                             item(
                                 w,
                                 "Submodules",
@@ -1095,12 +1098,24 @@ pub(super) fn item(
     let about: SharedString = about.into();
     let item = SettingItem::new(
         name,
-        SettingField::render(move |_, _, cx| {
-            w.update(cx, |d, cx| {
-                let faces = crate::fonts::faces(cx).clone();
-                control(d, &faces, cx)
-            })
-            .unwrap_or_else(|_| div().into_any_element())
+        SettingField::render(move |options, _, cx| {
+            let control = w
+                .update(cx, |d, cx| {
+                    let faces = crate::fonts::faces(cx).clone();
+                    control(d, &faces, cx)
+                })
+                .unwrap_or_else(|_| div().into_any_element());
+            // gpui-kit dims an item disabled; the desk's own control is
+            // also kept from the pointer, under a cover.
+            if options.is_disabled() {
+                div()
+                    .relative()
+                    .child(control)
+                    .child(div().absolute().inset_0().occlude())
+                    .into_any_element()
+            } else {
+                control
+            }
         }),
     );
     // One with nothing more to say has no empty line under its name.
