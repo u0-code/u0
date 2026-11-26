@@ -502,6 +502,9 @@ impl Drop for Forward {
     }
 }
 
+/// How many connections a port brought here carries at once.
+const CARRIED: usize = 64;
+
 /// Bring the port `there` of the server `way` here, coming in with the key
 /// kept as `kept`: at the same port where it is free, else at another.
 pub fn forward(way: Way, kept: String, there: u16) -> Result<Forward, String> {
@@ -519,12 +522,13 @@ pub fn forward(way: Way, kept: String, there: u16) -> Result<Forward, String> {
         let mut carried = tokio::task::JoinSet::new();
         loop {
             let near = tokio::select! {
-                accepted = listener.accept() => match accepted {
-                    Ok((near, _)) => near,
-                    Err(_) => continue,
-                },
+                near = next(&listener) => near,
                 Some(_) = carried.join_next() => continue,
             };
+            // Past `CARRIED` carried at once, one more is closed at once.
+            if carried.len() >= CARRIED {
+                continue;
+            }
             let (way, key) = (way.clone(), Key::read(&kept));
             carried.spawn(async move {
                 let Ok(key) = key else { return };
@@ -1642,6 +1646,52 @@ mod tests {
             server.access().live(&other).is_some(),
             "the code was not spent"
         );
+    }
+
+    #[test]
+    fn a_port_brought_here_carries_so_many_at_once_and_closes_one_more_at_once() {
+        use std::io::{Read as _, Write as _};
+        let home = tempfile::tempdir().unwrap();
+        let (server, port) = server(home.path());
+        // A dev server there: each connection answers what is sent, once.
+        let dev = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let there = dev.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            while let Ok((mut c, _)) = dev.accept() {
+                std::thread::spawn(move || {
+                    let mut asked = [0u8; 5];
+                    if c.read_exact(&mut asked).is_ok() {
+                        let _ = c.write_all(b"hello from there");
+                    }
+                });
+            }
+        });
+        let mine = kept();
+        pair_as(&server, port, &mine, crate::access::Grant::default());
+        let forwarded = forward(here(port), mine, there).unwrap();
+        let connect = || {
+            let c = std::net::TcpStream::connect(("127.0.0.1", forwarded.port)).unwrap();
+            c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+            c
+        };
+        let mut held: Vec<_> = (0..CARRIED).map(|_| connect()).collect();
+        std::thread::sleep(Duration::from_millis(500));
+        let began = std::time::Instant::now();
+        let mut said = Vec::new();
+        assert!(connect().read_to_end(&mut said).is_ok() && said.is_empty());
+        assert!(began.elapsed() < Duration::from_secs(2), "closed at once");
+        // One carried is answered still, and ends; then one more is carried.
+        let mut first = held.remove(0);
+        first.write_all(b"hello").unwrap();
+        let mut answer = String::new();
+        let _ = first.read_to_string(&mut answer);
+        assert_eq!(answer, "hello from there");
+        std::thread::sleep(Duration::from_millis(300));
+        let mut next = connect();
+        next.write_all(b"hello").unwrap();
+        let mut answer = String::new();
+        let _ = next.read_to_string(&mut answer);
+        assert_eq!(answer, "hello from there");
     }
 
     #[test]
