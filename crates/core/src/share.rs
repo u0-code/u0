@@ -119,8 +119,7 @@ impl Sharing {
         if let Some((task, pid)) = self.cloudflared.take() {
             task.abort();
             if let Some(pid) = *pid.lock().expect("pid") {
-                // SAFETY: a signal to the process this one started.
-                unsafe { libc::kill(pid.cast_signed(), libc::SIGTERM) };
+                crate::diagnostics::terminate(pid);
             }
         }
         *self.tunnel.lock().expect("tunnel") = Tunnel::Off;

@@ -111,14 +111,30 @@ pub fn signal(root: u32, pid: u32, signal: &str) -> Result<String, String> {
         "KILL" => Signal::Kill,
         _ => Signal::Term,
     };
-    let system = system().ok_or("this machine's processes cannot be read")?;
-    match system
-        .process(Pid::from_u32(pid))
-        .and_then(|p| p.kill_with(sent))
-    {
-        Some(true) => Ok(format!("Sent {signal} to {pid}")),
-        _ => Err(format!("{pid} could not be sent {signal}")),
+    if send(pid, sent) {
+        Ok(format!("Sent {signal} to {pid}"))
+    } else {
+        Err(format!("{pid} could not be sent {signal}"))
     }
+}
+
+/// Ask the process `pid`, one Ghost started, to end (TERM).
+pub fn terminate(pid: u32) {
+    send(pid, Signal::Term);
+}
+
+/// Send `pid` the signal `sent`; whether it was.
+fn send(pid: u32, sent: Signal) -> bool {
+    let Some(mut system) = system() else {
+        return false;
+    };
+    let pid = Pid::from_u32(pid);
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::Some(&[pid]),
+        false,
+        ProcessRefreshKind::nothing(),
+    );
+    system.process(pid).and_then(|p| p.kill_with(sent)) == Some(true)
 }
 
 /// What went wrong lately, as Ghost's log in `home` says: its warnings
