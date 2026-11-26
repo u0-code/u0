@@ -9,7 +9,7 @@ use std::borrow::Cow;
 use std::path::Path;
 
 use gpui::component::{
-    Sizable as _,
+    Disableable as _, Sizable as _,
     checkbox::Checkbox,
     diff::{
         Diff, DiffAnnotation, DiffChangeIndicator, DiffFile, DiffLinePosition, DiffMode, DiffSide,
@@ -715,6 +715,8 @@ impl Desk {
         let (behind, origin) = s.git.upstream;
         let gh = self.on_path.contains(&"gh");
         let idle = !matches!(s.state, State::Working | State::Opening);
+        // Nothing uncommitted, as git read it: nothing to commit.
+        let clean = files_of(s, &Scope::All).is_some_and(|f| f.is_empty());
         div()
             .flex()
             .flex_col()
@@ -750,12 +752,13 @@ impl Desk {
                             ui::button(
                                 "commit",
                                 "Commit…",
-                                if idle {
+                                if idle && !clean {
                                     Weight::Primary
                                 } else {
                                     Weight::Secondary
                                 },
                             )
+                            .disabled(clean)
                             .on_click(
                                 cx.listener(|this, _, window, cx| this.toggle_commit(window, cx)),
                             ),
