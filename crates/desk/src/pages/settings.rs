@@ -338,6 +338,25 @@ impl Desk {
                 |_, _, _| div().into_any_element(),
             ));
         }
+        let host = self.pages.on;
+        let acts = self.settings_on(host).outside_acts;
+        head.push(item(
+            w,
+            "Agents outside Ghost may act",
+            "An agent outside Ghost reaches Ghost's tools by the key in mcp.json (ghost --mcp, or over HTTP on this Mac). Off, it only reads; on, it may say something in a session or stop its turn, each asked of you there.",
+            move |_, _, cx| {
+                gpui::component::switch::Switch::new("outside-acts")
+                    .accessibility_label("Agents outside Ghost may act")
+                    .small()
+                    .checked(acts)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.settings_on_mut(host).outside_acts = !acts;
+                        this.save_settings_on(host);
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            },
+        ));
         head.push(whole(w, &["search"], |d, _, _| {
             Input::new(&d.pages.agent_search)
                 .small()

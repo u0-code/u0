@@ -50,6 +50,7 @@ use crate::{
 };
 
 mod flows;
+mod happened;
 mod scheduled;
 mod tools;
 
@@ -89,8 +90,8 @@ struct Shared {
     index: Arc<Mutex<Result<Index, String>>>,
     records: Arc<Records>,
     writing: Writing,
-    /// The sessions a turn goes on in, by agent and id.
-    turning: Arc<Mutex<std::collections::HashSet<(String, SessionId)>>>,
+    /// The turns going on, and what happened in sessions (`happened`).
+    happened: Arc<happened::Happenings>,
     /// The scheduled tasks, or why they do not read.
     tasks: Arc<Mutex<Result<crate::tasks::Tasks, String>>>,
     /// The workflows' runs, or why they do not read.
@@ -143,6 +144,11 @@ impl Shared {
         );
         let (said, id, this) = (self.send.clone(), agent.to_owned(), self.clone());
         let running = Agent::start(&launch, move |event| {
+            if let acp::Event::Permission { request, .. } = &event {
+                let title = (request.tool_call.fields.title.clone()).unwrap_or_default();
+                let asks = happened::Happened::Asks(title);
+                this.happened.happened(&id, &request.session_id, asks);
+            }
             if let Some(event) = heard(&this.records, &this.agents, &this.writing, &id, event) {
                 said(event);
             }
@@ -253,7 +259,7 @@ impl Server {
                 }),
                 agents: Running::default(),
                 index: Arc::new(Mutex::new(index)),
-                turning: Arc::default(),
+                happened: Arc::default(),
                 tasks: Arc::new(Mutex::new(tasks)),
                 runs: Arc::new(Mutex::new(runs)),
                 watched: Arc::default(),
@@ -1090,11 +1096,14 @@ impl Server {
     /// Say `content` in the session `session`, and wait for the turn to
     /// end.
     fn prompt(&self, id: &str, key: u64, session: SessionId, content: Vec<ContentBlock>) {
-        let turning = self.shared.turning.clone();
-        let on = (id.to_owned(), session.clone());
-        turning.lock().expect("turning").insert(on.clone());
+        let (happened, agent, on) = (self.shared.happened.clone(), id.to_owned(), session.clone());
+        happened.begin(&agent, &on);
         self.ask(id, PromptRequest::new(session, content), move |r| {
-            turning.lock().expect("turning").remove(&on);
+            happened.end(
+                &agent,
+                &on,
+                happened::ended(r.as_ref().map(|r| r.stop_reason)),
+            );
             Event::Ended {
                 key,
                 tokens: r.as_ref().map(crate::usage::Tokens::of).unwrap_or_default(),

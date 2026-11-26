@@ -230,6 +230,12 @@ pub struct Settings {
     /// The agents whose sessions are not given Ghost's tools, by id.
     #[serde(default)]
     pub no_tools: Vec<String>,
+    /// Whether an agent outside Ghost (`ghost --mcp`, or the tools over
+    /// HTTP, by the key in `mcp.json`) may ask to act on a session: say
+    /// something in it, stop its turn; each asked of you in that session.
+    /// Off, it only reads.
+    #[serde(default)]
+    pub outside_acts: bool,
     /// A turn an agent's limit stopped goes on by itself as the limit
     /// resets, where the agent says when.
     #[serde(default = "yes")]
@@ -846,6 +852,7 @@ impl Default for Settings {
             host_folders: false,
             snoozes: snoozes(),
             no_tools: Vec::new(),
+            outside_acts: false,
             resume_at_reset: true,
             tidy_after: None,
             sort: Sort::Used,

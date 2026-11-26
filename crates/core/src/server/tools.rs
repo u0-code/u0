@@ -17,10 +17,11 @@ use std::{
 };
 
 use agent_client_protocol::v1::schema::{
-    CreateElicitationRequest, ElicitationAction, ElicitationContentValue, ElicitationFormMode,
-    ElicitationSchema, ElicitationSessionScope, EnvVariable, McpServer, McpServerStdio,
-    PermissionOption, PermissionOptionKind, RequestPermissionOutcome, RequestPermissionRequest,
-    SessionId, StringPropertySchema, ToolCallUpdate, ToolCallUpdateFields,
+    CancelNotification, CreateElicitationRequest, ElicitationAction, ElicitationContentValue,
+    ElicitationFormMode, ElicitationSchema, ElicitationSessionScope, EnvVariable, McpServer,
+    McpServerStdio, PermissionOption, PermissionOptionKind, RequestPermissionOutcome,
+    RequestPermissionRequest, SessionId, StringPropertySchema, ToolCallUpdate,
+    ToolCallUpdateFields,
 };
 use rmcp::{
     ServerHandler, ServiceExt as _, handler::server::wrapper::Parameters, schemars, tool,
@@ -42,9 +43,20 @@ use crate::{
     tasks::{Schedule, Task},
 };
 
-/// Who each key lets in: an agent outside Ghost, or one in a session of
-/// Ghost's (its agent, and its id once it has one).
-pub(super) type Callers = Arc<Mutex<HashMap<String, Option<(String, Option<SessionId>)>>>>;
+/// Who each key lets in.
+pub(super) type Callers = Arc<Mutex<HashMap<String, Caller>>>;
+
+/// Who calls Ghost's tools, and so what it may do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Caller {
+    /// An agent outside Ghost, by the key in `mcp.json`: it reads, and
+    /// acts on a session only where your settings let it
+    /// (`outside_acts`), asked of you in that session.
+    Outside,
+    /// An agent in a session of Ghost's (its agent, and its id once it
+    /// has one): what acts is asked of you in its own session.
+    Session(String, Option<SessionId>),
+}
 
 impl Shared {
     /// Listen for agents calling Ghost's tools, from now on: the door
@@ -65,7 +77,7 @@ impl Shared {
                 key: crate::access::random::<32>(),
             };
             // Its key lets in before the door names it.
-            (this.callers.lock().expect("callers")).insert(door.key.clone(), None);
+            (this.callers.lock().expect("callers")).insert(door.key.clone(), Caller::Outside);
             if let Err(e) = mcp::open(&this.home, &door) {
                 tracing::warn!("Ghost's tools are not served: {e}");
                 return;
@@ -107,7 +119,8 @@ impl Shared {
             return (String::new(), Vec::new());
         }
         let key = crate::access::random::<32>();
-        (self.callers.lock().expect("callers")).insert(key.clone(), Some((agent.to_owned(), id)));
+        (self.callers.lock().expect("callers"))
+            .insert(key.clone(), Caller::Session(agent.to_owned(), id));
         let program = std::env::current_exe().unwrap_or_else(|_| "ghost".into());
         let server = McpServerStdio::new("ghost", program)
             .args(vec!["--mcp".into()])
@@ -118,9 +131,18 @@ impl Shared {
         (key, vec![McpServer::Stdio(server)])
     }
 
+    /// The session `id` of `agent`, as the index keeps it.
+    fn meta(&self, agent: &str, id: &SessionId) -> Option<Meta> {
+        (self.index.lock().expect("index").as_ref().ok())?
+            .sessions
+            .iter()
+            .find(|m| m.agent == agent && m.id.as_ref() == Some(id))
+            .cloned()
+    }
+
     /// The session opened with the key `key` is `id`.
     pub(super) fn bind(&self, key: &str, id: SessionId) {
-        if let Some(Some((_, at))) = self.callers.lock().expect("callers").get_mut(key) {
+        if let Some(Caller::Session(_, at)) = self.callers.lock().expect("callers").get_mut(key) {
             *at = Some(id);
         }
     }
@@ -151,25 +173,26 @@ struct Tools {
 /// Why a tool that acts, or asks you, is not for an agent outside Ghost.
 const OUTSIDE: &str = "Only an agent in a session of Ghost's can do this: Ghost asks you first there. Start one in Ghost.";
 
+/// Why a tool that acts is not for this caller: it may only read.
+const READS: &str = "This agent may only read here: let agents outside Ghost act on a session in Settings › Agents, or start one in Ghost.";
+
 impl Tools {
     /// The session it calls from, and how the index keeps it; none for an
     /// agent outside Ghost.
     fn session(&self) -> Option<(SessionId, Meta)> {
-        let caller = self
-            .shared
-            .callers
-            .lock()
-            .expect("callers")
-            .get(&self.key)?
-            .clone();
-        let (agent, id) = caller?;
-        let id = id?;
-        let meta = (self.shared.index.lock().expect("index").as_ref().ok())?
-            .sessions
-            .iter()
-            .find(|m| m.agent == agent && m.id.as_ref() == Some(&id))?
-            .clone();
+        let caller = self.caller()?;
+        let Caller::Session(agent, Some(id)) = caller else {
+            return None;
+        };
+        let meta = self.shared.meta(&agent, &id)?;
         Some((id, meta))
+    }
+
+    /// Who it is, while its key lets it in.
+    fn caller(&self) -> Option<Caller> {
+        (self.shared.callers.lock().expect("callers"))
+            .get(&self.key)
+            .cloned()
     }
 
     /// Ask you whether `tool` may do what `title` says, with `input`, in
@@ -181,8 +204,46 @@ impl Tools {
         input: &impl Serialize,
     ) -> Result<Meta, String> {
         let (id, meta) = self.session().ok_or(OUTSIDE)?;
+        self.ask(tool, title, input, &meta.agent, id).await?;
+        Ok(meta)
+    }
+
+    /// Ask you whether `tool` may do what `title` says to the session
+    /// `on` of `agent`: in the session it calls from, for one in a
+    /// session of Ghost's; for one outside Ghost where your settings let
+    /// it act, in the session it acts on. That session, as kept.
+    async fn allowed_on(
+        &self,
+        tool: &'static str,
+        title: String,
+        input: &impl Serialize,
+        agent: &str,
+        on: &SessionId,
+    ) -> Result<Meta, String> {
+        let meta = (self.shared.meta(agent, on)).ok_or("Ghost keeps no such session")?;
+        match self.caller() {
+            Some(Caller::Session(..)) => self.allowed(tool, title, input).await.map(|_| meta),
+            Some(Caller::Outside) if Settings::load(&self.shared.home).0.outside_acts => {
+                let title = format!("An agent outside Ghost: {title}");
+                self.ask(tool, title, input, agent, on.clone()).await?;
+                Ok(meta)
+            }
+            _ => Err(READS.into()),
+        }
+    }
+
+    /// Ask you, on a permission card in the session `id` of `agent`,
+    /// whether `tool` may do what `title` says with `input`.
+    async fn ask(
+        &self,
+        tool: &'static str,
+        title: String,
+        input: &impl Serialize,
+        agent: &str,
+        id: SessionId,
+    ) -> Result<(), String> {
         if self.always.lock().expect("always").contains(tool) {
-            return Ok(meta);
+            return Ok(());
         }
         let options = vec![
             PermissionOption::new("once", "Allow", PermissionOptionKind::AllowOnce),
@@ -197,7 +258,7 @@ impl Tools {
         );
         let answer = self
             .shared
-            .ask_you(&meta.agent, |n| acp::Event::Permission {
+            .ask_you(agent, |n| acp::Event::Permission {
                 id: n,
                 request: RequestPermissionRequest::new(id, call, options),
             })
@@ -208,10 +269,20 @@ impl Tools {
         match &*chosen.option_id.0 {
             "always" => {
                 self.always.lock().expect("always").insert(tool);
-                Ok(meta)
+                Ok(())
             }
-            "once" => Ok(meta),
+            "once" => Ok(()),
             _ => Err("You did not allow it".into()),
+        }
+    }
+
+    /// Refuse a session's own: it would wait on the turn it calls from.
+    fn not_mine(&self, agent: &str, id: &SessionId) -> Result<(), String> {
+        match self.caller() {
+            Some(Caller::Session(a, Some(own))) if a == agent && own == *id => {
+                Err("That is this session: name another".into())
+            }
+            _ => Ok(()),
         }
     }
 
@@ -290,6 +361,56 @@ struct ScheduleTask {
     agent: Option<String>,
     /// The project it works in (its folder); none, this session's.
     project: Option<PathBuf>,
+}
+
+#[derive(Serialize, Deserialize, schemars::JsonSchema)]
+struct SendTo {
+    /// The session's agent, by its registry id (as `list_sessions` says).
+    agent: String,
+    /// The session's id.
+    session: String,
+    /// What to say in it, as its next turn: one going on is let end
+    /// first, never stopped.
+    prompt: String,
+    /// Wait for its answer, and give it back.
+    #[serde(default)]
+    wait: bool,
+}
+
+#[derive(Serialize, Deserialize, schemars::JsonSchema)]
+struct Which {
+    /// The session's agent, by its registry id.
+    agent: String,
+    /// The session's id.
+    session: String,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+struct WaitFor {
+    agent: String,
+    session: String,
+    /// The most to wait, in seconds (an hour at most); none, ten minutes.
+    seconds: Option<u64>,
+}
+
+#[derive(Deserialize, schemars::JsonSchema)]
+struct Since {
+    /// What happened after this number, as the last call said; none, all
+    /// that is kept.
+    #[serde(default)]
+    after: u64,
+    /// How long to wait, in seconds (an hour at most), for something to
+    /// happen; none, not at all.
+    #[serde(default)]
+    seconds: u64,
+}
+
+/// The longest a tool waits.
+const MOST: std::time::Duration = std::time::Duration::from_hours(1);
+
+/// `seconds`, or ten minutes, within [`MOST`].
+fn waited(seconds: Option<u64>) -> std::time::Duration {
+    std::time::Duration::from_secs(seconds.unwrap_or(600)).min(MOST)
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -456,6 +577,113 @@ impl Tools {
             runs: 0,
         });
         Ok(format!("“{}” is scheduled.", ask.title))
+    }
+
+    /// Say something in a session Ghost keeps, as its next turn (one going
+    /// on is let end first, never stopped); with `wait`, give back what
+    /// its agent answered. You are asked first.
+    #[tool]
+    async fn send_to_session(&self, Parameters(ask): Parameters<SendTo>) -> Result<String, String> {
+        let id = SessionId::new(ask.session.clone());
+        self.not_mine(&ask.agent, &id)?;
+        let shown: String = ask.prompt.chars().take(80).collect();
+        let meta = self
+            .allowed_on(
+                "send_to_session",
+                format!("Say “{shown}”"),
+                &ask,
+                &ask.agent,
+                &id,
+            )
+            .await?;
+        let task = Task {
+            id: 0,
+            title: meta.title,
+            prompt: ask.prompt,
+            agent: ask.agent.clone(),
+            model: None,
+            mode: None,
+            project: meta.project,
+            schedule: Schedule::Every(0),
+            paused: false,
+            same: true,
+            worktree: false,
+            session: Some(id.clone()),
+            next: None,
+            last: None,
+            runs: 0,
+        };
+        let shared = self.shared.clone();
+        let turn = async move {
+            if !(shared.happened).idle(&task.agent, &id, MOST).await {
+                return Err("Its turn went on for an hour: nothing was said".to_owned());
+            }
+            shared
+                .turn_with(&task, |_| {})
+                .await
+                .map_err(|(_, why)| why)?;
+            Ok(shared.said_in(&task.agent, &id, true).await)
+        };
+        if ask.wait {
+            turn.await
+        } else {
+            acp::runtime().spawn(turn);
+            Ok("Said, as its next turn: wait_for_turn gives its answer.".into())
+        }
+    }
+
+    /// Wait until the turn going on in a session ends (at once where none
+    /// does), and give back what its agent said in its last turn.
+    #[tool]
+    async fn wait_for_turn(&self, Parameters(ask): Parameters<WaitFor>) -> Result<String, String> {
+        let id = SessionId::new(ask.session);
+        self.not_mine(&ask.agent, &id)?;
+        if !(self.shared.happened)
+            .idle(&ask.agent, &id, waited(ask.seconds))
+            .await
+        {
+            return Err("Its turn still goes on".into());
+        }
+        Ok(self.shared.said_in(&ask.agent, &id, true).await)
+    }
+
+    /// Stop the turn going on in a session. You are asked first.
+    #[tool]
+    async fn interrupt_session(
+        &self,
+        Parameters(ask): Parameters<Which>,
+    ) -> Result<String, String> {
+        let id = SessionId::new(ask.session.clone());
+        self.not_mine(&ask.agent, &id)?;
+        let meta = self
+            .allowed_on(
+                "interrupt_session",
+                "Stop its turn".into(),
+                &ask,
+                &ask.agent,
+                &id,
+            )
+            .await?;
+        match self.shared.running(&ask.agent) {
+            Some(agent) if self.shared.happened.busy(&ask.agent, &id) => {
+                agent.cancel(CancelNotification::new(id));
+                Ok(format!("The turn in “{}” is stopped.", meta.title))
+            }
+            _ => Ok(format!("No turn goes on in “{}”.", meta.title)),
+        }
+    }
+
+    /// What happened in the sessions Ghost runs after a number (a turn
+    /// ended, an agent asks the user), the latest last, each numbered:
+    /// call again with the last number to follow on; with `seconds`,
+    /// waiting that long for something to. `missed` says some of what
+    /// happened since is no longer kept.
+    #[tool]
+    async fn events(&self, Parameters(ask): Parameters<Since>) -> Result<String, String> {
+        let most = std::time::Duration::from_secs(ask.seconds).min(MOST);
+        let (happened, missed) = self.shared.happened.after(ask.after, most).await;
+        let said = serde_json::json!({"happened": happened, "missed": missed});
+        serde_json::to_string_pretty(&said).map_err(|e| e.to_string())
     }
 
     /// Ask the user a question in this session's thread, and wait for the
@@ -629,13 +857,17 @@ mod tests {
                 "ask_user",
                 "delegate_task",
                 "device_screen",
+                "events",
+                "interrupt_session",
                 "list_devices",
                 "list_sessions",
                 "open_pr",
                 "read_diff",
                 "read_session",
                 "schedule_task",
-                "use_device"
+                "send_to_session",
+                "use_device",
+                "wait_for_turn"
             ]
         );
         client.call("list_sessions", &json!({}));
@@ -801,5 +1033,95 @@ esac; done"#,
         });
         while !matches!(next(), Event::Opened { key: 2, .. }) {}
         assert_eq!(opened(2)["params"]["mcpServers"], json!([]));
+    }
+
+    #[test]
+    fn an_agent_outside_ghost_acts_on_a_session_only_where_let_and_as_you_allow_it_there() {
+        let home = tempfile::tempdir().unwrap();
+        // An agent that opens s1 and answers each prompt in the session it
+        // was said in.
+        let agent = home.path().join("agent.sh");
+        let script = r#"id() { printf '%s' "$line" | sed -E 's/.*"id":("[^"]*"|[0-9]+).*/\1/'; }
+while read line; do case "$line" in
+*'"initialize"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1}}\n' "$(id)" ;;
+*'"session/new"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"s1"}}\n' "$(id)" ;;
+*'"session/prompt"'*) printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Carried on."}}}}'
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$(id)" ;;
+esac; done"#;
+        std::fs::write(&agent, script).unwrap();
+        let (server, said) = server(home.path());
+        let next = || said.recv_timeout(Duration::from_secs(10)).unwrap();
+        let entry: Entry = serde_json::from_value(json!({
+            "id": "a", "name": "A", "version": "1", "distribution": {},
+        }))
+        .unwrap();
+        server.handle(Call::Start {
+            entry,
+            command: Some(format!("/bin/sh {}", agent.display())),
+            env: std::collections::BTreeMap::new(),
+        });
+        assert!(matches!(next(), Event::Started { result: Ok(_), .. }));
+        server.handle(Call::Open {
+            agent: "a".into(),
+            key: 1,
+            folder: home.path().to_path_buf(),
+            also: Vec::new(),
+        });
+        assert!(matches!(next(), Event::Opened { result: Ok(_), .. }));
+        server.handle(Call::Keep(vec![meta(home.path(), "Build")]));
+        let send = json!({"agent": "a", "session": "s1", "prompt": "Go on", "wait": true});
+        let mut client = Client::new(home.path(), None);
+        // Not let: it reads only, and nothing is asked of you.
+        client.call("send_to_session", &send);
+        assert_eq!(client.result(), (READS.to_owned(), true));
+        client.call("interrupt_session", &json!({"agent": "a", "session": "s1"}));
+        assert_eq!(client.result(), (READS.to_owned(), true));
+        // Let: asked of you in the session it acts on, and turned down.
+        let settings = json!({"enabled": [], "folders": [], "outside_acts": true});
+        std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
+        let card = |next: &dyn Fn() -> Event| loop {
+            if let Event::Said { event, .. } = next()
+                && let acp::Event::Permission { id, request } = *event
+            {
+                break (id, request);
+            }
+        };
+        let answer = |request, chosen: &str| Call::Answer {
+            agent: "a".into(),
+            request,
+            answer: Answer::Permission(RequestPermissionOutcome::Selected(
+                SelectedPermissionOutcome::new(chosen.to_owned()),
+            )),
+        };
+        client.call("send_to_session", &send);
+        let (request, asked) = card(&next);
+        assert_eq!(asked.session_id, SessionId::new("s1"));
+        let title = asked.tool_call.fields.title.unwrap_or_default();
+        assert!(
+            title.starts_with("An agent outside Ghost: Say “Go on”"),
+            "{title}"
+        );
+        server.handle(answer(request, "no"));
+        assert_eq!(client.result(), ("You did not allow it".to_owned(), true));
+        // Allowed, it is said as the session's next turn, and answered.
+        client.call("send_to_session", &send);
+        let (request, _) = card(&next);
+        server.handle(answer(request, "once"));
+        assert_eq!(client.result(), ("Carried on.".to_owned(), false));
+        client.call(
+            "wait_for_turn",
+            &json!({"agent": "a", "session": "s1", "seconds": 5}),
+        );
+        assert_eq!(client.result(), ("Carried on.".to_owned(), false));
+        client.call("events", &json!({"after": 0}));
+        let (happened, failed) = client.result();
+        let happened: Value = serde_json::from_str(&happened).unwrap();
+        assert!(!failed);
+        let ends = happened["happened"].as_array().unwrap();
+        assert!(
+            ends.iter()
+                .any(|m| m["what"] == json!({"turn_ended": "end_turn"})
+                    && m["session"] == json!("s1"))
+        );
     }
 }

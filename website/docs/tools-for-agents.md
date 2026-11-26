@@ -42,20 +42,25 @@ in **Settings › Agents** and switch them off. That agent's id is added to
 | `list_devices` | The iOS simulators and Android emulators on the machine the server runs on: id, name, platform, whether it runs; and what is missing to have any. | Any agent |
 | `device_screen` | What a running device shows now, as an image. | Any agent |
 | `use_device` | Start or stop a device, tap a point, type text, press Home (Back or Recents on Android), or set it dark or light. | Sessions in Ghost; asks you first |
+| `send_to_session` | Say `prompt` in a session Ghost keeps (`agent`, `session`), as its next turn: a turn going on is let end first, never stopped. With `wait`, gives back what its agent answered; else `wait_for_turn` does. | Sessions in Ghost; asks you first, in that session |
+| `wait_for_turn` | Wait until the turn going on in a session ends (`seconds`, ten minutes if none, an hour at most), and give back what its agent said in its last turn. | Any agent |
+| `interrupt_session` | Stop the turn going on in a session. | Sessions in Ghost; asks you first, in that session |
+| `events` | What happened in the sessions Ghost runs (a turn ended, an agent asks you), each numbered: call again with the last number (`after`) to follow on, and with `seconds` to wait for something to happen. `missed` says some of it is no longer kept. | Any agent |
 
 ### Access levels
 
 There are two kinds of caller:
 
 - **A session in Ghost.** It may call every tool. A tool that acts
-  (`delegate_task`, `open_pr`, `schedule_task`, `use_device`) first asks
+  (`delegate_task`, `open_pr`, `schedule_task`, `use_device`,
+  `send_to_session`, `interrupt_session`) first asks
   you on a permission card in that session's thread, the same card the
   agent's own questions use, with **Allow**, **Always allow** and
   **Reject**. **Always allow** holds for that tool in that session until
   the session's connection ends.
 - **An agent outside Ghost** (below). It may only read:
-  `list_sessions`, `read_session`, `read_diff`, `list_devices` and
-  `device_screen`. A tool that acts or asks you answers that only an agent
+  `list_sessions`, `read_session`, `read_diff`, `wait_for_turn`,
+  `events`, `list_devices` and `device_screen`. A tool that acts or asks you answers that only an agent
   in a Ghost session can do it.
 
 ## Using them from an agent outside Ghost
@@ -75,8 +80,7 @@ If Ghost is not running with that home, `--mcp` exits saying so.
 
 :::note Coming
 
-Ghost's tools over streamable HTTP, reaching other paired Macs, and more
-session tools (sending to a session, waiting on it, stopping it) are being
-finished and are not in the current build yet.
+Ghost's tools over streamable HTTP, and reaching other paired Macs, are
+being finished and are not in the current build yet.
 
 :::

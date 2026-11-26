@@ -185,7 +185,6 @@ impl Shared {
 
     fn run(&self, id: u64, body: Option<&str>) {
         let now = store::secs(std::time::SystemTime::now());
-        let turning = self.turning.lock().expect("turning").clone();
         let mut task = None;
         self.change_tasks(|all| {
             let Some(t) = all.tasks.iter_mut().find(|t| t.id == id) else {
@@ -194,7 +193,7 @@ impl Shared {
             let busy = t
                 .session
                 .as_ref()
-                .is_some_and(|s| t.same && turning.contains(&(t.agent.clone(), s.clone())));
+                .is_some_and(|s| t.same && self.happened.busy(&t.agent, s));
             if t.last.as_ref().is_some_and(|r| r.going) || busy {
                 return;
             }
@@ -262,7 +261,7 @@ impl Shared {
                 };
                 let Some(id) = meta.id.clone() else { return };
                 let at = (meta.agent.clone(), id.clone());
-                let turning = this.turning.lock().expect("turning").contains(&at);
+                let turning = this.happened.busy(&at.0, &at.1);
                 let ours = Some(pr.number) == meta.watch;
                 if !ours || pr.state != "open" {
                     // One merged or closed is said once the turn going on
@@ -375,14 +374,13 @@ impl Shared {
             ],
         );
         let on = (task.agent.clone(), id.clone());
-        self.turning.lock().expect("turning").insert(on.clone());
+        self.happened.begin(&on.0, &on.1);
         let said = agent
             .request(PromptRequest::new(
                 id.clone(),
                 vec![task.prompt.clone().into()],
             ))
             .await;
-        self.turning.lock().expect("turning").remove(&on);
         let secs = now.elapsed().map_or(0, |d| d.as_secs());
         let tokens = said
             .as_ref()
@@ -404,6 +402,7 @@ impl Shared {
                 },
             }],
         );
+        (self.happened).end(&on.0, &on.1, super::happened::ended(ended.clone()));
         let mut meta = meta;
         meta.updated = std::time::SystemTime::now();
         self.change_index(|index| {

@@ -29,13 +29,17 @@ Ghost 打开会话时，通过 ACP 的 `mcpServers` 把服务器作为一个要�
 | `list_devices` | 服务器所在机器上的 iOS 模拟器和 Android 模拟器：ID、名称、平台、是否在运行；以及缺什么才能用上它们。 | 任何智能体 |
 | `device_screen` | 正在运行的设备当前显示的内容，以图片形式给出。 | 任何智能体 |
 | `use_device` | 启动或停止设备、轻点某一点、输入文本、按主屏幕键（Android 上还有返回或最近任务），或设为深色或浅色。 | Ghost 中的会话；先询问你 |
+| `send_to_session` | 在 Ghost 保存的某个会话（`agent`、`session`）中说 `prompt`，作为它的下一轮：正在进行的一轮会先让它结束，绝不会被中断。带 `wait` 时返回其智能体的回答；否则由 `wait_for_turn` 返回。 | Ghost 中的会话；先在那个会话中询问你 |
+| `wait_for_turn` | 等到会话中正在进行的一轮结束（`seconds`，未给出时为十分钟，最多一小时），并返回其智能体在最后一轮中说的话。 | 任何智能体 |
+| `interrupt_session` | 停止会话中正在进行的一轮。 | Ghost 中的会话；先在那个会话中询问你 |
+| `events` | Ghost 运行的会话中发生的事（一轮结束、智能体向你提问），每件都有编号：用最后一个编号（`after`）再次调用以继续跟进，带 `seconds` 则等待新事发生。`missed` 表示其中有些已不再保留。 | 任何智能体 |
 
 ### 访问级别 {#access-levels}
 
 调用方有两类：
 
-- **Ghost 中的会话。** 它可以调用所有工具。会执行操作的工具（`delegate_task`、`open_pr`、`schedule_task`、`use_device`）会先在该会话的对话中用权限卡片询问你，这与智能体自身提问所用的卡片相同，有 **Allow**、**Always allow** 和 **Reject**。**Always allow** 在该会话中对该工具一直有效，直到会话的连接结束。
-- **Ghost 之外的智能体**（见下文）。它只能读取：`list_sessions`、`read_session`、`read_diff`、`list_devices` 和 `device_screen`。会执行操作或向你提问的工具会回答：只有 Ghost 会话中的智能体才能这样做。
+- **Ghost 中的会话。** 它可以调用所有工具。会执行操作的工具（`delegate_task`、`open_pr`、`schedule_task`、`use_device`、`send_to_session`、`interrupt_session`）会先在该会话的对话中用权限卡片询问你，这与智能体自身提问所用的卡片相同，有 **Allow**、**Always allow** 和 **Reject**。**Always allow** 在该会话中对该工具一直有效，直到会话的连接结束。
+- **Ghost 之外的智能体**（见下文）。它只能读取：`list_sessions`、`read_session`、`read_diff`、`wait_for_turn`、`events`、`list_devices` 和 `device_screen`。会执行操作或向你提问的工具会回答：只有 Ghost 会话中的智能体才能这样做。
 
 ## 从 Ghost 之外的智能体使用 {#using-them-from-an-agent-outside-ghost}
 
@@ -52,6 +56,6 @@ codex mcp add ghost -- /Applications/Ghost.app/Contents/MacOS/ghost-desk --mcp
 
 :::note 即将推出
 
-通过可流式 HTTP 提供 Ghost 的工具、访问其他已配对的 Mac，以及更多会话工具（向会话发送内容、等待会话、停止会话），正在完善中，尚未包含在当前版本里。
+通过可流式 HTTP 提供 Ghost 的工具，以及访问其他已配对的 Mac，正在完善中，尚未包含在当前版本里。
 
 :::

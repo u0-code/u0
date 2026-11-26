@@ -122,7 +122,8 @@ crates/core/src/
                 handled, answered as Events; server/scheduled: the scheduled tasks run;
                 server/flows: the workflows' runs, step by step; server/tools: Ghost's
                 tools, the one MCP server (rmcp), given to each session it opens (its
-                devices' tools in server/tools/devices)
+                devices' tools in server/tools/devices); server/happened: the turns
+                going on and what happened, for the tools
   mcp.rs        how an agent reaches the tools: `--mcp`, the pipe to them; mcp.json
   proto.rs      the Ghost protocol: Call (desk to server), Event (server to desk);
                 Hello and Welcome, which begin a link
@@ -256,7 +257,7 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 | Anything over HTTP | `http::get`, `http::call`, `http::download` (ureq), off the window's thread |
 | An agent's logo | `Desk::mark_of` and `ui::mark` |
 | Anything git | `git.rs`, in the server: a `proto::Call` handled with `repo.rs` |
-| A tool for agents | a `#[tool]` in `server/tools.rs`, over what the server already does for a `Call`; one that acts calls `Tools::allowed` first |
+| A tool for agents | a `#[tool]` in `server/tools.rs`, over what the server already does for a `Call`; one that acts calls `Tools::allowed` first, or `Tools::allowed_on` for one that acts on a session it names |
 | Text written for you (a title, a commit message, ...) | `Desk::ask_writer` with a `writer::Ask`: the writer agent, in a session of its own |
 | A widget (switch, button, menu, ...) | `gpui::component` (gpui-kit, which the desk names `gpui`), coloured by `theme::kit` |
 | A menu opened from a trigger | `Desk::menu`: gpui-kit's PopupMenu (items, ticked for a choice) in a Popover held open by `Desk::popup`; one with a line to type in, `Desk::popover`; a choice among several in the settings, gpui-kit's `SettingField::dropdown` |
@@ -365,7 +366,9 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   `settings.no_tools`, its page's switch) is given them through
   ACP's `mcpServers` as this program run with `--mcp`, with a key of its
   own (`GHOST_MCP_KEY`) that says which session calls; an agent outside
-  Ghost runs `--mcp` with none, and the file's key lets it in to read only.
+  Ghost runs `--mcp` with none, and the file's key lets it in to read,
+  and to act on a session it names only where `settings.outside_acts`
+  lets it, asked of you in that session.
   What acts, or asks you, asks on the session's permission card
   (`acp::Agent::question`).
 - Telemetry is the server's (`telemetry.rs`), under its own settings'
