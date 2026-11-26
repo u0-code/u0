@@ -840,6 +840,7 @@ impl Desk {
                     crate::session::State::Idle | crate::session::State::Closed
                 );
                 let after = idle && s.through(i).is_some() && self.can_fork(s);
+                let latest = !s.items[i + 1..].iter().any(|x| matches!(x, Item::Agent(_)));
                 let at = s.key;
                 let (copy, quoted) = (text.clone(), text.clone());
                 // When it was said is in each icon's tip, as Claude keeps
@@ -865,10 +866,12 @@ impl Desk {
                     .child(
                         div()
                             .flex()
-                            .gap(px(2.))
                             .px(px(6.))
-                            .invisible()
-                            .group_hover(group, Styled::visible)
+                            // On the latest answer always, as Claude keeps
+                            // it; on the others, on hover.
+                            .when(!latest, |d| {
+                                d.invisible().group_hover(group, Styled::visible)
+                            })
                             .child(Self::under(&key, "copy", "copy", tip("Copy")).on_click(
                                 move |_, _, cx| {
                                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(
