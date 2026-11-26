@@ -908,10 +908,7 @@ impl Desk {
             ),
         ];
         SettingPage::new(super::Tab::About.title())
-            .description(format!(
-                "Ghost {} · Agent Client Protocol v1 · macOS",
-                env!("CARGO_PKG_VERSION")
-            ))
+            .description(crate::update::this_build())
             .group(SettingGroup::new().items(rows))
             .group(self.updates_group(w))
     }

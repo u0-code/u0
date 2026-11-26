@@ -63,6 +63,8 @@ hayro = "0.9"
 ureq = { version = "3.5", default-features = false, features = ["rustls-no-provider", "platform-verifier", "gzip"] }
 # Which release of Ghost is newer: the updater.
 semver = "1.0"
+# The commit a build is made from, stamped in by git's command line.
+vergen-gitcl = "10.1"
 # The macOS Keychain, where secrets are kept: the crate rustls already
 # brings into the tree.
 security-framework = "3.7"

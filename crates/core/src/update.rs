@@ -36,8 +36,27 @@ const IDENTIFIER: &str = "local.ghost.desk";
 /// This build's version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// The commit this build was made from, where `bundle.sh` said.
-pub const COMMIT: Option<&str> = option_env!("GHOST_COMMIT");
+/// The commit this build was made from (`build.rs`).
+pub const COMMIT: &str = env!("VERGEN_GIT_SHA");
+
+/// Whether the tree it was built from had changes beyond that commit.
+pub const DIRTY: bool = matches!(env!("VERGEN_GIT_DIRTY").as_bytes(), b"true");
+
+/// Which builds this one is among: `stable` (a release), `nightly` (main,
+/// built by CI) or `dev` (built by hand).
+pub const BUILT_AS: &str = env!("GHOST_CHANNEL");
+
+/// This build, as a person reads it and copies it: `Ghost 0.2.0 (abc1234,
+/// nightly)`, `-dirty` after the commit when the tree had changes.
+pub fn this_build() -> String {
+    let dirty = if DIRTY { "-dirty" } else { "" };
+    format!("Ghost {VERSION} ({}{dirty}, {BUILT_AS})", short(COMMIT))
+}
+
+/// A commit's first seven characters, as git shows it.
+pub fn short(commit: &str) -> &str {
+    &commit[..commit.len().min(7)]
+}
 
 /// Which builds Ghost updates to.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,14 +106,9 @@ pub fn check(channel: Channel) -> Result<Option<Found>, String> {
     Ok(newer(&releases, channel, VERSION, COMMIT))
 }
 
-/// Among `releases`, the build on `channel` newer than `version` (built
-/// from `commit`, where known).
-fn newer(
-    releases: &[Release],
-    channel: Channel,
-    version: &str,
-    commit: Option<&str>,
-) -> Option<Found> {
+/// Among `releases`, the build on `channel` newer than `version`, built
+/// from `commit`.
+fn newer(releases: &[Release], channel: Channel, version: &str, commit: &str) -> Option<Found> {
     let release = match channel {
         Channel::Stable => {
             let now = semver::Version::parse(version).ok()?;
@@ -112,12 +126,10 @@ fn newer(
         Channel::Nightly => releases.iter().find(|r| r.tag_name == "nightly")?,
     };
     let built = &release.target_commitish;
-    if commit
-        .is_some_and(|c| !c.is_empty() && (built.starts_with(c) || c.starts_with(built.as_str())))
-    {
+    if !commit.is_empty() && (built.starts_with(commit) || commit.starts_with(built.as_str())) {
         return None;
     }
-    found(release, format!("nightly {}", &built[..built.len().min(7)]))
+    found(release, format!("nightly {}", short(built)))
 }
 
 fn found(release: &Release, name: String) -> Option<Found> {
@@ -199,29 +211,19 @@ mod tests {
 
     #[test]
     fn stable_offers_the_newest_release_above_this_version_and_never_a_draft() {
-        let found = newer(&releases(), Channel::Stable, "0.1.0-pre.1", None).expect("one");
+        let found = newer(&releases(), Channel::Stable, "0.1.0-pre.1", "").expect("one");
         assert_eq!(found.name, "0.2.0");
         assert_eq!(found.url, "https://s/2");
         assert_eq!(found.notes, "Two.");
-        assert_eq!(newer(&releases(), Channel::Stable, "0.2.0", None), None);
+        assert_eq!(newer(&releases(), Channel::Stable, "0.2.0", ""), None);
     }
 
     #[test]
     fn nightly_is_offered_unless_this_build_is_its_commit() {
-        let found = newer(
-            &releases(),
-            Channel::Nightly,
-            "0.1.0-pre.1",
-            Some("1234567"),
-        );
+        let found = newer(&releases(), Channel::Nightly, "0.1.0-pre.1", "1234567");
         assert_eq!(found.map(|f| f.name), Some("nightly b086a33".to_owned()));
         assert_eq!(
-            newer(
-                &releases(),
-                Channel::Nightly,
-                "0.1.0-pre.1",
-                Some("b086a33aaaa")
-            ),
+            newer(&releases(), Channel::Nightly, "0.1.0-pre.1", "b086a33aaaa"),
             None
         );
     }

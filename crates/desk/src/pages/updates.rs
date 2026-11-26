@@ -13,17 +13,16 @@ use crate::{
 };
 
 impl Desk {
+    /// This build's version and commit, put on the clipboard: what to say
+    /// in a bug.
+    pub(crate) fn copy_version(cx: &mut gpui::App) {
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string(update::this_build()));
+    }
+
     /// The updates group: where an update stands and what to do, the
     /// channel, and whether Ghost looks by itself.
     pub(super) fn updates_group(&self, w: &WeakEntity<Desk>) -> SettingGroup {
-        let this_build = match update::COMMIT.filter(|c| !c.is_empty()) {
-            Some(commit) => format!(
-                "This is {} ({}).",
-                update::VERSION,
-                &commit[..commit.len().min(7)]
-            ),
-            None => format!("This is {}.", update::VERSION),
-        };
+        let this_build = format!("This is {}.", update::this_build());
         let said = match &self.updates.now {
             Updating::Idle => this_build,
             Updating::Checking => "Looking on GitHub…".to_owned(),
@@ -98,6 +97,13 @@ impl Desk {
             Updating::Checking | Updating::Installing(_) => None,
         };
         div()
+            .flex()
+            .gap_1()
+            .child(
+                ui::icon_button("copy-version", "copy", "Copy the version")
+                    .small()
+                    .on_click(|_, _, cx| Self::copy_version(cx)),
+            )
             .children(button.map(|(label, weight)| {
                 ui::button("update", label, weight).on_click(cx.listener(|this, _, window, cx| {
                     match this.updates.now {

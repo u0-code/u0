@@ -49,3 +49,6 @@ security-framework.workspace = true
 
 [lints]
 workspace = true
+
+[build-dependencies]
+vergen-gitcl.workspace = true

@@ -22,7 +22,8 @@ ghost service uninstall    stop it, and take it out of login
 ghost service status       whether it is installed and running, and where it logs
 ghost status               this home: the agents on, the server, the tasks, the service
 ghost sessions             the sessions kept, the latest first
-ghost tasks                the scheduled tasks, and when each runs next";
+ghost tasks                the scheduled tasks, and when each runs next
+ghost --version            this build: its version, commit and channel";
 
 /// Do what the command line asks, and exit, when it names one of the
 /// words above; else go on to open the window.
@@ -36,6 +37,10 @@ pub fn when_asked() {
         "status" => status(&home).map(|s| print!("{s}")),
         "sessions" => sessions(&home).map(|s| print!("{s}")),
         "tasks" => tasks_of(&home).map(|s| print!("{s}")),
+        "version" | "--version" | "-V" => {
+            println!("{}", crate::update::this_build());
+            Ok(())
+        }
         "help" | "--help" | "-h" => {
             println!("{HELP}");
             Ok(())

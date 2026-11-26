@@ -17,9 +17,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# The commit it is built from, which tells a nightly build whether the
-# nightly release is newer.
-GHOST_COMMIT=$(git rev-parse HEAD 2>/dev/null || true) cargo build --release
+cargo build --release
 
 app=target/release/Ghost.app
 iconset=target/release/Ghost.iconset

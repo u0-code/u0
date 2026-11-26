@@ -86,11 +86,18 @@ impl Desk {
         vec![
             group(
                 "Ghost",
-                vec![item(w, "Ghost", mac, |_, _, cx| {
-                    ui::button("diagnostics-read", "Read again", Weight::Secondary)
-                        .on_click(cx.listener(|this, _, _, _| this.diagnose(this.pages.on)))
-                        .into_any_element()
-                })],
+                vec![
+                    item(w, "This build", crate::update::this_build(), |_, _, _| {
+                        ui::button("diagnostics-version", "Copy", Weight::Secondary)
+                            .on_click(|_, _, cx| Desk::copy_version(cx))
+                            .into_any_element()
+                    }),
+                    item(w, "Ghost", mac, |_, _, cx| {
+                        ui::button("diagnostics-read", "Read again", Weight::Secondary)
+                            .on_click(cx.listener(|this, _, _, _| this.diagnose(this.pages.on)))
+                            .into_any_element()
+                    }),
+                ],
             ),
             group("Processes", vec![shown]),
             group("Warnings and errors in the log", log),

@@ -47,6 +47,7 @@ enum Act {
 
     CopyThread,
     CopyPromptLink,
+    CopyVersion,
     Restart,
     Beside,
     Unread,
@@ -531,6 +532,7 @@ impl Desk {
         rows.push(Row::new("sun", "Change appearance", Act::Sub(Sub::Look)));
         rows.push(key("next_area", "Focus next area"));
         rows.push(key("settings", "Open settings"));
+        rows.push(Row::new("copy", "Copy version", Act::CopyVersion));
         if let Some(project) = self.chosen_project() {
             let pinned = self.prefs(&project).pinned;
             let name = self.project_name(&project);
@@ -884,6 +886,7 @@ impl Desk {
                 }
             }
             Act::CopyPromptLink => self.copy_prompt_link(cx),
+            Act::CopyVersion => Self::copy_version(cx),
             Act::Restart => self.restart(window, cx),
             Act::Beside => {
                 if let Some(key) = self.current {
