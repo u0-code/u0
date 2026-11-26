@@ -674,7 +674,7 @@ pub fn handle(cx: &mut App, shown: &Shown) {
     on::<ZoomWindow>(cx, shown, |_, window, _| window.zoom_window());
     cx.on_action(|_: &BringAllToFront, cx| cx.activate(true));
     cx.on_action(|_: &StopSpeaking, _| crate::voice::stop_speaking());
-    on::<Dictate>(cx, shown, |d, window, cx| d.dictate(true, window, cx));
+    on::<Dictate>(cx, shown, Desk::dictate);
     on::<NewScratch>(cx, shown, Desk::new_scratch);
     on::<Back>(cx, shown, |d, window, cx| d.step_trail(false, window, cx));
     on::<Ahead>(cx, shown, |d, window, cx| d.step_trail(true, window, cx));

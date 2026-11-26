@@ -183,6 +183,8 @@ pub struct Desk {
     glassed: bool,
     /// What you dictate, while you do.
     pub dictation: Option<dictation::Dictation>,
+    /// The speech recognition it goes through, as your settings say.
+    pub speech: Option<dictation::Speech>,
     /// Where an update of Ghost's own stands.
     pub updates: updates::Updates,
     /// What sessions cost, by key, as their records say: read for the
@@ -518,6 +520,7 @@ impl Desk {
             stopping: None,
             glassed: false,
             dictation: None,
+            speech: None,
             updates: updates::Updates::default(),
             spent: std::collections::HashMap::new(),
             forms: std::collections::HashMap::new(),
@@ -632,6 +635,10 @@ impl Desk {
     }
 
     pub(crate) fn save_settings(&mut self) {
+        // Dictation listens as the settings now say, from the next on.
+        if self.dictation.is_none() {
+            self.speech = None;
+        }
         if self.settings_refused.is_some() {
             return;
         }
@@ -1606,6 +1613,8 @@ impl Desk {
 
 impl Render for Desk {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Speech recognition ready for the composer's speech button.
+        self.speech(window, cx);
         // The look, as chosen or as the system is now.
         theme::set_light(
             match self.settings.look {

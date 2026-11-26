@@ -1,6 +1,6 @@
-//! Dictating into the composer: listening on ⇧⌘D or the microphone,
-//! what is heard shown as it comes, put in once it ends (cleaned up by
-//! the writer where you asked); and reading aloud.
+//! Dictating into the composer: listening on ⇧⌘D or gpui-kit's speech
+//! button, what is heard shown as it comes, put in once it ends (cleaned
+//! up by the writer where you asked); and reading aloud.
 
 use std::time::{Duration, Instant};
 
@@ -12,11 +12,16 @@ use gpui::{AppContext as _, Context, Entity, Subscription, Window};
 use super::Desk;
 use crate::{settings::VoiceKey, voice};
 
+/// The system's speech recognition, as your settings ask it to listen: the
+/// state the speech button and the key start and stop, what it says heard
+/// by the desk. Made again when those settings change.
+pub struct Speech {
+    pub state: Entity<SpeechState>,
+    _heard: Subscription,
+}
+
 /// Dictation under way.
 pub struct Dictation {
-    /// The system's speech recognition, hearing till it is finished.
-    pub speech: Entity<SpeechState>,
-    _heard: Subscription,
     /// All heard so far.
     pub heard: String,
     /// When it began, which tells a tap of the key from a hold.
@@ -27,43 +32,65 @@ pub struct Dictation {
     pub cleaning: Option<String>,
 }
 
+impl Dictation {
+    /// Dictation begun now, by the key (`held`) or the button.
+    fn new(held: bool) -> Self {
+        Self {
+            heard: String::new(),
+            since: Instant::now(),
+            held,
+            cleaning: None,
+        }
+    }
+}
+
 /// Held this long, the dictation key listens till it is let go.
 const HOLD: Duration = Duration::from_millis(400);
 
 impl Desk {
-    /// The dictation key, or the microphone: begin listening for the
-    /// composer, or finish. Elsewhere than the composer, macOS's own
-    /// dictation types into the field that has the keys.
-    pub(crate) fn dictate(&mut self, by_key: bool, window: &mut Window, cx: &mut Context<Self>) {
+    /// The speech recognition dictation goes through, made as your
+    /// settings say where there is none yet.
+    pub(crate) fn speech(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<SpeechState> {
+        if let Some(s) = &self.speech {
+            return s.state.clone();
+        }
+        let v = &self.settings.voice;
+        let (words, _) = voice::dictionary(&v.dictionary);
+        let mut recognizer = SystemRecognizer::new().expected_phrases(words);
+        if let Some(language) = &v.language {
+            recognizer = recognizer.locale(language.clone());
+        }
+        let state = cx.new(|cx| SpeechState::new(cx).recognizer(recognizer));
+        let heard = cx.subscribe_in(&state, window, |this, _, e, window, cx| {
+            this.heard(e, window, cx);
+        });
+        self.speech = Some(Speech {
+            state: state.clone(),
+            _heard: heard,
+        });
+        state
+    }
+
+    /// The dictation key: begin listening for the composer, or finish.
+    /// Elsewhere than the composer, macOS's own dictation types into the
+    /// field that has the keys.
+    pub(crate) fn dictate(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let composer = gpui::Focusable::focus_handle(self.composer.input.read(cx), cx);
-        if self.dictation.is_none() && by_key && !composer.contains_focused(window, cx) {
+        if self.dictation.is_none() && !composer.contains_focused(window, cx) {
             crate::macos::dictate();
             return;
         }
         match &mut self.dictation {
             // A key held down repeats; only a new press finishes.
-            Some(d) if by_key && d.held => {}
+            Some(d) if d.held => {}
             Some(_) => self.finish_dictation(cx),
             None => {
-                window.focus(&composer, cx);
-                let v = &self.settings.voice;
-                let (words, _) = voice::dictionary(&v.dictionary);
-                let mut recognizer = SystemRecognizer::new().expected_phrases(words);
-                if let Some(language) = &v.language {
-                    recognizer = recognizer.locale(language.clone());
-                }
-                let speech = cx.new(|cx| SpeechState::new(cx).recognizer(recognizer));
-                let heard = cx.subscribe_in(&speech, window, |this, _, e, window, cx| {
-                    this.heard(e, window, cx);
-                });
-                self.dictation = Some(Dictation {
-                    speech: speech.clone(),
-                    _heard: heard,
-                    heard: String::new(),
-                    since: Instant::now(),
-                    held: by_key,
-                    cleaning: None,
-                });
+                self.dictation = Some(Dictation::new(true));
+                let speech = self.speech(window, cx);
                 speech.update(cx, SpeechState::start);
             }
         }
@@ -103,8 +130,9 @@ impl Desk {
     /// Stop listening: what was heard goes in once it ends. Asked again,
     /// or before it listened, it is let go.
     pub(crate) fn finish_dictation(&mut self, cx: &mut Context<Self>) {
-        let Some(d) = &self.dictation else { return };
-        let speech = d.speech.clone();
+        let Some(speech) = self.speech.as_ref().map(|s| s.state.clone()) else {
+            return;
+        };
         if speech.read(cx).status() == SpeechStatus::Recording {
             speech.update(cx, SpeechState::stop);
         } else {
@@ -118,7 +146,9 @@ impl Desk {
     /// cleans it up, put it in as it was heard.
     pub(crate) fn cancel_dictation(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(d) = self.dictation.take() {
-            d.speech.update(cx, SpeechState::cancel);
+            if let Some(s) = &self.speech {
+                s.state.update(cx, SpeechState::cancel);
+            }
             if let Some(heard) = d.cleaning {
                 self.put_dictated(&heard, window, cx);
             }
@@ -126,8 +156,15 @@ impl Desk {
         cx.notify();
     }
 
-    /// What speech recognition said.
+    /// What speech recognition said. Begun from the speech button, it is
+    /// dictation into the composer from here on.
     fn heard(&mut self, said: &SpeechEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.dictation.is_none() && matches!(said, SpeechEvent::Started | SpeechEvent::Error(_))
+        {
+            let composer = gpui::Focusable::focus_handle(self.composer.input.read(cx), cx);
+            window.focus(&composer, cx);
+            self.dictation = Some(Dictation::new(false));
+        }
         let Some(d) = &mut self.dictation else {
             return;
         };

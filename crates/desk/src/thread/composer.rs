@@ -15,6 +15,7 @@ use gpui::component::{
     menu::PopupMenu,
     popover::Popover,
     progress::ProgressCircle,
+    speech::{SpeechButton, SpeechIndicator},
 };
 use gpui::{Context, Div, Entity, SharedString, Window, div, prelude::*, px};
 
@@ -58,15 +59,10 @@ impl Desk {
         });
         let focused =
             gpui::Focusable::focus_handle(self.composer.input.read(cx), cx).is_focused(window);
-        // Dictation, heard on this Mac; again, finished.
-        let dictate = ui::icon_button("dictate", "mic", "Dictate")
-            .size(px(28.))
-            .text_color(if self.dictation.is_some() {
-                theme::accent()
-            } else {
-                theme::muted()
-            })
-            .on_click(cx.listener(|this, _, window, cx| this.dictate(false, window, cx)));
+        // Dictation, heard on this Mac: gpui-kit's speech button, its bars
+        // moving with your voice; again, finished.
+        let dictate =
+            (self.speech.as_ref()).map(|s| SpeechButton::new(&s.state).with_size(px(28.)));
         div()
             .flex()
             .flex_col()
@@ -127,7 +123,7 @@ impl Desk {
                                     .px(px(2.))
                                     .child(self.composer_line(cx)),
                             )
-                            .child(dictate)
+                            .children(dictate)
                             .children(self.send_button(s, window, cx)),
                     )
                     .children(self.over_limit(faces, cx))
@@ -141,8 +137,9 @@ impl Desk {
     /// the way to go on without it.
     fn dictation_row(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<Div> {
         let d = self.dictation.as_ref()?;
+        let speech = &self.speech.as_ref()?.state;
         let listening =
-            d.speech.read(cx).status() == gpui::component::speech::SpeechStatus::Recording;
+            speech.read(cx).status() == gpui::component::speech::SpeechStatus::Recording;
         let (said, end) = match (&d.cleaning, listening) {
             (Some(_), _) => ("Cleaning up what you said…".to_owned(), "Skip"),
             (None, true) if d.heard.is_empty() => ("Listening…".to_owned(), "Done"),
@@ -160,7 +157,7 @@ impl Desk {
                 .gap(px(8.))
                 .px(px(12.))
                 .pt(px(8.))
-                .child(ui::icon("mic", 14.).text_color(theme::accent()))
+                .child(SpeechIndicator::new(speech).with_size(px(14.)))
                 .child(
                     ui::text(faces, said)
                         .flex_1()
