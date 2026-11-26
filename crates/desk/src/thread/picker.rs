@@ -87,6 +87,9 @@ impl Desk {
         let search = gpui::Focusable::focus_handle(self.menu_search.read(cx), cx);
         let (desk, drawn, faces) = (cx.entity(), cx.entity(), faces.clone());
         over_box(Popover::new("model-picker"), Anchor::BottomRight)
+            // Wider than the room left of the chip, it stays over the
+            // session's column, not the sidebar.
+            .boundary(self.column)
             .p(px(0.))
             .open(open)
             .track_focus(&search)

@@ -303,6 +303,9 @@ pub struct Desk {
     pub side_current: Option<u64>,
     pub side_order: Vec<u64>,
     pub settled_shown: usize,
+    /// Where the session's column was laid out last, in the window: what
+    /// opens from the composer stays in it.
+    pub column: gpui::Bounds<gpui::Pixels>,
     /// When ⌘ went down alone, and whether it has been held long enough
     /// for the sessions' numbers to show.
     pub command_down: Option<std::time::Instant>,
@@ -587,6 +590,7 @@ impl Desk {
             side_current: None,
             side_order: Vec::new(),
             settled_shown: 0,
+            column: gpui::Bounds::default(),
             command_down: None,
             numbers_shown: false,
             held: HashMap::new(),
@@ -1700,6 +1704,10 @@ impl Render for Desk {
         let pane = width
             - if left_beside { left } else { 0. }
             - if right_beside { self.right_width() } else { 0. };
+        self.column = gpui::Bounds::new(
+            gpui::point(px(if left_beside { left } else { 0. }), px(0.)),
+            gpui::size(px(pane), window.viewport_size().height),
+        );
         let middle = div()
             .relative()
             .flex()
