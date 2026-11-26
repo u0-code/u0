@@ -2444,6 +2444,7 @@ dependencies = [
  "clap",
  "core-foundation 0.10.0",
  "core-foundation-sys",
+ "data-encoding",
  "diffy",
  "futures-util",
  "hayro",

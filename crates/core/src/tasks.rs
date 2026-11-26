@@ -189,15 +189,9 @@ impl Hook {
             return false;
         };
         let hex = said.trim().trim_start_matches("sha256=");
-        let tag: Option<Vec<u8>> = (0..hex.len())
-            .step_by(2)
-            .map(|i| {
-                hex.get(i..i + 2)
-                    .and_then(|b| u8::from_str_radix(b, 16).ok())
-            })
-            .collect();
+        let tag = data_encoding::HEXLOWER_PERMISSIVE.decode(hex.as_bytes());
         let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, secret.as_bytes());
-        tag.is_some_and(|tag| ring::hmac::verify(&key, call.body, &tag).is_ok())
+        tag.is_ok_and(|tag| ring::hmac::verify(&key, call.body, &tag).is_ok())
     }
 
     /// Whether each of its `only` holds of `call`.
@@ -233,11 +227,7 @@ impl Call<'_> {
     pub fn marks(&self, signed: bool) -> Vec<String> {
         let digest = signed.then(|| {
             let digest = ring::digest::digest(&ring::digest::SHA256, self.body);
-            (digest.as_ref().iter()).fold("body ".to_owned(), |mut hex, b| {
-                use std::fmt::Write as _;
-                let _ = write!(hex, "{b:02x}");
-                hex
-            })
+            format!("body {}", data_encoding::HEXLOWER.encode(digest.as_ref()))
         });
         (self.delivery().map(|d| format!("delivery {d}")).into_iter())
             .chain(digest)
@@ -257,7 +247,13 @@ impl Call<'_> {
         }
         let path = at.strip_prefix("body.")?;
         let json: serde_json::Value = serde_json::from_slice(self.body).ok()?;
-        let found = path.split('.').try_fold(&json, |v, key| v.get(key))?;
+        // `a.b` as a JSON pointer (`/a/b`), so `commits.0.id` reaches into
+        // a list too.
+        let keys: Vec<String> = (path.split('.'))
+            .map(|key| key.replace('~', "~0").replace('/', "~1"))
+            .collect();
+        let pointer = format!("/{}", keys.join("/"));
+        let found = json.pointer(&pointer)?;
         Some(
             found
                 .as_str()
@@ -515,8 +511,11 @@ mod tests {
     fn a_webhook_call_fills_the_prompt_marked_as_data_from_outside() {
         let call = Call {
             headers: vec![("x-github-event".into(), "push".into())],
-            body: br#"{"ref": "main", "head": {"n": 3}}"#,
+            body: br#"{"ref": "main", "head": {"n": 3}, "commits": [{"id": "c1"}], "a/b": 1}"#,
         };
+        // Into a list, and a key with a slash, as written.
+        assert_eq!(call.value("body.commits.0.id").as_deref(), Some("c1"));
+        assert_eq!(call.value("body.a/b").as_deref(), Some("1"));
         let mark = |v: &str| format!("<webhook-data untrusted>\n{v}\n</webhook-data>");
         assert_eq!(
             call.fill("On {{body.ref}} ({{header.x-github-event}}), {{body.head.n}} {{other}}"),

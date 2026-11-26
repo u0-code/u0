@@ -1273,12 +1273,7 @@ mod tests {
         let sign = |secret: &str| {
             let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, secret.as_bytes());
             let tag = ring::hmac::sign(&key, body.get().as_bytes());
-            let hex = tag.as_ref().iter().fold(String::new(), |mut hex, b| {
-                use std::fmt::Write as _;
-                let _ = write!(hex, "{b:02x}");
-                hex
-            });
-            format!("sha256={hex}")
+            format!("sha256={}", data_encoding::HEXLOWER.encode(tag.as_ref()))
         };
         let call = |token: &str, signature: &str, event: &str, delivery: &str| {
             let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
