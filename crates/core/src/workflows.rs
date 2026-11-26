@@ -55,7 +55,11 @@ pub enum Step {
     },
     /// Run `command` in a shell, in the project (or `dir`); its result is
     /// what it printed. Each `{{name}}` in it is given it as an argument,
-    /// never read as words of the command. One that fails pauses the run.
+    /// never read as words of the command; one where the shell reads a
+    /// word as code (after `eval` or `let`, within `[[ ]]` or `(( ))`)
+    /// is refused. One given a command as an operand goes after `--`; a
+    /// command that runs its words (`sh -c`, `ssh`) runs a value. One
+    /// that fails pauses the run.
     Run {
         name: String,
         command: String,
@@ -79,6 +83,23 @@ impl Step {
             Self::Agent { name, .. } | Self::Run { name, .. } | Self::Ask { name, .. } => name,
         }
     }
+}
+
+/// Why a command was not run: a value would be read as code.
+pub const EVALUATED: &str = "A {{name}} in this command would be read by the shell as code (after eval or let, or within [[ ]] or (( ))): give it to a command as a word, and test it there";
+
+/// Whether the shell reads a word put at the end of `before` as code: in
+/// a command begun by `eval` or `let`, or within `[[ ]]` or `(( ))` (and
+/// so `$(( ))`), where a value such as `a[$(cmd)]` runs `cmd`.
+fn evaluates(before: &str) -> bool {
+    let open =
+        |opens: &str, closes: &str| before.matches(opens).count() > before.matches(closes).count();
+    let this = before
+        .rsplit(['\n', ';', '|', '&', '(', '`'])
+        .next()
+        .unwrap_or(before);
+    let first = this.split_whitespace().next();
+    open("[[", "]]") || open("((", "))") || matches!(first, Some("eval" | "let"))
 }
 
 /// Where a shell reading a command stands: bare, or within quotes.
@@ -182,12 +203,16 @@ impl Run {
     /// `{{name}}` known becomes a reference to its argument (`${1}`, ...),
     /// quoted as where it stands calls for (bare, in double quotes, in
     /// single quotes), so that what an agent answered, or a webhook sent,
-    /// is never read by the shell as words of the command.
-    pub fn command(&self, command: &str) -> (String, Vec<String>) {
+    /// is never read by the shell as words of the command. One put where
+    /// the shell reads a word as code is refused (`evaluates`).
+    pub fn command(&self, command: &str) -> Result<(String, Vec<String>), String> {
         let mut values = Vec::new();
         let mut quoting = Quoting::default();
+        let (mut before, mut code) = (String::new(), false);
         let line = self.put(command, |lead, value| {
             quoting.read(lead);
+            before.push_str(lead);
+            code |= evaluates(&before);
             values.push(value.to_owned());
             let n = values.len();
             match quoting.within {
@@ -196,7 +221,10 @@ impl Run {
                 Within::Single => format!("'\"${{{n}}}\"'"),
             }
         });
-        (line, values)
+        if code {
+            return Err(EVALUATED.to_owned());
+        }
+        Ok((line, values))
     }
 
     /// `text` with each `{{name}}` known put in as `each` writes its value
@@ -351,6 +379,40 @@ mod tests {
     }
 
     #[test]
+    fn a_command_that_would_read_a_value_as_code_is_refused() {
+        let run = Run {
+            id: 1,
+            workflow: "w".into(),
+            input: "a[$(touch pwned)]".into(),
+            began: 0,
+            state: State::Going,
+            done: Vec::new(),
+            turn: None,
+        };
+        for evaluated in [
+            "[[ \"{{input}}\" -eq 1 ]] && echo one",
+            "echo $(( {{input}} + 1 ))",
+            "(( x = {{input}} ))",
+            "eval \"echo {{input}}\"",
+            "cd /tmp; let n={{input}}",
+        ] {
+            assert_eq!(
+                run.command(evaluated),
+                Err(EVALUATED.to_owned()),
+                "{evaluated}"
+            );
+        }
+        for plain in [
+            "[[ -n \"$HOME\" ]] && echo {{input}}",
+            "echo $((1 + 1)) {{input}}",
+            "git fetch origin -- {{input}}",
+            "printf '%s' \"evaluate {{input}}\"",
+        ] {
+            assert!(run.command(plain).is_ok(), "{plain}");
+        }
+    }
+
+    #[test]
     fn a_value_in_double_quotes_single_quotes_or_none_is_never_run() {
         let dir = tempfile::tempdir().unwrap();
         for input in [
@@ -374,7 +436,7 @@ mod tests {
                 "printf '%s|' {{input}}",
                 "printf '%s|' \"a {{input}} b\" 'c {{input}} d'",
             ] {
-                let (line, values) = run.command(template);
+                let (line, values) = run.command(template).unwrap();
                 let out = std::process::Command::new("/bin/sh")
                     .args(["-c", &line, "ghost"])
                     .args(values)
@@ -406,7 +468,9 @@ mod tests {
             }],
             turn: None,
         };
-        let (line, values) = run.command("printf '%s|' {{input}} {{notes}} {{later}}");
+        let (line, values) = run
+            .command("printf '%s|' {{input}} {{notes}} {{later}}")
+            .unwrap();
         let out = std::process::Command::new("/bin/sh")
             .args(["-c", &line, "ghost"])
             .args(values)

@@ -211,6 +211,14 @@ to `/bin/sh` as an argument, and each `{{name}}` becomes a reference to
 it, quoted for where it stands (bare, in double quotes or in single
 quotes): the shell never reads a value as words of the command.
 
+A command can still read a word as code itself, so Ghost refuses one that
+puts a `{{name}}` after `eval` or `let`, or within `[[ ]]` or `(( ))`
+(the run pauses, saying why). Give a value a command works on after `--`
+(`git fetch origin -- {{ref}}`), so one that begins with `-` is not taken
+for an option; and a command that runs its words as code (`sh -c`,
+`ssh`, `xargs`) runs a value as code. **Settings › Workflows** says so
+under **Values in commands**.
+
 ### Running a workflow
 
 In **Settings › Workflows**, type an input (optional) and press **Start**

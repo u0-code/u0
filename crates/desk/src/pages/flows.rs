@@ -147,7 +147,15 @@ impl Desk {
             }
         }
         vec![
-            group(crate::tr("Workflows"), defs),
+            group(crate::tr("Workflows"), {
+                defs.push(item(
+                    w,
+                    crate::tr("Values in commands"),
+                    crate::tr("In a command, each {{name}} is given it as one word, never read as code: a command that puts one after eval or let, or within [[ ]] or (( )), is refused. One given to a command as what it works on goes after -- (git fetch origin -- {{ref}}), so that a value beginning with - is not taken for an option; and a command that runs its words as code (sh -c, ssh, xargs) runs a value as code."),
+                    |_, _, _| div().into_any_element(),
+                ));
+                defs
+            }),
             group(crate::tr("Runs"), runs),
         ]
     }

@@ -6282,6 +6282,16 @@ _version: 2
   pt-BR: "Em 3h, em 2 dias, às 17h…"
   ru: "Через 3 ч, через 2 дня, в 17:00…"
   sv: "Om 3 h, om 2 dagar, kl. 17…"
+"In a command, each {{name}} is given it as one word, never read as code: a command that puts one after eval or let, or within [[ ]] or (( )), is refused. One given to a command as what it works on goes after -- (git fetch origin -- {{ref}}), so that a value beginning with - is not taken for an option; and a command that runs its words as code (sh -c, ssh, xargs) runs a value as code.":
+  zh-CN: "在命令中，每个 {{name}} 都作为一个单词传给它，绝不会被当作代码读取：把它放在 eval 或 let 之后、或放在 [[ ]] 或 (( )) 之内的命令会被拒绝。作为命令处理对象传入的值应放在 -- 之后（git fetch origin -- {{ref}}），这样以 - 开头的值不会被当作选项；而把其参数当作代码运行的命令（sh -c、ssh、xargs）会把值当作代码运行。"
+  de: "In einem Befehl wird jedes {{name}} als ein Wort übergeben, nie als Code gelesen: Ein Befehl, der eines nach eval oder let oder innerhalb von [[ ]] oder (( )) setzt, wird abgelehnt. Eines, das einem Befehl als das übergeben wird, woran er arbeitet, steht nach -- (git fetch origin -- {{ref}}), damit ein Wert, der mit - beginnt, nicht als Option gilt; und ein Befehl, der seine Wörter als Code ausführt (sh -c, ssh, xargs), führt einen Wert als Code aus."
+  es: "En un comando, cada {{name}} se le pasa como una palabra, nunca se lee como código: se rechaza un comando que ponga uno tras eval o let, o dentro de [[ ]] o (( )). Uno que se pasa a un comando como aquello sobre lo que trabaja va tras -- (git fetch origin -- {{ref}}), para que un valor que empieza por - no se tome por una opción; y un comando que ejecuta sus palabras como código (sh -c, ssh, xargs) ejecuta un valor como código."
+  fr: "Dans une commande, chaque {{name}} lui est passé comme un seul mot, jamais lu comme du code : une commande qui en place un après eval ou let, ou dans [[ ]] ou (( )), est refusée. Celui passé à une commande comme ce sur quoi elle travaille se place après -- (git fetch origin -- {{ref}}), pour qu’une valeur commençant par - ne soit pas prise pour une option ; et une commande qui exécute ses mots comme du code (sh -c, ssh, xargs) exécute une valeur comme du code."
+  ja: "コマンドでは、各 {{name}} は 1 つの語として渡され、コードとして読まれることはありません。eval や let の後、または [[ ]] や (( )) の中に置くコマンドは拒否されます。コマンドの処理対象として渡す値は -- の後に置きます（git fetch origin -- {{ref}}）。こうすれば - で始まる値がオプションと見なされません。語をコードとして実行するコマンド（sh -c、ssh、xargs）は値をコードとして実行します。"
+  ko: "명령에서 각 {{name}}은 하나의 단어로 전달되며 코드로 읽히지 않습니다. eval이나 let 뒤, 또는 [[ ]]나 (( )) 안에 두는 명령은 거부됩니다. 명령이 처리할 대상으로 전달하는 값은 -- 뒤에 둡니다(git fetch origin -- {{ref}}). 그러면 -로 시작하는 값이 옵션으로 간주되지 않습니다. 단어를 코드로 실행하는 명령(sh -c, ssh, xargs)은 값을 코드로 실행합니다."
+  pt-BR: "Em um comando, cada {{name}} é passado como uma palavra, nunca lido como código: um comando que coloque um após eval ou let, ou dentro de [[ ]] ou (( )), é recusado. Um passado a um comando como aquilo em que ele trabalha vai após -- (git fetch origin -- {{ref}}), para que um valor que começa com - não seja tomado por uma opção; e um comando que executa suas palavras como código (sh -c, ssh, xargs) executa um valor como código."
+  ru: "В команде каждое {{name}} передаётся одним словом и никогда не читается как код: команда, где оно стоит после eval или let либо внутри [[ ]] или (( )), отклоняется. Значение, которое команда обрабатывает, ставится после -- (git fetch origin -- {{ref}}), чтобы значение, начинающееся с -, не приняли за параметр; а команда, выполняющая свои слова как код (sh -c, ssh, xargs), выполнит значение как код."
+  sv: "I ett kommando ges varje {{name}} som ett ord och läses aldrig som kod: ett kommando som sätter ett efter eval eller let, eller inom [[ ]] eller (( )), avvisas. Ett som ges ett kommando som det det arbetar på står efter -- (git fetch origin -- {{ref}}), så att ett värde som börjar med - inte tas för ett alternativ; och ett kommando som kör sina ord som kod (sh -c, ssh, xargs) kör ett värde som kod."
 "In a new worktree":
   zh-CN: "在新工作树中"
   de: "In einem neuen Worktree"
@@ -13882,6 +13892,16 @@ _version: 2
   pt-BR: "valor, ou op://vault/item/field"
   ru: "значение или op://vault/item/field"
   sv: "värde, eller op://vault/item/field"
+"Values in commands":
+  zh-CN: "命令中的值"
+  de: "Werte in Befehlen"
+  es: "Valores en los comandos"
+  fr: "Valeurs dans les commandes"
+  ja: "コマンド内の値"
+  ko: "명령의 값"
+  pt-BR: "Valores nos comandos"
+  ru: "Значения в командах"
+  sv: "Värden i kommandon"
 "Variables":
   zh-CN: "变量"
   de: "Variablen"
