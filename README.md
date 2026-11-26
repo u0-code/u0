@@ -176,6 +176,10 @@ Every Mac's Ghost can do both, in **Settings › Devices** (or ⌘K
   Where it cannot reach this Mac, the pairing stays one way and says why.
 - With no window (a Linux box, say): `ghost-server` prints a pairing link
   for `127.0.0.1`, and its QR code, as it starts.
+- A dev server another Mac's terminal runs opens here: **Open** (the
+  column's Servers, the drawer's Open preview, ⌘-click) brings its port
+  to this Mac over a link of its own, signed in as the window is, and
+  opens it in your browser.
 
 A link that drops (a laptop shut, a network changed) is reached again, and
 what was said meanwhile is told then.

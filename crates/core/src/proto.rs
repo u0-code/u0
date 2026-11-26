@@ -938,6 +938,19 @@ pub struct Hello {
     /// The server's boot and the number of the last thing it said that
     /// this desk heard, when it comes back.
     pub since: Option<(u64, u64)>,
+    /// What the link is for.
+    pub then: Then,
+}
+
+/// What a link is for, once its device is let in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Then {
+    /// A desk: calls one way, events the other.
+    Desk,
+    /// One connection to this port on the server's machine (a dev
+    /// server's), its bytes carried both ways: for a device of full
+    /// scope.
+    Forward(u16),
 }
 
 /// A pairing code made on the server, and the name of the device pairing.

@@ -30,6 +30,18 @@ pub const CONTEXT: &str = "Terminal";
 /// The size a terminal opens at before the drawer has measured it.
 const FIRST_SIZE: (u16, u16) = (14, 100);
 
+/// `address` at `port` on this Mac.
+fn here_at(address: &str, port: u16) -> String {
+    let Ok(mut url) = url::Url::parse(address) else {
+        return address.to_owned();
+    };
+    if url.port_or_known_default() != Some(port) {
+        let _ = url.set_host(Some("127.0.0.1"));
+        let _ = url.set_port(Some(port));
+    }
+    url.into()
+}
+
 /// The last local address `text` shows (a dev server's), to open.
 pub fn address(text: &str) -> Option<String> {
     let mut found: Option<(usize, String)> = None;
@@ -113,6 +125,48 @@ pub struct Writing {
 }
 
 impl Desk {
+    /// Open `address`, a local one printed on the server `host` (a dev
+    /// server's): as it is on this Mac's own; on another, once its port is
+    /// brought here over a link of its own (`link::forward`), kept while
+    /// that server is held.
+    pub(crate) fn open_address(&mut self, host: Host, address: String, cx: &mut Context<Self>) {
+        let Some(m) = self.machine(host) else { return };
+        let there = url::Url::parse(&address)
+            .ok()
+            .filter(|u| {
+                let local = ["localhost", "127.0.0.1", "0.0.0.0", "[::1]"];
+                u.host_str().is_some_and(|h| local.contains(&h))
+            })
+            .and_then(|u| u.port_or_known_default());
+        let (Some(server), Some(there), false) = (m.paired.clone(), there, host == Host::HERE)
+        else {
+            return cx.open_url(&address);
+        };
+        match m.forwards.iter().find(|f| f.there == there) {
+            Some(f) => cx.open_url(&here_at(&address, f.port)),
+            None => crate::hub::forward(host, server, there, address, self.tx.clone()),
+        }
+    }
+
+    /// A port brought here, to open `address` on; or why not.
+    pub(crate) fn forwarded(
+        &mut self,
+        host: Host,
+        address: &str,
+        result: Result<crate::link::Forward, String>,
+        cx: &mut Context<Self>,
+    ) {
+        match result {
+            Ok(forward) => {
+                cx.open_url(&here_at(address, forward.port));
+                if let Some(m) = self.machine_mut(host) {
+                    m.forwards.push(forward);
+                }
+            }
+            Err(why) => self.trouble(format!("Couldn't open {address} here"), Some(why), None),
+        }
+    }
+
     /// Open a terminal beside the session `key`, in `dir` on its server;
     /// `first` is typed into it (a script's command). The drawer opens on
     /// it.
@@ -599,6 +653,18 @@ impl Desk {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_address_brought_here_at_another_port_is_opened_there() {
+        assert_eq!(
+            here_at("http://localhost:5173/app?x=1", 5173),
+            "http://localhost:5173/app?x=1"
+        );
+        assert_eq!(
+            here_at("http://localhost:5173/app?x=1", 60001),
+            "http://127.0.0.1:60001/app?x=1"
+        );
+    }
 
     #[test]
     fn the_last_local_address_a_terminal_shows_is_the_one_to_open() {

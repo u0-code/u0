@@ -39,9 +39,9 @@ use tokio_tungstenite::{
 };
 
 use crate::{
-    access::{Access, Turned},
+    access::{Access, Scope, Turned},
     key::Key,
-    proto::{Call, Challenge, Event, Hello, PROTOCOL, Pair, Welcome},
+    proto::{Call, Challenge, Event, Hello, PROTOCOL, Pair, Then, Welcome},
     reach::Way,
     server::Server,
 };
@@ -350,6 +350,113 @@ where
     Err(why.to_owned())
 }
 
+/// What `server` says to a device let in with `scope`, as it is: to be
+/// filled in with what the link resumes.
+fn welcome(server: &Server, scope: Scope) -> Welcome {
+    Welcome {
+        boot: server.outbox().boot,
+        name: server_name(server.home()),
+        version: crate::update::this_build(),
+        home: server.home().to_path_buf(),
+        resumed: false,
+        said: 0,
+        settings: server.settings(),
+        back: None,
+        scope,
+    }
+}
+
+/// Carry bytes between `ws` (as binary messages) and `near`, until either
+/// ends.
+async fn carry<S>(mut ws: Socket<S>, mut near: TcpStream) -> Result<(), String>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+    let mut buf = vec![0u8; 64 << 10];
+    loop {
+        tokio::select! {
+            heard = ws.next() => match heard {
+                Some(Ok(Message::Binary(bytes))) => {
+                    near.write_all(&bytes).await.map_err(|e| e.to_string())?;
+                }
+                Some(Ok(Message::Close(_))) | None => return Ok(()),
+                Some(Err(e)) => return Err(e.to_string()),
+                Some(Ok(_)) => {}
+            },
+            read = near.read(&mut buf) => match read {
+                Ok(0) => {
+                    let _ = ws.close(None).await;
+                    return Ok(());
+                }
+                Ok(n) => {
+                    let bytes = Bytes::copy_from_slice(&buf[..n]);
+                    ws.send(Message::Binary(bytes)).await.map_err(|e| e.to_string())?;
+                }
+                Err(e) => return Err(e.to_string()),
+            },
+        }
+    }
+}
+
+/// A port of a server's machine brought here: what connects to `port` on
+/// 127.0.0.1 here is carried to it over a link of its own, each signed in
+/// as a desk's. It stops when let go.
+pub struct Forward {
+    /// The port there, and where it is here.
+    pub there: u16,
+    pub port: u16,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl Drop for Forward {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+/// Bring the port `there` of the server `way` here, coming in with the key
+/// kept as `kept`: at the same port where it is free, else at another.
+pub fn forward(way: Way, kept: String, there: u16) -> Result<Forward, String> {
+    let rt = crate::acp::runtime();
+    let bound = std::net::TcpListener::bind(("127.0.0.1", there))
+        .or_else(|_| std::net::TcpListener::bind(("127.0.0.1", 0)))
+        .and_then(|l| l.set_nonblocking(true).map(|()| l))
+        .map_err(|e| format!("No port here to bring {there} to: {e}"))?;
+    let port = bound.local_addr().map_err(|e| e.to_string())?.port();
+    let listener = {
+        let _in_runtime = rt.enter();
+        TcpListener::from_std(bound).map_err(|e| e.to_string())?
+    };
+    let task = rt.spawn(async move {
+        let mut carried = tokio::task::JoinSet::new();
+        loop {
+            let near = tokio::select! {
+                accepted = listener.accept() => match accepted {
+                    Ok((near, _)) => near,
+                    Err(_) => continue,
+                },
+                Some(_) = carried.join_next() => continue,
+            };
+            let (way, key) = (way.clone(), Key::read(&kept));
+            carried.spawn(async move {
+                let Ok(key) = key else { return };
+                match dial(&way, hello(&key, None, None, Then::Forward(there))).await {
+                    Ok((ws, _)) => {
+                        if let Err(why) = carry(ws, near).await {
+                            tracing::info!("port {there} carried no more: {why}");
+                        }
+                    }
+                    Err(Dial::Failed(why) | Dial::Refused(why) | Dial::Waiting(why)) => {
+                        tracing::info!("port {there} was not reached: {why}");
+                    }
+                }
+            });
+        }
+    });
+    Ok(Forward { there, port, task })
+}
+
 /// Why a device let in is cut off: its access ended, as it says; else it
 /// was unpaired.
 fn cut(why: Turned) -> String {
@@ -406,6 +513,21 @@ async fn serve(server: &Arc<Server>, mut ws: Upgraded) -> Result<(), String> {
             return refuse_as(ws, CloseCode::Again, &name).await;
         }
     };
+    if let Then::Forward(port) = hello.then {
+        if scope != Scope::Full {
+            return refuse(ws, "This device may only watch here: no port is forwarded").await;
+        }
+        let near = match TcpStream::connect(("127.0.0.1", port)).await {
+            Ok(near) => near,
+            Err(e) => return refuse(ws, &format!("Nothing answers on port {port}: {e}")).await,
+        };
+        let welcome = welcome(server, scope);
+        let text = serde_json::to_string(&welcome).expect("a welcome serializes");
+        ws.send(Message::text(text))
+            .await
+            .map_err(|e| e.to_string())?;
+        return carry(ws, near).await;
+    }
     // Asked as it paired, and so by its code: pair back with it.
     let back = match hello.pair.and_then(|p| p.back) {
         Some(back) => Some(server.pair_back(&back).await),
@@ -418,15 +540,10 @@ async fn serve(server: &Arc<Server>, mut ws: Upgraded) -> Result<(), String> {
     let mut access = server.access().changes();
     let (mut at, resumed) = outbox.resume(hello.since);
     let welcome = Welcome {
-        boot: outbox.boot,
-        name: server_name(server.home()),
-        version: crate::update::this_build(),
-        home: server.home().to_path_buf(),
         resumed,
         said: at,
-        settings: server.settings(),
         back,
-        scope,
+        ..welcome(server, scope)
     };
     let text = serde_json::to_string(&welcome).expect("a welcome serializes");
     let mut ping = tokio::time::interval(PING);
@@ -600,7 +717,7 @@ pub fn connect(
         };
         let (mut since, mut wait, mut lost) = (None, FIRST, false);
         while !calls.is_closed() {
-            match dial(&way, hello(&key, None, since)).await {
+            match dial(&way, hello(&key, None, since, Then::Desk)).await {
                 Ok((mut ws, welcome)) => {
                     since = Some((welcome.boot, welcome.said));
                     wait = FIRST;
@@ -652,7 +769,7 @@ pub async fn pair(
         device: host_name(),
         back,
     };
-    match dial(way, hello(key, Some(pair), None)).await {
+    match dial(way, hello(key, Some(pair), None, Then::Desk)).await {
         Ok((mut ws, welcome)) => {
             let _ = ws.close(None).await;
             Ok(Paired {
@@ -692,6 +809,7 @@ fn hello(
     key: &Key,
     pair: Option<Pair>,
     since: Option<(u64, u64)>,
+    then: Then,
 ) -> impl FnOnce(&Challenge) -> Hello {
     move |c| Hello {
         protocol: PROTOCOL,
@@ -699,6 +817,7 @@ fn hello(
         signature: key.sign(&c.nonce),
         pair,
         since,
+        then,
     }
 }
 
@@ -994,7 +1113,7 @@ mod tests {
         drop(desk(port, key(&mine), Some(&server)).unwrap());
         let mut heard = None;
         say(port, |c| {
-            let said = hello(&key(&mine), None, None)(c);
+            let said = hello(&key(&mine), None, None, Then::Desk)(c);
             heard = Some(said.clone());
             said
         })
@@ -1009,7 +1128,7 @@ mod tests {
         let (server, port) = server(home.path());
         let refused = say(port, |c| Hello {
             protocol: PROTOCOL + 1,
-            ..hello(&Key::generate(), Some(code(&server)), None)(c)
+            ..hello(&Key::generate(), Some(code(&server)), None, Then::Desk)(c)
         });
         assert!(refused.unwrap_err().contains("update"));
     }
@@ -1147,6 +1266,45 @@ mod tests {
             server.access().live(&other).is_some(),
             "the code was not spent"
         );
+    }
+
+    #[test]
+    fn a_dev_server_on_the_paired_machine_is_opened_here_and_a_watcher_gets_no_port() {
+        use std::io::{Read as _, Write as _};
+        let home = tempfile::tempdir().unwrap();
+        let (server, port) = server(home.path());
+        // A dev server there: it answers whatever is sent, once.
+        let dev = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let there = dev.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            while let Ok((mut c, _)) = dev.accept() {
+                let mut asked = [0u8; 5];
+                if c.read_exact(&mut asked).is_ok() {
+                    let _ = c.write_all(b"hello from there");
+                }
+            }
+        });
+        let ask = |forwarded: &Forward| {
+            let mut c = std::net::TcpStream::connect(("127.0.0.1", forwarded.port)).unwrap();
+            c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+            c.write_all(b"hello").unwrap();
+            let mut said = String::new();
+            let _ = c.read_to_string(&mut said);
+            said
+        };
+        let mine = kept();
+        pair_as(&server, port, &mine, crate::access::Grant::default());
+        let forwarded = forward(here(port), mine, there).unwrap();
+        assert_ne!(forwarded.port, there, "taken here, so another");
+        assert_eq!(ask(&forwarded), "hello from there");
+        let watcher = kept();
+        let read = crate::access::Grant {
+            scope: crate::access::Scope::Read,
+            ..crate::access::Grant::default()
+        };
+        pair_as(&server, port, &watcher, read);
+        let refused = forward(here(port), watcher, there).unwrap();
+        assert_eq!(ask(&refused), "", "nothing is carried for a watcher");
     }
 
     #[test]

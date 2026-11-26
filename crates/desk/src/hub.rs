@@ -51,6 +51,13 @@ pub enum Msg {
     Link(Host, link::State),
     /// What came of pairing with a server, or why it did not pair.
     Paired(Result<link::Paired, String>),
+    /// A port of the server `host` brought here, to open `address` on;
+    /// or why not.
+    Forwarded {
+        host: Host,
+        address: String,
+        result: Result<link::Forward, String>,
+    },
 }
 
 pub type Sender = mpsc::UnboundedSender<Msg>;
@@ -108,6 +115,8 @@ pub struct Machine {
     pub cli_versions: HashMap<PathBuf, String>,
     /// What this Mac may do there, as its welcome said: all, on its own.
     pub scope: crate::access::Scope,
+    /// Its ports brought here (a dev server's), each while it is held.
+    pub forwards: Vec<link::Forward>,
     /// The build of Ghost it runs, as its welcome said.
     pub version: Option<String>,
 }
@@ -130,6 +139,7 @@ impl Machine {
             cli_versions: HashMap::new(),
             version: None,
             scope: crate::access::Scope::Full,
+            forwards: Vec::new(),
         }
     }
 
@@ -236,6 +246,25 @@ pub fn pair(
     acp::runtime().spawn(async move {
         let paired = crate::servers::pair(&home, way, code, key, back).await;
         let _ = tx.send(Msg::Paired(paired));
+    });
+}
+
+/// Bring the port `there` of `server`, held as `host`, here, to open
+/// `address` on: over a link of its own, signed with this Mac's key for
+/// it (read off the window's thread: the Keychain may ask you first).
+pub fn forward(
+    host: Host,
+    server: crate::servers::Server,
+    there: u16,
+    address: String,
+    tx: Sender,
+) {
+    off(tx, move || Msg::Forwarded {
+        host,
+        address,
+        result: server
+            .reach()
+            .and_then(|(way, key)| link::forward(way, key.kept().to_owned(), there)),
     });
 }
 

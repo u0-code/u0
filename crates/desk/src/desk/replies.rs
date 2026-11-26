@@ -161,6 +161,11 @@ impl Desk {
             Msg::Notice(Ok(text)) => self.done(text, None),
             Msg::Notice(Err((text, why))) => self.trouble(text, Some(why), None),
             Msg::Link(host, state) => self.linked(host, state),
+            Msg::Forwarded {
+                host,
+                address,
+                result,
+            } => self.forwarded(host, &address, result, cx),
             Msg::Paired(paired) => {
                 self.pages.pairing = false;
                 self.read_servers();

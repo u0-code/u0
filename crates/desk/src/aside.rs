@@ -639,7 +639,8 @@ impl Desk {
     }
 
     /// The servers the session's terminals run (each a local address one
-    /// printed): opened in the browser, stopped with their terminal.
+    /// printed): opened in the browser (a port of another Mac brought
+    /// here first), stopped with their terminal.
     fn servers(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
         let found: Vec<(u64, String)> = self
             .drawer
@@ -656,6 +657,7 @@ impl Desk {
             crate::tr(Detail::Servers.head()),
             Some(fine(faces, found.len().to_string())),
         );
+        let host = s.host;
         for (n, (id, address)) in found.into_iter().enumerate() {
             let open = address.clone();
             sec = sec.child(
@@ -669,7 +671,9 @@ impl Desk {
                             Weight::Quiet,
                         )
                         .h(px(22.))
-                        .on_click(move |_, _, cx| cx.open_url(&open)),
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.open_address(host, open.clone(), cx);
+                        })),
                     )
                     .child(
                         ui::button(

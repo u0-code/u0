@@ -343,6 +343,11 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   The way back is reached as the way there: at 127.0.0.1 for a server
   reached there, else through the desk's own tunnel; with none, the
   pairing stays one way and says why.
+- A `Hello` says what its link is for (`Then`): a desk, or one
+  connection to a port on the server's machine (`Forward`, a dev
+  server's), its bytes carried both ways, for a device of full scope.
+  The desk brings such a port here (`link::forward`) as you open an
+  address another Mac's terminal printed; never through ssh.
 - Every server a window holds is reached at once, each its own link
   (resumed from what it last heard), each reached again on its own,
   waiting longer each time, while it is out of reach; what the desk

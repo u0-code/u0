@@ -142,6 +142,14 @@ version each runs, and its state: in this window, reaching it, offline,
 or turned away. **Reach again** retries at once; **Forget** removes the
 server and its key from the Keychain.
 
+### A dev server on another Mac
+
+A dev server that a terminal on another Mac runs opens here: **Open**
+(in the column's Servers, the drawer's Open preview, or ⌘-click on its
+address) brings its port to this Mac over a link of its own, signed in as
+the window is, and opens it in your browser at `127.0.0.1` on a port of
+this Mac's. Only a Mac that may do everything there can open one.
+
 ### When a link drops
 
 A server that drops is shown offline, with what the window had of it
@@ -185,7 +193,6 @@ A named tunnel's token is stored in `devices.json` as plain text.
 
 :::note Coming
 
-Opening a paired Mac's dev server here through its link, and
 `ghost thread`, `ghost workflow` and `ghost doctor` acting over a signed
 link are being finished and are not in the current build yet.
 

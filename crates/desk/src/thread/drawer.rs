@@ -188,11 +188,13 @@ impl Desk {
         });
         // A rule between what the repository gives and the drawer's own.
         let ruled = !scripts_none || preview.is_some();
-        if let Some(url) = preview {
+        if let Some((url, host)) = preview.zip(shown.map(|t| t.host)) {
             bar = bar.child(
                 ui::button("open-preview", crate::tr("Open preview"), Weight::Quiet)
                     .tooltip(url.clone())
-                    .on_click(move |_, _, cx| cx.open_url(&url)),
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.open_address(host, url.clone(), cx);
+                    })),
             );
         }
         bar = bar
@@ -624,7 +626,8 @@ impl Desk {
                         if e.modifiers.platform
                             && let Some(url) = t.link_at(at)
                         {
-                            cx.open_url(&url);
+                            let host = t.host;
+                            this.open_address(host, url, cx);
                         } else if e.modifiers.platform
                             && crate::markdown::path_like(&t.word_text(at))
                         {

@@ -353,6 +353,7 @@ mod tests {
                 back: None,
             }),
             since: None,
+            then: crate::proto::Then::Desk,
         }
     }
 
