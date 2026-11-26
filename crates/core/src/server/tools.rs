@@ -778,14 +778,26 @@ mod tests {
     /// What the tools answer over HTTP at the door of `home` to `message`,
     /// with `key` as the bearer token: the status line and the body.
     fn over_http(home: &std::path::Path, key: &str, message: &Value) -> (String, String) {
+        over_http_as(home, key, message, "127.0.0.1", None)
+    }
+
+    /// As `over_http`, called by the name `host`, from the page `origin`.
+    fn over_http_as(
+        home: &std::path::Path,
+        key: &str,
+        message: &Value,
+        host: &str,
+        origin: Option<&str>,
+    ) -> (String, String) {
         use std::io::Read as _;
         let door = door(home);
         let mut s = std::net::TcpStream::connect(("127.0.0.1", door.http)).unwrap();
         s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
         let body = message.to_string();
+        let origin = origin.map_or_else(String::new, |o| format!("Origin: {o}\r\n"));
         write!(
             s,
-            "POST /mcp HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {key}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nMCP-Protocol-Version: 2025-06-18\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
+            "POST /mcp HTTP/1.1\r\nHost: {host}:{}\r\n{origin}Authorization: Bearer {key}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\nMCP-Protocol-Version: 2025-06-18\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{body}",
             door.http,
             body.len()
         )
@@ -822,6 +834,13 @@ mod tests {
         assert!(body.contains("may only read"), "{body}");
         let (status, _) = over_http(home.path(), "not a key", &list);
         assert!(status.contains("401"), "{status}");
+        // A page in a browser, or a name not of this Mac, is not answered
+        // even with the key.
+        let (status, _) = over_http_as(home.path(), &key, &list, "evil.example", None);
+        assert!(!status.contains("200"), "{status}");
+        let page = Some("https://evil.example");
+        let (status, _) = over_http_as(home.path(), &key, &list, "127.0.0.1", page);
+        assert!(!status.contains("200"), "{status}");
     }
 
     #[test]

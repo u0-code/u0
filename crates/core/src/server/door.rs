@@ -120,9 +120,13 @@ impl Shared {
     async fn serve_http(self, listener: tokio::net::TcpListener) {
         // One request is one turn: no session is kept, so each is served
         // afresh, as its key says, and "always" is the key's.
+        // Called by a name of this Mac alone (rmcp's default list), and by
+        // no page in a browser: a request that says it comes from one
+        // (Origin) is refused, as one renamed by DNS is.
         let config = StreamableHttpServerConfig::default()
             .with_legacy_session_mode(false)
-            .with_json_response(true);
+            .with_json_response(true)
+            .enforce_origin_validation();
         while let Ok((stream, _)) = listener.accept().await {
             let (this, config) = (self.clone(), config.clone());
             let answer =

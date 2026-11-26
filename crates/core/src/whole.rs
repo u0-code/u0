@@ -27,8 +27,8 @@ pub fn read_json<T: serde::de::DeserializeOwned + Default>(path: &Path) -> Resul
     }
 }
 
-/// Write `bytes` to `path` whole, making its directory if need be. A file
-/// already there keeps its permissions.
+/// Write `bytes` to `path` whole, making its directory if need be; it is
+/// written readable and writable by you alone (0600).
 pub fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
     fs::create_dir_all(dir_of(path))?;
     aside(path, bytes)?.persist(path).map_err(|e| e.error)?;
@@ -54,14 +54,12 @@ fn aside(path: &Path, bytes: &[u8]) -> io::Result<NamedTempFile> {
     let prefix = format!(".{}.", name.to_string_lossy());
     let mut made = tempfile::Builder::new();
     made.prefix(&prefix).suffix(".partial");
-    // A new file is made as `File::create` makes one, not private as a
-    // temporary file is.
+    // Readable and writable by you alone, whatever it was: Ghost's files
+    // hold tokens (a named tunnel's, a webhook's address) and what you
+    // said.
     #[cfg(unix)]
-    made.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o666));
+    made.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600));
     let mut file = made.tempfile_in(dir_of(path))?;
-    if let Ok(was) = fs::metadata(path) {
-        file.as_file().set_permissions(was.permissions())?;
-    }
     io::Write::write_all(&mut file, bytes)?;
     file.as_file().sync_all()?;
     Ok(file)
@@ -88,6 +86,24 @@ mod tests {
                     .ends_with(".partial")
             })
             .count()
+    }
+
+    #[test]
+    fn a_file_written_is_yours_alone_whatever_it_was() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("devices.json");
+        fs::write(&path, "{}").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+        write(&path, b"{\"devices\": []}").unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        let new = dir.path().join("tasks.json");
+        write(&new, b"{}").unwrap();
+        assert_eq!(
+            fs::metadata(&new).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
     }
 
     #[test]
@@ -120,28 +136,5 @@ mod tests {
         assert!(write(&dir.join("taken"), b"{}").is_err());
         assert!(dir.join("taken").is_dir());
         assert_eq!(left_aside(dir), 0);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn a_file_rewritten_keeps_its_permissions_and_a_new_one_is_made_as_any() {
-        use std::os::unix::fs::PermissionsExt as _;
-        let dir = tempfile::tempdir().unwrap();
-        let mode = |name: &str| {
-            fs::metadata(dir.path().join(name))
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777
-        };
-        let path = dir.path().join("desk.json");
-        fs::write(&path, b"{}").unwrap();
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
-        write(&path, b"{\"who\": \"me\"}").unwrap();
-        assert_eq!(mode("desk.json"), 0o600);
-
-        fs::write(dir.path().join("made.md"), b"").unwrap();
-        write(&dir.path().join("PLAN.md"), b"# Plan").unwrap();
-        assert_eq!(mode("PLAN.md"), mode("made.md"));
     }
 }

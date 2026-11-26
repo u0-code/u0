@@ -53,9 +53,9 @@ tidies what no session uses. In repositories, Ghost also keeps
 [checkpoints](worktrees-and-checkpoints.md#checkpoints) under
 `refs/ghost/checkpoints/`.
 
-Files other than `mcp.json` are created with your usual permissions (your
-umask), and a file Ghost rewrites keeps the permissions it had. Ghost
-writes each file whole: after a crash it is either the old file or the
+Each file Ghost writes whole (its settings, the index, the tasks, the
+devices and servers, `mcp.json`) is readable and writable by you alone
+(0600), whatever it was before. Ghost writes each file whole: after a crash it is either the old file or the
 new one, never part of one.
 
 ## Secrets

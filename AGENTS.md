@@ -273,6 +273,8 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 
 ## Data
 
+- Every file Ghost writes whole (`whole::write`) is yours alone (0600):
+  several hold tokens.
 - `~/.ghost/settings.json` and `~/.ghost/sessions.json` are the files
   Ghost writes that a person may care about. Their fields are
   `deny_unknown_fields`; a file that does not read is left alone and
