@@ -239,7 +239,7 @@ impl Desk {
     /// pull request needs a repository, a side chat a session begun.
     fn offered(&self, letter: char) -> bool {
         self.session().is_some_and(|s| match letter {
-            'P' => s.repo,
+            'P' => s.git_dir().is_some(),
             'S' => s.meta.id.is_some() && s.beside.is_none(),
             _ => true,
         })

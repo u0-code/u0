@@ -59,6 +59,36 @@ pub fn root(dir: &Path) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// The repositories a folder that is not in one holds, as t3code finds
+/// them: each folder in it that is a repository's top, and each in a
+/// folder of it that is not one. A worktree or a submodule (its `.git` a
+/// file) is not counted, nor is a hidden folder; at most 128, by name.
+pub fn repos(folder: &Path) -> Vec<PathBuf> {
+    fn folders(dir: &Path) -> Vec<PathBuf> {
+        let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| !e.file_name().to_string_lossy().starts_with('.'))
+            .map(|e| e.path())
+            .filter(|p| p.is_dir())
+            .collect();
+        found.sort();
+        found
+    }
+    let top = |p: &PathBuf| p.join(".git").is_dir();
+    let mut found = Vec::new();
+    for child in folders(folder) {
+        if top(&child) {
+            found.push(child);
+        } else {
+            found.extend(folders(&child).into_iter().filter(top));
+        }
+    }
+    found.truncate(128);
+    found
+}
+
 /// The branch `dir` is on; `None` outside a repository or on a detached head.
 pub fn branch(dir: &Path) -> Option<String> {
     git(dir, &["rev-parse", "--abbrev-ref", "HEAD"], None)
@@ -1081,6 +1111,26 @@ pub(crate) fn yours(dir: &Path, program: &str, args: &[&str]) -> Result<String, 
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_folder_of_repositories_holds_those_one_or_two_levels_down_not_worktrees() {
+        let dir = tempfile::tempdir().unwrap();
+        for d in [
+            "api/.git",
+            "packages/web/.git",
+            "packages/notes",
+            ".hidden/.git",
+            "wt",
+        ] {
+            std::fs::create_dir_all(dir.path().join(d)).unwrap();
+        }
+        // A worktree's `.git` is a file.
+        std::fs::write(dir.path().join("wt/.git"), "gitdir: elsewhere").unwrap();
+        assert_eq!(
+            repos(dir.path()),
+            vec![dir.path().join("api"), dir.path().join("packages/web")]
+        );
+    }
+
     fn edit(old: Option<&str>, new: &str) -> Diff {
         Diff::new("a.rs", new).old_text(old.map(str::to_owned))
     }
@@ -1511,6 +1561,10 @@ pub struct View {
     /// The agent was asked to write a commit message: its answer goes in
     /// the commit form.
     pub writing_message: bool,
+    /// The repositories its folder holds, where it is not in one itself
+    /// (`repos`), and the one git is asked about of them.
+    pub repos: Vec<PathBuf>,
+    pub repo: Option<PathBuf>,
 }
 
 impl Default for View {
@@ -1526,6 +1580,8 @@ impl Default for View {
             compare_to: None,
             left_out: std::collections::BTreeSet::new(),
             writing_message: false,
+            repos: Vec::new(),
+            repo: None,
         }
     }
 }

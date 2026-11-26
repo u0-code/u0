@@ -398,8 +398,9 @@ impl Desk {
                 folder,
                 branch,
                 repo,
+                repos,
                 scripts,
-            } => self.looked(key, &folder, branch, repo, scripts),
+            } => self.looked(key, &folder, branch, repo, repos, scripts),
             Event::TermOpened { id, result } => self.terminal_opened(id, result),
             Event::TermOutput { id, bytes } => {
                 if let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id) {

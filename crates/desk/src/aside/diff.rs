@@ -52,7 +52,7 @@ pub fn files_of<'a>(s: &'a Session, scope: &Scope) -> Option<Cow<'a, [FileDiff]>
     };
     match from_git {
         Some(files) => Some(Cow::Borrowed(files)),
-        None if !s.repo && *scope == Scope::All => Some(Cow::Owned(edits(s, None))),
+        None if s.git_dir().is_none() && *scope == Scope::All => Some(Cow::Owned(edits(s, None))),
         None => None,
     }
 }
@@ -263,7 +263,7 @@ impl Desk {
     /// Show the commit `id` in the Diff tab, when the session on screen works
     /// in a repository: true when it does.
     pub fn show_commit(&mut self, id: &str, cx: &mut Context<Self>) -> bool {
-        if !self.session().is_some_and(|s| s.repo) {
+        if self.session().is_none_or(|s| s.git_dir().is_none()) {
             return false;
         }
         self.show_changes(Scope::Commit(id.to_owned()), cx);
@@ -313,7 +313,12 @@ impl Desk {
             .gap(px(6.))
             .h(px(40.))
             .px(px(12.))
-            .when(s.repo, |d| d.child(self.scope_tabs(faces, s, cx)))
+            .when(!s.git.repos.is_empty(), |d| {
+                d.child(self.repo_chip(faces, s, cx))
+            })
+            .when(s.git_dir().is_some(), |d| {
+                d.child(self.scope_tabs(faces, s, cx))
+            })
             .child(div().flex_1())
             .when(!files.is_empty(), |d| {
                 d.child(ui::counts(faces, added, gone, crate::style::CAPTION))
@@ -480,7 +485,7 @@ impl Desk {
         } else if shown == 0 {
             div().flex_1().p(px(16.)).child(empty(
                 faces,
-                if s.repo {
+                if s.git_dir().is_some() {
                     "Nothing changed here."
                 } else {
                     "Files the agent changes show here."
@@ -595,7 +600,7 @@ impl Desk {
             .iter()
             .map(|(place, span)| DiffSpanHighlight::new(place.clone(), span.clone()));
         let input = self.review.comment.clone();
-        let (repo, left_out) = (s.repo, s.git.left_out.clone());
+        let (repo, left_out) = (s.git_dir().is_some(), s.git.left_out.clone());
         let key = s.key;
         let faces = crate::fonts::faces(cx).clone();
         Diff::new(&self.review.diff)
@@ -747,7 +752,7 @@ impl Desk {
                             ),
                         )
                     })
-                    .when(s.repo, |d| {
+                    .when(s.git_dir().is_some(), |d| {
                         d.child(
                             ui::button(
                                 "commit",
@@ -775,7 +780,7 @@ impl Desk {
                                     })),
                             )
                     })
-                    .when(s.repo && !origin && gh, |d| {
+                    .when(s.git_dir().is_some() && !origin && gh, |d| {
                         d.children([("Publish, private", false), ("Public", true)].map(
                             |(label, public)| {
                                 ui::button(label, label, Weight::Quiet).h(px(24.)).on_click(
@@ -788,7 +793,7 @@ impl Desk {
                         ))
                     }),
             )
-            .when(self.review.committing && s.repo, |d| {
+            .when(self.review.committing && s.git_dir().is_some(), |d| {
                 d.child(self.commit_form(faces, s, cx))
             })
             .children(s.git.step.as_ref().map(|step| {

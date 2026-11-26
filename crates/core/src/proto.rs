@@ -626,6 +626,7 @@ pub enum Event {
         folder: PathBuf,
         branch: Option<String>,
         repo: bool,
+        repos: Vec<PathBuf>,
         scripts: Vec<Script>,
     },
     /// What the folder of a project holds.
@@ -1072,6 +1073,7 @@ mod tests {
                 folder: dir.clone(),
                 branch: Some("main".into()),
                 repo: true,
+                repos: Vec::new(),
                 scripts: vec![script.clone()],
             },
             Event::Held {

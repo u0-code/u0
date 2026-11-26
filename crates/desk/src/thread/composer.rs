@@ -362,7 +362,7 @@ impl Desk {
             .h(px(28.))
             .mt(px(8.))
             .child(self.project_chip(faces, s, draft, cx));
-        if draft && s.repo {
+        if draft && s.git_dir().is_some() {
             let on = s.wants_worktree;
             row = row.child(
                 ui::opener("worktree")
@@ -378,7 +378,7 @@ impl Desk {
                     .on_click(cx.listener(move |this, _, _, cx| this.set_worktree(!on, cx))),
             );
         }
-        if draft && s.repo && s.wants_worktree {
+        if draft && s.git_dir().is_some() && s.wants_worktree {
             row = row.child(self.base_chip(faces, s, cx));
         } else if let Some(branch) = &s.branch {
             row = row.child(

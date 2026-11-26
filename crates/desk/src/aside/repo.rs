@@ -88,6 +88,65 @@ impl Desk {
             })
     }
 
+    /// Which of the repositories a folder of them holds git is asked about,
+    /// for the changes, the commits and the pull request, as t3code's
+    /// repository picker.
+    pub(super) fn repo_chip(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Popover {
+        let shown = (s.git.repo.as_deref())
+            .map(|r| {
+                r.strip_prefix(&s.meta.folder)
+                    .unwrap_or(r)
+                    .display()
+                    .to_string()
+            })
+            .unwrap_or_default();
+        let chip = ui::opener("repository")
+            .h(px(22.))
+            .px(px(6.))
+            .child(ui::one_line(fine(faces, shown)).max_w(px(140.)))
+            .child(ui::icon("chevron-down", 10.).text_color(theme::faint()));
+        let key = s.key;
+        self.menu(
+            crate::desk::Popup::Repository,
+            chip,
+            move |d, menu, desk, _| d.repo_menu(key, menu, desk),
+            cx,
+        )
+        .anchor(gpui::Anchor::TopLeft)
+    }
+
+    /// The repositories of the session `key`'s folder: one chosen is read
+    /// afresh, nothing of the one before kept.
+    fn repo_menu(&self, key: u64, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
+        let Some(s) = self.sessions.at(key) else {
+            return menu;
+        };
+        for r in &s.git.repos {
+            let chosen = r.clone();
+            let name = r
+                .strip_prefix(&s.meta.folder)
+                .unwrap_or(r)
+                .display()
+                .to_string();
+            menu = menu.item(
+                Self::menu_item(desk, name, move |this, _, cx| {
+                    if let Some(s) = this.sessions.at_mut(key) {
+                        s.git = crate::git::View {
+                            repos: std::mem::take(&mut s.git.repos),
+                            repo: Some(chosen.clone()),
+                            ..crate::git::View::default()
+                        };
+                    }
+                    this.refresh_diffs(key);
+                    this.refresh_git(key);
+                    cx.notify();
+                })
+                .checked(s.git.repo.as_ref() == Some(r)),
+            );
+        }
+        menu
+    }
+
     /// What the branch is compared with: the main branch, or one chosen.
     fn compare_chip(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Popover {
         let shown = s.git.compare_to.clone().unwrap_or_else(|| "main".into());

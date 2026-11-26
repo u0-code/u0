@@ -123,6 +123,7 @@ pub enum Popup {
     Base,
     /// The branch the session's branch is compared with.
     Compare,
+    Repository,
     /// How to take a session back to one of your messages: by key and item.
     Rewind(u64, usize),
     /// The projects the sidebar shows.

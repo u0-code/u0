@@ -100,13 +100,18 @@ impl Desk {
         let Some(s) = self.sessions.at(key) else {
             return;
         };
-        if !s.repo {
+        if s.git_dir().is_none() {
             return;
         }
-        let dir = s.meta.folder.clone();
-        self.call(s.host, Call::Commits { dir, key });
+        let Some(dir) = s.git_dir() else { return };
+        self.call(
+            s.host,
+            Call::Commits {
+                dir: dir.clone(),
+                key,
+            },
+        );
         // Without gh there is no answer, and no pull request shown.
-        let dir = s.meta.folder.clone();
         self.call(s.host, Call::ReadPr { dir, key });
     }
 
@@ -126,6 +131,7 @@ impl Desk {
         folder: &std::path::Path,
         branch: Option<String>,
         repo: bool,
+        repos: Vec<PathBuf>,
         scripts: Vec<crate::scripts::Script>,
     ) {
         let Some(host) = self.sessions.at(key).map(|s| s.host) else {
@@ -142,6 +148,11 @@ impl Desk {
         s.branch = branch;
         s.repo = repo;
         s.scripts = scripts;
+        if !s.git.repo.as_ref().is_some_and(|r| repos.contains(r)) {
+            s.git.repo = repos.first().cloned();
+        }
+        s.git.repos = repos;
+        let git = s.git_dir().is_some();
         if s.state == State::Draft {
             if repo {
                 self.refresh_diffs(key);
@@ -160,7 +171,7 @@ impl Desk {
             });
             self.save_index();
         }
-        if repo {
+        if git {
             self.refresh_diffs(key);
             if self.current == Some(key) {
                 self.refresh_git(key);
@@ -188,13 +199,14 @@ impl Desk {
         let Some(s) = self.sessions.at(key) else {
             return;
         };
-        if !s.repo {
+        if s.git_dir().is_none() {
             return;
         }
+        let Some(dir) = s.git_dir() else { return };
         let no_spacing = self.settings.no_spacing;
         // Once a turn is checkpointed, what it shows is what changed since.
         let call = Call::Uncommitted {
-            dir: s.meta.folder.clone(),
+            dir: dir.clone(),
             key,
             since: s.first().map(str::to_owned),
             no_spacing,
@@ -202,7 +214,7 @@ impl Desk {
         self.call(s.host, call);
         if let Some((scope, _)) = &s.git.scoped {
             let call = Call::ScopeDiff {
-                dir: s.meta.folder.clone(),
+                dir,
                 key,
                 scope: scope.clone(),
                 base: s.git.compare_to.clone(),
@@ -220,14 +232,12 @@ impl Desk {
         if !self.pr_tick.is_multiple_of(2) {
             return;
         }
-        for s in self
-            .sessions
-            .all
-            .iter()
-            .filter(|s| s.repo && (s.meta.worktree.is_some() || Some(s.key) == self.current))
-        {
-            let dir = s.meta.folder.clone();
-            self.call(s.host, Call::ReadPr { dir, key: s.key });
+        for s in self.sessions.all.iter().filter(|s| {
+            s.git_dir().is_some() && (s.meta.worktree.is_some() || Some(s.key) == self.current)
+        }) {
+            if let Some(dir) = s.git_dir() {
+                self.call(s.host, Call::ReadPr { dir, key: s.key });
+            }
         }
     }
 
@@ -254,7 +264,8 @@ impl Desk {
         let no_spacing = self.settings.no_spacing;
         if let Some(s) = self.sessions.at_mut(key) {
             s.git.scoped = None;
-            let (host, dir, base) = (s.host, s.meta.folder.clone(), s.git.compare_to.clone());
+            let Some(dir) = s.git_dir() else { return };
+            let (host, base) = (s.host, s.git.compare_to.clone());
             let call = Call::ScopeDiff {
                 dir,
                 key,
@@ -285,7 +296,8 @@ impl Desk {
     fn branch_action(&mut self, action: crate::repo::GitAction, cx: &mut Context<Self>) {
         self.popup = super::Popup::Closed;
         let Some(s) = self.session() else { return };
-        let (host, key, dir) = (s.host, s.key, s.meta.folder.clone());
+        let (host, key) = (s.host, s.key);
+        let Some(dir) = s.git_dir() else { return };
         let busy = self.sessions.all.iter().any(|o| {
             o.host == host
                 && o.meta.folder == dir

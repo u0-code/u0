@@ -90,13 +90,19 @@ pub struct Held {
 }
 
 /// The branch of `folder`, where the session `key` works, whether it is in
-/// a repository, and the scripts its `ghost.json` names.
+/// a repository (else the repositories it holds), and the scripts its
+/// `ghost.json` names.
 pub fn look(key: u64, folder: PathBuf) -> Event {
     let root = git::root(&folder);
     Event::Looked {
         key,
         branch: git::branch(&folder),
         repo: root.is_some(),
+        repos: if root.is_some() {
+            Vec::new()
+        } else {
+            git::repos(&folder)
+        },
         scripts: root
             .map(|r| scripts::config(&r).scripts)
             .unwrap_or_default(),

@@ -647,7 +647,17 @@ impl Session {
 
     /// Whether a worktree is to be made for it before it is opened.
     pub fn needs_worktree(&self) -> bool {
-        self.repo && self.wants_worktree && self.meta.worktree.is_none()
+        self.git_dir().is_some() && self.wants_worktree && self.meta.worktree.is_none()
+    }
+
+    /// Where git is asked about it: its folder, in a repository; else the
+    /// repository chosen of those its folder holds.
+    pub fn git_dir(&self) -> Option<std::path::PathBuf> {
+        if self.repo {
+            Some(self.meta.folder.clone())
+        } else {
+            self.git.repo.clone()
+        }
     }
 
     /// Whether it is a session of `agent` on `host`.

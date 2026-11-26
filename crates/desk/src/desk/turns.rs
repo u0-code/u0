@@ -20,7 +20,7 @@ impl Desk {
             && let Some(s) = self.sessions.at_mut(key)
             && s.state == State::Draft
         {
-            s.wants_worktree = on && s.repo;
+            s.wants_worktree = on && s.git_dir().is_some();
         }
         self.settings.worktree = on;
         self.save_settings();
@@ -166,6 +166,11 @@ impl Desk {
                 s.meta.folder.clone_from(&wt.path);
                 s.branch = Some(wt.branch.clone());
                 s.scripts = scripts;
+                // A repository of its own now, though made from one of a
+                // folder of them: nothing read of that folder holds.
+                s.repo = true;
+                s.git = crate::git::View::default();
+                s.total = None;
                 let path = wt.path.clone();
                 s.meta.worktree = Some(wt);
                 let (host, agent, project) = (s.host, s.meta.agent.clone(), s.meta.project.clone());
@@ -308,7 +313,7 @@ impl Desk {
         let Some(s) = self.sessions.at(key) else {
             return;
         };
-        let (host, dir) = (s.host, s.meta.folder.clone());
+        let (host, dir) = (s.host, s.git_dir().unwrap_or_else(|| s.meta.folder.clone()));
         let left_out: Vec<String> = s.git.left_out.iter().cloned().collect();
         if let Some(s) = self.sessions.at_mut(key) {
             s.git.step = Some("Working".into());
