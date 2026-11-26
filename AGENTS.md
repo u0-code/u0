@@ -203,6 +203,7 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
 | Text written for you (a title, a commit message, ...) | `Desk::ask_writer` with a `writer::Ask`: the writer agent, in a session of its own |
 | A widget (switch, button, menu, ...) | `gpui::component` (gpui-kit, which the desk names `gpui`), coloured by `theme::kit` |
 | A menu opened from a trigger | `Desk::menu`: gpui-kit's Popover, held open by `Desk::popup` |
+| Something shown only on hover | `invisible`, and `visible` on `group_hover`, laid over the row; never `hidden`/`flex` on hover, which GPUI can paint without laying out, and panics |
 
 ## Data
 

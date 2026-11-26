@@ -445,6 +445,7 @@ impl Desk {
         item.child(
             div()
                 .id(group.clone())
+                .relative()
                 .group(group.clone())
                 .drag_over::<Dragged>(|st, _, _, _| st.bg(theme::row_hover()))
                 .on_drop(move |d: &Dragged, _, cx| {
@@ -464,15 +465,18 @@ impl Desk {
                 })
                 // At rest, at its end: folded, the dot for the one that
                 // most needs you and how many it hides; open, the chevron.
-                // On hover, in their place, a new session in it and the
-                // chevron; nothing keeps room for what is not shown.
+                // On hover, over them on the row's own ground, a new session
+                // in it and the chevron. Hover shows and hides them, never
+                // lays them out: GPUI reads the pointer again between laying
+                // out a frame and painting it, and a child laid out as gone
+                // but painted as there panics.
                 .child(
                     div()
                         .flex()
                         .flex_none()
                         .items_center()
                         .gap(px(8.))
-                        .group_hover(group.clone(), gpui::Styled::hidden)
+                        .group_hover(group.clone(), gpui::Styled::invisible)
                         .children(dot.map(|st| ui::dot(st.color())))
                         .when(!hidden.is_empty(), |d| {
                             d.child(ui::fine(faces, hidden.len().to_string()))
@@ -484,11 +488,16 @@ impl Desk {
                 )
                 .child(
                     div()
-                        .hidden()
-                        .flex_none()
+                        .absolute()
+                        .right_0()
+                        .h_full()
+                        .flex()
                         .items_center()
                         .gap(px(4.))
-                        .group_hover(group.clone(), gpui::Styled::flex)
+                        .pl(px(4.))
+                        .bg(theme::rail().blend(theme::row_hover()))
+                        .invisible()
+                        .group_hover(group.clone(), gpui::Styled::visible)
                         .child(
                             Button::new(SharedString::from(format!("new-in-{}", folder.display())))
                                 .ghost()
