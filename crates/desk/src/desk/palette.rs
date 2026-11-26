@@ -300,7 +300,7 @@ const LIST: f32 = 344.;
 /// An action's icon, by its name in `keys::ACTIONS`.
 fn icon_of(name: &str) -> &'static str {
     match name {
-        "new_session" => "square-pen",
+        "new_session" | "new_here" => "square-pen",
         "new_scratch" => "square-dashed",
         "find" => "search",
         "drawer" => "terminal",
@@ -329,7 +329,21 @@ fn icon_of(name: &str) -> &'static str {
         "go_to_file" => "file",
         "search_words" => "text-search",
         "pair_device" | "show_pairing_code" => "laptop",
-        _ => "chevron-right",
+        "palette" => "search",
+        "open_surface" => "panel-right",
+        "reopen_surface" => "undo-2",
+        "close_surface" => "x",
+        "clear_terminal" => "terminal",
+        "previous_turn" => "arrow-up",
+        "next_turn" => "arrow-down",
+        "full_screen" => "expand",
+        "zoom_in" => "plus",
+        "zoom_out" | "minimize" => "minus",
+        "check_for_updates" => "retry",
+        "quit" => "power",
+        // A chevron leads a row into a page of its own, at its end; an
+        // action with no mark of its own has the plain one.
+        _ => "dots",
     }
 }
 
