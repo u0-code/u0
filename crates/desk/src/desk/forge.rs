@@ -1,5 +1,6 @@
 //! The PRs and Issues pages, as t3code has them: a project's pull requests
-//! or issues listed by state, by your part in them and by GitHub's search;
+//! or issues, or every project's in one list, listed by state, by your
+//! part in them and by GitHub's search;
 //! one read whole beside the list; and what is done to one, as `gh` does
 //! it (`core::github`).
 
@@ -48,7 +49,11 @@ pub const PARTS: [(&str, &str); 5] = [
 /// being done to it.
 pub struct Forge {
     pub kind: Kind,
+    /// The project of the one read, and in one project's list its own.
     pub folder: Option<super::Place>,
+    /// Where every project's are listed, not only `folder`'s: what each
+    /// project was answered.
+    pub every: Option<Vec<(super::Place, Listed)>>,
     pub state: &'static str,
     pub part: usize,
     pub search: Entity<InputState>,
@@ -83,10 +88,16 @@ pub struct Forge {
     pub pr: super::pr::Review,
 }
 
+/// What was listed: none while it is read.
+pub type Listed = Option<Result<Vec<Item>, String>>;
+
 /// The list of pull requests or issues, as gpui-kit's List asks for it:
 /// what was listed (none while it is read), and the desk it is chosen on.
 pub struct Rows {
-    pub list: Option<Result<Vec<Item>, String>>,
+    pub list: Listed,
+    /// In the list of every project: each project, its name and how many
+    /// of the list are its, in the list's order. Empty for one project's.
+    pub groups: Vec<(super::Place, String, usize)>,
     desk: WeakEntity<Desk>,
     selected: Option<usize>,
 }
@@ -99,6 +110,64 @@ impl Rows {
             _ => &[],
         }
     }
+
+    /// The project of the row `row` and its name (none in one project's
+    /// list), and the rows of that project.
+    pub fn kin(&self, row: usize) -> (Option<(&super::Place, &str)>, &[Item]) {
+        let items = self.items();
+        let mut start = 0;
+        for (place, name, len) in &self.groups {
+            let end = (start + len).min(items.len());
+            if row < end {
+                return (Some((place, name)), &items[start..end]);
+            }
+            start = end;
+        }
+        (None, items)
+    }
+
+    /// Those of the project `place`: all of them in one project's list.
+    pub fn of(&self, place: Option<&super::Place>) -> &[Item] {
+        let items = self.items();
+        if self.groups.is_empty() {
+            return items;
+        }
+        let mut start = 0;
+        for (p, _, len) in &self.groups {
+            let end = (start + len).min(items.len());
+            if Some(p) == place {
+                return &items[start..end];
+            }
+            start = end;
+        }
+        &[]
+    }
+}
+
+/// The list of every project from what each was answered, `every`: the
+/// pull requests or issues of those that answered, a project's together,
+/// and how many are each's; none while none has answered, and the first
+/// trouble where every one failed (a folder that is not a repository on a
+/// forge fails, and is left out).
+pub fn gather<P: Clone>(every: &[(P, Listed)]) -> (Listed, Vec<(P, usize)>) {
+    let answered: Vec<_> = (every.iter())
+        .filter_map(|(p, a)| a.as_ref().map(|a| (p, a)))
+        .collect();
+    let Some((_, first)) = answered.first() else {
+        return (None, Vec::new());
+    };
+    let listed: Vec<_> = (answered.iter())
+        .filter_map(|(p, a)| a.as_ref().ok().map(|items| (*p, items)))
+        .collect();
+    if listed.is_empty() && answered.len() == every.len() {
+        return (Some((*first).clone()), Vec::new());
+    }
+    let items = listed.iter().flat_map(|(_, items)| items.iter().cloned());
+    let groups = (listed.iter())
+        .filter(|(_, items)| !items.is_empty())
+        .map(|(p, items)| ((*p).clone(), items.len()))
+        .collect();
+    (Some(Ok(items.collect())), groups)
 }
 
 impl ListDelegate for Rows {
@@ -115,7 +184,8 @@ impl ListDelegate for Rows {
         cx: &mut Context<ListState<Self>>,
     ) -> Option<ListItem> {
         let item = self.items().get(ix.row)?;
-        let (under, _) = crate::pages::pr::stack(item, self.items());
+        let (project, kin) = self.kin(ix.row);
+        let (under, _) = crate::pages::pr::stack(item, kin);
         Some(
             // A virtual list measures a row at its narrowest, where words
             // wrap: its height is said instead.
@@ -125,6 +195,7 @@ impl ListDelegate for Rows {
                     crate::fonts::faces(cx),
                     item,
                     under,
+                    project.map(|(_, name)| name),
                 )),
         )
     }
@@ -139,14 +210,22 @@ impl ListDelegate for Rows {
     }
 
     fn confirm(&mut self, _: bool, _: &mut Window, cx: &mut Context<ListState<Self>>) {
-        let Some(n) = (self.selected)
-            .and_then(|ix| self.items().get(ix))
-            .map(|i| i.number)
-        else {
+        let Some(row) = self.selected else {
             return;
         };
+        let Some(n) = self.items().get(row).map(|i| i.number) else {
+            return;
+        };
+        let place = self.kin(row).0.map(|(p, _)| p.clone());
         if let Some(desk) = self.desk.upgrade() {
-            cx.defer(move |cx| desk.update(cx, |d, cx| d.read_forge(n, cx)));
+            cx.defer(move |cx| {
+                desk.update(cx, |d, cx| {
+                    if let Some(place) = place {
+                        d.forge.folder = Some(place);
+                    }
+                    d.read_forge(n, cx);
+                });
+            });
         }
     }
 
@@ -281,6 +360,7 @@ impl Forge {
         let rows = cx.new(|cx| {
             let rows = Rows {
                 list: None,
+                groups: Vec::new(),
                 desk,
                 selected: None,
             };
@@ -290,6 +370,7 @@ impl Forge {
         Self {
             kind: Kind::Pr,
             folder: None,
+            every: None,
             state: "open",
             part: 0,
             search,
@@ -326,11 +407,17 @@ impl Forge {
 }
 
 impl Desk {
-    /// Open the page of `kind`, on the project of the session on screen.
+    /// Open the page of `kind`, on the project of the session on screen,
+    /// or on every project's where it lists every project's or there is
+    /// no session.
     pub fn open_forge(&mut self, kind: Kind, window: &mut Window, cx: &mut Context<Self>) {
-        if self.forge.kind != kind || self.forge.folder.is_none() {
+        let all = self.forge.every.is_some();
+        if self.forge.kind != kind || (self.forge.folder.is_none() && !all) {
             self.forge.kind = kind;
-            self.forge.folder = self.chosen_project();
+            if !all {
+                self.forge.folder = self.chosen_project();
+                self.forge.every = self.forge.folder.is_none().then(Vec::new);
+            }
             self.forge.state = "open";
             self.forge.chosen = None;
             self.forge.detail = None;
@@ -360,9 +447,13 @@ impl Desk {
     /// Ask `ask` of the page's project's pull requests or issues (`kind`),
     /// of its Linear team where it is bound to one.
     fn ask_forge(&self, kind: Kind, ask: Ask) {
-        let Some(p) = self.forge.folder.clone() else {
-            return;
-        };
+        if let Some(p) = self.forge.folder.clone() {
+            self.ask_forge_of(p, kind, ask);
+        }
+    }
+
+    /// Ask `ask` of the project `p`'s pull requests or issues (`kind`).
+    fn ask_forge_of(&self, p: super::Place, kind: Kind, ask: Ask) {
         let linear = self.prefs(&p).linear;
         let call = Call::Forge {
             folder: p.folder,
@@ -381,11 +472,37 @@ impl Desk {
             .to_owned();
         self.forge.rows.update(cx, |r, cx| {
             r.delegate_mut().list = None;
+            r.delegate_mut().groups.clear();
             cx.notify();
         });
         let state = self.forge.state.to_owned();
-        self.ask_forge(self.forge.kind, Ask::List { state, search });
+        let ask = Ask::List { state, search };
+        if self.forge.every.is_some() {
+            let projects = self.projects();
+            self.forge.every = Some(projects.iter().map(|p| (p.clone(), None)).collect());
+            for p in projects {
+                self.ask_forge_of(p, self.forge.kind, ask.clone());
+            }
+        } else {
+            self.ask_forge(self.forge.kind, ask);
+        }
         cx.notify();
+    }
+
+    /// List every project's (`all`), or those of `folder`.
+    pub(crate) fn list_projects(
+        &mut self,
+        all: bool,
+        folder: Option<super::Place>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.forge.every = all.then(Vec::new);
+        self.forge.folder = folder;
+        self.forge.chosen = None;
+        self.forge.detail = None;
+        self.show_team(window, cx);
+        self.list_forge(cx);
     }
 
     /// Show the view `v` saved.
@@ -670,6 +787,7 @@ impl Desk {
             return false;
         };
         self.forge.folder = Some(folder);
+        self.forge.every = None;
         self.forge.kind = kind;
         self.forge.state = "all";
         self.list_forge(cx);
@@ -687,7 +805,13 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.forge.folder.as_ref() != Some(folder) || self.forge.kind != kind {
+        if self.forge.kind != kind {
+            return;
+        }
+        if let (true, Answer::Listed(list)) = (self.forge.every.is_some(), &answer) {
+            return self.every_answered(folder, list.clone(), window, cx);
+        }
+        if self.forge.folder.as_ref() != Some(folder) {
             return;
         }
         match answer {
@@ -756,6 +880,51 @@ impl Desk {
 }
 
 impl Desk {
+    /// What `folder` answered in the list of every project.
+    fn every_answered(
+        &mut self,
+        folder: &super::Place,
+        list: Result<Vec<Item>, String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(every) = self.forge.every.as_mut() else {
+            return;
+        };
+        let Some(at) = every.iter().position(|(p, _)| p == folder) else {
+            return;
+        };
+        every[at].1 = Some(list);
+        let (list, groups) = gather(every);
+        let groups: Vec<_> = (groups.into_iter())
+            .map(|(p, len)| {
+                let name = self.project_on(&p);
+                (p, name, len)
+            })
+            .collect();
+        // The one read stays chosen where it is still listed.
+        let chosen = (self.forge.folder.clone()).zip(self.forge.chosen);
+        let mut start = 0;
+        let mut at = None;
+        for (p, _, len) in &groups {
+            if let (Some((folder, n)), Some(Ok(items))) = (&chosen, &list)
+                && folder == p
+            {
+                at = (items[start..start + len].iter())
+                    .position(|i| i.number == *n)
+                    .map(|row| start + row);
+            }
+            start += len;
+        }
+        self.forge.rows.update(cx, |r, cx| {
+            r.delegate_mut().list = list;
+            r.delegate_mut().groups = groups;
+            r.set_selected_index(at.map(|row| IndexPath::default().row(row)), window, cx);
+            cx.notify();
+        });
+        cx.notify();
+    }
+
     /// Keep `token` for `host`, or, with none, take it out of the Keychain.
     pub(crate) fn set_token(
         &mut self,
@@ -772,5 +941,56 @@ impl Desk {
         };
         self.call(self.pages.on, call);
         cx.notify();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(number: u64) -> Item {
+        Item {
+            number,
+            title: format!("#{number}"),
+            state: "open".into(),
+            draft: false,
+            author: String::new(),
+            labels: Vec::new(),
+            updated: String::new(),
+            url: String::new(),
+            branch: String::new(),
+            base: String::new(),
+            review: String::new(),
+            checks: (0, 0, 0),
+            comments: 0,
+        }
+    }
+
+    fn numbers(list: Listed) -> Vec<u64> {
+        list.unwrap().unwrap().iter().map(|i| i.number).collect()
+    }
+
+    #[test]
+    fn every_projects_list_holds_each_projects_together_and_leaves_out_folders_off_a_forge() {
+        let mut every = vec![
+            ("a", Some(Ok(vec![item(1), item(2)]))),
+            ("plain folder", Some(Err("not a GitHub repository".into()))),
+            ("b", None),
+        ];
+        let (list, groups) = gather(&every);
+        assert_eq!(numbers(list), [1, 2]);
+        assert_eq!(groups, [("a", 2)]);
+        every[2].1 = Some(Ok(vec![item(7)]));
+        let (list, groups) = gather(&every);
+        assert_eq!(numbers(list), [1, 2, 7]);
+        assert_eq!(groups, [("a", 2), ("b", 1)]);
+    }
+
+    #[test]
+    fn every_projects_list_waits_for_an_answer_and_says_why_when_all_failed() {
+        let waiting: [(&str, Listed); 1] = [("a", None)];
+        assert_eq!(gather(&waiting).0, None);
+        let failed = [("a", Some(Err("gh is not signed in".to_owned())))];
+        assert_eq!(gather(&failed).0, Some(Err("gh is not signed in".into())));
     }
 }

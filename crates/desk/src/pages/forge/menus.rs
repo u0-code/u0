@@ -16,16 +16,20 @@ type Act3 = Box<dyn Fn(&mut Desk, &mut gpui::Window, &mut Context<Desk>)>;
 impl Desk {
     /// The projects a page can be of.
     pub(super) fn forge_projects(&self, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
+        menu = menu
+            .item(
+                Self::menu_item(desk, "All projects", |this, window, cx| {
+                    this.list_projects(true, None, window, cx);
+                })
+                .checked(self.forge.every.is_some()),
+            )
+            .separator();
         for folder in self.projects() {
-            let on = self.forge.folder.as_ref() == Some(&folder);
+            let on = self.forge.every.is_none() && self.forge.folder.as_ref() == Some(&folder);
             let name = self.project_on(&folder);
             menu = menu.item(
                 Self::menu_item(desk, name, move |this, window, cx| {
-                    this.forge.folder = Some(folder.clone());
-                    this.forge.chosen = None;
-                    this.forge.detail = None;
-                    this.show_team(window, cx);
-                    this.list_forge(cx);
+                    this.list_projects(false, Some(folder.clone()), window, cx);
                 })
                 .checked(on),
             );
@@ -81,36 +85,47 @@ impl Desk {
             crate::tr("What can be done with it"),
         )
         .size(px(26.));
-        let item = item.clone();
+        let (item, folder) = (item.clone(), self.forge.folder.clone().unwrap_or_default());
         self.menu(
             Popup::ForgeActions,
             trigger,
-            move |d, menu, desk, _| d.forge_menu(&item, menu, desk),
+            move |d, menu, desk, _| d.forge_menu(&item, folder.clone(), menu, desk),
             cx,
         )
         .anchor(gpui::Anchor::TopRight)
     }
 
-    /// What can be done with `item`: under the "⋯" of the one read, and
-    /// on a row's menu.
+    /// What can be done with `item`, of the project `folder`: under the
+    /// "⋯" of the one read, and on a row's menu.
     pub(super) fn forge_menu(
         &self,
         item: &Item,
+        folder: crate::desk::Place,
         menu: PopupMenu,
         desk: &Entity<Self>,
     ) -> PopupMenu {
         let (open, pr) = (item.state == "open", self.forge.kind == Kind::Pr);
         let n = item.number;
-        let folder = self.forge.folder.clone().unwrap_or_default();
         let mut rows = Vec::new();
         let mut entry = |label: String, act: Act3| {
             rows.push(Self::menu_item(desk, label, move |this, window, cx| {
                 act(this, window, cx);
             }));
         };
-        let act = |a: Act| -> Act3 { Box::new(move |d, _, cx| d.act_on(n, a.clone(), cx)) };
-        let merge = |how: &'static str, auto: bool| -> Act3 {
+        // What is asked of the forge is asked in the row's project, which
+        // in the list of every project is not always the one read.
+        let at = folder.clone();
+        let act = |a: Act| -> Act3 {
+            let at = at.clone();
             Box::new(move |d, _, cx| {
+                d.forge.folder = Some(at.clone());
+                d.act_on(n, a.clone(), cx);
+            })
+        };
+        let merge = |how: &'static str, auto: bool| -> Act3 {
+            let at = at.clone();
+            Box::new(move |d, _, cx| {
+                d.forge.folder = Some(at.clone());
                 d.act_on(
                     n,
                     Act::Merge {
@@ -149,7 +164,7 @@ impl Desk {
         } else if item.state == "closed" {
             entry("Reopen".into(), act(Act::Reopen));
         }
-        if self.forge.chosen == Some(n) {
+        if self.forge.chosen == Some(n) && self.forge.folder.as_ref() == Some(&folder) {
             entry(
                 "Edit title and description".into(),
                 Box::new(|d, window, cx| d.edit_forge(false, window, cx)),
@@ -195,7 +210,13 @@ impl Desk {
             );
             entry(
                 "Load new commits".into(),
-                Box::new(move |d, _, cx| d.read_forge(n, cx)),
+                Box::new({
+                    let at = folder.clone();
+                    move |d, _, cx| {
+                        d.forge.folder = Some(at.clone());
+                        d.read_forge(n, cx);
+                    }
+                }),
             );
         } else {
             let (f2, t2) = (folder.clone(), title.clone());

@@ -86,8 +86,11 @@ impl Desk {
                 (*name, f.part == n, pick)
             })
             .collect();
-        let project =
-            (f.folder.as_ref()).map_or_else(|| "No project".to_owned(), |p| self.project_on(p));
+        let project = match &f.folder {
+            _ if f.every.is_some() => "All projects".to_owned(),
+            Some(p) => self.project_on(p),
+            None => "No project".to_owned(),
+        };
         let chip = ui::opener("forge-project")
             .h(px(26.))
             .px(px(8.))
@@ -134,7 +137,7 @@ impl Desk {
                     .min_w(px(160.))
                     .child(Input::new(&f.search).small()),
             )
-            .when(f.kind == Kind::Issue, |d| {
+            .when(f.kind == Kind::Issue && f.every.is_none(), |d| {
                 d.child(div().w(px(110.)).child(Input::new(&f.team).small()))
                     .child(
                         ui::button("new-issue", crate::tr("New issue"), Weight::Secondary)
@@ -156,12 +159,18 @@ impl Desk {
             .child(List::new(&f.rows).p(px(6.)))
             .context_menu(move |menu, _, cx| {
                 let rows = rows.read(cx);
-                let item = (rows.right_clicked_index())
-                    .and_then(|ix| rows.delegate().items().get(ix.row).cloned());
-                match item {
-                    Some(item) => desk.read(cx).forge_menu(&item, menu, &desk),
-                    None => menu,
-                }
+                let Some(row) = rows.right_clicked_index().map(|ix| ix.row) else {
+                    return menu;
+                };
+                let rows = rows.delegate();
+                let Some(item) = rows.items().get(row).cloned() else {
+                    return menu;
+                };
+                let d = desk.read(cx);
+                let folder = (rows.kin(row).0.map(|(p, _)| p.clone()))
+                    .or_else(|| d.forge.folder.clone())
+                    .unwrap_or_default();
+                d.forge_menu(&item, folder, menu, &desk)
             });
         let side = if f.creating {
             self.forge_form(faces, "New issue", "Create", cx)
@@ -193,10 +202,10 @@ impl Desk {
     }
 }
 
-/// One in the list: its state, number and title; who, its branch (and the
-/// pull request it is stacked on, `under`), when; its labels, checks, review
-/// and comments.
-pub fn row(faces: &Faces, item: &Item, under: Option<u64>) -> Div {
+/// One in the list: its state, number and title; its project in the list
+/// of every project, who, its branch (and the pull request it is stacked
+/// on, `under`), when; its labels, checks, review and comments.
+pub fn row(faces: &Faces, item: &Item, under: Option<u64>, project: Option<&str>) -> Div {
     let n = item.number;
     let (passed, failed, going) = item.checks;
     let mut meta = vec![format!("#{n}"), item.author.clone(), when_of(&item.updated)];
@@ -205,6 +214,9 @@ pub fn row(faces: &Faces, item: &Item, under: Option<u64>) -> Div {
     }
     if let Some(under) = under {
         meta.insert(3, format!("on #{under}"));
+    }
+    if let Some(project) = project {
+        meta.insert(0, project.to_owned());
     }
     div()
         .flex()
@@ -565,7 +577,7 @@ impl Desk {
             .child(row("Labels", none(&d.item.labels)))
             .child(row("Assignees", none(&d.assignees)))
             .when(kind == Kind::Pr, |el| {
-                let listed = self.forge.rows.read(cx).delegate().items();
+                let listed = (self.forge.rows.read(cx).delegate()).of(self.forge.folder.as_ref());
                 let (under, over) = super::pr::stack(&d.item, listed);
                 let numbers = |ns: Vec<u64>| {
                     ns.iter()
