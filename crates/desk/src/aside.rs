@@ -424,7 +424,6 @@ impl Desk {
                     )
                 })
                 .on_click(cx.listener(move |this, _, window, cx| {
-                    this.closed_tabs.remove(&key);
                     this.show(key, window, cx);
                 }))
         };

@@ -234,9 +234,10 @@ pub struct Desk {
     pub rewinding: Option<u64>,
     /// The session a side question is being branched off.
     pub asking_beside: Option<u64>,
-    /// The subagents' tabs over the thread you closed: hidden, still at
-    /// work.
-    pub closed_tabs: HashSet<u64>,
+    /// The subagents' tabs over the thread you opened (true) or closed
+    /// (false; hidden, still at work). One you have done neither to has a
+    /// tab while it works or waits on you.
+    pub tabs: HashMap<u64, bool>,
     /// What waits for an agent to start, by its server and id: a fork, a
     /// delete.
     pub waiting: Vec<(hub::Host, String, lists::Waiting)>,
@@ -574,7 +575,7 @@ impl Desk {
             waiting: Vec::new(),
             rewinding: None,
             asking_beside: None,
-            closed_tabs: HashSet::new(),
+            tabs: HashMap::new(),
             kept: HashMap::new(),
             notices: Vec::new(),
             pages,
@@ -985,6 +986,10 @@ impl Desk {
             self.review.committing = false;
         }
         self.current = Some(key);
+        // A subagent shown keeps its tab till you close it.
+        if self.sessions.at(key).is_some_and(|s| s.parent.is_some()) {
+            self.tabs.insert(key, true);
+        }
         self.page = Page::Thread;
         self.popup = Popup::Closed;
         self.close_settings(window, cx);

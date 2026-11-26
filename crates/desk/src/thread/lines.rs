@@ -274,11 +274,11 @@ impl Desk {
             .child(div().flex_1().min_h(px(0.)).child(list))
     }
 
-    /// Tabs over the thread: the session's, and one for each subagent at
-    /// work or waiting on you, and the one on screen. A subagent's tab goes
-    /// as it finishes; × hides it, its work going on (the right column
-    /// brings it back). Past the thread's width the tabs scroll
-    /// sideways. None while no subagent has a tab.
+    /// Tabs over the thread: the session's, and one for each subagent you
+    /// opened, or at work or waiting on you. A subagent's tab stays till ×
+    /// closes it, its work going on (the right column brings it back).
+    /// Past the thread's width the tabs scroll sideways. None once no
+    /// subagent has a tab.
     fn family_tabs(&self, cx: &mut Context<Self>) -> Option<Div> {
         let s = self.session()?;
         let family = s.parent.unwrap_or(s.key);
@@ -290,7 +290,8 @@ impl Desk {
             .filter(|c| c.parent == Some(family))
             .filter(|c| {
                 c.key == s.key
-                    || ((c.sub.working() || c.sub.needs_you) && !self.closed_tabs.contains(&c.key))
+                    || (self.tabs.get(&c.key).copied())
+                        .unwrap_or(c.sub.working() || c.sub.needs_you)
             })
             .collect();
         if kids.is_empty() {
@@ -318,7 +319,7 @@ impl Desk {
                                 .on_click(cx.listener(
                                     move |this, _, window, cx| {
                                         cx.stop_propagation();
-                                        this.closed_tabs.insert(key);
+                                        this.tabs.insert(key, false);
                                         if this.current == Some(key) {
                                             this.show(family, window, cx);
                                         }
