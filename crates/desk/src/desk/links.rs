@@ -8,6 +8,8 @@
 //!   on a pull request (in a worktree of its own branch) or about an issue.
 //! - `ghost://session/<agent>/<id>?prompt=<text>`: that session, and with
 //!   a prompt, it written there (asked first over what you were writing).
+//! - `ghost://pair?host=<host>#<code>`: pair with the Ghost there, as
+//!   Settings › Sharing & access made the link; asked first.
 //! - `file:///path/to/folder`: the folder as a project, and a session in it.
 //!
 //! A prompt is what someone else wrote: characters that do not show
@@ -33,6 +35,10 @@ pub enum Link {
         agent: String,
         id: String,
         prompt: Option<String>,
+    },
+    Pair {
+        host: String,
+        code: String,
     },
     Folder(PathBuf),
 }
@@ -74,6 +80,10 @@ impl Link {
                 id: id.clone(),
                 prompt: query("prompt"),
             }),
+            ("pair", []) => {
+                let (host, code) = crate::link::pairing(text)?;
+                Some(Self::Pair { host, code })
+            }
             _ => None,
         }
     }
@@ -140,6 +150,7 @@ impl Desk {
     fn open_link(&mut self, link: Link, window: &mut Window, cx: &mut Context<Self>) {
         match link {
             Link::Folder(folder) => self.add_and_begin(&folder, window, cx),
+            Link::Pair { host, code } => Self::ask_pair(host, code, window, cx),
             Link::New {
                 project,
                 agent,
@@ -273,6 +284,13 @@ mod tests {
         assert_eq!(
             Link::parse("file:///tmp/x"),
             Some(Link::Folder(PathBuf::from("/tmp/x")))
+        );
+        assert_eq!(
+            Link::parse("ghost://pair?host=127.0.0.1:4317#c0de"),
+            Some(Link::Pair {
+                host: "127.0.0.1:4317".into(),
+                code: "c0de".into(),
+            })
         );
         assert_eq!(Link::parse("https://example.com"), None);
         assert_eq!(Link::parse("ghost://elsewhere"), None);

@@ -40,7 +40,7 @@ pub enum Share {
     Awake(bool),
     /// Make a pairing link.
     Pair,
-    /// Unpair the device known by this hash.
+    /// Unpair the device known by this public key.
     Revoke(String),
 }
 
@@ -154,7 +154,7 @@ impl Server {
                 let made = crate::store::secs(std::time::SystemTime::now());
                 self.sharing().link = Some((link::pairing_link(&host, &access.code()), made));
             }
-            Share::Revoke(hash) => access.revoke(&hash),
+            Share::Revoke(key) => access.revoke(&key),
         }
         self.say_shared();
     }
@@ -305,7 +305,11 @@ impl Server {
                     .map(|n| n.host.clone()),
                 awake: kept.as_ref().is_ok_and(|k| k.awake),
                 devices: kept.map(|k| k.devices),
-                link: sharing.link.clone(),
+                // Only while its code is good: not once used, or past its
+                // ten minutes.
+                link: (sharing.link.clone()).filter(|(l, _)| {
+                    link::pairing(l).is_some_and(|(_, code)| self.access().live(&code))
+                }),
             }
         };
         self.say(Event::Shared(Box::new(shared)));

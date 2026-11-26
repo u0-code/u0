@@ -7,12 +7,14 @@
 //! `ssh -L`), so Ghost holds no certificate and plain `ws://` never leaves
 //! the machine.
 //!
-//! The first thing a desk says is its [`Hello`]: the protocol it speaks,
-//! the token it paired with (`access`), and what it last heard. The server
-//! numbers what it says and keeps the last of it ([`Outbox`]), so a desk
-//! that drops off (a laptop shut, a network changed) and comes back is
-//! told what it missed, in order, and nothing is lost; one that comes
-//! back to a server restarted, or after more than is kept, begins again.
+//! The server first says a [`Challenge`], a nonce made for this link; the
+//! desk answers with its [`Hello`]: the protocol it speaks, its public key
+//! and its signature of the nonce (`key`, `access`), and what it last
+//! heard. The server numbers what it says and keeps the last of it
+//! ([`Outbox`]), so a desk that drops off (a laptop shut, a network
+//! changed) and comes back is told what it missed, in order, and nothing
+//! is lost; one that comes back to a server restarted, or after more than
+//! is kept, begins again.
 
 use std::{
     collections::VecDeque,
@@ -37,7 +39,8 @@ use tokio_tungstenite::{
 };
 
 use crate::{
-    proto::{Auth, Call, Event, Hello, PROTOCOL, Welcome},
+    key::Key,
+    proto::{Call, Challenge, Event, Hello, PROTOCOL, Pair, Welcome},
     server::Server,
 };
 
@@ -156,11 +159,9 @@ pub fn serve_here() -> Result<(), String> {
     server.serve()?;
     server.share_as_kept(true);
     let host = format!("127.0.0.1:{PORT}");
+    let link = pairing_link(&host, &server.access().code());
     println!("Ghost serves on ws://{host}");
-    println!(
-        "Pair a desk with it: {}",
-        pairing_link(&host, &server.access().code())
-    );
+    println!("Pair a desk with it, once, in the next ten minutes: {link}");
     crate::acp::runtime().block_on(async {
         let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
             .map_err(|e| e.to_string())?;
@@ -201,6 +202,14 @@ where
 async fn serve(server: &Arc<Server>, stream: TcpStream) -> Result<(), String> {
     let accepted = tokio_tungstenite::accept_async_with_config(stream, Some(config()));
     let mut ws = accepted.await.map_err(|e| e.to_string())?;
+    let nonce = crate::access::random::<32>();
+    let challenge = Challenge {
+        nonce: nonce.clone(),
+    };
+    let text = serde_json::to_string(&challenge).expect("a challenge serializes");
+    ws.send(Message::text(text))
+        .await
+        .map_err(|e| e.to_string())?;
     let hello = match tokio::time::timeout(WAIT, ws.next()).await {
         Ok(Some(Ok(Message::Text(t)))) => serde_json::from_str::<Hello>(&t).ok(),
         _ => None,
@@ -215,10 +224,13 @@ async fn serve(server: &Arc<Server>, stream: TcpStream) -> Result<(), String> {
         );
         return refuse(ws, &why).await;
     }
-    let (device, token) = match server.access().admit(&hello.auth).await {
+    let device = match server.access().admit(&hello, &nonce).await {
         Ok(admitted) => admitted,
         Err(why) => return refuse(ws, &why).await,
     };
+    // Its device is now paired, or last here now: Sharing & access shows
+    // it so, wherever it is open.
+    server.share(crate::share::Share::Look);
     let outbox = server.outbox();
     let mut said = outbox.said.subscribe();
     // What was missed goes first.
@@ -230,7 +242,6 @@ async fn serve(server: &Arc<Server>, stream: TcpStream) -> Result<(), String> {
         name: host_name(),
         home: server.home().to_path_buf(),
         resumed,
-        token,
         said: at,
         settings: server.settings(),
     };
@@ -337,45 +348,38 @@ enum Dial {
 type Client = Socket<MaybeTlsStream<TcpStream>>;
 
 /// Reach the server at `url` (`ws://127.0.0.1:…`, or `wss://` through a
-/// tunnel), showing `auth`: its welcome, and the link, which reaches it
-/// again each time it drops. What the server says goes to `said`, how the
-/// link stands to `state`.
+/// tunnel), signing with `key`, and the first time with `pair`: its
+/// welcome, and the link, which reaches it again each time it drops. What
+/// the server says goes to `said`, how the link stands to `state`.
 pub async fn connect(
     url: String,
-    auth: Auth,
+    key: Key,
+    pair: Option<Pair>,
     said: impl Fn(Event) + Send + Sync + 'static,
     state: impl Fn(State) + Send + Sync + 'static,
 ) -> Result<(Link, Welcome), String> {
-    let mut hello = Hello {
-        protocol: PROTOCOL,
-        auth,
-        since: None,
-    };
-    let (mut ws, welcome) = dial(&url, &hello)
+    let (mut ws, welcome) = dial(&url, hello(&key, pair, None))
         .await
         .map_err(|(Dial::Failed(why) | Dial::Refused(why))| why)?;
-    if let Some(token) = &welcome.token {
-        hello.auth = Auth::Token(token.clone());
-    }
-    hello.since = Some((welcome.boot, welcome.said));
+    let mut since = Some((welcome.boot, welcome.said));
     let (tx, mut calls) = mpsc::unbounded_channel();
     tokio::spawn(async move {
         loop {
-            let Some(why) = pump(&mut ws, &mut calls, &said, &mut hello.since).await else {
+            let Some(why) = pump(&mut ws, &mut calls, &said, &mut since).await else {
                 return;
             };
             state(State::Lost(why));
             let mut wait = Duration::from_secs(1);
             ws = loop {
                 tokio::time::sleep(wait).await;
-                match dial(&url, &hello).await {
+                match dial(&url, hello(&key, None, since)).await {
                     Ok((ws, welcome)) => {
                         state(if welcome.resumed {
                             State::Back
                         } else {
                             State::Afresh
                         });
-                        hello.since = Some((welcome.boot, welcome.said));
+                        since = Some((welcome.boot, welcome.said));
                         break ws;
                     }
                     Err(Dial::Refused(why)) => return state(State::Refused(why)),
@@ -387,20 +391,47 @@ pub async fn connect(
     Ok((Link(tx), welcome))
 }
 
-/// Reach the server at `url` and say `hello`: the socket, and its welcome.
-async fn dial(url: &str, hello: &Hello) -> Result<(Client, Welcome), Dial> {
+/// What a desk says to a challenge: it is `key`, pairing with `pair`, and
+/// last heard `since`.
+fn hello(
+    key: &Key,
+    pair: Option<Pair>,
+    since: Option<(u64, u64)>,
+) -> impl FnOnce(&Challenge) -> Hello {
+    move |c| Hello {
+        protocol: PROTOCOL,
+        key: key.public(),
+        signature: key.sign(&c.nonce),
+        pair,
+        since,
+    }
+}
+
+/// Reach the server at `url` and say `hello` to its challenge: the
+/// socket, and its welcome.
+async fn dial(
+    url: &str,
+    hello: impl FnOnce(&Challenge) -> Hello,
+) -> Result<(Client, Welcome), Dial> {
     let reached = tokio_tungstenite::connect_async_with_config(url, Some(config()), false);
     let (mut ws, _) = match tokio::time::timeout(WAIT, reached).await {
         Ok(Ok(reached)) => reached,
         Ok(Err(e)) => return Err(Dial::Failed(e.to_string())),
         Err(_) => return Err(Dial::Failed("It did not answer".into())),
     };
-    let text = serde_json::to_string(hello).expect("a hello serializes");
+    let challenge = answer::<Challenge>(&mut ws).await?;
+    let text = serde_json::to_string(&hello(&challenge)).expect("a hello serializes");
     if let Err(e) = ws.send(Message::text(text)).await {
         return Err(Dial::Failed(e.to_string()));
     }
+    let welcome = answer(&mut ws).await?;
+    Ok((ws, welcome))
+}
+
+/// What the server says next on `ws`, or why it says nothing more.
+async fn answer<T: serde::de::DeserializeOwned>(ws: &mut Client) -> Result<T, Dial> {
     match tokio::time::timeout(WAIT, ws.next()).await {
-        Ok(Some(Ok(Message::Text(t)))) => serde_json::from_str(&t).map(|w| (ws, w)).map_err(|e| {
+        Ok(Some(Ok(Message::Text(t)))) => serde_json::from_str(&t).map_err(|e| {
             Dial::Refused(format!(
                 "The server answered in another form ({e}): update the older Ghost"
             ))
@@ -508,26 +539,37 @@ mod tests {
         std_mpsc::Receiver<State>,
     );
 
-    /// A desk linked to the server at `port`, showing `auth`: its link and
-    /// welcome, what it is told and how its link stands.
-    fn desk(port: u16, auth: Auth) -> Result<Desk, String> {
+    /// A desk linked to the server at `port` with `key`, pairing with
+    /// `pair`: its link and welcome, what it is told and how its link
+    /// stands.
+    fn desk(port: u16, key: Key, pair: Option<Pair>) -> Result<Desk, String> {
         let (events, heard) = std_mpsc::channel();
         let (states, stood) = std_mpsc::channel();
         let (events, states) = (Mutex::new(events), Mutex::new(states));
         let (link, welcome) = crate::acp::runtime().block_on(connect(
             format!("ws://127.0.0.1:{port}"),
-            auth,
+            key,
+            pair,
             move |e| events.lock().unwrap().send(e).unwrap(),
             move |s| states.lock().unwrap().send(s).unwrap(),
         ))?;
         Ok((link, welcome, heard, stood))
     }
 
-    fn pair(server: &Server) -> Auth {
-        Auth::Pair {
+    fn pair(server: &Server) -> Pair {
+        Pair {
             code: server.access().code(),
             device: "laptop".into(),
         }
+    }
+
+    /// A key kept, as a desk keeps it, to be read again for each link.
+    fn kept() -> String {
+        Key::generate().kept().to_owned()
+    }
+
+    fn key(kept: &str) -> Key {
+        Key::read(kept).unwrap()
     }
 
     fn told<T>(rx: &std_mpsc::Receiver<T>) -> T {
@@ -536,32 +578,54 @@ mod tests {
     }
 
     #[test]
-    fn a_desk_pairs_once_then_comes_in_with_its_token_and_is_answered() {
+    fn a_desk_pairs_once_then_comes_in_by_its_signature_and_is_answered() {
         let home = tempfile::tempdir().unwrap();
         let (server, port) = server(home.path());
-        let (link, welcome, heard, _) = desk(port, pair(&server)).unwrap();
+        let mine = kept();
+        let (link, welcome, heard, _) = desk(port, key(&mine), Some(pair(&server))).unwrap();
         assert_eq!(welcome.boot, server.outbox().boot);
-        let token = welcome.token.expect("a token for the paired");
         link.send(Call::Watch);
         assert!(matches!(told(&heard), Event::Index(Ok(_))));
-        let (_, again, ..) = desk(port, Auth::Token(token)).unwrap();
-        assert_eq!(again.token, None);
-        let why = desk(port, Auth::Token("guessed".into())).err().unwrap();
+        assert!(desk(port, key(&mine), None).is_ok());
+        let why = desk(port, Key::generate(), None).err().unwrap();
         assert!(why.contains("not paired"), "{why}");
+    }
+
+    /// Say to the server at `port` what `hello` makes of its challenge.
+    fn say(port: u16, hello: impl FnOnce(&Challenge) -> Hello) -> Result<Welcome, String> {
+        let url = format!("ws://127.0.0.1:{port}");
+        match crate::acp::runtime().block_on(dial(&url, hello)) {
+            Ok((_, welcome)) => Ok(welcome),
+            Err(Dial::Refused(why) | Dial::Failed(why)) => Err(why),
+        }
+    }
+
+    #[test]
+    fn a_signature_heard_on_one_link_does_not_open_another() {
+        let home = tempfile::tempdir().unwrap();
+        let (server, port) = server(home.path());
+        let mine = kept();
+        drop(desk(port, key(&mine), Some(pair(&server))).unwrap());
+        let mut heard = None;
+        say(port, |c| {
+            let said = hello(&key(&mine), None, None)(c);
+            heard = Some(said.clone());
+            said
+        })
+        .unwrap();
+        let replayed = say(port, |_| heard.unwrap()).unwrap_err();
+        assert!(replayed.contains("does not verify"), "{replayed}");
     }
 
     #[test]
     fn a_desk_that_speaks_another_protocol_is_told_to_update() {
         let home = tempfile::tempdir().unwrap();
         let (server, port) = server(home.path());
-        let hello = Hello {
+        let refused = say(port, |c| Hello {
             protocol: PROTOCOL + 1,
-            auth: pair(&server),
-            since: None,
-        };
-        let url = format!("ws://127.0.0.1:{port}");
-        let refused = crate::acp::runtime().block_on(dial(&url, &hello));
-        assert!(matches!(refused, Err(Dial::Refused(why)) if why.contains("update")));
+            ..hello(&Key::generate(), Some(pair(&server)), None)(c)
+        });
+        assert!(refused.unwrap_err().contains("update"));
     }
 
     /// A way to `port` that can be cut: each connection through it then
@@ -592,7 +656,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let (server, port) = server(home.path());
         let (through, cut) = breakable(port);
-        let (_link, _, heard, stood) = desk(through, pair(&server)).unwrap();
+        let (_link, _, heard, stood) = desk(through, Key::generate(), Some(pair(&server))).unwrap();
         cut.send_modify(|n| *n += 1);
         assert!(matches!(told(&stood), State::Lost(_)));
         // Said while the desk is away: for another desk, say.
@@ -609,11 +673,11 @@ mod tests {
     fn a_device_unpaired_is_cut_off_and_not_let_back_in() {
         let home = tempfile::tempdir().unwrap();
         let (server, port) = server(home.path());
-        let (_kept, ..) = desk(port, pair(&server)).unwrap();
-        let (_link, _, _, stood) = desk(port, pair(&server)).unwrap();
+        let (_kept, ..) = desk(port, Key::generate(), Some(pair(&server))).unwrap();
+        let (_link, _, _, stood) = desk(port, Key::generate(), Some(pair(&server))).unwrap();
         let devices = server.access().kept().unwrap().devices;
         assert_eq!(devices.len(), 2);
-        server.access().revoke(&devices[1].hash);
+        server.access().revoke(&devices[1].key);
         assert_eq!(told(&stood), State::Lost("This device was unpaired".into()));
         assert!(matches!(told(&stood), State::Refused(why) if why.contains("not paired")));
         assert_eq!(server.access().kept().unwrap().devices.len(), 1);

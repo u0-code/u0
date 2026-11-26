@@ -112,6 +112,7 @@ crates/core/src/
   link.rs       a server reached from elsewhere: a WebSocket on 127.0.0.1, what
                 it said numbered and kept for a desk that comes back; the desk's end
   access.rs     who may link: devices paired (devices.json), pairing codes
+  key.rs        a desk's Ed25519 key (OpenSSH's form): signing, verifying, fingerprints
   share.rs      sharing this Ghost: listening, the cloudflared tunnel, pairing links
   logs.rs       what Ghost logs, and where
   bin/          ghost-server: the server with no window
@@ -217,12 +218,21 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
 - A secret (an agent's variable marked so, a forge's token) is kept in the
   macOS Keychain under the service `Ghost <home>`, never in a file;
   `settings.json` names it only.
-- `~/.ghost/devices.json` (on the server) holds the devices paired, each
-  by the SHA-256 of its token, and how Ghost is shared (listening, the
-  tunnel, a named tunnel's token); `~/.ghost/servers.json` (on a desk) the
-  servers paired with and the one the window opens on, each token kept
-  as a secret (`server/<name>`). Both are `deny_unknown_fields`, and
-  left alone when they do not read.
+- `~/.ghost/devices.json` (on the server) holds the devices paired and
+  how Ghost is shared (listening, the tunnel, a named tunnel's token).
+  Each device is `{label, key, paired, seen}`: `key` the public half of
+  its Ed25519 key as `authorized_keys` writes it (`ssh-ed25519 AAAA…`),
+  shown by its `SHA256:` fingerprint. `~/.ghost/servers.json` (on a desk)
+  holds the servers paired with (`{name, host, key}`, `key` the public
+  half this Mac made for it) and the one the window opens on; each
+  private half is a secret (`server/<name>`, PKCS#8). Both are
+  `deny_unknown_fields`, and left alone when they do not read: a file from
+  before keys is refused with a word to pair again.
+- A desk comes in by signature, never by a secret: the server's first
+  word on each link is a nonce (`Challenge`), and the desk signs
+  `ghost link <PROTOCOL>\n<nonce>` with its key for that server. A
+  pairing code (128 bits, ten minutes, once) is what lets a new key in;
+  Revoke removes the key and closes its links.
 - A desk on a server elsewhere reads that server's `settings.json` (in
   its `Welcome`) and saves it there (`Call::SaveSettings`); what an agent
   needs before it starts is the server's to say (`Event::Here`).

@@ -47,7 +47,8 @@ pub enum Msg {
     Update(crate::desk::updates::Update),
     /// How the link to the server elsewhere stands.
     Link(link::State),
-    /// A server paired with, and the token it gave; or why not.
+    /// A server paired with, and the private half of the key this Mac
+    /// paired with, as it is kept; or why not.
     Paired(Result<(crate::servers::Server, String), String>),
 }
 
@@ -107,11 +108,12 @@ impl Transport {
         server: &crate::servers::Server,
         tx: &Sender,
     ) -> Result<(link::Link, crate::proto::Welcome), String> {
-        let (url, auth) = server.reach()?;
+        let (url, key) = server.reach()?;
         let (said, stood) = (tx.clone(), tx.clone());
         acp::runtime().block_on(link::connect(
             url,
-            auth,
+            key,
+            None,
             move |event| {
                 let _ = said.send(Msg::Event(event));
             },
@@ -158,26 +160,24 @@ impl Transport {
     }
 }
 
-/// Pair with the server whose pairing link is `link`: link to it with the
-/// code, as this Mac, and let go once it has given its token.
-pub fn pair(link: String, tx: Sender) {
+/// Pair with the server at `host` by the one-time `code`: link to it as
+/// this Mac, with `key`, and let go once it has let the key in.
+pub fn pair(host: String, code: String, key: crate::key::Key, tx: Sender) {
     acp::runtime().spawn(async move {
         let paired = async {
-            let (host, code) =
-                link::pairing(&link).ok_or("That is not a pairing link: it begins ghost://pair")?;
-            let auth = crate::proto::Auth::Pair {
+            let pair = crate::proto::Pair {
                 code,
                 device: link::host_name(),
             };
-            let (_, welcome) = link::connect(link::url_of(&host), auth, |_| {}, |_| {}).await?;
-            let token = welcome.token.ok_or("The server gave no token")?;
-            Ok((
-                crate::servers::Server {
-                    name: welcome.name,
-                    host,
-                },
-                token,
-            ))
+            let (public, kept) = (key.public(), key.kept().to_owned());
+            let url = link::url_of(&host);
+            let (_, welcome) = link::connect(url, key, Some(pair), |_| {}, |_| {}).await?;
+            let server = crate::servers::Server {
+                name: welcome.name,
+                host,
+                key: public,
+            };
+            Ok((server, kept))
         };
         let _ = tx.send(Msg::Paired(paired.await));
     });

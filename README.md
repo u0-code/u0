@@ -134,12 +134,17 @@ sessions, files, git and terminals, as if you sat at it.
   tunnel Ghost starts (a quick one, or a named one of yours), or an
   `ssh -L 4317:127.0.0.1:4317`. **Create link** makes a pairing link that
   works once, for ten minutes.
-- On the other Mac, **Settings › Connections** takes the link and pairs. The
-  server keeps only a hash of the token it gave; the Mac keeps the token in
-  its Keychain. **Open** restarts the window on that server; **Revoke** on
-  the server cuts a device off.
+- On the other Mac, open the link, or paste it in **Settings › Connections**.
+  That Mac makes an Ed25519 key for the server, keeps its private half in
+  its Keychain and sends only the public half; it shows the key's
+  `SHA256:` fingerprint, as the server's list of devices does. From then on
+  it comes in by signing a nonce the server makes for each link, so no
+  secret crosses the wire or sits on the server. **Open** restarts the
+  window on that server; **Revoke** on the server removes the key and cuts
+  the device off.
 - With no window (a Linux box, say): `ghost-server`, or
-  `ghost-desk --serve`, prints a pairing link for `127.0.0.1` as it starts.
+  `ghost-desk --serve`, prints a pairing link for `127.0.0.1` as it
+  starts.
 
 A link that drops (a laptop shut, a network changed) is reached again, and
 what was said meanwhile is told then.

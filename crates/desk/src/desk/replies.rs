@@ -151,9 +151,9 @@ impl Desk {
             Msg::Link(state) => self.linked(state, window, cx),
             Msg::Paired(paired) => {
                 self.pages.pairing = false;
-                match paired.and_then(|(server, token)| {
+                match paired.and_then(|(server, kept)| {
                     let name = server.name.clone();
-                    self.pages.servers.paired(server, &token).map(|()| name)
+                    self.pages.servers.paired(server, &kept).map(|()| name)
                 }) {
                     Ok(name) => {
                         self.keep_servers();

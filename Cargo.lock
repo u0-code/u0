@@ -2074,6 +2074,7 @@ dependencies = [
  "jiff 1.0.2",
  "libc",
  "portable-pty",
+ "ring",
  "rustls",
  "security-framework",
  "semver",

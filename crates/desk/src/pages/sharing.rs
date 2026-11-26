@@ -1,16 +1,19 @@
 //! Settings › Sharing & access: this Ghost reached from other machines
-//! (listening, the tunnel, pairing links, the devices paired) — the
-//! server's, whichever machine it is on. And Settings › Connections: the
-//! Ghosts elsewhere this Mac has paired with, and the one the window is on.
+//! (listening, the tunnel, pairing links, the devices paired and their
+//! keys) — the server's, whichever machine it is on. And
+//! Settings › Connections: the Ghosts elsewhere this Mac has paired with,
+//! the key it made for each, and the one the window is on.
 
 use gpui::component::{Disableable as _, Sizable as _, input::Input, switch::Switch};
-use gpui::{ClipboardItem, Context, Div, SharedString, div, prelude::*, px};
+use gpui::{ClipboardItem, Context, Div, SharedString, Window, div, prelude::*, px};
 
 use super::prefs::{group, page, setting};
 use crate::{
     access::Named,
     desk::Desk,
     fonts::Faces,
+    key::{self, Key},
+    link,
     servers::Servers,
     share::{Share, Tunnel},
     theme,
@@ -110,7 +113,7 @@ impl Desk {
         let link = setting(
             faces,
             "Pair a device",
-            "A link that works once, for ten minutes: paste it in Settings › Connections on the other Mac.",
+            "A link that works once, for ten minutes: open it on the other Mac, or paste it in Settings › Connections there.",
             ui::button("pair", "Create link", Weight::Primary)
                 .disabled(!serving)
                 .on_click(cx.listener(|this, _, _, _| this.share(Share::Pair))),
@@ -131,18 +134,23 @@ impl Desk {
             }
             Ok(devices) => (devices.iter())
                 .map(|d| {
-                    let hash = d.hash.clone();
+                    let print = key::fingerprint(&d.key);
+                    let public = d.key.clone();
                     Some(setting(
                         faces,
                         &d.label,
-                        &format!("Paired {}; last here {}", ago(d.paired), ago(d.seen)),
+                        &format!(
+                            "{print}. Paired {}; last here {}",
+                            ago(d.paired),
+                            ago(d.seen)
+                        ),
                         ui::button(
-                            SharedString::from(format!("revoke-{hash}")),
+                            SharedString::from(format!("revoke-{print}")),
                             "Revoke",
                             Weight::Secondary,
                         )
                         .on_click(cx.listener(move |this, _, _, _| {
-                            this.share(Share::Revoke(hash.clone()));
+                            this.share(Share::Revoke(public.clone()));
                         })),
                     ))
                 })
@@ -190,7 +198,7 @@ impl Desk {
                 row(
                     SharedString::from(format!("open-{}", s.name)),
                     &s.name,
-                    &s.host,
+                    &format!("{}. Your key: {}", s.host, key::fingerprint(&s.key)),
                     here,
                 )
                 .child(
@@ -211,7 +219,7 @@ impl Desk {
         let add = setting(
             faces,
             "Add server",
-            "Paste the link made in Sharing & access on the other machine.",
+            "Paste the link made in Sharing & access on the other machine. This Mac makes a key for it, and sends only its public half.",
             div()
                 .flex()
                 .gap(px(6.))
@@ -223,7 +231,7 @@ impl Desk {
                 .child(
                     ui::button("add-server", "Pair", Weight::Primary)
                         .loading(self.pages.pairing)
-                        .on_click(cx.listener(|this, _, _, cx| this.pair(cx))),
+                        .on_click(cx.listener(|this, _, window, cx| this.pair(window, cx))),
                 ),
         );
         page(
@@ -233,7 +241,13 @@ impl Desk {
         )
         .children(group(faces, "Servers", rows))
         .children(group(faces, "Pair", vec![Some(add)]))
-        .child(ui::fine(faces, "Their tokens are kept in the Keychain.").text_color(theme::faint()))
+        .child(
+            ui::fine(
+                faces,
+                "Each key's private half is kept in this Mac's Keychain; a server keeps only the public half.",
+            )
+            .text_color(theme::faint()),
+        )
     }
 
     /// Ask the server something of sharing.
@@ -242,11 +256,52 @@ impl Desk {
     }
 
     /// Pair with the server whose link is pasted.
-    fn pair(&mut self, cx: &mut Context<Self>) {
-        let link = self.pages.pair_link.read(cx).value().trim().to_owned();
-        self.pages.pairing = true;
-        crate::hub::pair(link, self.tx.clone());
+    fn pair(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let pasted = self.pages.pair_link.read(cx).value().trim().to_owned();
+        match link::pairing(&pasted) {
+            Some((host, code)) => Self::ask_pair(host, code, window, cx),
+            None => self.trouble(
+                "That is not a pairing link",
+                Some("It begins ghost://pair".into()),
+                None,
+            ),
+        }
         cx.notify();
+    }
+
+    /// Ask before pairing with the server at `host` by `code`, showing the
+    /// fingerprint of the key this Mac makes for it.
+    pub(crate) fn ask_pair(
+        host: String,
+        code: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use gpui::component::WindowExt as _;
+        let key = Key::generate();
+        let kept = key.kept().to_owned();
+        let about = format!(
+            "This Mac makes a key for it and sends only its public half, {}. The server lists it under Devices paired.",
+            key::fingerprint(&key.public())
+        );
+        let desk = cx.entity();
+        window.open_alert_dialog(cx, move |alert, _, _| {
+            let (desk, host, code, kept) = (desk.clone(), host.clone(), code.clone(), kept.clone());
+            alert
+                .title(format!("Pair with {host}?"))
+                .description(about.clone())
+                .ok_text("Pair")
+                .show_cancel(true)
+                .on_ok(move |_, _, cx| {
+                    let key = Key::read(&kept).expect("a key just made reads");
+                    desk.update(cx, |d, cx| {
+                        d.pages.pairing = true;
+                        crate::hub::pair(host.clone(), code.clone(), key, d.tx.clone());
+                        cx.notify();
+                    });
+                    true
+                })
+        });
     }
 
     /// Keep the servers paired with.

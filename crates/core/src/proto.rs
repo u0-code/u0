@@ -771,26 +771,36 @@ pub enum Event {
 
 /// The version of what is said over a link (`link`): a desk and a server
 /// that speak another are refused, each told to update.
-pub const PROTOCOL: u32 = 1;
+pub const PROTOCOL: u32 = 2;
 
-/// The first thing a desk says over a link, and nothing before it: who it
-/// is, and what it last heard from this server, to be told the rest.
+/// The first thing a server says over a link: a nonce made for it, for
+/// the desk to sign (`key`).
 #[derive(Debug, Serialize, Deserialize)]
+pub struct Challenge {
+    pub nonce: String,
+}
+
+/// What a desk says to the [`Challenge`], and nothing before it: who it
+/// is, and what it last heard from this server, to be told the rest.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Hello {
     pub protocol: u32,
-    pub auth: Auth,
+    /// The public half of its key for this server (`ssh-ed25519 AAAA…`),
+    /// and its signature of the challenge.
+    pub key: String,
+    pub signature: String,
+    /// As it pairs: the code made on the server, which lets its key in.
+    pub pair: Option<Pair>,
     /// The server's boot and the number of the last thing it said that
     /// this desk heard, when it comes back.
     pub since: Option<(u64, u64)>,
 }
 
-/// How a desk shows it may come in.
-#[derive(Debug, Serialize, Deserialize)]
-pub enum Auth {
-    /// The token this server gave it when it paired.
-    Token(String),
-    /// A pairing code made on the server, and the name of this device.
-    Pair { code: String, device: String },
+/// A pairing code made on the server, and the name of the device pairing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Pair {
+    pub code: String,
+    pub device: String,
 }
 
 /// The server's answer to [`Hello`], after which each thing it says is
@@ -809,8 +819,6 @@ pub struct Welcome {
     /// The number of the last thing said before this welcome: what is
     /// sent next follows it.
     pub said: u64,
-    /// The token to come in with from now on, when it paired.
-    pub token: Option<String>,
     /// The server's settings, as its home has them, or why they do not
     /// read.
     pub settings: Result<Box<crate::settings::Settings>, String>,
@@ -1558,7 +1566,7 @@ mod tests {
                 awake: true,
                 devices: Ok(vec![crate::access::Device {
                     label: "laptop".into(),
-                    hash: "h".into(),
+                    key: "ssh-ed25519 AAAA".into(),
                     paired: 1,
                     seen: 2,
                 }]),

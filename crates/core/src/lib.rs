@@ -16,6 +16,7 @@ pub mod diagnostics;
 pub mod forge;
 pub mod git;
 pub mod github;
+pub mod key;
 pub mod link;
 pub mod logs;
 pub mod path;

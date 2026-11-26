@@ -58,6 +58,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 # codes are drawn from the system's randomness.
 sha2 = "0.10"
 getrandom = "0.3"
+ring = "0.17"
 cocoa = "0.26"
 # Speech to text on this Mac (Apple's Speech framework, on device) and the
 # microphone it hears (AVFAudio), with the blocks they call back.

@@ -1,12 +1,12 @@
 //! Who may reach this Ghost from elsewhere (`link`), and how (`share`):
-//! the devices paired
-//! with it, each by the SHA-256 of the token it was given, kept in
-//! `devices.json` with how it is shared; and the one-time codes a device pairs with, kept only
-//! in memory, each good once and for ten minutes.
+//! the devices paired with it, each by the public half of its key
+//! (`key`), kept in `devices.json` with how it is shared, as
+//! `authorized_keys` keeps them; and the one-time codes that let a new key
+//! in, kept only in memory, each good once and for ten minutes.
 //!
-//! A token or code is 128 or 256 bits from the system's randomness. A
-//! failed attempt to come in is answered after a second, one at a time,
-//! so that guessing goes no faster than that.
+//! A code is 128 bits from the system's randomness. A failed attempt to
+//! come in is answered after a second, one at a time, so that guessing
+//! goes no faster than that.
 
 use std::{
     path::{Path, PathBuf},
@@ -16,9 +16,8 @@ use std::{
 
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
-use sha2::Digest as _;
 
-use crate::{proto::Auth, whole};
+use crate::{key, proto::Hello, whole};
 
 /// How long a pairing code is good for.
 const CODE_LIFE: Duration = Duration::from_mins(10);
@@ -48,8 +47,9 @@ pub struct Kept {
 pub struct Device {
     /// What it called itself as it paired.
     pub label: String,
-    /// The SHA-256 of its token, base64: what it is known by.
-    pub hash: String,
+    /// The public half of its key, `ssh-ed25519 AAAA…`: what it is known
+    /// by.
+    pub key: String,
     /// When it paired, and when it last came in (seconds since 1970).
     pub paired: u64,
     pub seen: u64,
@@ -80,8 +80,11 @@ impl Access {
     /// The access kept in Ghost's home `home`.
     pub fn new(home: &Path) -> Self {
         let path = home.join("devices.json");
-        let kept = whole::read_json(&path)
-            .map_err(|e| format!("{e}. No device can come in until it is moved away or mended."));
+        let kept = whole::read_json(&path).map_err(|e| {
+            format!(
+                "{e}. Move it away and pair each device again: until then no device can come in."
+            )
+        });
         Self {
             path,
             kept: Mutex::new(kept),
@@ -124,10 +127,16 @@ impl Access {
         code
     }
 
-    /// Let in the desk that shows `auth`: the hash it is known by, and
-    /// its new token where it paired; or, a second later, why not.
-    pub async fn admit(&self, auth: &Auth) -> Result<(String, Option<String>), String> {
-        let admitted = self.check(auth);
+    /// Whether the pairing code `code` is still good.
+    pub fn live(&self, code: &str) -> bool {
+        (self.codes.lock().expect("codes").iter())
+            .any(|(c, made)| c == code && made.elapsed() < CODE_LIFE)
+    }
+
+    /// Let in the desk that says `hello` to the challenge `nonce`: the
+    /// key it is known by; or, a second later, why not.
+    pub async fn admit(&self, hello: &Hello, nonce: &str) -> Result<String, String> {
+        let admitted = self.check(hello, nonce);
         if admitted.is_err() {
             let _one_at_a_time = self.failing.lock().await;
             tokio::time::sleep(Duration::from_secs(1)).await;
@@ -135,70 +144,63 @@ impl Access {
         admitted
     }
 
-    fn check(&self, auth: &Auth) -> Result<(String, Option<String>), String> {
+    fn check(&self, hello: &Hello, nonce: &str) -> Result<String, String> {
         if let Err(why) = &*self.kept.lock().expect("access") {
             return Err(why.clone());
         }
-        let now = crate::store::secs(std::time::SystemTime::now());
-        match auth {
-            Auth::Token(token) => {
-                let hash = hash(token);
-                let mut known = false;
-                self.change(|k| {
-                    if let Some(d) = k.devices.iter_mut().find(|d| d.hash == hash) {
-                        d.seen = now;
-                        known = true;
-                    }
-                });
-                known
-                    .then_some((hash, None))
-                    .ok_or_else(|| "This device is not paired with this Ghost".into())
-            }
-            Auth::Pair { code, device } => {
-                let mut codes = self.codes.lock().expect("codes");
-                let at = codes
-                    .iter()
-                    .position(|(c, made)| c == code && made.elapsed() < CODE_LIFE)
-                    .ok_or("The pairing link is used up or out of date: make another")?;
-                codes.remove(at);
-                drop(codes);
-                let token = random::<32>();
-                let hash = hash(&token);
-                self.change(|k| {
-                    k.devices.push(Device {
-                        label: device.clone(),
-                        hash: hash.clone(),
-                        paired: now,
-                        seen: now,
-                    });
-                });
-                Ok((hash, Some(token)))
-            }
+        if !key::verify(&hello.key, nonce, &hello.signature) {
+            return Err("This device's signature does not verify".into());
         }
+        let now = crate::store::secs(std::time::SystemTime::now());
+        let mut known = false;
+        if let Some(pair) = &hello.pair {
+            let mut codes = self.codes.lock().expect("codes");
+            let at = codes
+                .iter()
+                .position(|(c, made)| c == &pair.code && made.elapsed() < CODE_LIFE)
+                .ok_or("The pairing link is used up or out of date: make another")?;
+            codes.remove(at);
+            drop(codes);
+            known = true;
+            self.change(|k| {
+                k.devices.retain(|d| d.key != hello.key);
+                k.devices.push(Device {
+                    label: pair.device.clone(),
+                    key: hello.key.clone(),
+                    paired: now,
+                    seen: now,
+                });
+            });
+        } else {
+            self.change(|k| {
+                if let Some(d) = k.devices.iter_mut().find(|d| d.key == hello.key) {
+                    d.seen = now;
+                    known = true;
+                }
+            });
+        }
+        known
+            .then(|| hello.key.clone())
+            .ok_or_else(|| "This device is not paired with this Ghost".into())
     }
 
-    /// Unpair the device known by `hash`: its links close.
-    pub fn revoke(&self, hash: &str) {
-        self.change(|k| k.devices.retain(|d| d.hash != hash));
+    /// Unpair the device known by `key`: its links close.
+    pub fn revoke(&self, key: &str) {
+        self.change(|k| k.devices.retain(|d| d.key != key));
     }
 
-    /// Whether the device known by `hash` is still paired.
-    pub fn paired(&self, hash: &str) -> bool {
+    /// Whether the device known by `key` is still paired.
+    pub fn paired(&self, key: &str) -> bool {
         (self.kept.lock().expect("access").as_ref())
-            .is_ok_and(|k| k.devices.iter().any(|d| d.hash == hash))
+            .is_ok_and(|k| k.devices.iter().any(|d| d.key == key))
     }
 }
 
 /// `N` random bytes, as URL-safe base64.
-fn random<const N: usize>() -> String {
+pub fn random<const N: usize>() -> String {
     let mut bytes = [0u8; N];
     getrandom::fill(&mut bytes).expect("the system's randomness");
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
-}
-
-/// The SHA-256 of `token`, as base64.
-fn hash(token: &str) -> String {
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(sha2::Sha256::digest(token))
 }
 
 /// A number from the system's randomness.
@@ -211,51 +213,83 @@ pub fn number() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{key::Key, proto::Pair};
 
-    fn pair(access: &Access, code: &str) -> Result<(String, Option<String>), String> {
-        acp_block(access.admit(&Auth::Pair {
-            code: code.into(),
-            device: "laptop".into(),
-        }))
+    /// What `key` says to the challenge `nonce`, pairing with `code`.
+    fn hello(key: &Key, nonce: &str, code: Option<String>) -> Hello {
+        Hello {
+            protocol: crate::proto::PROTOCOL,
+            key: key.public(),
+            signature: key.sign(nonce),
+            pair: code.map(|code| Pair {
+                code,
+                device: "laptop".into(),
+            }),
+            since: None,
+        }
     }
 
-    fn acp_block<F: std::future::Future>(f: F) -> F::Output {
+    fn block<F: std::future::Future>(f: F) -> F::Output {
         crate::acp::runtime().block_on(f)
     }
 
     #[test]
-    fn a_pairing_code_gives_a_token_once_and_only_its_hash_is_kept() {
+    fn a_pairing_code_lets_a_key_in_once_and_only_its_public_half_is_kept() {
         let home = tempfile::tempdir().unwrap();
         let access = Access::new(home.path());
+        let (key, other) = (Key::generate(), Key::generate());
         let code = access.code();
-        let (hash, token) = pair(&access, &code).unwrap();
-        let token = token.unwrap();
-        assert!(pair(&access, &code).is_err(), "a code is good once");
+        assert_eq!(
+            block(access.admit(&hello(&key, "n1", Some(code.clone())), "n1")),
+            Ok(key.public())
+        );
+        assert!(!access.live(&code), "a code used is no longer shown");
+        let used = block(access.admit(&hello(&other, "n2", Some(code)), "n2"));
+        assert!(used.unwrap_err().contains("used up"));
         let written = std::fs::read_to_string(home.path().join("devices.json")).unwrap();
-        assert!(written.contains(&hash) && !written.contains(&token));
-        // Read again, the device comes in with its token.
+        assert!(written.contains(&key.public()) && !written.contains(key.kept()));
+        // Read again, the device comes in by its signature alone.
         let again = Access::new(home.path());
-        let (known, none) = acp_block(again.admit(&Auth::Token(token))).unwrap();
-        assert_eq!((known, none), (hash, None));
+        assert!(block(again.admit(&hello(&key, "n3", None), "n3")).is_ok());
+        let stranger = block(again.admit(&hello(&other, "n4", None), "n4"));
+        assert!(stranger.unwrap_err().contains("not paired"));
     }
 
     #[test]
-    fn a_wrong_token_is_turned_away_after_a_wait() {
+    fn a_signature_of_another_nonce_is_turned_away_after_a_wait() {
         let home = tempfile::tempdir().unwrap();
         let access = Access::new(home.path());
+        let key = Key::generate();
+        let code = access.code();
         let began = Instant::now();
-        assert!(acp_block(access.admit(&Auth::Token("guess".into()))).is_err());
+        let replayed = block(access.admit(&hello(&key, "old", Some(code.clone())), "new"));
+        assert!(replayed.unwrap_err().contains("does not verify"));
         assert!(began.elapsed() >= Duration::from_secs(1));
+        // The code was not spent on it.
+        assert!(block(access.admit(&hello(&key, "new", Some(code)), "new")).is_ok());
     }
 
     #[test]
-    fn a_devices_file_that_does_not_read_lets_no_one_in_and_is_left_alone() {
+    fn an_expired_code_lets_no_key_in() {
         let home = tempfile::tempdir().unwrap();
-        std::fs::write(home.path().join("devices.json"), r#"{"who":"me"}"#).unwrap();
         let access = Access::new(home.path());
         let code = access.code();
-        assert!(pair(&access, &code).unwrap_err().contains("moved away"));
+        access.codes.lock().unwrap()[0].1 -= CODE_LIFE;
+        let key = Key::generate();
+        let late = block(access.admit(&hello(&key, "n", Some(code)), "n"));
+        assert!(late.unwrap_err().contains("out of date"));
+    }
+
+    #[test]
+    fn a_devices_file_of_tokens_lets_no_one_in_and_is_left_alone() {
+        let home = tempfile::tempdir().unwrap();
+        let old = r#"{"devices":[{"label":"laptop","hash":"h","paired":1,"seen":2}]}"#;
+        std::fs::write(home.path().join("devices.json"), old).unwrap();
+        let access = Access::new(home.path());
+        let key = Key::generate();
+        let refused = block(access.admit(&hello(&key, "n", Some(access.code())), "n"));
+        assert!(refused.unwrap_err().contains("pair each device again"));
         let left = std::fs::read_to_string(home.path().join("devices.json")).unwrap();
-        assert_eq!(left, r#"{"who":"me"}"#);
+        assert_eq!(left, old);
     }
 }
