@@ -15,7 +15,7 @@ use gpui::component::{
     button::{Button, ButtonVariants as _},
     notification::{Notification, NotificationDelivery, NotificationType},
 };
-use gpui::{ClipboardItem, Context, Window};
+use gpui::{ClipboardItem, Context, Window, prelude::FluentBuilder as _};
 
 use super::Desk;
 use crate::settings::Notify;
@@ -164,6 +164,10 @@ impl Desk {
             let way = n.way.clone();
             note = note.on_click(move |_, window, cx| clicked(&way, window, cx));
         }
+        // A way on keeps a notice up, but what went wrong still goes by
+        // itself: it waits while the pointer is on it, and its close button
+        // shows there.
+        let trouble = n.trouble;
         note.action(move |_, _, cx| {
             let (way, go) = (way.clone(), go.clone());
             Button::new("way")
@@ -175,5 +179,6 @@ impl Desk {
                     note.dismiss(window, cx);
                 }))
         })
+        .when(trouble, |note| note.autohide(true))
     }
 }
