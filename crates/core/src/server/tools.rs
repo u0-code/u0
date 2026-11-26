@@ -62,11 +62,12 @@ impl Shared {
                 port: listener.local_addr().map_or(0, |a| a.port()),
                 key: crate::access::random::<32>(),
             };
+            // Its key lets in before the door names it.
+            (this.callers.lock().expect("callers")).insert(door.key.clone(), None);
             if let Err(e) = mcp::open(&this.home, &door) {
                 tracing::warn!("Ghost's tools are not served: {e}");
                 return;
             }
-            (this.callers.lock().expect("callers")).insert(door.key, None);
             while let Ok((stream, _)) = listener.accept().await {
                 let this = this.clone();
                 tokio::spawn(async move {

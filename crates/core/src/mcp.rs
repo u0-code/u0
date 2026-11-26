@@ -11,7 +11,6 @@
 
 use std::{
     io::Write as _,
-    os::unix::fs::OpenOptionsExt as _,
     path::{Path, PathBuf},
 };
 
@@ -34,18 +33,14 @@ pub(crate) fn path(home: &Path) -> PathBuf {
     home.join("mcp.json")
 }
 
-/// Write `door` in `home`, readable by you alone.
+/// Write `door` in `home`, readable by you alone: whole, so that whoever
+/// reads it finds the door before or the door after, never part of one.
 pub(crate) fn open(home: &Path, door: &Door) -> std::io::Result<()> {
     std::fs::create_dir_all(home)?;
-    let path = path(home);
-    // Made afresh, so that it is never for a moment readable by others.
-    let _ = std::fs::remove_file(&path);
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)?;
-    file.write_all(&serde_json::to_vec(door).expect("the door serializes"))
+    // A temporary file is made readable by you alone.
+    let mut file = tempfile::NamedTempFile::new_in(home)?;
+    file.write_all(&serde_json::to_vec(door).expect("the door serializes"))?;
+    file.persist(path(home)).map(drop).map_err(|e| e.error)
 }
 
 /// Where the program was started as `ghost --mcp`, be the pipe, and end
