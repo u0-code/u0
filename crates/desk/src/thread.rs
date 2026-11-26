@@ -440,11 +440,13 @@ impl Desk {
         col = col
             .child(self.start(faces, column, fresh.is_some(), cx))
             .children(fresh.and_then(|s| Self::also_row(faces, s, cx)));
+        // The card in the middle of the page, as Claude's.
         div()
             .id("thread")
             .flex()
             .flex_col()
             .items_center()
+            .justify_center()
             .flex_1()
             .min_h(px(0.))
             .child(col)

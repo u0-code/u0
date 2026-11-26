@@ -7,7 +7,6 @@
 use gpui::component::list::ListItem;
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
-use crate::fonts::Weighted as _;
 use crate::{
     desk::Desk,
     fonts::Faces,
@@ -21,7 +20,8 @@ const RECENT: usize = 3;
 
 impl Desk {
     /// The next steps, as one bordered card in the middle of the page, at
-    /// most `width` wide; `fresh`: for a session on screen not begun yet.
+    /// most `width` wide, with no heading over it: the project is the
+    /// composer's chip. `fresh`: for a session on screen not begun yet.
     pub(crate) fn start(
         &self,
         faces: &Faces,
@@ -130,46 +130,11 @@ impl Desk {
                 .on_click(cx.listener(move |this, _, window, cx| this.show(key, window, cx))),
             );
         }
-        // A session not begun asks, as t3code's does, what to build, in a
-        // project picked from its name.
-        let headline = self.session().filter(|_| fresh).map(|s| {
-            let name = self.project_name(&s.meta.project);
-            div()
-                .flex()
-                .flex_wrap()
-                .items_baseline()
-                .justify_center()
-                .child(ui::text(faces, "What should we build in").text_size(px(26.)))
-                .child(
-                    div()
-                        .id("start-project")
-                        .ml(px(8.))
-                        .flex()
-                        .items_center()
-                        .gap(px(4.))
-                        .cursor_pointer()
-                        .child(
-                            ui::text(faces, name)
-                                .text_size(px(26.))
-                                .weight(gpui::FontWeight::MEDIUM),
-                        )
-                        .child(ui::icon("chevron-down", 14.).text_color(theme::faint()))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            if !this.palette.open {
-                                this.toggle_palette(window, cx);
-                            }
-                            this.new_in_page(window, cx);
-                        })),
-                )
-                .child(ui::text(faces, "?").text_size(px(26.)))
-        });
         div()
             .flex()
             .flex_col()
             .items_center()
             .gap(px(28.))
-            .mt(px(if headline.is_some() { 120. } else { 160. }))
-            .children(headline)
             .when(!steps.is_empty(), |d| {
                 d.child(
                     div()
