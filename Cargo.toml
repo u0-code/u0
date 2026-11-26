@@ -43,6 +43,8 @@ percent-encoding = "2.3"
 which = "8"
 # A file found by what is typed (⌘P, @, the Files tab): Helix's matcher.
 nucleo-matcher = "0.3"
+# JSON with comments and trailing commas, as VS Code writes a theme.
+jsonc-parser = { version = "0.34", features = ["serde"] }
 similar = { version = "2.7", default-features = false, features = ["text"] }
 jiff = "1.0.2"
 tempfile = "3.27"

@@ -214,8 +214,9 @@ const MAP: [(&str, &[&str]); 18] = [
 /// as a theme of yours: its colours put where gpui-kit and Ghost read
 /// theirs. Its path, its text, and its name.
 pub fn from_vscode(home: &Path, text: &str) -> Result<(PathBuf, Vec<u8>, String), String> {
-    let theme: Value = serde_json::from_str(&uncommented(text))
-        .map_err(|e| format!("it is not a theme VS Code reads: {e}"))?;
+    let theme: Value =
+        jsonc_parser::parse_to_serde_value(text, &jsonc_parser::ParseOptions::default())
+            .map_err(|e| format!("it is not a theme VS Code reads: {e}"))?;
     let colors = theme["colors"]
         .as_object()
         .ok_or("it has no colours: a VS Code colour theme names them under \"colors\"")?;
@@ -234,49 +235,6 @@ pub fn from_vscode(home: &Path, text: &str) -> Result<(PathBuf, Vec<u8>, String)
         json!({ "name": name, "mode": if dark { "dark" } else { "light" }, "colors": ours });
     let (path, text) = file(home, &name, &theme);
     Ok((path, text, name))
-}
-
-/// `text` without the comments and trailing commas VS Code allows in JSON.
-fn uncommented(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    let mut quoted = false;
-    while let Some(c) = chars.next() {
-        if quoted {
-            out.push(c);
-            match c {
-                '\\' => out.extend(chars.next()),
-                '"' => quoted = false,
-                _ => {}
-            }
-            continue;
-        }
-        match (c, chars.peek()) {
-            ('"', _) => {
-                quoted = true;
-                out.push(c);
-            }
-            ('/', Some('/')) => while chars.next_if(|&n| n != '\n').is_some() {},
-            ('/', Some('*')) => {
-                chars.next();
-                while let Some(n) = chars.next() {
-                    if n == '*' && chars.next_if_eq(&'/').is_some() {
-                        break;
-                    }
-                }
-            }
-            (',', _) => {
-                // A comma with only space before a closing bracket is dropped.
-                let rest: String = chars.clone().take_while(|n| n.is_whitespace()).collect();
-                let after = chars.clone().nth(rest.chars().count());
-                if !matches!(after, Some('}' | ']')) {
-                    out.push(c);
-                }
-            }
-            _ => out.push(c),
-        }
-    }
-    out
 }
 
 #[cfg(test)]
