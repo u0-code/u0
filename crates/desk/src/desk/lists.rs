@@ -161,6 +161,30 @@ impl Desk {
         cx.notify();
     }
 
+    /// What one of Ghost's tools changed of a session on `host` (its pin,
+    /// archive, title and tags), taken as if you changed it here.
+    pub(crate) fn organized(
+        &mut self,
+        host: crate::hub::Host,
+        meta: &store::Meta,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(id) = &meta.id else { return };
+        let Some(s) = self.sessions.by_id(host, &meta.agent, id) else {
+            return;
+        };
+        let key = s.key;
+        s.meta.flags.pinned = meta.flags.pinned;
+        s.meta.flags.archived = meta.flags.archived;
+        (s.meta.title, s.meta.renamed) = (meta.title.clone(), meta.renamed);
+        s.meta.tags.clone_from(&meta.tags);
+        if meta.flags.archived && self.current == Some(key) {
+            self.current = None;
+        }
+        self.save_index();
+        cx.notify();
+    }
+
     /// Pin the session `key` on top, or take the pin off.
     pub fn toggle_pin(&mut self, key: u64, cx: &mut Context<Self>) {
         if self.flags_mut(key).is_some_and(|f| f.pinned.is_some()) {

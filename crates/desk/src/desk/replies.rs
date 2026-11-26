@@ -669,6 +669,7 @@ impl Desk {
                 record,
                 ended,
             } => self.task_turn(host, &meta, record, ended, cx),
+            Event::Organized(meta) => self.organized(host, &meta, cx),
             Event::Written { key, ask, result } => self.written(key, ask, result, window, cx),
             Event::LoggedOut { agent, result } => {
                 if let Some(slot) = self.slot_mut(host, &agent) {

@@ -750,6 +750,10 @@ pub enum Event {
         flows: Vec<Result<workflows::Workflow, (String, String)>>,
         runs: Result<Vec<workflows::Run>, String>,
     },
+    /// A session organised by one of Ghost's tools (pinned, archived,
+    /// renamed, tagged), as the index keeps it now: the desk takes those
+    /// of it as if you changed them there.
+    Organized(Box<store::Meta>),
     /// A task's turn in the session `meta` begins (`ended` none), with the
     /// session's record so far where `record`; or it ended, how.
     /// What came of the `Call::Say` of `tag`: its session, or why it was
@@ -1855,6 +1859,7 @@ mod tests {
                 record: None,
                 ended: Some(Ok(StopReason::EndTurn)),
             },
+            Event::Organized(Box::new(index.sessions[0].clone())),
             Event::Index(Ok(index)),
             Event::Offered {
                 link: "ghost://pair?host=a#c".into(),

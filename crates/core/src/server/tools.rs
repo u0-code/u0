@@ -37,6 +37,7 @@ mod flows;
 mod forge;
 mod issues;
 mod projects;
+mod sessions;
 mod worktrees;
 
 use super::{Shared, door::Caller};
@@ -300,6 +301,7 @@ impl Tools {
             + Self::project_router()
             + Self::forge_router()
             + Self::issue_router()
+            + Self::session_router()
             + Self::flow_router()
             + Self::worktree_router()
     }
@@ -1193,6 +1195,7 @@ esac; done"#;
                 "make_worktree",
                 "merge_pr",
                 "open_pr",
+                "organize_session",
                 "pr_checks",
                 "read_diff",
                 "read_issue",
