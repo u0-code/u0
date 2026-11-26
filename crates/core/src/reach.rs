@@ -64,14 +64,28 @@ pub struct Way {
 
 impl Way {
     /// Its address: plain on this machine, else TLS (the tunnel's, or the
-    /// server's own, pinned).
+    /// server's own, pinned). Which machine is the host as a URL reads
+    /// it, never how its text begins.
     pub fn url(&self) -> String {
-        let here = ["127.0.0.1", "localhost", "[::1]"]
-            .iter()
-            .any(|h| self.host == *h || self.host.starts_with(&format!("{h}:")));
+        let here = bare(&self.host)
+            .is_some_and(|h| ["127.0.0.1", "localhost", "[::1]"].contains(&h.as_str()));
         let plain = here && self.pin.is_none();
         format!("{}://{}", if plain { "ws" } else { "wss" }, self.host)
     }
+}
+
+/// The machine `host` names, where it is a host alone (a port after it or
+/// not): never one with a user before it (`127.0.0.1:1@elsewhere`, which a
+/// URL reads as elsewhere), a path or more.
+fn bare(host: &str) -> Option<String> {
+    let url = url::Url::parse(&format!("ws://{host}")).ok()?;
+    let alone = url.username().is_empty()
+        && url.password().is_none()
+        && url.path() == "/"
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && !host.contains(['/', '?', '#', '@', '\\']);
+    alone.then(|| url.host_str().map(str::to_owned)).flatten()
 }
 
 /// The way and code of a pairing link, `ghost://pair?host=…&pin=…#code`.
@@ -82,7 +96,7 @@ pub fn pairing(link: &str) -> Option<(Way, String)> {
     }
     let query =
         |name: &str| (url.query_pairs()).find_map(|(k, v)| (k == name).then(|| v.into_owned()));
-    let host = query("host").filter(|h| !h.is_empty())?;
+    let host = query("host").filter(|h| bare(h).is_some())?;
     let code = url.fragment().filter(|c| !c.is_empty())?;
     let way = Way {
         host,
@@ -270,6 +284,34 @@ mod tests {
         assert_eq!(here.url(), "ws://127.0.0.1:4317");
         assert_eq!(pairing("ghost://pair?host=#x"), None);
         assert_eq!(pairing("ghost://new?host=h#x"), None);
+    }
+
+    #[test]
+    fn a_host_with_a_user_before_it_is_no_way_and_never_this_machine() {
+        let link = "ghost://pair?host=127.0.0.1%3A1%40evil.example#c0de";
+        assert_eq!(pairing(link), None);
+        for host in [
+            "127.0.0.1:1@evil.example",
+            "localhost@evil.example",
+            "127.0.0.1/../x",
+        ] {
+            assert_eq!(
+                pairing(&format!("ghost://pair?host={host}#c0de")),
+                None,
+                "{host}"
+            );
+            let way = Way {
+                host: host.into(),
+                pin: None,
+            };
+            assert!(way.url().starts_with("wss://"), "{host}");
+        }
+        let here = Way {
+            host: "127.0.0.1:4317".into(),
+            pin: None,
+        };
+        assert_eq!(here.url(), "ws://127.0.0.1:4317");
+        assert!(pairing("ghost://pair?host=[::1]:4317#c0de").is_some());
     }
 
     #[test]
