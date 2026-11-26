@@ -215,12 +215,17 @@ to `/bin/sh` as an argument, and each `{{name}}` becomes a reference to
 it, quoted for where it stands (bare, in double quotes or in single
 quotes): the shell never reads a value as words of the command.
 
-A command can still read a word as code itself. Ghost refuses one that
-puts a `{{name}}` after `eval` or `let`, or within `[[ ]]` or `(( ))`
-(the run pauses, saying why), but that list is a guard against the
-common cases, not a promise: the shell has other places that evaluate a
-word (an array index, a substring offset, `declare -i`), and Ghost does
-not find them all. Keep a value out of anything that computes with it. Give a value a command works on after `--`
+A command can still read a word as code itself, so Ghost reads the
+command as bash would (with [brush-parser](https://crates.io/crates/brush-parser))
+and takes a `{{name}}` only as an argument of a command named plainly:
+`echo`, `printf` (not as its format, and not with `-v`), `cd` or a
+program, bare, in quotes or within `$( )`. A command that puts one
+anywhere else is refused (the run pauses, saying why): after another
+builtin (`eval`, `let`, `declare`, `export`, `read`, `test`, `trap`,
+`source`, ...), as the command itself, in arithmetic (`$(( ))`, `$[ ]`,
+`(( ))`, an array index, `${x:offset}`), within `[[ ]]`, in an
+assignment, a redirection, a here-document, a `case` pattern or a
+function, and in a command that does not parse. Give a value a command works on after `--`
 (`git fetch origin -- {{ref}}`), so one that begins with `-` is not taken
 for an option; and a command that runs its words as code (`sh -c`,
 `ssh`, `xargs`) runs a value as code. **Settings › Workflows** says so

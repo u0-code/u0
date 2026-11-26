@@ -15,6 +15,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::whole;
 
+mod shell;
+
+use shell::Within;
+
 /// A workflow, as its file says it; its name is the file's.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -55,10 +59,9 @@ pub enum Step {
     },
     /// Run `command` in a shell, in the project (or `dir`); its result is
     /// what it printed. Each `{{name}}` in it is given it as an argument,
-    /// never read as words of the command; one where the shell reads a
-    /// word as code (after `eval` or `let`, within `[[ ]]` or `(( ))`)
-    /// is refused: a guard, not a promise, for the shell evaluates words
-    /// elsewhere too. One given a command as an operand goes after `--`; a
+    /// never read as words of the command; one anywhere but as an argument
+    /// of a plain command is refused (`shell`). One given a command as an
+    /// operand goes after `--`; a
     /// command that runs its words (`sh -c`, `ssh`) runs a value. One
     /// that fails pauses the run.
     Run {
@@ -86,60 +89,9 @@ impl Step {
     }
 }
 
-/// Why a command was not run: a value would be read as code.
-pub const EVALUATED: &str = "A {{name}} in this command would be read by the shell as code (after eval or let, or within [[ ]] or (( ))): give it to a command as a word, and test it there";
-
-/// Whether the shell reads a word put at the end of `before` as code: in
-/// a command begun by `eval` or `let`, or within `[[ ]]` or `(( ))` (and
-/// so `$(( ))`), where a value such as `a[$(cmd)]` runs `cmd`.
-fn evaluates(before: &str) -> bool {
-    let open =
-        |opens: &str, closes: &str| before.matches(opens).count() > before.matches(closes).count();
-    let this = before
-        .rsplit(['\n', ';', '|', '&', '(', '`'])
-        .next()
-        .unwrap_or(before);
-    let first = this.split_whitespace().next();
-    open("[[", "]]") || open("((", "))") || matches!(first, Some("eval" | "let"))
-}
-
-/// Where a shell reading a command stands: bare, or within quotes.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-enum Within {
-    #[default]
-    Bare,
-    Single,
-    Double,
-}
-
-/// A shell's quoting, as a command is read left to right.
-#[derive(Debug, Default)]
-struct Quoting {
-    within: Within,
-    /// The last character read was a backslash that escapes the next.
-    escaped: bool,
-}
-
-impl Quoting {
-    /// Read `text` on from where it stands.
-    fn read(&mut self, text: &str) {
-        for c in text.chars() {
-            if std::mem::take(&mut self.escaped) {
-                continue;
-            }
-            self.within = match (self.within, c) {
-                (Within::Bare | Within::Double, '\\') => {
-                    self.escaped = true;
-                    self.within
-                }
-                (Within::Bare, '\'') => Within::Single,
-                (Within::Bare, '"') => Within::Double,
-                (Within::Single, '\'') | (Within::Double, '"') => Within::Bare,
-                (now, _) => now,
-            };
-        }
-    }
-}
+/// Why a command was not run: a value would stand where the shell reads
+/// more than a word.
+pub const EVALUATED: &str = "A {{name}} in this command stands where the shell could read it as more than a word: give it only as an argument of a command named plainly (echo, printf, cd or a program, not another builtin), and test it there";
 
 /// What `runs.json` holds.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -196,7 +148,7 @@ impl Run {
     /// `text` with the run's input and its steps' results put in for
     /// `{{input}}` and `{{name}}`.
     pub fn fill(&self, text: &str) -> String {
-        self.put(text, |_, value| value.to_owned())
+        self.put(text, str::to_owned)
     }
 
     /// A `run` step's `command` for `sh -c`, and the values its
@@ -204,39 +156,42 @@ impl Run {
     /// `{{name}}` known becomes a reference to its argument (`${1}`, ...),
     /// quoted as where it stands calls for (bare, in double quotes, in
     /// single quotes), so that what an agent answered, or a webhook sent,
-    /// is never read by the shell as words of the command. One put where
-    /// the shell reads a word as code is refused (`evaluates`).
+    /// is never read by the shell as words of the command. One that stands
+    /// anywhere but as an argument of a plain command is refused
+    /// (`shell::place`).
     pub fn command(&self, command: &str) -> Result<(String, Vec<String>), String> {
+        if command.contains("%ghost:") {
+            return Err(EVALUATED.to_owned());
+        }
         let mut values = Vec::new();
-        let mut quoting = Quoting::default();
-        let (mut before, mut code) = (String::new(), false);
-        let line = self.put(command, |lead, value| {
-            quoting.read(lead);
-            before.push_str(lead);
-            code |= evaluates(&before);
+        let marked = self.put(command, |value| {
             values.push(value.to_owned());
-            let n = values.len();
-            match quoting.within {
+            shell::mark(values.len())
+        });
+        if values.is_empty() {
+            return Ok((marked, values));
+        }
+        let placed = shell::place(&marked, values.len()).ok_or_else(|| EVALUATED.to_owned())?;
+        let mut line = marked;
+        for (n, within) in placed.iter().enumerate() {
+            let n = n + 1;
+            let reference = match within {
                 Within::Bare => format!("\"${{{n}}}\""),
                 Within::Double => format!("${{{n}}}"),
                 Within::Single => format!("'\"${{{n}}}\"'"),
-            }
-        });
-        if code {
-            return Err(EVALUATED.to_owned());
+            };
+            line = line.replace(&shell::mark(n), &reference);
         }
         Ok((line, values))
     }
 
-    /// `text` with each `{{name}}` known put in as `each` writes its value
-    /// (given the text before it since the last), in one pass: a value put
-    /// in is never read again for more.
-    fn put(&self, text: &str, mut each: impl FnMut(&str, &str) -> String) -> String {
+    /// `text` with each `{{name}}` known put in as `each` writes its
+    /// value, in one pass: a value put in is never read again for more.
+    fn put(&self, text: &str, mut each: impl FnMut(&str) -> String) -> String {
         let mut out = String::with_capacity(text.len());
-        let (mut rest, mut lead) = (text, String::new());
+        let mut rest = text;
         while let Some(at) = rest.find("{{") {
             out.push_str(&rest[..at]);
-            lead.push_str(&rest[..at]);
             let after = &rest[at + 2..];
             let found = after.find("}}").and_then(|end| {
                 let name = &after[..end];
@@ -250,11 +205,10 @@ impl Run {
                 value.map(|v| (v, end))
             });
             if let Some((value, end)) = found {
-                out.push_str(&each(&std::mem::take(&mut lead), value));
+                out.push_str(&each(value));
                 rest = &after[end + 2..];
             } else {
                 out.push_str("{{");
-                lead.push_str("{{");
                 rest = after;
             }
         }
@@ -396,6 +350,35 @@ mod tests {
             "(( x = {{input}} ))",
             "eval \"echo {{input}}\"",
             "cd /tmp; let n={{input}}",
+            "echo \"${a[{{input}}]}\"",
+            "echo $[ {{input}} + 1 ]",
+            "declare -i n={{input}}",
+            "local -i n={{input}}",
+            "typeset -i n={{input}}",
+            "export N={{input}}",
+            "readonly N={{input}}",
+            "n={{input}}; echo $n",
+            "echo ${HOME:{{input}}}",
+            "printf -v n %s {{input}}",
+            "printf {{input}} x",
+            "read {{input}} < /dev/null",
+            "test -v {{input}}",
+            "[ -n {{input}} ]",
+            "unset {{input}}",
+            "trap {{input}} EXIT",
+            "source {{input}}",
+            ". {{input}}",
+            "{{input}} --version",
+            "$EDITOR {{input}}",
+            "command eval {{input}}",
+            "f() { echo {{input}}; }; f",
+            "cat <<EOF\n{{input}}\nEOF",
+            "echo hi > {{input}}",
+            "echo `echo {{input}}`",
+            "case {{input}} in x) ;; esac",
+            "echo ok # it's {{input}}",
+            "echo \"not closed {{input}}",
+            "echo %ghost:1% {{input}}",
         ] {
             assert_eq!(
                 run.command(evaluated),
@@ -408,8 +391,30 @@ mod tests {
             "echo $((1 + 1)) {{input}}",
             "git fetch origin -- {{input}}",
             "printf '%s' \"evaluate {{input}}\"",
+            "if true; then echo {{input}}; fi | tr a b",
+            "echo \"$(printf %s '{{input}}')\"",
+            "echo a={{input}}",
+            "GIT_PAGER=cat git tag {{input}}",
         ] {
             assert!(run.command(plain).is_ok(), "{plain}");
+        }
+    }
+
+    /// What three of the commands refused do in bash (macOS's `/bin/sh`)
+    /// given the value as `$1`: each runs what is in its subscript.
+    #[test]
+    fn bash_runs_a_value_in_a_subscript_old_arithmetic_or_an_integer_declaration() {
+        if !Path::new("/bin/bash").exists() {
+            return;
+        }
+        for line in ["echo \"${a[$1]}\"", "echo $[ $1 + 1 ]", "declare -i n=$1"] {
+            let dir = tempfile::tempdir().unwrap();
+            std::process::Command::new("/bin/bash")
+                .args(["-c", line, "ghost", "x[$(touch pwned)]"])
+                .current_dir(dir.path())
+                .output()
+                .unwrap();
+            assert!(dir.path().join("pwned").exists(), "{line}");
         }
     }
 
@@ -436,6 +441,7 @@ mod tests {
                 "printf '%s|' '{{input}}'",
                 "printf '%s|' {{input}}",
                 "printf '%s|' \"a {{input}} b\" 'c {{input}} d'",
+                "printf '%s|' \"$(printf %s '{{input}}')\" \"$(echo \"{{input}}\")\"",
             ] {
                 let (line, values) = run.command(template).unwrap();
                 let out = std::process::Command::new("/bin/sh")

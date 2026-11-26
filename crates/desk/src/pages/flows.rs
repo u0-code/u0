@@ -151,7 +151,7 @@ impl Desk {
                 defs.push(item(
                     w,
                     crate::tr("Values in commands"),
-                    crate::tr("In a command, each {{name}} is given it as one word, never read as code: a command that puts one after eval or let, or within [[ ]] or (( )), is refused. One given to a command as what it works on goes after -- (git fetch origin -- {{ref}}), so that a value beginning with - is not taken for an option; and a command that runs its words as code (sh -c, ssh, xargs) runs a value as code."),
+                    crate::tr("In a command, each {{name}} is given it as one word, never read as code. It may stand only as an argument of a command named plainly (echo, printf, cd or a program, no other builtin), bare, in quotes or within $( ); a command that puts one anywhere else (arithmetic, [[ ]], an assignment, a redirection, a function) is refused. One given to a command as what it works on goes after -- (git fetch origin -- {{ref}}), so that a value beginning with - is not taken for an option; and a command that runs its words as code (sh -c, ssh, xargs) runs a value as code."),
                     |_, _, _| div().into_any_element(),
                 ));
                 defs
