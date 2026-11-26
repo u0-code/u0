@@ -659,10 +659,11 @@ async fn serve(
         return refuse(ws, &why).await;
     }
     let admitted = server.access().admit(&hello, &nonce).await;
-    // Its device is now paired, or last here now, or waits: Settings ›
-    // Devices shows it so, wherever it is open. One turned away changed
-    // nothing, and is told to no one.
-    if matches!(admitted, Ok(_) | Err(Turned::Waiting)) {
+    // Its device is now paired, or last here now, or begins to wait:
+    // Settings › Devices shows it so, wherever it is open. One turned
+    // away, or that waits still, changed nothing, and is told to no one.
+    let newly_waits = hello.pair.is_some() && matches!(admitted, Err(Turned::Waiting));
+    if admitted.is_ok() || newly_waits {
         server.share(crate::share::Share::Look);
     }
     let crate::access::Admitted {
@@ -1410,6 +1411,45 @@ mod tests {
         for _ in 0..3 {
             let why = desk(port, Key::generate(), None).map(|_| ()).unwrap_err();
             assert!(why.contains("not paired"), "{why}");
+        }
+        assert_eq!(written(), before, "devices.json is not written");
+        let shared = std::iter::from_fn(|| heard.recv_timeout(Duration::from_millis(300)).ok())
+            .filter(|e| matches!(e, Event::Shared(_)))
+            .count();
+        assert_eq!(shared, 0);
+    }
+
+    #[test]
+    fn a_device_that_waits_or_whose_access_ended_coming_again_writes_and_tells_nothing() {
+        use crate::access::Grant;
+        let home = tempfile::tempdir().unwrap();
+        let (server, port) = server(home.path());
+        let (_mine, _, heard, _) = desk(port, Key::generate(), Some(&server)).unwrap();
+        let (waits, ended) = (kept(), kept());
+        let ask = Grant {
+            ask: true,
+            ..Grant::default()
+        };
+        pair_as(&server, port, &waits, ask);
+        let none_left = Grant {
+            days: Some(0),
+            ..Grant::default()
+        };
+        let code = server.access().code(none_left);
+        let paired = crate::acp::runtime().block_on(pair(&here(port), code, &key(&ended), None));
+        assert!(paired.unwrap_err().contains("ended"));
+        let devices = home.path().join("devices.json");
+        let written = || std::fs::read_to_string(&devices).unwrap();
+        // What their pairing said, said and gone; and a second gone, so
+        // that a `seen` written now would differ.
+        std::thread::sleep(Duration::from_millis(1100));
+        while heard.try_recv().is_ok() {}
+        let before = written();
+        for _ in 0..3 {
+            let why = desk(port, key(&waits), None).map(|_| ()).unwrap_err();
+            assert!(why.contains("Waiting for"), "{why}");
+            let why = desk(port, key(&ended), None).map(|_| ()).unwrap_err();
+            assert!(why.contains("ended"), "{why}");
         }
         assert_eq!(written(), before, "devices.json is not written");
         let shared = std::iter::from_fn(|| heard.recv_timeout(Duration::from_millis(300)).ok())

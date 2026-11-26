@@ -277,20 +277,20 @@ impl Access {
                     seen: now,
                 });
             });
-        } else {
-            // Written only for a device paired, and only as its `seen`
-            // changes: a key unknown here changes nothing, and so writes
-            // and tells nothing.
-            let seen = |k: &Kept| (k.devices.iter()).any(|d| d.key == hello.key && d.seen != now);
-            if (self.kept.lock().expect("access").as_ref()).is_ok_and(seen) {
-                self.change(|k| {
-                    if let Some(d) = k.devices.iter_mut().find(|d| d.key == hello.key) {
-                        d.seen = now;
-                    }
-                });
-            }
         }
-        self.lets_in(&hello.key).map(|scope| Admitted {
+        let scope = self.lets_in(&hello.key)?;
+        // Written only for a device let in, and only as its `seen`
+        // changes: a key unknown here, one that waits and one whose
+        // access ended change nothing, and so write and tell nothing.
+        let seen = |k: &Kept| (k.devices.iter()).any(|d| d.key == hello.key && d.seen != now);
+        if (self.kept.lock().expect("access").as_ref()).is_ok_and(seen) {
+            self.change(|k| {
+                if let Some(d) = k.devices.iter_mut().find(|d| d.key == hello.key) {
+                    d.seen = now;
+                }
+            });
+        }
+        Ok(Admitted {
             key: hello.key.clone(),
             scope,
             back,
