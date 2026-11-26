@@ -28,6 +28,8 @@ rmcp = { version = "3.11", default-features = false, features = ["server", "macr
 # The telemetry batch's JSON Schema: the version rmcp's tools derive with.
 schemars = "1.2"
 anyhow = "1.0.104"
+# The launchd agent of `ghost service`, written as launchd reads it.
+plist = { version = "1.7", default-features = false, features = ["serde"] }
 # The `ghost` command's words, read by one parser, its help made from them.
 clap = { version = "4.5", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "suggestions", "string"] }
 serde = { version = "1", features = ["derive"] }

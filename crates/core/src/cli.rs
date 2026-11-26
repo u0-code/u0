@@ -153,35 +153,36 @@ fn plist_of(label: &str) -> Result<PathBuf, String> {
 }
 
 /// The launchd agent that runs `exe serve` for `home` from login, again
-/// if it stops, logging to `log`.
-fn agent_plist(label: &str, exe: &Path, home: &Path, log: &Path) -> String {
-    let x = |p: &Path| {
-        p.display()
-            .to_string()
-            .replace('&', "&amp;")
-            .replace('<', "&lt;")
+/// if it stops, logging to `log`: as launchd reads it.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "PascalCase")]
+struct Agent<'a> {
+    label: &'a str,
+    program_arguments: [&'a Path; 2],
+    environment_variables: std::collections::BTreeMap<&'a str, &'a Path>,
+    run_at_load: bool,
+    keep_alive: bool,
+    process_type: &'a str,
+    standard_out_path: &'a Path,
+    standard_error_path: &'a Path,
+}
+
+/// The plist of the launchd agent `label` that runs `exe serve` for
+/// `home` from login, again if it stops, logging to `log`.
+fn agent_plist(label: &str, exe: &Path, home: &Path, log: &Path) -> Vec<u8> {
+    let agent = Agent {
+        label,
+        program_arguments: [exe, Path::new("serve")],
+        environment_variables: [("GHOST_HOME", home)].into(),
+        run_at_load: true,
+        keep_alive: true,
+        process_type: "Background",
+        standard_out_path: log,
+        standard_error_path: log,
     };
-    format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>{label}</string>
-  <key>ProgramArguments</key><array><string>{}</string><string>serve</string></array>
-  <key>EnvironmentVariables</key><dict><key>GHOST_HOME</key><string>{}</string></dict>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>ProcessType</key><string>Background</string>
-  <key>StandardOutPath</key><string>{}</string>
-  <key>StandardErrorPath</key><string>{}</string>
-</dict>
-</plist>
-"#,
-        x(exe),
-        x(home),
-        x(log),
-        x(log),
-    )
+    let mut xml = Vec::new();
+    plist::to_writer_xml(&mut xml, &agent).expect("a plist writes");
+    xml
 }
 
 /// `launchctl` with `args`: what it printed, or why it failed.
@@ -198,21 +199,15 @@ fn launchctl(args: &[&str]) -> Result<String, String> {
 }
 
 /// The launchd domain of the one running this.
-fn domain() -> Result<String, String> {
-    let out = Command::new("id")
-        .arg("-u")
-        .output()
-        .map_err(|e| e.to_string())?;
-    Ok(format!(
-        "gui/{}",
-        String::from_utf8_lossy(&out.stdout).trim()
-    ))
+fn domain() -> String {
+    // SAFETY: getuid only reads the process's user id; it cannot fail.
+    format!("gui/{}", unsafe { libc::getuid() })
 }
 
 /// Where launchd has the service: "running (pid 12)", "loaded, not
 /// running"; none, not loaded.
 fn standing(label: &str) -> Option<String> {
-    let said = launchctl(&["print", &format!("{}/{label}", domain().ok()?)]).ok()?;
+    let said = launchctl(&["print", &format!("{}/{label}", domain())]).ok()?;
     let pid = said.lines().find_map(|l| l.trim().strip_prefix("pid = "));
     Some(pid.map_or_else(
         || "loaded, not running".into(),
@@ -232,10 +227,10 @@ fn service(home: &Path, what: &Service) -> Result<(), String> {
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
             std::fs::create_dir_all(home.join("logs")).map_err(|e| e.to_string())?;
             pair_window(home)?;
-            crate::whole::write(&plist, agent_plist(&label, &exe, home, &log).as_bytes())
+            crate::whole::write(&plist, &agent_plist(&label, &exe, home, &log))
                 .map_err(|e| e.to_string())?;
-            let _ = launchctl(&["bootout", &format!("{}/{label}", domain()?)]);
-            launchctl(&["bootstrap", &domain()?, &plist.display().to_string()])?;
+            let _ = launchctl(&["bootout", &format!("{}/{label}", domain())]);
+            launchctl(&["bootstrap", &domain(), &plist.display().to_string()])?;
             println!(
                 "Ghost's server runs from login as {label}; the window opens on it.\nIts log: {}",
                 log.display()
@@ -243,7 +238,7 @@ fn service(home: &Path, what: &Service) -> Result<(), String> {
             Ok(())
         }
         Service::Uninstall => {
-            let _ = launchctl(&["bootout", &format!("{}/{label}", domain()?)]);
+            let _ = launchctl(&["bootout", &format!("{}/{label}", domain())]);
             let _ = std::fs::remove_file(&plist);
             unpair_window(home)?;
             println!(
@@ -437,12 +432,13 @@ mod tests {
         let (a, b) = (label(Path::new("/tmp/a")), label(Path::new("/tmp/b")));
         assert!(a.starts_with("local.ghost.server."));
         assert_ne!(a, b);
-        let p = agent_plist(
+        let p = String::from_utf8(agent_plist(
             &a,
             Path::new("/Applications/Ghost.app/x"),
             Path::new("/h&o"),
             Path::new("/l"),
-        );
+        ))
+        .unwrap();
         assert!(p.contains("<string>serve</string>"));
         assert!(p.contains("<string>/h&amp;o</string>"), "{p}");
     }
