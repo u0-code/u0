@@ -42,7 +42,8 @@ pub enum Shown {
 /// The Files tab and the file read: the tree and what it holds (folder,
 /// how many files, the words looked for, all opened), the line to find a
 /// file by name, whether every folder is open; the file asked for, what
-/// came back, its editor, and whether Markdown is drawn.
+/// came back, its editor, and whether Markdown is drawn; the lines being
+/// commented on, and the field for it.
 pub struct Viewer {
     pub tree: Entity<TreeState>,
     pub held: Option<(crate::desk::Place, usize, String, bool)>,
@@ -53,6 +54,8 @@ pub struct Viewer {
     pub editor: Entity<EditorState>,
     pub drawn: bool,
     pub wrap: bool,
+    pub lines: Option<(usize, usize)>,
+    pub note: Entity<InputState>,
 }
 
 impl Viewer {
@@ -64,6 +67,17 @@ impl Viewer {
                 cx.notify();
             }
         })
+        .detach();
+        let note = cx.new(|cx| InputState::new(window, cx).placeholder("Say what of these lines"));
+        cx.subscribe_in(
+            &note,
+            window,
+            |this: &mut Desk, _, e: &InputEvent, window, cx| {
+                if matches!(e, InputEvent::PressEnter { .. }) {
+                    this.comment_lines(window, cx);
+                }
+            },
+        )
         .detach();
         Self {
             tree: cx.new(|cx| TreeState::new(cx)),
@@ -80,6 +94,8 @@ impl Viewer {
             }),
             drawn: true,
             wrap: true,
+            lines: None,
+            note,
         }
     }
 }
@@ -140,6 +156,7 @@ impl Desk {
             let full = folder.folder.join(&path);
             if self.viewer.path.as_ref() != Some(&full) {
                 self.viewer.path = Some(full.clone());
+                self.viewer.lines = None;
                 self.viewer.shown = None;
                 self.read_file(folder.host, full);
             }
@@ -180,6 +197,52 @@ impl Desk {
             Err(e) => Shown::Trouble(e),
         });
         cx.notify();
+    }
+
+    /// Begin a comment on the lines chosen in the file read (the cursor's,
+    /// with none chosen), or stop.
+    fn begin_lines(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.viewer.lines.take().is_some() {
+            cx.notify();
+            return;
+        }
+        let editor = self.viewer.editor.read(cx);
+        let (text, range) = (editor.value(), editor.selected_range());
+        let line = |at: usize| text[..at.min(text.len())].matches('\n').count() + 1;
+        // A choice that ends at a line's start does not take that line.
+        let end = if range.end > range.start && text[..range.end].ends_with('\n') {
+            range.end - 1
+        } else {
+            range.end
+        };
+        self.viewer.lines = Some((line(range.start), line(end)));
+        self.viewer.note.update(cx, |i, cx| {
+            i.set_value("", window, cx);
+            window.focus(&gpui::Focusable::focus_handle(&*i, cx), cx);
+        });
+        cx.notify();
+    }
+
+    /// The comment written on the lines chosen of the file read, beside
+    /// what you write to the agent, with the lines it is about.
+    fn comment_lines(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let said = self.viewer.note.read(cx).value().trim().to_owned();
+        let (Some((from, to)), Some(path)) = (self.viewer.lines.take(), self.viewer.path.clone())
+        else {
+            return;
+        };
+        let path = (self.session())
+            .and_then(|s| path.strip_prefix(&s.meta.folder).ok())
+            .map_or_else(|| path.clone(), std::path::Path::to_path_buf);
+        let value = self.viewer.editor.read(cx).value().to_string();
+        let quoted: Vec<&str> = value.lines().skip(from - 1).take(to + 1 - from).collect();
+        let place = if from == to {
+            format!("{}:{from}", path.display())
+        } else {
+            format!("{}:{from}-{to}", path.display())
+        };
+        let text = format!("{place} — {said}\n\n```\n{}\n```", quoted.join("\n"));
+        self.add_context(crate::session::Context::Review, &text, window, cx);
     }
 
     /// The Files tab: the line to find a file by name, folding, reading
@@ -398,6 +461,14 @@ impl Desk {
                     })),
                 )
             })
+            // Lines are commented on where they are shown as lines.
+            .when(text.is_some() && !(markdown && self.viewer.drawn), |d| {
+                d.child(
+                    ui::icon_button("file-comment", "square-pen", "Comment on the lines chosen")
+                        .size(px(24.))
+                        .on_click(cx.listener(|this, _, window, cx| this.begin_lines(window, cx))),
+                )
+            })
             .when(text.is_some(), |d| {
                 d.child(
                     ui::icon_button("file-wrap", "arrow-right", "Wrap long lines")
@@ -523,6 +594,26 @@ impl Desk {
             .flex_1()
             .min_h(px(0.))
             .child(head)
+            .children(self.viewer.lines.map(|(from, to)| {
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(8.))
+                    .px(px(12.))
+                    .py(px(6.))
+                    .border_b_1()
+                    .border_color(theme::border())
+                    .child(fine(
+                        faces,
+                        if from == to {
+                            format!("Line {from}")
+                        } else {
+                            format!("Lines {from}–{to}")
+                        },
+                    ))
+                    .child(div().flex_1().child(Input::new(&self.viewer.note).small()))
+            }))
             .child(body)
     }
 }
