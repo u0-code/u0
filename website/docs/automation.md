@@ -28,7 +28,7 @@ Open **Settings › Scheduled tasks** and choose **New task**:
 | **Each run** | **A new session each run**, or **One session, continued** (each run is the next turn of the first run's session). |
 | **In a worktree of its own** | With a new session each run: each run works on a new branch, away from your checkout. |
 
-A new task starts as Daily at 09:00 on weekdays. Each task's menu (**More**)
+A new task starts as Daily at 09:00 on weekdays. Each task's ⋯ menu
 has **Edit**, **Run now** and **Delete**, and its switch pauses it.
 
 How runs behave:

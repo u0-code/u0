@@ -135,7 +135,7 @@ impl Desk {
         let trigger = ui::icon_button(
             SharedString::from(format!("task-menu-{id}")),
             "dots",
-            crate::tr("More"),
+            crate::tr("What can be done with it"),
         )
         .selected(self.popup == Popup::Task(id));
         self.menu(

@@ -74,13 +74,13 @@ Ghost 把设置保存在其主目录（`~/.ghost`，或 `GHOST_HOME`）中的 `s
 | `submodules` | `"recursive"`、`"top"`、`"skip"` | `"recursive"` | 新工作树的子模块检出到什么程度。 |
 | `tidy_after` | 天数或 `null` | `null` | 已归档会话的工作树保留多少天后被移除。有未提交改动的工作树会保留，其分支始终保留。`null`：一直保留。 |
 | `merge` | `"squash"`、`"merge"`、`"rebase"` | `"squash"` | 从右侧栏合并拉取请求时使用的方式。**通用 › 拉取请求**。 |
-| `uncredit` | bool | `false` | 从压缩（squash）后的提交信息中去掉智能体的 `Co-authored-by` 行和署名脚注。**源代码管理 › 正在合并**。 |
+| `uncredit` | bool | `false` | 从压缩（squash）后的提交信息中去掉智能体的 `Co-authored-by` 行和署名脚注。**源代码管理 › 合并**。 |
 
 ## 对话与输入框 {#chat-and-composer}
 
 | 键 | 类型 | 默认值 | 含义 |
 |---|---|---|---|
-| `send` | `"return"`、`"multiline"`、`"command"` | `"return"` | 用什么发送：Return；消息只有一行时用 Return，之后用 ⌘Return；或始终用 ⌘Return。Return 不发送时，它会换行。**对话 › 发送中**。 |
+| `send` | `"return"`、`"multiline"`、`"command"` | `"return"` | 用什么发送：Return；消息只有一行时用 Return，之后用 ⌘Return；或始终用 ⌘Return。Return 不发送时，它会换行。**对话 › 发送**。 |
 | `steer` | bool | `false` | 在一轮进行中发送的内容会引导这一轮，而不是等这一轮结束。 |
 | `spell_check` | bool | `true` | 在输入框中给拼写错误的单词加下划线，其菜单中提供系统给出的建议。 |
 | `view` | `"zen"`、`"quiet"`、`"normal"`、`"thinking"`、`"verbose"` | `"normal"` | 智能体的工作在对话中如何显示。⌃O 依次切换。 |
