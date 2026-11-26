@@ -122,6 +122,10 @@ pub struct Settings {
     /// for it to end.
     #[serde(default)]
     pub steer: bool,
+    /// The words misspelled in the composer are underlined, the system's
+    /// spell checker's guesses on their menu.
+    #[serde(default = "yes")]
+    pub spell_check: bool,
     /// The editor files open in, by its command; none, the first found.
     #[serde(default)]
     pub editor: Option<String>,
@@ -807,6 +811,7 @@ impl Default for Settings {
             mono: CodeFont::default(),
             side_by_side: false,
             steer: false,
+            spell_check: yes(),
             branch_prefix: prefix(),
             branch_kind: false,
             hidden_details: Vec::new(),

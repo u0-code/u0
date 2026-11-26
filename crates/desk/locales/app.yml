@@ -227,6 +227,8 @@ _version: 2
   zh-CN: "立即检查"
 "Check out":
   zh-CN: "检出"
+"Check spelling as you type":
+  zh-CN: "输入时检查拼写"
 "Checkouts":
   zh-CN: "检出"
 "Checks":
@@ -955,6 +957,8 @@ _version: 2
   zh-CN: "源代码管理"
 "Speech":
   zh-CN: "语音"
+"Spelling":
+  zh-CN: "拼写"
 "Squash":
   zh-CN: "压缩合并"
 "Stable":
@@ -1221,6 +1225,8 @@ _version: 2
   zh-CN: "窗口"
 "Word by word":
   zh-CN: "逐字"
+"Words the system's spell checker does not know are underlined; right-click one for its guesses.":
+  zh-CN: "系统拼写检查不认识的词会加下划线；右键点击可查看建议。"
 "Workflows":
   zh-CN: "工作流"
 "Worktree branches":

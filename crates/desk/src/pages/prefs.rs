@@ -561,6 +561,27 @@ impl Desk {
                         )],
                     ),
                     group(
+                        crate::tr("Spelling"),
+                        vec![item(
+                            w,
+                            crate::tr("Check spelling as you type"),
+                            crate::tr("Words the system's spell checker does not know are underlined; right-click one for its guesses."),
+                            |d, _, cx| {
+                                Switch::new("spell-check")
+                                    .accessibility_label(crate::tr("Check spelling as you type"))
+                                    .small()
+                                    .checked(d.settings.spell_check)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.settings.spell_check = !this.settings.spell_check;
+                                        this.save_settings();
+                                        this.sync_spelling(cx);
+                                        cx.notify();
+                                    }))
+                                    .into_any_element()
+                            },
+                        )],
+                    ),
+                    group(
                         crate::tr("Sending"),
                         vec![item(
                             w,

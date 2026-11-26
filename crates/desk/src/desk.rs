@@ -444,7 +444,12 @@ impl Desk {
             tracing::warn!("a theme did not read: {refused}");
         }
         mirror(&settings, cx);
-        let composer = mention::Composer::new(settings.send.return_sends(""), window, cx);
+        let composer = mention::Composer::new(
+            settings.send.return_sends(""),
+            settings.spell_check,
+            window,
+            cx,
+        );
         let reader = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 24));
         let menu_search = cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Search")));
         cx.subscribe_in(
@@ -1530,6 +1535,7 @@ impl Desk {
     /// composer sends with.
     pub(crate) fn settings_took(&mut self, cx: &mut Context<Self>) {
         self.sync_send_key(cx);
+        self.sync_spelling(cx);
         self.update_due();
         mirror(&self.settings, cx);
         // Diffs read again, spacing in or out.

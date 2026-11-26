@@ -20,7 +20,32 @@ use crate::{
     hub,
     session::{Item as Said, Session, State},
 };
-use gpui::component::input::{InputEvent, InputState, TextareaState};
+use gpui::component::input::{InputEvent, InputState, SpellChecker, TextareaState};
+
+/// The system's spell checker (macOS's; none elsewhere), as gpui-kit's
+/// input asks for one.
+struct System;
+
+impl SpellChecker for System {
+    fn misspelled_words(&self, text: &str, cx: &gpui::App) -> Vec<std::ops::Range<usize>> {
+        cx.misspelled_words(text)
+    }
+
+    fn guesses(&self, word: &str, cx: &gpui::App) -> Vec<gpui::SharedString> {
+        (cx.spelling_guesses(word).into_iter())
+            .map(Into::into)
+            .collect()
+    }
+
+    fn learn(&self, word: &str, cx: &mut gpui::App) {
+        cx.learn_spelling(word);
+    }
+}
+
+/// The composer's spell checker: the system's when `on`.
+fn spelling(on: bool) -> Option<std::rc::Rc<dyn SpellChecker>> {
+    on.then(|| std::rc::Rc::new(System) as std::rc::Rc<dyn SpellChecker>)
+}
 
 /// The key context the composer's own keys (⌘S, ⇧⌘Return) apply under.
 pub const CONTEXT: &str = "Composer";
@@ -65,12 +90,19 @@ pub struct Stashed {
 pub const LIMIT: usize = 120_000;
 
 impl Composer {
-    pub(super) fn new(return_sends: bool, window: &mut Window, cx: &mut Context<Desk>) -> Self {
+    pub(super) fn new(
+        return_sends: bool,
+        spell_check: bool,
+        window: &mut Window,
+        cx: &mut Context<Desk>,
+    ) -> Self {
         let input = cx.new(|cx| {
-            TextareaState::new(window, cx)
+            let mut input = TextareaState::new(window, cx)
                 .auto_grow(1, 12)
                 .submit_on_enter(return_sends)
-                .placeholder(crate::tr("Ask for anything, or give a task"))
+                .placeholder(crate::tr("Ask for anything, or give a task"));
+            input.set_spell_checker(spelling(spell_check), cx);
+            input
         });
         cx.subscribe_in(&input, window, |this, input, e: &InputEvent, window, cx| {
             match e {
@@ -145,6 +177,12 @@ impl Desk {
     /// Whether Return sends what is typed now.
     pub(crate) fn return_sends(&self, cx: &gpui::App) -> bool {
         (self.settings.send).return_sends(&self.composer.input.read(cx).value())
+    }
+
+    /// Check the composer's spelling, or not, as the settings say.
+    pub(crate) fn sync_spelling(&self, cx: &mut Context<Self>) {
+        let checker = spelling(self.settings.spell_check);
+        (self.composer.input).update(cx, |i, cx| i.set_spell_checker(checker, cx));
     }
 
     /// Have the line send on Return or break there, as the setting says
