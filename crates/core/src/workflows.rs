@@ -19,11 +19,12 @@ mod shell;
 
 use shell::Within;
 
-/// A workflow, as its file says it; its name is the file's.
+/// A workflow, as its file says it; its name is the file's, never said
+/// in it, but said with it to a desk elsewhere.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Workflow {
-    #[serde(skip)]
+    #[serde(default)]
     pub name: String,
     /// What it is for, in a line.
     #[serde(default)]
@@ -257,6 +258,9 @@ fn name_of(w: &Result<Workflow, (String, String)>) -> &str {
 fn read(path: &Path, name: String) -> Result<Workflow, (String, String)> {
     let text = std::fs::read_to_string(path).map_err(|e| (name.clone(), e.to_string()))?;
     let mut w: Workflow = serde_json::from_str(&text).map_err(|e| (name.clone(), e.to_string()))?;
+    if !w.name.is_empty() {
+        return Err((name, "its name is its file's: take \"name\" out".into()));
+    }
     let mut seen = std::collections::HashSet::new();
     if let Some(twice) = w.steps.iter().find(|s| !seen.insert(s.name().to_owned())) {
         return Err((name, format!("two steps are named “{}”", twice.name())));
@@ -308,10 +312,20 @@ mod tests {
             r#"{"steps": [{"run": {"name": "a", "command": "x"}}, {"run": {"name": "a", "command": "y"}}]}"#,
         )
         .unwrap();
+        std::fs::write(
+            folder(home.path()).join("renamed.json"),
+            r#"{"name": "other", "steps": []}"#,
+        )
+        .unwrap();
         let all = load(home.path());
         let release = all[0].as_ref().unwrap();
         assert_eq!((release.name.as_str(), release.steps.len()), ("release", 3));
-        assert!(all[1].as_ref().unwrap_err().1.contains("two steps"));
+        assert!(all[1].as_ref().unwrap_err().1.contains("its file's"));
+        assert!(all[2].as_ref().unwrap_err().1.contains("two steps"));
+        // Told to a desk elsewhere, it keeps its name.
+        let told: Workflow =
+            serde_json::from_str(&serde_json::to_string(release).unwrap()).unwrap();
+        assert_eq!(told.name, "release");
     }
 
     #[test]
