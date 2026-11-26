@@ -6,7 +6,23 @@ all-features = true
 [advisories]
 # A known vulnerability or an unmaintained crate anywhere in the tree fails
 # the check. Exceptions go here by id, with the reason.
-ignore = []
+ignore = [
+    # Unmaintained, not vulnerable, and only beneath the interface's crates,
+    # which pick them; none is named by the workspace.
+    # Zed's gpui: text shaping and its time.
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser, under gpui's text" },
+    { id = "RUSTSEC-2026-0206", reason = "rustybuzz, under gpui's text" },
+    { id = "RUSTSEC-2026-0543", reason = "chrono, under gpui" },
+    # gpui-kit: its base, its components and its assets.
+    { id = "RUSTSEC-2024-0384", reason = "instant, under gpui-kit's base" },
+    { id = "RUSTSEC-2024-0436", reason = "paste, under gpui-kit's components" },
+    { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile, under gpui-kit's assets" },
+    { id = "RUSTSEC-2025-0141", reason = "bincode, under syntect, gpui-kit's highlighting" },
+    # Linux's D-Bus (the keyring, accessibility) in the tree for every target.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant, under oo7 and zbus" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names, under atspi and zbus" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive, under zbus" },
+]
 
 [licenses]
 # Licences that can be combined with Apache-2.0 without asking more of
