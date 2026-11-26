@@ -99,6 +99,12 @@ impl Desk {
                             this.drop_files(paths.paths(), window, cx);
                         }),
                     )
+                    // A session dragged from the sidebar goes with it.
+                    .on_drop(
+                        cx.listener(|this, d: &crate::sidebar::Dragged, window, cx| {
+                            this.drop_session(d.key, window, cx);
+                        }),
+                    )
                     .rounded(px(12.))
                     .bg(theme::panel())
                     .border_1()
@@ -107,7 +113,9 @@ impl Desk {
                     } else {
                         theme::border2()
                     })
+                    .children(self.replying_row(faces, cx))
                     .children(self.attached_row(cx))
+                    .children(self.note_row(cx))
                     .children(self.dictation_row(faces, cx))
                     // The +, the line and the mic on one middle: a line as
                     // tall as the buttons, the text in its middle, the same
@@ -882,9 +890,9 @@ impl Desk {
                             .map(|m| crate::tidy::shown(m.len()))
                             .unwrap_or_default(),
                     ),
-                    Attached::Text(kind, t) => (
+                    Attached::Text(chip) => (
                         AttachmentMedia::new().child(ui::icon(
-                            match kind {
+                            match chip.kind {
                                 crate::session::Context::Paste => "list",
                                 crate::session::Context::Quote => "reply",
                                 crate::session::Context::Terminal => "terminal",
@@ -892,8 +900,12 @@ impl Desk {
                             },
                             16.,
                         )),
-                        kind.name().to_owned(),
-                        ui::fit(t.lines().next().unwrap_or_default(), 32),
+                        if chip.note.is_empty() {
+                            chip.kind.name().to_owned()
+                        } else {
+                            format!("{}: {}", chip.kind.name(), ui::fit(&chip.note, 24))
+                        },
+                        ui::fit(chip.text.lines().next().unwrap_or_default(), 32),
                     ),
                 };
                 row = row.child(
@@ -906,11 +918,89 @@ impl Desk {
                                 .title(AttachmentTitle::new(title))
                                 .description(AttachmentDescription::new(about)),
                         )
+                        .when(matches!(a, Attached::Text(_)), |c| {
+                            c.tooltip("Click to write a note on it")
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    this.begin_note(n, window, cx);
+                                }))
+                        })
                         .on_remove(cx.listener(move |this, _, _, cx| this.detach(n, cx))),
                 );
             }
             row
         })
+    }
+
+    /// Under the chips, while one is being noted: the field for your note
+    /// on it, going back to where it was quoted from, and copying the
+    /// chips to paste in another draft.
+    fn note_row(&self, cx: &mut Context<Self>) -> Option<Div> {
+        use crate::desk::mention::{Attached, Chip};
+        let n = self.composer.noting?;
+        let Some(Attached::Text(chip)) = self.composer.attached.get(n) else {
+            return None;
+        };
+        Some(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .px(px(10.))
+                .pt(px(8.))
+                .child(
+                    div()
+                        .flex_1()
+                        .child(gpui::component::input::Input::new(&self.composer.note).small()),
+                )
+                .when(matches!(chip, Chip { from: Some(_), .. }), |d| {
+                    d.child(
+                        ui::button("chip-back", "Show where", ui::Weight::Quiet)
+                            .h(px(24.))
+                            .on_click(
+                                cx.listener(move |this, _, window, cx| this.go_back(n, window, cx)),
+                            ),
+                    )
+                })
+                .child(
+                    ui::button("chips-copy", "Copy chips", ui::Weight::Quiet)
+                        .h(px(24.))
+                        .on_click(cx.listener(|this, _, _, cx| this.copy_chips(cx))),
+                ),
+        )
+    }
+
+    /// Over the line, where a quote of a message of a thread goes with
+    /// it: "Replying to" its first words, which go back to it.
+    fn replying_row(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<gpui::Stateful<Div>> {
+        use crate::desk::mention::{Attached, Chip};
+        let (n, text) = (self.composer.attached.iter().enumerate()).find_map(|(n, a)| match a {
+            Attached::Text(Chip {
+                kind: crate::session::Context::Quote,
+                from: Some(_),
+                text,
+                ..
+            }) => Some((n, text.clone())),
+            _ => None,
+        })?;
+        Some(
+            div()
+                .id("replying")
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .px(px(12.))
+                .pt(px(8.))
+                .cursor_pointer()
+                .child(ui::icon("reply", 12.).text_color(theme::faint()))
+                .child(ui::one_line(ui::fine(
+                    faces,
+                    format!(
+                        "Replying to “{}”",
+                        ui::fit(text.lines().next().unwrap_or_default(), 60)
+                    ),
+                )))
+                .on_click(cx.listener(move |this, _, window, cx| this.go_back(n, window, cx))),
+        )
     }
 
     /// What was said while the turn goes on, waiting its turn: each can

@@ -20,7 +20,7 @@ use crate::{
     hub,
     session::{Item as Said, Session, State},
 };
-use gpui::component::input::{InputEvent, TextareaState};
+use gpui::component::input::{InputEvent, InputState, TextareaState};
 
 /// The key context the composer's own keys (⌘S, ⇧⌘Return) apply under.
 pub const CONTEXT: &str = "Composer";
@@ -33,7 +33,9 @@ pub const CONTEXT: &str = "Composer";
 /// that can run once sent; what you put aside from it; and what was sent
 /// from it, the latest last, with which of that is in the line while ↑
 /// and ↓ go back through it; what the writer thinks you will say next in
-/// a session, by its key.
+/// a session, by its key; the chip whose note is being written, and the
+/// field for it; and what is attached to each other session's draft, by
+/// its key, while another is on screen.
 pub struct Composer {
     pub input: Entity<TextareaState>,
     pub offer: usize,
@@ -43,9 +45,11 @@ pub struct Composer {
     pub held: Option<bool>,
     pub fanout: bool,
     pub stashed: Vec<Stashed>,
-    pub sent: Vec<String>,
     pub recalled: Option<usize>,
     pub suggested: Option<(u64, String)>,
+    pub noting: Option<usize>,
+    pub note: Entity<InputState>,
+    pub drafts: std::collections::HashMap<u64, Vec<Attached>>,
 }
 
 /// What was put aside (⌘S): its text, kept between runs (see
@@ -97,6 +101,13 @@ impl Composer {
             }
         })
         .detach();
+        let note = cx.new(|cx| InputState::new(window, cx).placeholder("Your note on it"));
+        cx.subscribe_in(&note, window, |this, _, e: &InputEvent, window, cx| {
+            if matches!(e, InputEvent::PressEnter { .. }) {
+                this.keep_note(window, cx);
+            }
+        })
+        .detach();
         Self {
             input,
             offer: 0,
@@ -106,9 +117,11 @@ impl Composer {
             held: None,
             fanout: false,
             stashed: Vec::new(),
-            sent: Vec::new(),
             recalled: None,
             suggested: None,
+            noting: None,
+            note,
+            drafts: std::collections::HashMap::new(),
         }
     }
 }
@@ -167,9 +180,6 @@ impl Desk {
             return;
         }
         self.composer.held = None;
-        if self.composer.sent.last() != Some(&text) {
-            self.composer.sent.push(text.clone());
-        }
         self.put_line("", window, cx);
         let working = self
             .session()
@@ -209,8 +219,8 @@ impl Desk {
     }
 
     /// ↑ (-1) or ↓ (1) on the composer's first or last line: back through
-    /// what was sent before, while the line is empty or holds one of
-    /// those. Whether the key went to it.
+    /// what you said in the session on screen, while the line is empty or
+    /// holds one of those. Whether the key went to it.
     pub(crate) fn recall(
         &mut self,
         by: isize,
@@ -224,7 +234,14 @@ impl Desk {
         } else {
             !text[at..].contains('\n')
         };
-        let sent = &self.composer.sent;
+        let mut sent: Vec<&str> = (self.session().into_iter())
+            .flat_map(|s| &s.items)
+            .filter_map(|i| match i {
+                Said::You(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect();
+        sent.dedup();
         if !edge || sent.is_empty() || (!text.is_empty() && self.composer.recalled.is_none()) {
             return false;
         }
@@ -234,7 +251,7 @@ impl Desk {
             (Some(n), false) => (n + 1 < sent.len()).then_some(n + 1),
             (None, false) => return false,
         };
-        let text = at.map(|n| sent[n].clone()).unwrap_or_default();
+        let text = at.map(|n| sent[n].to_owned()).unwrap_or_default();
         self.put_line(&text, window, cx);
         self.composer.recalled = at;
         true
@@ -354,8 +371,42 @@ pub enum Attached {
     },
     File(PathBuf),
     /// Text, named by where it came from.
-    Text(crate::session::Context, String),
+    Text(Chip),
 }
+
+/// Text beside what you write: what kind it is, the text, your note on
+/// it, and where in a thread it was quoted from (the session and the
+/// item), to go back to.
+#[derive(Debug, Clone)]
+pub struct Chip {
+    pub kind: crate::session::Context,
+    pub text: String,
+    pub note: String,
+    pub from: Option<(u64, usize)>,
+}
+
+impl Chip {
+    pub fn new(kind: crate::session::Context, text: &str) -> Self {
+        Self {
+            kind,
+            text: text.to_owned(),
+            note: String::new(),
+            from: None,
+        }
+    }
+
+    /// What goes to the agent: the text, and your note on it after.
+    fn said(&self) -> String {
+        if self.note.trim().is_empty() {
+            return self.text.clone();
+        }
+        format!("{}\n\nMy note on this: {}", self.text, self.note.trim())
+    }
+}
+
+/// Chips copied, as the clipboard carries them beside their text: each
+/// one's kind (by its address), text and note.
+type Copied = Vec<(String, String, String)>;
 
 /// A paste this long or longer is attached, not put in the line.
 pub const LONG_PASTE: usize = 32 * 1024;
@@ -562,12 +613,23 @@ impl Desk {
                     return true;
                 }
                 // Too long for the line, or for a message with what is in it.
+                // Chips copied from a draft are chips again.
+                gpui::ClipboardEntry::String(s) if s.metadata_json::<Copied>().is_some() => {
+                    for (kind, text, note) in s.metadata_json::<Copied>().unwrap_or_default() {
+                        if let Some(kind) = crate::session::Context::of(&kind) {
+                            let mut chip = Chip::new(kind, &text);
+                            chip.note = note;
+                            self.add_attached(Attached::Text(chip), cx);
+                        }
+                    }
+                    return true;
+                }
                 gpui::ClipboardEntry::String(s)
                     if s.text().len() >= LONG_PASTE
                         || s.text().chars().count() + self.typed(cx).chars().count() > LIMIT =>
                 {
                     self.add_attached(
-                        Attached::Text(crate::session::Context::Paste, s.text().clone()),
+                        Attached::Text(Chip::new(crate::session::Context::Paste, s.text())),
                         cx,
                     );
                     return true;
@@ -616,10 +678,18 @@ impl Desk {
         cx.notify();
     }
 
-    /// Quote `text` (something the agent said) in what you are writing,
-    /// to answer it.
-    pub fn quote(&mut self, text: &str, window: &mut gpui::Window, cx: &mut Context<Self>) {
-        self.add_context(crate::session::Context::Quote, text.trim(), window, cx);
+    /// Quote `text` (something the agent said; the item `from` of a
+    /// session's thread) in what you are writing, to answer it.
+    pub fn quote(
+        &mut self,
+        text: &str,
+        from: Option<(u64, usize)>,
+        window: &mut gpui::Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut chip = Chip::new(crate::session::Context::Quote, text.trim());
+        chip.from = from;
+        self.add_chip(chip, window, cx);
     }
 
     /// Put `text` beside what you are writing, as a chip named `kind`, and
@@ -631,7 +701,12 @@ impl Desk {
         window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) {
-        self.add_attached(Attached::Text(kind, text.to_owned()), cx);
+        self.add_chip(Chip::new(kind, text), window, cx);
+    }
+
+    /// Put `chip` beside what you are writing, and go to the line.
+    fn add_chip(&mut self, chip: Chip, window: &mut gpui::Window, cx: &mut Context<Self>) {
+        self.add_attached(Attached::Text(chip), cx);
         window.focus(
             &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
             cx,
@@ -644,7 +719,101 @@ impl Desk {
         if n < self.composer.attached.len() {
             self.composer.attached.remove(n);
         }
+        self.composer.noting = None;
         cx.notify();
+    }
+
+    /// Begin writing your note on the chip attached `n`th, or stop.
+    pub fn begin_note(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(Attached::Text(chip)) = self.composer.attached.get(n) else {
+            return;
+        };
+        if self.composer.noting == Some(n) {
+            self.composer.noting = None;
+        } else {
+            let note = chip.note.clone();
+            self.composer.noting = Some(n);
+            self.composer.note.update(cx, |i, cx| {
+                i.set_value(note, window, cx);
+                window.focus(&gpui::Focusable::focus_handle(&*i, cx), cx);
+            });
+        }
+        cx.notify();
+    }
+
+    /// Keep the note written on the chip being noted, and go back to the
+    /// line.
+    pub(crate) fn keep_note(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let note = self.composer.note.read(cx).value().trim().to_owned();
+        if let Some(n) = self.composer.noting.take()
+            && let Some(Attached::Text(chip)) = self.composer.attached.get_mut(n)
+        {
+            chip.note = note;
+        }
+        window.focus(
+            &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
+            cx,
+        );
+        cx.notify();
+    }
+
+    /// Go back to where in its thread the chip `n` was quoted from.
+    pub fn go_back(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(Attached::Text(Chip {
+            from: Some((key, item)),
+            ..
+        })) = self.composer.attached.get(n)
+        else {
+            return;
+        };
+        let (key, item) = (*key, *item);
+        self.bring(key, window, cx);
+        self.reveal_item(item, cx);
+    }
+
+    /// Copy the chips of the draft on screen, to paste in another.
+    pub fn copy_chips(&mut self, cx: &mut Context<Self>) {
+        let chips: Copied = (self.composer.attached.iter())
+            .filter_map(|a| match a {
+                Attached::Text(c) => Some((c.kind.uri(0), c.text.clone(), c.note.clone())),
+                _ => None,
+            })
+            .collect();
+        let text = (chips.iter().map(|c| c.1.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string_with_json_metadata(
+            text, chips,
+        ));
+        self.done("Chips copied: paste them in another draft", None);
+        cx.notify();
+    }
+
+    /// What is attached to the draft of the session left goes with it, and
+    /// the draft of the session shown brings back its own.
+    pub(crate) fn swap_drafts(&mut self, from: Option<u64>, to: u64) {
+        let c = &mut self.composer;
+        let left = std::mem::take(&mut c.attached);
+        if let Some(from) = from
+            && !left.is_empty()
+        {
+            c.drafts.insert(from, left);
+        }
+        c.attached = c.drafts.remove(&to).unwrap_or_default();
+        c.noting = None;
+    }
+
+    /// A session dragged onto the composer: named in what you write, as
+    /// `@` names one, so what was said in it goes with it.
+    pub fn drop_session(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(title) = self.sessions.at(key).map(|s| s.meta.title.clone()) else {
+            return;
+        };
+        self.name_in_line(token_of(&title), Offer::Session { key, title }, window, cx);
+        window.focus(
+            &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
+            cx,
+        );
     }
 
     /// Files dropped on the composer or chosen for it: an image is read
@@ -677,7 +846,18 @@ impl Desk {
             .session()
             .and_then(|s| p.strip_prefix(&s.meta.folder).ok())
             .map_or_else(|| p.display().to_string(), |r| r.display().to_string());
-        let token = format!("@{named}");
+        self.name_in_line(format!("@{named}"), Offer::File(named), window, cx);
+    }
+
+    /// Name `what` in what you write by `token`, after what is typed, as
+    /// `@` names it.
+    fn name_in_line(
+        &mut self,
+        token: String,
+        what: Offer,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let typed = self.typed(cx);
         let line = if typed.is_empty() {
             format!("{token} ")
@@ -687,7 +867,7 @@ impl Desk {
         self.put_line(&line, window, cx);
         self.composer.mentions.push(Mention {
             token,
-            what: Offer::File(named),
+            what,
             text: None,
         });
         cx.notify();
@@ -717,7 +897,7 @@ impl Desk {
                         uri.to_string(),
                     )))
                 }
-                Attached::Text(kind, t) => Some(text_resource(&kind.uri(n + 1), &t)),
+                Attached::Text(chip) => Some(text_resource(&chip.kind.uri(n + 1), &chip.said())),
             })
             .collect();
         let Some(s) = self.sessions.at(key) else {

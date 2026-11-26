@@ -342,7 +342,7 @@ impl gpui::Render for LeftEdge {
 /// A session's row being dragged, as it shows under the pointer.
 #[derive(Clone)]
 pub(crate) struct Dragged {
-    key: u64,
+    pub key: u64,
     title: SharedString,
 }
 

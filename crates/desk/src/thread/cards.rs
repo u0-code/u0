@@ -140,7 +140,7 @@ impl Desk {
                     Weight::Quiet,
                 )
                 .on_click(cx.listener(move |this, _, window, cx| {
-                    this.quote(&plan, window, cx);
+                    this.quote(&plan, None, window, cx);
                 })),
             );
         }

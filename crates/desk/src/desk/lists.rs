@@ -785,13 +785,13 @@ impl Desk {
             return;
         };
         let Some(to) = s.beside else { return };
-        let answer = s.items.iter().rev().find_map(|i| match i {
-            Item::Agent(t) => Some(t.clone()),
+        let answer = s.items.iter().enumerate().rev().find_map(|(n, i)| match i {
+            Item::Agent(t) => Some((n, t.clone())),
             _ => None,
         });
         self.show(to, window, cx);
-        if let Some(answer) = answer {
-            self.quote(&answer, window, cx);
+        if let Some((n, answer)) = answer {
+            self.quote(&answer, Some((key, n)), window, cx);
         }
     }
 

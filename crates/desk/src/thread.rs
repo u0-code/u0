@@ -910,7 +910,7 @@ impl Desk {
                             .child(
                                 Self::under(&key, "quote", "reply", tip("Quote in your reply"))
                                     .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.quote(&quoted, window, cx);
+                                        this.quote(&quoted, Some((at, i)), window, cx);
                                     })),
                             )
                             .when(after, |d| {
@@ -1344,8 +1344,8 @@ impl Desk {
                                             } else {
                                                 chosen.to_string()
                                             };
-                                            this.reading = None;
-                                            this.quote(&text, window, cx);
+                                            let from = this.reading.take();
+                                            this.quote(&text, from, window, cx);
                                         },
                                     )),
                                 )
