@@ -233,6 +233,28 @@ words of an error. Nothing above level 0 goes before you confirm the
 level. Batches go to a Cloudflare Worker ([telemetry/](telemetry/)),
 which keeps them and the country they came from, not the address.
 
+## Managed by an organisation
+
+An administrator can put a policy in
+`/Library/Application Support/Ghost/policy.json` (`/etc/ghost/policy.json`
+on Linux), read as Ghost starts: settings from `settings.json`, each a
+default where you chose nothing or locked, shown disabled with who
+manages it.
+
+```json
+{
+  "organization": "Example Corp",
+  "settings": {
+    "telemetry": { "value": 0, "locked": true },
+    "check_updates": { "value": false, "locked": true },
+    "branch_prefix": { "value": "corp/", "locked": false }
+  }
+}
+```
+
+A policy that does not read, or names something that is not a setting,
+keeps the settings from loading until it is put right.
+
 ## Security
 
 An agent runs as you, on your machine, with whatever its own settings allow.

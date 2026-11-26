@@ -64,6 +64,7 @@ pub fn slider(level: Level, window: &mut Window, cx: &mut Context<Desk>) -> Enti
 /// sends under that.
 fn levels(state: &Entity<SliderState>, faces: &Faces, cx: &gpui::App) -> AnyElement {
     let at = level_of(state.read(cx));
+    let by = crate::policy::locked("telemetry");
     let names = Level::ALL.map(|l| {
         let shown = ui::fine(faces, l.name()).text_color(if l == at {
             theme::text()
@@ -78,12 +79,15 @@ fn levels(state: &Entity<SliderState>, faces: &Faces, cx: &gpui::App) -> AnyElem
         .gap(px(6.))
         .w(px(320.))
         .child(
-            div()
-                .px(px(40.))
-                .child(Slider::new(state).accessibility_label("Telemetry")),
+            div().px(px(40.)).child(
+                Slider::new(state)
+                    .accessibility_label("Telemetry")
+                    .disabled(by.is_some()),
+            ),
         )
         .child(div().flex().children(names))
         .child(ui::fine(faces, at.about()))
+        .children(by.map(|by| ui::fine(faces, format!("Managed by {by}"))))
         .into_any_element()
 }
 

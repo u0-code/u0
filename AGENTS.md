@@ -144,6 +144,8 @@ crates/core/src/
   forge.rs      the hosts of code and issues: their CLIs, your tokens for them, credits on merge
   forge/        GitLab, Bitbucket and Azure DevOps over their APIs; Linear's issues
   settings.rs   ~/.ghost/settings.json and the home
+  policy.rs     an organisation's policy (/Library/Application Support/Ghost/policy.json):
+                settings set as defaults or locked
   secrets.rs    what is kept secret: in the macOS Keychain, or a 1Password reference
   store.rs      sessions.json and each session's record; the writer thread
   tasks.rs      scheduled tasks: a prompt, its agent and project, its schedule (tasks.json)
@@ -253,6 +255,11 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 - `~/.ghost/viewed.json` (the desk's) holds the files of each pull
   request you marked viewed, by its address, each with a mark of its
   changes (`review::File::mark`): a file that changes since shows unviewed.
+- An administrator's `/Library/Application Support/Ghost/policy.json`
+  (`/etc/ghost/policy.json` elsewhere; `policy.rs`) sets top-level keys of
+  `settings.json` as defaults or locked, applied in `Settings::load`; a
+  locked control is disabled and says who manages it. One that does not
+  read keeps the settings from loading, as a settings file that does not.
 - `~/.ghost/tasks.json` holds the scheduled tasks; the server writes it
   and runs them (`Call::SetTask`, `Event::Tasks`), each run a session kept
   in the index like any other. A task on a webhook (`Schedule::Hook`) runs

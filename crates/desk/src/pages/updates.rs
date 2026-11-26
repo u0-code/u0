@@ -1,7 +1,7 @@
 //! Updates, on the About page: where an update of Ghost stands and what
 //! to do about it, the channel, and whether Ghost looks by itself.
 
-use gpui::component::{Sizable as _, setting::SettingGroup, switch::Switch};
+use gpui::component::{Disableable as _, Sizable as _, setting::SettingGroup, switch::Switch};
 use gpui::{AnyElement, Context, WeakEntity, div, prelude::*, px};
 
 use super::prefs::{group, item, whole};
@@ -71,7 +71,7 @@ impl Desk {
                 "Look for updates",
                 "As Ghost starts and every four hours; an update is installed only when you say.",
                 |d, _, cx| {
-                    Switch::new("check-updates")
+                    let switch = Switch::new("check-updates")
                         .accessibility_label("Look for updates")
                         .small()
                         .checked(d.settings.check_updates)
@@ -79,8 +79,11 @@ impl Desk {
                             this.settings.check_updates = !this.settings.check_updates;
                             this.save_settings();
                             cx.notify();
-                        }))
-                        .into_any_element()
+                        }));
+                    match crate::policy::locked("check_updates") {
+                        None => switch.into_any_element(),
+                        Some(by) => super::prefs::managed(switch.disabled(true), by),
+                    }
                 },
             ),
         ]);

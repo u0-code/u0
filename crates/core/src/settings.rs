@@ -846,21 +846,40 @@ impl Default for Settings {
 }
 
 impl Settings {
-    /// The settings in `home`; the defaults when there are none. A file
-    /// that cannot be read is not overwritten: the reason comes back with
-    /// the defaults, and nothing is saved until it is moved away.
+    /// The settings in `home`, as this machine's policy has them
+    /// (`policy`); the defaults where there are none. A file that cannot be
+    /// read is not overwritten: the reason comes back with the defaults,
+    /// and nothing is saved until it is moved away. A policy that does not
+    /// read keeps them from loading the same way.
     pub fn load(home: &Path) -> (Self, Option<String>) {
-        let read = crate::whole::read_json(&home.join("settings.json"))
-            .and_then(|s: Self| s.overs_read().map(|()| s));
+        let read = match crate::policy::current() {
+            Err(why) => Err(format!("{why}. Until it is put right")),
+            Ok(policy) => Self::read(&home.join("settings.json"), policy.as_ref())
+                .map_err(|e| format!("{e}. Move it away to start afresh; until then")),
+        };
         match read {
             Ok(settings) => (settings, None),
-            Err(e) => (
-                Self::default(),
-                Some(format!(
-                    "{e}. Move it away to start afresh; until then nothing is saved."
-                )),
-            ),
+            Err(e) => (Self::default(), Some(format!("{e} nothing is saved."))),
         }
+    }
+
+    /// The settings at `path`, with `policy`'s defaults and locks.
+    fn read(path: &Path, policy: Option<&crate::policy::Policy>) -> Result<Self, String> {
+        type Map = serde_json::Map<String, serde_json::Value>;
+        let mut mine: Map = crate::whole::read_json(path)?;
+        let serde_json::Value::Object(mut all) =
+            serde_json::to_value(Self::default()).expect("settings serialize")
+        else {
+            unreachable!("settings are an object")
+        };
+        if let Some(policy) = policy {
+            policy.apply(&mut mine, &all)?;
+        }
+        all.extend(mine);
+        let settings: Self = serde_json::from_value(serde_json::Value::Object(all))
+            .map_err(|e| format!("{} does not read ({e})", path.display()))?;
+        settings.overs_read()?;
+        Ok(settings)
     }
 
     /// The settings a project may hold otherwise than everywhere else.
@@ -1012,6 +1031,27 @@ mod tests {
         .unwrap();
         let why = Settings::load(home.path()).1.unwrap();
         assert!(why.contains("\"twelve\", which a project cannot"), "{why}");
+    }
+
+    #[test]
+    fn a_policy_locks_a_setting_whatever_the_file_says_and_fills_one_left_out() {
+        let home = tempfile::tempdir().unwrap();
+        let path = home.path().join("settings.json");
+        std::fs::write(&path, r#"{"enabled": [], "folders": [], "twelve": false}"#).unwrap();
+        let policy: crate::policy::Policy = serde_json::from_str(
+            r#"{"organization": "Corp", "settings": {
+                "twelve": {"value": true, "locked": true},
+                "branch_prefix": {"value": "corp/"}}}"#,
+        )
+        .unwrap();
+        let s = Settings::read(&path, Some(&policy)).unwrap();
+        assert!(s.twelve);
+        assert_eq!(s.branch_prefix, "corp/");
+        let wrong: crate::policy::Policy = serde_json::from_str(
+            r#"{"organization": "Corp", "settings": {"twelve": {"value": "yes", "locked": true}}}"#,
+        )
+        .unwrap();
+        assert!(Settings::read(&path, Some(&wrong)).is_err());
     }
 
     #[test]

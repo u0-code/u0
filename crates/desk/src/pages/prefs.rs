@@ -136,7 +136,7 @@ impl Desk {
                                 "It moves to Settled in the sidebar; anything said to it brings it back.",
                                 |d, _, cx| {
                                     Self::pick(
-                                        "settle",
+                                        "settle_days",
                                         [
                                             ("3 days", Some(3)),
                                             ("7 days", Some(7)),
@@ -157,7 +157,7 @@ impl Desk {
                                 "The session is done then, while it waits on nothing.",
                                 |d, _, cx| {
                                     Self::pick(
-                                        "settle-merged",
+                                        "settle_merged",
                                         [("Settle it", true), ("Leave it", false)],
                                         d.settings.settle_merged,
                                         |s, v| s.settle_merged = v,
@@ -183,7 +183,7 @@ impl Desk {
                                 "One whose pull request is open is never done for being left.",
                                 |d, _, cx| {
                                     Self::pick(
-                                        "keep-with-pr",
+                                        "keep_with_pr",
                                         [("Keep them", true), ("Let them settle", false)],
                                         d.settings.keep_with_pr,
                                         |s, v| s.keep_with_pr = v,
@@ -218,7 +218,7 @@ impl Desk {
                                 "So branches and pull requests are up to date; projects set to pull are moved on too.",
                                 |d, _, cx| {
                                     Self::pick(
-                                        "fetch-every",
+                                        "fetch_every",
                                         [
                                             ("Minute", Some(1)),
                                             ("5 minutes", Some(5)),
@@ -238,7 +238,7 @@ impl Desk {
                                 "The ACP registry is read again each hour; an agent that stops working is updated to the newest.",
                                 |d, _, cx| {
                                     Self::pick(
-                                        "check-agents",
+                                        "check_agents",
                                         [("Each hour", true), ("Never", false)],
                                         d.settings.check_agents,
                                         |s, v| s.check_agents = v,
@@ -280,7 +280,7 @@ impl Desk {
                                 "Quit in the menu always quits at once.",
                                 |d, _, cx| {
                                     Self::pick(
-                                        "quit",
+                                        "confirm-quit",
                                         [
                                             ("Hold", Quit::Hold),
                                             ("Double press", Quit::Double),
@@ -415,7 +415,7 @@ impl Desk {
                                 "How large your terminals' text is, in the code font.",
                                 |d, _, cx| {
                                     Self::pick(
-                                        "terminal-size",
+                                        "terminal_size",
                                         [
                                             ("Small", crate::settings::TermSize::Small),
                                             ("Medium", crate::settings::TermSize::Medium),
@@ -473,7 +473,7 @@ impl Desk {
                                 "Blue and orange tell them apart without green and red.",
                                 |d, _, cx| {
                                     Self::pick(
-                                        "diff-colours",
+                                        "blue_orange",
                                         [("Green and red", false), ("Blue and orange", true)],
                                         d.settings.blue_orange,
                                         |s, v| s.blue_orange = v,
@@ -488,7 +488,7 @@ impl Desk {
                                 "When a message was said, and what Ghost says of times.",
                                 |d, _, cx| {
                                     Self::pick(
-                                        "clock",
+                                        "twelve",
                                         [("24-hour", false), ("12-hour", true)],
                                         d.settings.twelve,
                                         |s, v| s.twelve = v,
@@ -503,7 +503,7 @@ impl Desk {
                                 "Wrapped, they show whole; kept to a line, they are cut at the edge.",
                                 |d, _, cx| {
                                     Self::pick(
-                                        "diff-wrap",
+                                        "diff_wrap",
                                         [("Wrap", true), ("Cut", false)],
                                         d.settings.diff_wrap,
                                         |s, v| s.diff_wrap = v,
@@ -518,7 +518,7 @@ impl Desk {
                                 "Left out, a diff shows what changed in the words alone.",
                                 |d, _, cx| {
                                     Self::pick(
-                                        "spacing",
+                                        "no_spacing",
                                         [("Shown", false), ("Left out", true)],
                                         d.settings.no_spacing,
                                         |s, v| s.no_spacing = v,
@@ -533,7 +533,7 @@ impl Desk {
                                 "Side by side widens the column beside the thread.",
                                 |d, _, cx| {
                                     Self::pick(
-                                        "diff",
+                                        "side_by_side",
                                         [("Stacked", false), ("Side by side", true)],
                                         d.settings.side_by_side,
                                         |s, v| s.side_by_side = v,
@@ -548,7 +548,7 @@ impl Desk {
                                 "Folded, each shows its name and counts until opened.",
                                 |d, _, cx| {
                                     Self::pick(
-                                        "diff-folded",
+                                        "diff_folded",
                                         [("Open", false), ("Folded", true)],
                                         d.settings.diff_folded,
                                         |s, v| s.diff_folded = v,
@@ -680,7 +680,7 @@ impl Desk {
                                 "A project can choose otherwise from its menu.",
                                 |d, _, cx| {
                                     Self::pick(
-                                        "where",
+                                        "worktree",
                                         [("In the folder", false), ("In a new worktree", true)],
                                         d.settings.worktree,
                                         |s, v| s.worktree = v,
@@ -782,14 +782,16 @@ impl Desk {
     }
 
     /// A choice among `choices`, the one equal to `now` lit; picking one
-    /// sets it with `set` and keeps the settings.
+    /// sets it with `set` and keeps the settings. `id` is the setting's
+    /// key in settings.json (or begins with it, before a `-`): one the
+    /// policy locks cannot be chosen, and says who locked it.
     pub(super) fn pick<T: Copy + PartialEq + 'static, const N: usize>(
         id: &str,
         choices: [(impl Into<SharedString>, T); N],
         now: T,
         set: fn(&mut crate::settings::Settings, T),
         cx: &mut Context<Self>,
-    ) -> ButtonGroup {
+    ) -> AnyElement {
         let choices = choices
             .into_iter()
             .map(|(label, value)| {
@@ -802,7 +804,12 @@ impl Desk {
                 (label, value == now, pick)
             })
             .collect();
-        ui::segmented(id, choices)
+        let group = ui::segmented(id, choices);
+        let key = id.split_once('-').map_or(id, |(key, _)| key);
+        match crate::policy::locked(id).or_else(|| crate::policy::locked(key)) {
+            None => group.into_any_element(),
+            Some(by) => managed(group.disabled(true), by),
+        }
     }
 
     /// Where new worktrees go: a folder chosen, or Ghost's own again.
@@ -903,7 +910,7 @@ impl Desk {
                 "The days of log kept; older files go as Ghost starts.",
                 |d, _, cx| {
                     Self::pick(
-                        "log-days",
+                        "log_days",
                         [("3 days", 3), ("14 days", 14), ("30 days", 30)],
                         d.settings.log_days,
                         |s, v| s.log_days = v,
@@ -1156,6 +1163,21 @@ pub(super) fn whole(
         .unwrap_or_else(|_| div().into_any_element())
     })
     .keywords(words.iter().copied())
+}
+
+/// A control the policy locks, disabled, with who manages it beside it.
+pub(super) fn managed(control: impl IntoElement, by: &str) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .child(control)
+        .child(
+            div()
+                .text_color(crate::theme::muted())
+                .child(format!("Managed by {by}")),
+        )
+        .into_any_element()
 }
 
 /// Settings under a caption.

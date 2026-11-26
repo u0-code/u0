@@ -23,6 +23,7 @@ pub mod link;
 pub mod logs;
 pub mod mcp;
 pub mod path;
+pub mod policy;
 pub mod proto;
 pub mod pty;
 pub mod records;
