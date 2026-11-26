@@ -103,19 +103,26 @@ impl Desk {
                     })
                     .children(self.attached_row(cx))
                     .children(self.dictation_row(faces, cx))
+                    // The +, the line and the mic on one middle: a line as
+                    // tall as the buttons, the text in its middle, the same
+                    // room above and below; a longer message grows upward,
+                    // the buttons at its foot.
                     .child(
                         div()
                             .flex()
                             .items_end()
                             .gap(px(4.))
-                            .min_h(px(44.))
                             .px(px(7.))
-                            .py(px(4.))
+                            .py(px(8.))
                             .child(self.add_menu(faces, s, cx))
                             .child(
                                 div()
                                     .flex_1()
                                     .min_w(px(0.))
+                                    .min_h(px(28.))
+                                    .flex()
+                                    .flex_col()
+                                    .justify_center()
                                     .px(px(2.))
                                     .child(self.composer_line(cx)),
                             )
