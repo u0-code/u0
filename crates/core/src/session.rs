@@ -1132,7 +1132,16 @@ impl Session {
             }
             SessionUpdate::ToolCallUpdate(update) => self.update_tool(update, at),
             SessionUpdate::Plan(plan) => {
-                match self.items.last_mut() {
+                // One plan a turn, brought up to date where it first showed.
+                let turn = self
+                    .items
+                    .iter()
+                    .rposition(|i| matches!(i, Item::You(_)))
+                    .map_or(0, |k| k + 1);
+                match self.items[turn..]
+                    .iter_mut()
+                    .rfind(|i| matches!(i, Item::Plan(_)))
+                {
                     Some(Item::Plan(p)) => *p = plan.clone(),
                     _ => self.items.push(Item::Plan(plan.clone())),
                 }
@@ -1776,6 +1785,34 @@ mod tests {
         s.apply(update(r#"{"sessionUpdate":"plan","entries":[{"content":"a","priority":"high","status":"completed"}]}"#));
         assert!(matches!(&s.items[1], Item::Thought { secs: Some(_), .. }));
         assert_eq!(s.items.len(), 3);
+    }
+
+    #[test]
+    fn a_turn_keeps_one_plan_brought_up_to_date_where_it_first_showed() {
+        use agent_client_protocol::v1::schema::PlanEntryStatus;
+        let plan = |status: &str| {
+            update(&format!(
+                r#"{{"sessionUpdate":"plan","entries":[{{"content":"a","priority":"high","status":"{status}"}}]}}"#
+            ))
+        };
+        let plans = |s: &Session| -> Vec<usize> {
+            (0..s.items.len())
+                .filter(|&k| matches!(s.items[k], Item::Plan(_)))
+                .collect()
+        };
+        let mut s = Session::new(1, "x", "/r".into());
+        s.said("go");
+        s.apply(plan("pending"));
+        s.apply(update(r#"{"sessionUpdate":"tool_call","toolCallId":"a","title":"t","kind":"read","status":"completed"}"#));
+        s.apply(plan("completed"));
+        assert_eq!(plans(&s), [1]);
+        assert!(
+            matches!(&s.items[1], Item::Plan(p) if p.entries[0].status == PlanEntryStatus::Completed)
+        );
+        // The next turn's plan is a card of its own.
+        s.said("more");
+        s.apply(plan("pending"));
+        assert_eq!(plans(&s), [1, 4]);
     }
 
     #[test]
