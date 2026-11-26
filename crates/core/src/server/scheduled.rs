@@ -322,6 +322,10 @@ impl Shared {
             .await;
         self.turning.lock().expect("turning").remove(&on);
         let secs = now.elapsed().map_or(0, |d| d.as_secs());
+        let tokens = said
+            .as_ref()
+            .map(crate::usage::Tokens::of)
+            .unwrap_or_default();
         let ended: Result<StopReason, String> = said.map(|r| r.stop_reason).map_err(|f| f.message);
         self.append(
             &task.agent,
@@ -330,6 +334,7 @@ impl Shared {
                 Ok(reason) => store::Event::Ended {
                     reason: *reason,
                     secs,
+                    tokens,
                 },
                 Err(why) => store::Event::Note {
                     text: why.clone(),

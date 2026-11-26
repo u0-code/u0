@@ -151,6 +151,9 @@ pub enum Event {
     Ended {
         reason: StopReason,
         secs: u64,
+        /// What the turn took, as its agent said (`usage::Tokens::of`).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        tokens: Vec<crate::usage::Tokens>,
     },
     Note {
         text: String,
@@ -233,41 +236,6 @@ pub fn read(path: &Path) -> Option<Vec<Event>> {
             .filter_map(|l| serde_json::from_str(l).ok())
             .collect(),
     )
-}
-
-/// What an agent said a session had cost, when it said it: in seconds
-/// since the epoch, the amount so far (agents say the session's total,
-/// not the turn's) and its currency.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Spend {
-    pub at: u64,
-    pub amount: f64,
-    pub currency: String,
-}
-
-/// What the record `events` says the session cost, each time its agent
-/// said, at the time of the message before it.
-pub fn spent(events: &[Event]) -> Vec<Spend> {
-    let mut at = 0;
-    let mut out = Vec::new();
-    for e in events {
-        match e {
-            Event::At(t) => at = *t,
-            Event::Update(u) => {
-                if let SessionUpdate::UsageUpdate(u) = &**u
-                    && let Some(c) = &u.cost
-                {
-                    out.push(Spend {
-                        at,
-                        amount: c.amount,
-                        currency: c.currency.clone(),
-                    });
-                }
-            }
-            _ => {}
-        }
-    }
-    out
 }
 
 /// Whether a record ends in a turn it never saw end: Ghost stopped before
@@ -355,25 +323,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn what_a_session_cost_is_read_from_its_record_at_the_time_said() {
-        let usage = |amount: f64| {
-            Event::Update(Box::new(
-                serde_json::from_value(serde_json::json!({
-                    "sessionUpdate": "usage_update", "used": 1, "size": 2,
-                    "cost": {"amount": amount, "currency": "USD"},
-                }))
-                .unwrap(),
-            ))
-        };
-        let events = [Event::At(100), usage(0.5), Event::At(200), usage(1.25)];
-        let spent = spent(&events);
-        assert_eq!(
-            spent.iter().map(|s| (s.at, s.amount)).collect::<Vec<_>>(),
-            [(100, 0.5), (200, 1.25)]
-        );
-    }
-
-    #[test]
     fn a_record_reads_back_in_order_and_a_line_cut_short_loses_only_itself() {
         let dir = std::env::temp_dir().join(format!("ghost-store-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -393,6 +342,7 @@ mod tests {
             &[Event::Ended {
                 reason: StopReason::EndTurn,
                 secs: 3,
+                tokens: Vec::new(),
             }],
         )
         .unwrap();
@@ -429,6 +379,7 @@ mod tests {
         let ended = || Event::Ended {
             reason: StopReason::EndTurn,
             secs: 1,
+            tokens: Vec::new(),
         };
         let update = || {
             Event::Update(Box::new(

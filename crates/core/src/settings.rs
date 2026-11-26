@@ -219,6 +219,10 @@ pub struct Settings {
     /// The agents whose sessions are not given Ghost's tools, by id.
     #[serde(default)]
     pub no_tools: Vec<String>,
+    /// A turn an agent's limit stopped goes on by itself as the limit
+    /// resets, where the agent says when.
+    #[serde(default = "yes")]
+    pub resume_at_reset: bool,
 }
 
 fn snoozes() -> Vec<String> {
@@ -763,6 +767,7 @@ impl Default for Settings {
             host_folders: false,
             snoozes: snoozes(),
             no_tools: Vec::new(),
+            resume_at_reset: true,
         }
     }
 }

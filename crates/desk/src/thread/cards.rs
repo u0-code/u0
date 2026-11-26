@@ -359,6 +359,38 @@ impl Desk {
         }
         let key = s.key;
         let now = std::time::SystemTime::now();
+        // Going on by itself as the limit resets: a task said in this
+        // session, which the server runs then.
+        let resuming = self.tasks.list.as_ref().ok().and_then(|list| {
+            list.iter().find(|t| {
+                t.same
+                    && t.session == s.meta.id
+                    && t.prompt == "Continue"
+                    && matches!(t.schedule, crate::tasks::Schedule::Once(_))
+                    && t.next.is_some()
+            })
+        });
+        if let Some(task) = resuming {
+            let (id, at) = (task.id, task.next.map(crate::store::time));
+            let clock = at.map_or_else(String::new, |at| {
+                format!(" at {}", when::said_at(at, now, self.settings.twelve))
+            });
+            return note.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .pt(px(6.))
+                    .child(ui::fine(
+                        crate::fonts::faces(cx),
+                        format!("Goes on{clock}, as the limit resets."),
+                    ))
+                    .child(
+                        ui::button("limit-not", "Don't go on", Weight::Quiet)
+                            .on_click(cx.listener(move |this, _, _, _| this.drop_task(id))),
+                    ),
+            );
+        }
         let mut ways = div()
             .flex()
             .flex_wrap()

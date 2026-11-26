@@ -236,9 +236,9 @@ pub enum Call {
         query: String,
         records: Vec<(u64, String, SessionId)>,
     },
-    /// What each of the sessions `records` (by key, agent and id) cost,
+    /// What each of the sessions `records` (by key, agent and id) used,
     /// as their records say.
-    Spent {
+    Used {
         records: Vec<(u64, String, SessionId)>,
     },
     /// What git says of `folder`, where the session `key` works.
@@ -540,6 +540,8 @@ pub enum Event {
     Ended {
         key: u64,
         result: Result<StopReason, Error>,
+        /// What the turn took, as its agent said.
+        tokens: Vec<crate::usage::Tokens>,
     },
     /// What a session's options are after one was changed.
     Options {
@@ -607,8 +609,8 @@ pub enum Event {
         query: String,
         keys: Vec<u64>,
     },
-    /// What sessions cost, by key, as their agents said (`store::spent`).
-    Spent(Vec<(u64, Vec<store::Spend>)>),
+    /// What sessions used, by key, as their agents said (`usage::used`).
+    Used(Vec<(u64, Vec<crate::usage::Used>)>),
     /// What git says of `folder`, where the session `key` works: its
     /// branch, whether it is in a repository, and the scripts the
     /// repository's `ghost.json` names.
@@ -1219,6 +1221,7 @@ mod tests {
             store::Event::Ended {
                 reason: StopReason::EndTurn,
                 secs: 3,
+                tokens: Vec::new(),
             },
         ];
         let calls = vec![
@@ -1403,7 +1406,7 @@ mod tests {
                 query: "go".into(),
                 records: vec![(1, "a".into(), session.clone())],
             },
-            Call::Spent {
+            Call::Used {
                 records: vec![(1, "a".into(), session)],
             },
         ];
@@ -1484,6 +1487,7 @@ mod tests {
             Event::Ended {
                 key: 1,
                 result: Ok(StopReason::EndTurn),
+                tokens: Vec::new(),
             },
             Event::Options {
                 key: 1,
@@ -1585,12 +1589,14 @@ mod tests {
                 query: "go".into(),
                 keys: vec![1],
             },
-            Event::Spent(vec![(
+            Event::Used(vec![(
                 1,
-                vec![store::Spend {
+                vec![crate::usage::Used {
                     at: 1,
-                    amount: 0.5,
-                    currency: "USD".into(),
+                    what: crate::usage::Use::Cost {
+                        amount: 0.5,
+                        currency: "USD".into(),
+                    },
                 }],
             )]),
         ];

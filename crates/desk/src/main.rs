@@ -31,8 +31,8 @@ mod voice;
 // rest name it alike in every module of the desk.
 use ghost_core::{
     access, acp, diagnostics, forge, git, github, key, link, path, proto, registry, remote, repo,
-    scripts, secrets, server, servers, session, settings, share, store, tasks, tidy, update, when,
-    whole, workflows, writer,
+    scripts, secrets, server, servers, session, settings, share, store, tasks, tidy, update, usage,
+    when, whole, workflows, writer,
 };
 use keys::{
     About, BringAllToFront, CheckForUpdates, Hide, HideOthers, Minimize, NewSession, OpenSettings,

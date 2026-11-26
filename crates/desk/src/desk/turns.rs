@@ -111,9 +111,10 @@ impl Desk {
             });
         } else {
             if let Some(s) = self.sessions.at_mut(key) {
-                s.ended(Err(
-                    "The agent is not running; start a new session with it.".into(),
-                ));
+                s.ended(
+                    Err("The agent is not running; start a new session with it.".into()),
+                    Vec::new(),
+                );
             }
             self.flush(key);
         }

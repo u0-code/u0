@@ -148,7 +148,10 @@ impl Desk {
                 "Sessions put away, and what Ghost keeps on this Mac.",
                 self.sessions_tab(w),
             ),
-            Tab::Usage => paged("What sessions cost, as their agents said.", self.usage(w)),
+            Tab::Usage => paged(
+                "What sessions cost and took, and where your limits stand, as agents said.",
+                self.usage(w),
+            ),
             Tab::Diagnostics => paged(
                 "What Ghost runs on this Mac, and what went wrong.",
                 self.diagnostics(w),

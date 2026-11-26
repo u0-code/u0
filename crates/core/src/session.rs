@@ -678,7 +678,7 @@ impl Session {
                 self.items.push(Item::You(text));
             }
             store::Event::Update(u) => self.apply(*u),
-            store::Event::Ended { reason, secs } => {
+            store::Event::Ended { reason, secs, .. } => {
                 self.thought_over();
                 self.items.push(Item::Ended { reason, secs });
             }
@@ -923,13 +923,17 @@ impl Session {
         self.meta.updated = SystemTime::now();
     }
 
-    /// The turn is over.
-    pub fn ended(&mut self, reason: Result<StopReason, String>) {
+    /// The turn is over, having taken `tokens`.
+    pub fn ended(&mut self, reason: Result<StopReason, String>, tokens: Vec<crate::usage::Tokens>) {
         self.thought_over();
         let secs = self.since.map_or(0, |t| t.elapsed().as_secs());
         match reason {
             Ok(reason) => {
-                self.record(store::Event::Ended { reason, secs });
+                self.record(store::Event::Ended {
+                    reason,
+                    secs,
+                    tokens,
+                });
                 self.items.push(Item::Ended { reason, secs });
             }
             Err(why) => {
@@ -1641,7 +1645,7 @@ mod tests {
         s.apply(update(
             r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Done."}}"#,
         ));
-        s.ended(Ok(StopReason::EndTurn));
+        s.ended(Ok(StopReason::EndTurn), Vec::new());
         let log = std::mem::take(&mut s.log);
         // Each message's time goes before it, and a call's: seven lines
         // for four.
@@ -1716,7 +1720,7 @@ mod tests {
         .unwrap();
         s.asked(5, request);
         assert_eq!(s.waiting().unwrap().title, "rm -rf build");
-        s.ended(Ok(StopReason::Cancelled));
+        s.ended(Ok(StopReason::Cancelled), Vec::new());
         assert!(s.waiting().is_none());
         assert!(matches!(
             s.items.last(),
@@ -1882,10 +1886,10 @@ mod tests {
     fn a_turn_that_failed_says_so_in_a_list() {
         let mut s = Session::new(1, "x", std::env::temp_dir());
         s.said("go");
-        s.ended(Err("the agent stopped".into()));
+        s.ended(Err("the agent stopped".into()), Vec::new());
         assert_eq!(s.outcome(), Some("failed"));
         s.said("again");
-        s.ended(Ok(StopReason::EndTurn));
+        s.ended(Ok(StopReason::EndTurn), Vec::new());
         assert_eq!(s.outcome(), None);
     }
 }

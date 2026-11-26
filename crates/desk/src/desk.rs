@@ -192,9 +192,9 @@ pub struct Desk {
     pub speech: Option<dictation::Speech>,
     /// Where an update of Ghost's own stands.
     pub updates: updates::Updates,
-    /// What sessions cost, by key, as their records say: read for the
+    /// What sessions used, by key, as their records say: read for the
     /// usage page.
-    pub spent: std::collections::HashMap<u64, Vec<crate::store::Spend>>,
+    pub used: std::collections::HashMap<u64, Vec<crate::usage::Used>>,
     /// The forms agents asked for, by the number each answer goes back
     /// under, as questions to be answered over the composer.
     pub forms:
@@ -527,7 +527,7 @@ impl Desk {
             dictation: None,
             speech: None,
             updates: updates::Updates::default(),
-            spent: std::collections::HashMap::new(),
+            used: std::collections::HashMap::new(),
             forms: std::collections::HashMap::new(),
             quit_asked: None,
             tasks: tasks::Tasks::default(),
@@ -802,12 +802,12 @@ impl Desk {
         s
     }
 
-    /// Read what each session kept here cost, from its record.
-    pub(crate) fn read_spent(&self) {
+    /// Read what each session kept here used, from its record.
+    pub(crate) fn read_used(&self) {
         let records = (self.sessions.all.iter())
             .filter_map(|s| Some((s.key, s.meta.agent.clone(), s.meta.id.clone()?)))
             .collect();
-        self.transport.send(crate::proto::Call::Spent { records });
+        self.transport.send(crate::proto::Call::Used { records });
     }
 
     /// Put the session `key` on screen.
@@ -1531,7 +1531,7 @@ impl Desk {
             crate::pages::Tab::Sessions => self.measure(),
             crate::pages::Tab::Appearance => self.read_themes(cx),
             crate::pages::Tab::SourceControl => self.transport.send(crate::proto::Call::Forges),
-            crate::pages::Tab::Usage => self.read_spent(),
+            crate::pages::Tab::Usage => self.read_used(),
             crate::pages::Tab::Diagnostics => self.diagnose(),
             crate::pages::Tab::Devices => {
                 self.transport.send(Call::Share(crate::share::Share::Look));

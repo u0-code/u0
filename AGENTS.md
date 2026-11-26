@@ -147,6 +147,8 @@ crates/core/src/
   scripts.rs    a repository's own commands, in its ghost.json
   when.rs       times as read
   update.rs     Ghost's own updates: the GitHub releases the casks install, put in place
+  usage.rs      what agents say they used, read from the records: cost, tokens by
+                model, an account's limits and when a refused turn may go on
   fixtures/     answers recorded from real agents
 crates/desk/src/
   main.rs       the app: the window opened, the menus, the keys bound

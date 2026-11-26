@@ -194,6 +194,23 @@ impl Desk {
                         vec![
                             item(
                                 w,
+                                "Go on when a limit resets",
+                                "A turn an agent's usage limit stopped is said to go on, as a scheduled task, at the time the agent gives.",
+                                |d, _, cx| {
+                                    Switch::new("resume-at-reset")
+                                        .small()
+                                        .checked(d.settings.resume_at_reset)
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.settings.resume_at_reset =
+                                                !this.settings.resume_at_reset;
+                                            this.save_settings();
+                                            cx.notify();
+                                        }))
+                                        .into_any_element()
+                                },
+                            ),
+                            item(
+                                w,
                                 "Fetch each project's remote every",
                                 "So branches and pull requests are up to date; projects set to pull are moved on too.",
                                 |d, _, cx| {

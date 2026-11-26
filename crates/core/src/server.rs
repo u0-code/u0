@@ -484,16 +484,16 @@ impl Server {
                     }
                 })));
             }
-            Call::Spent { records } => {
+            Call::Used { records } => {
                 let home = self.shared.home.clone();
                 self.off(move || {
-                    Event::Spent(
+                    Event::Used(
                         (records.into_iter())
                             .map(|(key, agent, id)| {
                                 let events = store::read(&store::record_path(&home, &agent, &id.0));
-                                (key, store::spent(&events.unwrap_or_default()))
+                                (key, crate::usage::used(&events.unwrap_or_default()))
                             })
-                            .filter(|(_, spent)| !spent.is_empty())
+                            .filter(|(_, used)| !used.is_empty())
                             .collect(),
                     )
                 });
@@ -1038,6 +1038,7 @@ impl Server {
             turning.lock().expect("turning").remove(&on);
             Event::Ended {
                 key,
+                tokens: r.as_ref().map(crate::usage::Tokens::of).unwrap_or_default(),
                 result: r.map(|r| r.stop_reason),
             }
         });
@@ -1370,6 +1371,7 @@ mod tests {
         let ended = store::Event::Ended {
             reason: StopReason::EndTurn,
             secs: 1,
+            tokens: Vec::new(),
         };
         server.handle(Call::Append {
             agent: "a".into(),

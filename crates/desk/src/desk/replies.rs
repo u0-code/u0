@@ -481,7 +481,11 @@ impl Desk {
                     self.trouble(format!("Couldn't delete “{title}”"), Some(why), None);
                 }
             },
-            Event::Ended { key, result } => {
+            Event::Ended {
+                key,
+                result,
+                tokens,
+            } => {
                 // A turn refused for want of a sign-in marks the agent: the
                 // composer then offers its sign-in.
                 let agent = self.sessions.at(key).map(|s| s.meta.agent.clone());
@@ -495,8 +499,16 @@ impl Desk {
                     };
                 }
                 let ok = result.is_ok();
+                // A turn a limit stopped goes on as it resets, where the
+                // agent says when.
+                let resets = (result.as_ref().err())
+                    .and_then(|f| crate::usage::resets(f, std::time::SystemTime::now()))
+                    .filter(|_| self.settings.resume_at_reset);
                 if let Some(s) = self.sessions.at_mut(key) {
-                    s.ended(result.map_err(|f| f.message));
+                    s.ended(result.map_err(|f| f.message), tokens);
+                }
+                if let Some(at) = resets {
+                    self.retry_at(key, at, cx);
                 }
                 self.stopping = None;
                 self.end_turn(key);
@@ -546,7 +558,7 @@ impl Desk {
                 self.read_servers();
             }
             Event::Record { key, events } => self.record_read(key, events),
-            Event::Spent(spent) => self.spent = spent.into_iter().collect(),
+            Event::Used(used) => self.used = used.into_iter().collect(),
             Event::Found { query, keys } => {
                 if self.search.input.read(cx).value().trim().to_lowercase() == query {
                     self.search.found = keys.into_iter().collect();

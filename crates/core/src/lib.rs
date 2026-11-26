@@ -40,6 +40,7 @@ pub mod tasks;
 pub mod terminals;
 pub mod tidy;
 pub mod update;
+pub mod usage;
 pub mod when;
 pub mod whole;
 pub mod workflows;

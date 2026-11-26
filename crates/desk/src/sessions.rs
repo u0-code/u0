@@ -380,7 +380,7 @@ mod tests {
         // The same id under another agent is another session.
         assert!(sessions.at(1).unwrap().items.is_empty());
         let s = sessions.at_mut(2).unwrap();
-        s.ended(Ok(StopReason::EndTurn));
+        s.ended(Ok(StopReason::EndTurn), Vec::new());
         records.append("b", &id, std::mem::take(&mut s.log));
         assert!(matches!(&s.items[1], Item::Agent(t) if t == "Done."));
         assert!(matches!(
@@ -522,6 +522,7 @@ mod tests {
             store::Event::Ended {
                 reason: StopReason::EndTurn,
                 secs: 1,
+                tokens: Vec::new(),
             },
         ];
         let read = sessions.read_back(2, Some(whole), None);
