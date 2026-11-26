@@ -139,21 +139,21 @@ impl Desk {
                     Self::menu_item(desk, "Edit", move |this, window, cx| {
                         this.edit_task(id, window, cx);
                     })
-                    .icon(ui::glyph("pencil")),
+                    .icon(ui::menu_glyph("pencil")),
                 )
                 .item(
                     Self::menu_item(desk, "Run now", move |this, _, cx| {
                         this.run_task(id);
                         cx.notify();
                     })
-                    .icon(ui::glyph("play")),
+                    .icon(ui::menu_glyph("play")),
                 )
                 .item(
                     Self::menu_item(desk, "Delete", move |this, _, cx| {
                         this.drop_task(id);
                         cx.notify();
                     })
-                    .icon(ui::glyph("trash")),
+                    .icon(ui::menu_glyph("trash")),
                 )
                 .min_w(px(180.))
             },

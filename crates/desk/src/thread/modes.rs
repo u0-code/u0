@@ -176,7 +176,7 @@ impl Desk {
                         .child(ui::described(&faces, name.clone(), about.clone()).flex_1())
                         .when(n < 9, |d| d.child(Kbd::new(crate::keys::numbered(n + 1))))
                 })
-                .icon(ui::glyph(icon))
+                .icon(ui::menu_glyph(icon))
                 .checked(on)
                 .on_click(Self::does(desk, move |this, window, cx| {
                     this.pick_mode(config.clone(), id.clone(), cx);

@@ -453,7 +453,7 @@ impl Desk {
                         this.work_in(key, &p, cx);
                     }
                 })
-                .icon(ui::glyph("folder"))
+                .icon(ui::menu_glyph("folder"))
                 .checked(on),
             );
         }
@@ -461,7 +461,7 @@ impl Desk {
             Self::menu_item(desk, "Choose a folder…", |this, _, cx| {
                 this.choose_folder(cx);
             })
-            .icon(ui::glyph("plus")),
+            .icon(ui::menu_glyph("plus")),
         )
     }
 
@@ -485,7 +485,7 @@ impl Desk {
                     |icon: &str,
                      says: &'static str,
                      f: fn(&mut Self, &mut Window, &mut Context<Self>)| {
-                        Self::menu_item(desk, says, f).icon(ui::glyph(icon))
+                        Self::menu_item(desk, says, f).icon(ui::menu_glyph(icon))
                     };
                 menu.item(row("file", "Add files or photos", |_, window, cx| {
                     Self::attach_files(window, cx);

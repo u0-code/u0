@@ -448,7 +448,7 @@ impl Desk {
                         )
                         .child(Self::letter_key(letter))
                 })
-                .icon(ui::glyph(icon))
+                .icon(ui::menu_glyph(icon))
                 .disabled(!self.offered(letter))
                 .on_click(Self::does(desk, move |this, _, cx| this.offer(letter, cx))),
             );

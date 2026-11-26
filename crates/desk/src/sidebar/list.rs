@@ -1013,7 +1013,7 @@ fn item(
     f: impl Fn(&mut Window, &mut App) + 'static,
 ) -> PopupMenuItem {
     PopupMenuItem::new(label)
-        .icon(ui::glyph(icon))
+        .icon(ui::menu_glyph(icon))
         .on_click(move |_, window, cx| f(window, cx))
 }
 
@@ -1067,7 +1067,7 @@ fn session_menu(
     } else {
         let desk = desk.clone();
         menu.submenu_with_icon(
-            Some(ui::glyph("clock")),
+            Some(ui::menu_glyph("clock")),
             "Snooze",
             window,
             cx,
@@ -1128,7 +1128,7 @@ fn session_menu(
     if !f.others.is_empty() {
         let (others, hand) = (f.others.clone(), desk.clone());
         menu = menu.submenu_with_icon(
-            Some(ui::glyph("corner-up-right")),
+            Some(ui::menu_glyph("corner-up-right")),
             "Continue with",
             window,
             cx,
@@ -1153,7 +1153,7 @@ fn session_menu(
         f.link.clone(),
     );
     menu = menu.separator().submenu_with_icon(
-        Some(ui::glyph("copy")),
+        Some(ui::menu_glyph("copy")),
         "Copy",
         window,
         cx,
@@ -1230,7 +1230,7 @@ fn chosen_menu(
             d.chosen.clear();
         }))
         .submenu_with_icon(
-            Some(ui::glyph("clock")),
+            Some(ui::menu_glyph("clock")),
             format!("Snooze ({n})"),
             window,
             cx,

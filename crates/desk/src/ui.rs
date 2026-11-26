@@ -30,9 +30,15 @@ pub fn icon(name: &str, size: f32) -> Svg {
         .text_color(theme::muted())
 }
 
-/// A line icon by name, as gpui-kit's components take one (a menu's item).
+/// A line icon by name, as gpui-kit's components take one.
 pub fn glyph(name: &str) -> Icon {
     Icon::empty().path(format!("icons/{name}.svg"))
+}
+
+/// An icon of a menu's item: every menu's the same, gpui-kit's 16 beside
+/// the item's 13.
+pub fn menu_glyph(name: &str) -> Icon {
+    glyph(name).with_size(gpui::component::Size::Medium)
 }
 
 /// Mono text: times, counts, hashes, keys.
