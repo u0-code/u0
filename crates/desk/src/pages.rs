@@ -700,11 +700,36 @@ impl Desk {
     /// where it speaks another version of ACP than Ghost.
     fn agent_own(&self, faces: &Faces, id: &str, stage: &Stage, cx: &mut Context<Self>) -> Div {
         let field = |input: &Entity<InputState>| div().flex_1().child(Input::new(input).small());
-        let (a, b) = (id.to_owned(), id.to_owned());
+        let (a, b, c) = (id.to_owned(), id.to_owned(), id.to_owned());
+        let tools = !self.settings.no_tools.iter().any(|t| t == id);
         let mut own = div()
             .flex()
             .flex_col()
             .gap(px(10.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .child(ui::label(faces, "Ghost's tools").flex_1())
+                    .child(
+                        gpui::component::switch::Switch::new("agent-tools")
+                            .small()
+                            .checked(tools)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                let off = &mut this.settings.no_tools;
+                                match off.iter().position(|t| *t == c) {
+                                    Some(at) => drop(off.remove(at)),
+                                    None => off.push(c.clone()),
+                                }
+                                this.save_settings();
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(ui::fine(
+                faces,
+                "Each new session of it is given Ghost's tools, as an MCP server: the sessions Ghost keeps, a diff, a task handed to another session, a pull request, a task scheduled, a question put to you. What acts asks you here first.",
+            ))
             .child(ui::label(faces, "Your own"))
             .child(
                 div()

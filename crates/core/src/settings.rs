@@ -212,6 +212,9 @@ pub struct Settings {
     /// "5pm", "tomorrow"), as t3code's snooze presets.
     #[serde(default = "snoozes")]
     pub snoozes: Vec<String>,
+    /// The agents whose sessions are not given Ghost's tools, by id.
+    #[serde(default)]
+    pub no_tools: Vec<String>,
 }
 
 fn snoozes() -> Vec<String> {
@@ -747,6 +750,7 @@ impl Default for Settings {
             projects_in: None,
             host_folders: false,
             snoozes: snoozes(),
+            no_tools: Vec::new(),
         }
     }
 }

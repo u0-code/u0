@@ -247,7 +247,8 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
   needs before it starts is the server's to say (`Event::Here`).
 - Ghost's tools (`server/tools`) listen on `127.0.0.1` at a port
   `~/.ghost/mcp.json` names, with a key only that file holds (mode 0600),
-  both made anew as the server starts. A session is given them through
+  both made anew as the server starts. A session (of an agent not in
+  `settings.no_tools`, its page's switch) is given them through
   ACP's `mcpServers` as this program run with `--mcp`, with a key of its
   own (`GHOST_MCP_KEY`) that says which session calls; an agent outside
   Ghost runs `--mcp` with none, and the file's key lets it in to read only.

@@ -92,8 +92,17 @@ impl Shared {
     }
 
     /// Ghost's tools, for a session of `agent` (its id where it has one):
-    /// the key it calls with, and the server to give it as it is opened.
+    /// the key it calls with, and the server to give it as it is opened;
+    /// none where you switched them off for that agent.
     pub(super) fn tools(&self, agent: &str, id: Option<SessionId>) -> (String, Vec<McpServer>) {
+        if Settings::load(&self.home)
+            .0
+            .no_tools
+            .iter()
+            .any(|a| a == agent)
+        {
+            return (String::new(), Vec::new());
+        }
         let key = crate::access::random::<32>();
         (self.callers.lock().expect("callers")).insert(key.clone(), Some((agent.to_owned(), id)));
         let program = std::env::current_exe().unwrap_or_else(|_| "ghost".into());
@@ -633,16 +642,20 @@ mod tests {
     #[test]
     fn a_session_is_given_the_tools_with_a_key_of_its_own_and_what_acts_asks_you_first() {
         let home = tempfile::tempdir().unwrap();
-        // An agent that opens `s1`, then `s2`, writing down what it was
-        // asked to open the first with, and answers a prompt in `s2`.
+        // An agent that opens `s1`, `s2`, …, writing down what it was asked
+        // to open each with, and answers a prompt in `s2`.
         let agent = home.path().join("agent.sh");
         let heard = home.path().join("heard");
+        let opened = |n: usize| -> Value {
+            let text = std::fs::read_to_string(&heard).unwrap();
+            serde_json::from_str(text.lines().nth(n).unwrap()).unwrap()
+        };
         let script = format!(
             r#"id() {{ printf '%s' "$line" | sed -E 's/.*"id":("[^"]*"|[0-9]+).*/\1/'; }}
 n=0
 while read line; do case "$line" in
 *'"initialize"'*) printf '{{"jsonrpc":"2.0","id":%s,"result":{{"protocolVersion":1}}}}\n' "$(id)" ;;
-*'"session/new"'*) n=$((n+1)); [ $n = 1 ] && echo "$line" > {heard}
+*'"session/new"'*) n=$((n+1)); echo "$line" >> {heard}
 printf '{{"jsonrpc":"2.0","id":%s,"result":{{"sessionId":"s%s"}}}}\n' "$(id)" $n ;;
 *'"session/prompt"'*) printf '%s\n' '{{"jsonrpc":"2.0","method":"session/update","params":{{"sessionId":"s2","update":{{"sessionUpdate":"agent_message_chunk","content":{{"type":"text","text":"It is done."}}}}}}}}'
 printf '{{"jsonrpc":"2.0","id":%s,"result":{{"stopReason":"end_turn"}}}}\n' "$(id)" ;;
@@ -672,7 +685,7 @@ esac; done"#,
         server.handle(Call::Keep(vec![meta(home.path(), "t")]));
         // It was given Ghost's tools: this program, started with --mcp and
         // a key of its own.
-        let asked: Value = serde_json::from_str(&std::fs::read_to_string(&heard).unwrap()).unwrap();
+        let asked: Value = opened(0);
         let given = &asked["params"]["mcpServers"][0];
         assert_eq!(
             (&given["name"], &given["args"]),
@@ -755,5 +768,19 @@ esac; done"#,
         );
         let index = server.shared.index.lock().unwrap().clone().unwrap();
         assert!((index.sessions.iter()).any(|m| m.title == "Tidy"));
+        // Switched off for the agent, its sessions are given nothing.
+        std::fs::write(
+            home.path().join("settings.json"),
+            json!({"enabled": [], "folders": [], "no_tools": ["a"]}).to_string(),
+        )
+        .unwrap();
+        server.handle(Call::Open {
+            agent: "a".into(),
+            key: 2,
+            folder: home.path().to_path_buf(),
+            also: Vec::new(),
+        });
+        while !matches!(next(), Event::Opened { key: 2, .. }) {}
+        assert_eq!(opened(2)["params"]["mcpServers"], json!([]));
     }
 }
