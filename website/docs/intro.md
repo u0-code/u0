@@ -35,6 +35,25 @@ The window has three columns:
   pull request, terminals, simulators, a side chat and the session's
   details.
 
+## What you can do
+
+- [Install](install.md) Ghost and [switch on your agents](first-run.md);
+  Ghost installs the ones that are missing, from the ACP registry.
+- Start [sessions in projects](projects-and-sessions.md), and follow them
+  in [the thread](thread.md): models, modes, @-mentions, slash commands,
+  dictation.
+- Let a session work in [a worktree of its own](worktrees-and-checkpoints.md),
+  and undo any turn.
+- [Review](review.md) what changed, comment on lines for the agent, then
+  commit, push and open a pull request.
+- Work through your [pull requests and issues](forges.md) on GitHub,
+  GitLab, Bitbucket, Azure DevOps and Linear.
+- Drive [iOS simulators and Android emulators](simulators.md).
+- Run prompts on a schedule or from a webhook, and chain steps into
+  [workflows](automation.md).
+- Give agents [Ghost's tools](tools-for-agents.md) over MCP.
+- Use one machine's Ghost [from another Mac](remote.md).
+
 ## How it works
 
 Every agent is spoken to over ACP: JSON-RPC, one message a line, on the

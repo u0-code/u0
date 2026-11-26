@@ -1,0 +1,82 @@
+---
+title: Ghost's tools for agents
+description: The MCP server Ghost gives each session, and how an agent outside Ghost uses it.
+---
+
+# Ghost's tools for agents
+
+Ghost has no agent of its own, but it gives your agents tools: one MCP
+server, named `ghost`, attached to each session Ghost opens. Through it an
+agent can read the sessions Ghost keeps, hand work to another agent, open
+a pull request, schedule a task, ask you a question, and use the
+simulators and emulators of the machine it runs on.
+
+## How a session gets them
+
+When Ghost opens a session, it passes the server to the agent through
+ACP's `mcpServers`, as a program to run: Ghost's own program with `--mcp`,
+with `GHOST_HOME` and a key of the session's own (`GHOST_MCP_KEY`). That
+program is a small pipe: it speaks MCP on its standard input and output
+and forwards everything to the Ghost server, which listens on `127.0.0.1`
+only.
+
+The port and a key for agents outside Ghost are written to
+`<home>/mcp.json`, readable by you alone (mode 0600). Both are made anew
+each time the server starts.
+
+To keep a particular agent's sessions free of Ghost's tools, open its page
+in **Settings › Agents** and switch them off. That agent's id is added to
+`no_tools` in [settings.json](reference/settings.md).
+
+## The tools
+
+| Tool | What it does | Who may call it |
+|---|---|---|
+| `list_sessions` | The sessions Ghost keeps, the latest first (up to 100): each one's agent, id, title, project, the folder it works in and whether it is archived. Optional `project` filters by folder. | Any agent |
+| `read_session` | What was said in a session: your messages (led by "You:") and the agent's answers. Takes `agent` and `session`. | Any agent |
+| `read_diff` | What is not committed in a folder, as a unified diff. `folder` defaults to where the calling session works. | Any agent |
+| `delegate_task` | Hand a task to an agent in a new Ghost session, which you can watch, and wait for its answer. Takes `prompt`, `title`, and optionally `agent`, `project` and `worktree`. Returns the new session's id and its final answer. | Sessions in Ghost; asks you first |
+| `open_pr` | Commit what is not committed where the session works, push it (on a branch of its own if on the default branch) and open a pull request with `gh`. Takes `title`, `body` and optionally the commit `message`. | Sessions in Ghost; asks you first |
+| `schedule_task` | Schedule a prompt for an agent, in a new session each time: once (`in_minutes`) or repeatedly (`every_minutes`). It appears in **Settings › Scheduled tasks**, where you can pause or delete it. | Sessions in Ghost; asks you first |
+| `ask_user` | Ask you a question in the session's thread and wait for the answer, free text or one of `choices`. | Sessions in Ghost |
+| `list_devices` | The iOS simulators and Android emulators on the machine the server runs on: id, name, platform, whether it runs; and what is missing to have any. | Any agent |
+| `device_screen` | What a running device shows now, as an image. | Any agent |
+| `use_device` | Start or stop a device, tap a point, type text, press Home (Back or Recents on Android), or set it dark or light. | Sessions in Ghost; asks you first |
+
+### Access levels
+
+There are two kinds of caller:
+
+- **A session in Ghost.** It may call every tool. A tool that acts
+  (`delegate_task`, `open_pr`, `schedule_task`, `use_device`) first asks
+  you on a permission card in that session's thread, the same card the
+  agent's own questions use, with **Allow**, **Always allow** and
+  **Reject**. **Always allow** holds for that tool in that session until
+  the session's connection ends.
+- **An agent outside Ghost** (below). It may only read:
+  `list_sessions`, `read_session`, `read_diff`, `list_devices` and
+  `device_screen`. A tool that acts or asks you answers that only an agent
+  in a Ghost session can do it.
+
+## Using them from an agent outside Ghost
+
+An agent you run in a terminal can read what Ghost keeps through the same
+server, while Ghost runs on the same home:
+
+```bash
+claude mcp add ghost -- /Applications/Ghost.app/Contents/MacOS/ghost-desk --mcp
+codex mcp add ghost -- /Applications/Ghost.app/Contents/MacOS/ghost-desk --mcp
+```
+
+On a machine with no window, use `ghost-server --mcp`. To reach another
+machine's Ghost, run it there over SSH: `ssh host ghost-server --mcp`.
+
+If Ghost is not running with that home, `--mcp` exits saying so.
+
+:::note Coming
+
+Ghost's tools over streamable HTTP, reaching other paired Macs, and more
+session tools (sending to a session, waiting on it, stopping it) are being
+finished and are not in the current build yet.
+
+:::
