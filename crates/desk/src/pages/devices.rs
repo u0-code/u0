@@ -66,10 +66,18 @@ impl Desk {
             Some(Some(Ok(port))) => format!(
                 "Listening on 127.0.0.1:{port}, for a tunnel or an ssh -L to reach. Only a device paired with it comes in."
             ),
-            Some(Some(Err(why))) => why.clone(),
-            Some(None) => "Off: nothing listens, and no device comes in.".into(),
+            Some(Some(Err(_)) | None) => "Off: nothing listens, and no device comes in.".into(),
         };
-        let (known, asked) = (serving.is_some(), serving.flatten().is_some());
+        // The switch says what runs: on only while it listens. Asked for
+        // and failed, it is off, and why stands under it as trouble; a
+        // click lets go of the wish, and the next asks again.
+        let failed = match &serving {
+            Some(Some(Err(why))) => Some(why.clone()),
+            _ => None,
+        };
+        let known = serving.is_some();
+        let listening = matches!(serving, Some(Some(Ok(_))));
+        let asked = matches!(serving, Some(Some(_)));
         let serve = item(
             w,
             format!("Let other devices control {on}"),
@@ -77,7 +85,7 @@ impl Desk {
             move |_, _, cx| {
                 Switch::new("serve")
                     .small()
-                    .checked(asked)
+                    .checked(listening)
                     .disabled(!known)
                     .on_click(cx.listener(move |this, _, _, _| this.share(Share::Serve(!asked))))
                     .into_any_element()
@@ -106,8 +114,15 @@ impl Desk {
             .description(
                 "Use Ghost on one Mac from another: its agents, sessions, files and terminals, as there. Each device comes in by a key of its own, made as it pairs: its private half stays in that device's Keychain, and only the public half, shown by its fingerprint, is sent.",
             )
-            .group(SettingGroup::new().items(vec![serve, controlling]));
-        if asked {
+            .group(SettingGroup::new().items(
+                std::iter::once(serve)
+                    .chain(failed.map(|why| {
+                        whole(w, &[], move |_, _, _| ui::trouble(why.clone()).into_any_element())
+                    }))
+                    .chain([controlling])
+                    .collect::<Vec<_>>(),
+            ));
+        if listening {
             page = page
                 .group(group("Pair a device with this Mac", self.pairing_link(w)))
                 .group(group("Reach", self.reached(w)))
