@@ -239,15 +239,27 @@ are tests, not use.
 
 ## Managed by an organisation
 
-An administrator can put a policy in
-`/Library/Application Support/Ghost/policy.json` (`/etc/ghost/policy.json`
-on Linux), read as Ghost starts: settings from `settings.json`, each a
-default where you chose nothing or locked, shown disabled with who
-manages it.
+An administrator can set a policy, read as Ghost starts: settings from
+`settings.json`, each a default where you chose nothing or locked, shown
+disabled with who manages it, and limits.
+
+On a Mac the policy is a configuration profile for the preference domain
+`local.ghost.desk` (Ghost.app's bundle identifier).
+[`policy/ghost.mobileconfig`](policy/ghost.mobileconfig) is an example
+that names every key: change its values, give it identifiers and UUIDs of
+your own, and deploy it from your MDM (as a custom profile, or its
+payload as Custom Settings for that domain), or install it by hand in
+System Settings > General > Device Management. Ghost reads the managed
+values with CFPreferences, and only those a profile forces:
+`defaults write` sets no policy.
+
+On Linux the policy is `/etc/ghost/policy.json`. Both have this shape,
+the profile's keys and values the same in a property list:
 
 ```json
 {
   "organization": "Example Corp",
+  "support_url": "https://it.example.com/ghost",
   "settings": {
     "telemetry": { "value": 0, "locked": true },
     "check_updates": { "value": false, "locked": true },

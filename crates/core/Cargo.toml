@@ -49,6 +49,8 @@ tls = ["tokio-tungstenite/rustls-tls-native-roots"]
 
 [target.'cfg(target_os = "macos")'.dependencies]
 security-framework.workspace = true
+core-foundation.workspace = true
+core-foundation-sys.workspace = true
 
 [lints]
 workspace = true

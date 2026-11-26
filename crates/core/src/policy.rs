@@ -1,9 +1,12 @@
-//! An organisation's policy for this machine, as t3code's managed policy:
-//! a file an administrator puts where only an administrator can write
-//! (`/Library/Application Support/Ghost/policy.json` on a Mac,
-//! `/etc/ghost/policy.json` elsewhere), read once as Ghost starts. It
-//! names the organisation, and sets settings: a default where you have
-//! chosen nothing, or, locked, a value you cannot change.
+//! An organisation's policy for this machine, as t3code's managed policy,
+//! read once as Ghost starts. It names the organisation, and sets
+//! settings: a default where you have chosen nothing, or, locked, a value
+//! you cannot change.
+//!
+//! An administrator sets it where only an administrator can: on a Mac,
+//! with a configuration profile (`profile`; `policy/ghost.mobileconfig` is
+//! the example), elsewhere in `/etc/ghost/policy.json`. Both have one
+//! shape:
 //!
 //! ```json
 //! {
@@ -29,11 +32,10 @@
 //! governed. `limits` are what no setting undoes, each enforced by the
 //! server where the thing is done (`allows`); one left out limits nothing.
 
-use std::{
-    collections::BTreeMap,
-    path::{Path, PathBuf},
-    sync::OnceLock,
-};
+#[cfg(target_os = "macos")]
+mod profile;
+
+use std::{collections::BTreeMap, sync::OnceLock};
 
 use serde::Deserialize;
 
@@ -94,20 +96,20 @@ pub struct Managed {
     pub locked: bool,
 }
 
-/// Where the policy is put.
-fn path() -> PathBuf {
-    if cfg!(target_os = "macos") {
-        PathBuf::from("/Library/Application Support/Ghost/policy.json")
-    } else {
-        PathBuf::from("/etc/ghost/policy.json")
-    }
-}
-
 /// The policy of this machine, read once: none where there is none; why
 /// it does not read, where it does not.
 pub fn current() -> &'static Result<Option<Policy>, String> {
     static POLICY: OnceLock<Result<Option<Policy>, String>> = OnceLock::new();
-    POLICY.get_or_init(|| read(&path()))
+    POLICY.get_or_init(read)
+}
+
+#[cfg(target_os = "macos")]
+use profile::read;
+
+/// The policy in `/etc/ghost/policy.json`.
+#[cfg(not(target_os = "macos"))]
+fn read() -> Result<Option<Policy>, String> {
+    read_file(std::path::Path::new("/etc/ghost/policy.json"))
 }
 
 /// The organisation that locks the setting `key`, if one does.
@@ -116,7 +118,8 @@ pub fn locked(key: &str) -> Option<&'static str> {
     (policy.settings.get(key)?.locked).then_some(policy.organization.as_str())
 }
 
-fn read(path: &Path) -> Result<Option<Policy>, String> {
+#[cfg(not(target_os = "macos"))]
+fn read_file(path: &std::path::Path) -> Result<Option<Policy>, String> {
     match std::fs::read_to_string(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(e) => Err(format!(
@@ -228,11 +231,16 @@ mod tests {
         assert!(unknown.is_err(), "a limit Ghost cannot enforce is refused");
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn no_file_is_no_policy_and_a_bad_one_says_why() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(read(&dir.path().join("policy.json")).unwrap().is_none());
+        assert!(
+            read_file(&dir.path().join("policy.json"))
+                .unwrap()
+                .is_none()
+        );
         std::fs::write(dir.path().join("policy.json"), r#"{"org": 1}"#).unwrap();
-        assert!(read(&dir.path().join("policy.json")).is_err());
+        assert!(read_file(&dir.path().join("policy.json")).is_err());
     }
 }

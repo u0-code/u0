@@ -153,8 +153,9 @@ crates/core/src/
   forge.rs      the hosts of code and issues: their CLIs, your tokens for them, credits on merge
   forge/        GitLab, Bitbucket and Azure DevOps over their APIs; Linear's issues
   settings.rs   ~/.ghost/settings.json and the home
-  policy.rs     an organisation's policy (/Library/Application Support/Ghost/policy.json):
-                settings set as defaults or locked; limits the server enforces
+  policy.rs     an organisation's policy (/etc/ghost/policy.json): settings set as
+                defaults or locked; limits the server enforces
+  policy/       profile: on a Mac, the policy a configuration profile forces (CFPreferences)
   secrets.rs    what is kept secret: in the macOS Keychain, or a 1Password reference
   store.rs      sessions.json and each session's record; the writer thread
   tasks.rs      scheduled tasks: a prompt, its agent and project, its schedule (tasks.json)
@@ -230,6 +231,7 @@ crates/desk/src/
   themes.rs     themes in gpui-kit's format: Ghost's, yours, a VS Code theme imported
   fonts.rs, assets.rs   faces, icons
 assets/         fonts, the desk's own icons and the themes it brings, built into the app
+policy/         ghost.mobileconfig: the example profile, every policy key; read by a core test
 telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf deploy`;
                 batch.schema.json, made from `telemetry::Batch` by a core test
 
@@ -272,9 +274,13 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 - `~/.ghost/viewed.json` (the desk's) holds the files of each pull
   request you marked viewed, by its address, each with a mark of its
   changes (`review::File::mark`): a file that changes since shows unviewed.
-- An administrator's `/Library/Application Support/Ghost/policy.json`
-  (`/etc/ghost/policy.json` elsewhere; `policy.rs`) sets top-level keys of
-  `settings.json` as defaults or locked, applied in `Settings::load`; a
+- An administrator's policy (`policy.rs`), one shape from either source:
+  on a Mac the values a configuration profile forces in the preference
+  domain `local.ghost.desk` (Ghost.app's bundle identifier; read with
+  `CFPreferencesCopyAppValue`, counted only where
+  `CFPreferencesAppValueIsForced`), elsewhere `/etc/ghost/policy.json`.
+  `policy/ghost.mobileconfig` is the example profile, read back by a test.
+  It sets top-level keys of `settings.json` as defaults or locked, applied in `Settings::load`; a
   locked control is disabled and says who manages it. One that does not
   read keeps the settings from loading, as a settings file that does not.
   Its `limits` (agents allowed, remote, tunnel, webhooks) are checked

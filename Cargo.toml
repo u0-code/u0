@@ -94,6 +94,10 @@ vergen-gitcl = "10.1"
 # The macOS Keychain, where secrets are kept: the crate rustls already
 # brings into the tree.
 security-framework = "3.7"
+# An organisation's policy on a Mac: the managed preferences a configuration
+# profile sets, read with CFPreferences (the crates security-framework brings).
+core-foundation = "0.10"
+core-foundation-sys = "0.8"
 # Ghost reached from another machine: a WebSocket on 127.0.0.1, behind a
 # tunnel that brings its own TLS; the desk's end speaks TLS to that tunnel
 # (rustls, with ring, as the rest of the build has it).

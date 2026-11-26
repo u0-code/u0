@@ -36,6 +36,8 @@ rm -rf "$iconset"
 
 cp target/release/ghost-desk "$app/Contents/MacOS/ghost-desk"
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+# The bundle identifier is also the preference domain an organisation's
+# profile sets the policy in (crates/core/src/policy/profile.rs).
 cat > "$app/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
