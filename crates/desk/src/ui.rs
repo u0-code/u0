@@ -251,9 +251,11 @@ pub fn icon_button(
     icon_name: &str,
     tip_text: impl Into<SharedString>,
 ) -> Button {
+    let tip_text = tip_text.into();
     Button::new(id)
         .ghost()
         .icon(glyph(icon_name))
+        .accessibility_label(tip_text.clone())
         .tooltip(tip_text)
 }
 
