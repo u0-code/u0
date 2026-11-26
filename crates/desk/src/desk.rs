@@ -1541,6 +1541,8 @@ impl Desk {
                 self.read_servers();
             }
             crate::pages::Tab::Workflows => self.read_flows(window, cx),
+            // Where a webhook task is called from.
+            crate::pages::Tab::Tasks => self.transport.send(Call::Share(crate::share::Share::Look)),
             _ => {}
         }
     }

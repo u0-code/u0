@@ -36,6 +36,7 @@ impl Desk {
             _ if task.paused => "Paused".to_owned(),
             Some(at) if at <= store::secs(now) => "Due now".to_owned(),
             Some(at) => format!("Next {}", when::said_at(store::time(at), now, twelve)),
+            None if matches!(task.schedule, Schedule::Hook(_)) => "When called".to_owned(),
             None => "Not scheduled".to_owned(),
         };
         let status = task.last.as_ref().map(|r| match (&r.error, r.going) {
@@ -338,7 +339,8 @@ impl Desk {
                         minute: 9 * 60,
                         days: Vec::new(),
                     },
-                    _ => Schedule::Once(0),
+                    2 => Schedule::Once(0),
+                    _ => Schedule::Hook(crate::access::random::<16>()),
                 };
             })
         };
@@ -359,6 +361,11 @@ impl Desk {
                     "Once",
                     matches!(task.schedule, Schedule::Once(_)),
                     kind(2, cx),
+                ),
+                (
+                    "On webhook",
+                    matches!(task.schedule, Schedule::Hook(_)),
+                    kind(3, cx),
                 ),
             ],
         );
@@ -407,6 +414,7 @@ impl Desk {
                 .gap(px(8.))
                 .child(div().w(px(200.)).child(Input::new(&draft.at).small()))
                 .child(ui::fine(faces, "tomorrow, 5pm, in 3h")),
+            Schedule::Hook(token) => self.hook_addresses(faces, token),
         };
         div()
             .flex()
@@ -495,6 +503,37 @@ impl Desk {
         )
     }
 }
+
+impl Desk {
+    /// Where a webhook task is called: here, while Ghost listens, and
+    /// through the tunnel while one is up; what it does with the call.
+    fn hook_addresses(&self, faces: &Faces, token: &str) -> Div {
+        let shared = self.pages.shared.as_ref();
+        let port = shared.and_then(|s| s.serving.clone()?.ok());
+        let tunnel = shared.and_then(|s| match &s.tunnel {
+            crate::share::Tunnel::Up(host) => Some(host.clone()),
+            _ => None,
+        });
+        let mut at: Vec<String> = Vec::new();
+        at.extend(port.map(|p| format!("http://127.0.0.1:{p}/hook/{token}")));
+        at.extend(tunnel.map(|h| format!("https://{h}/hook/{token}")));
+        let mut out = div().flex().flex_col().gap(px(4.));
+        if at.is_empty() {
+            out = out.child(ui::fine(
+                faces,
+                format!("/hook/{token}, where Ghost listens: turn listening on in Devices for its address."),
+            ));
+        }
+        for a in at {
+            out = out.child(ui::fine_mono(faces, a));
+        }
+        out.child(ui::fine(
+            faces,
+            "A POST to it runs the task; {{body}} in what it says is what was sent, marked as data from outside. A call made while Ghost is not running is not held: the sender has to send it again.",
+        ))
+    }
+}
+
 /// What picking a choice of the task being written does: `change` it.
 fn draft_pick(
     cx: &mut Context<Desk>,

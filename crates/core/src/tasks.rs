@@ -75,6 +75,11 @@ pub enum Schedule {
     /// At `minute` minutes into the day, on `days` (0 for Sunday to 6;
     /// none, every day), in this computer's time zone.
     Daily { minute: u16, days: Vec<u8> },
+    /// Each time its address is called, as t3code's webhook tasks: a POST
+    /// to `/hook/<this token>` where Ghost listens (and through its tunnel,
+    /// while one is up). Nothing holds a call made while Ghost is not
+    /// running: the sender has to deliver it again.
+    Hook(String),
 }
 
 /// How a task's last run went.
@@ -104,7 +109,17 @@ impl Schedule {
             Self::Daily { minute, days } => {
                 when::next_daily(store::time(after), *minute, days).map(store::secs)
             }
+            Self::Hook(_) => None,
         }
+    }
+
+    /// What a call to a webhook task says, put where its prompt says
+    /// `{{body}}`: marked as data from outside, not words of yours.
+    pub fn filled(prompt: &str, body: &str) -> String {
+        prompt.replace(
+            "{{body}}",
+            &format!("<webhook-data untrusted>\n{body}\n</webhook-data>"),
+        )
     }
 
     /// As said in a list: "Every 30 min", "Weekdays at 09:00", "Once, Tue 3 Nov 15:00".
@@ -133,6 +148,7 @@ impl Schedule {
                     }
                 }
             }
+            Self::Hook(_) => "On webhook".into(),
         }
     }
 }

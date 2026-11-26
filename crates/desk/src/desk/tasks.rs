@@ -121,6 +121,7 @@ impl Desk {
                 when::said_at(store::time(*at), SystemTime::now(), false),
                 9 * 60,
             ),
+            Schedule::Hook(_) => ("60".to_owned(), "09:00".to_owned(), 9 * 60),
         };
         let cycle = if self.settings.twelve {
             HourCycle::H12
@@ -204,6 +205,7 @@ impl Desk {
                 }
                 None => Some("Say when, such as tomorrow, 5pm or in 3h."),
             },
+            Schedule::Hook(_) => None,
         };
         if let Some(why) = wrong {
             draft.wrong = Some(why.into());

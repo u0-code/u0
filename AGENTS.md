@@ -233,7 +233,10 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
   begin with (`last`: the options and mode last chosen).
 - `~/.ghost/tasks.json` holds the scheduled tasks; the server writes it
   and runs them (`Call::SetTask`, `Event::Tasks`), each run a session kept
-  in the index like any other. Workflows are your JSON files in
+  in the index like any other. A task on a webhook (`Schedule::Hook`) runs
+  when `POST /hook/<token>` reaches the link's listener (and its tunnel),
+  its body put where the prompt says `{{body}}`; nothing holds a call made
+  while no server runs. Workflows are your JSON files in
   `~/.ghost/workflows/`, read as they are listed or started; their runs
   are the server's, in `~/.ghost/runs.json`.
 - A secret (an agent's variable marked so, a forge's token) is kept in the

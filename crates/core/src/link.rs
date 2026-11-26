@@ -188,6 +188,50 @@ pub fn serve_here() -> Result<(), String> {
     Ok(())
 }
 
+/// How a call to a webhook task begins, where desks link (`Schedule::Hook`).
+const HOOK: &[u8; 11] = b"POST /hook/";
+
+/// The most of a webhook call's body read.
+const HOOK_BODY: usize = 1 << 20;
+
+/// A call to a webhook task: its token from the path, its body by its
+/// `Content-Length`; answered 202 when the task runs, else 404.
+async fn hook(server: &Arc<Server>, stream: TcpStream) -> Result<(), String> {
+    use tokio::io::{AsyncBufReadExt as _, AsyncReadExt as _, AsyncWriteExt as _};
+    let mut read = tokio::io::BufReader::new(stream);
+    let mut line = String::new();
+    read.read_line(&mut line).await.map_err(|e| e.to_string())?;
+    let token = (line.strip_prefix("POST /hook/"))
+        .and_then(|r| r.split_whitespace().next())
+        .unwrap_or_default()
+        .to_owned();
+    let mut length = 0;
+    loop {
+        line.clear();
+        if read.read_line(&mut line).await.map_err(|e| e.to_string())? == 0
+            || line.trim().is_empty()
+        {
+            break;
+        }
+        if let Some((name, value)) = line.split_once(':')
+            && name.trim().eq_ignore_ascii_case("content-length")
+        {
+            length = value.trim().parse().unwrap_or(0);
+        }
+    }
+    let mut body = vec![0u8; length.min(HOOK_BODY)];
+    read.read_exact(&mut body)
+        .await
+        .map_err(|e| e.to_string())?;
+    let ran = server.hook(&token, &String::from_utf8_lossy(&body));
+    let status = if ran { "202 Accepted" } else { "404 Not Found" };
+    let answer = format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+    read.get_mut()
+        .write_all(answer.as_bytes())
+        .await
+        .map_err(|e| e.to_string())
+}
+
 type Socket<S> = WebSocketStream<S>;
 
 /// Close `ws`, saying `why` to a desk that is not let in.
@@ -210,6 +254,10 @@ where
 
 /// One desk's link: its hello, then what it asks and what it is told.
 async fn serve(server: &Arc<Server>, stream: TcpStream) -> Result<(), String> {
+    let mut start = [0u8; HOOK.len()];
+    if stream.peek(&mut start).await.is_ok_and(|n| n == HOOK.len()) && start == *HOOK {
+        return hook(server, stream).await;
+    }
     let accepted = tokio_tungstenite::accept_async_with_config(stream, Some(config()));
     let mut ws = accepted.await.map_err(|e| e.to_string())?;
     let nonce = crate::access::random::<32>();
@@ -571,6 +619,61 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         rt.spawn(listen(server.clone(), listener));
         (server, port)
+    }
+
+    #[test]
+    fn a_webhook_call_runs_its_task_and_one_to_no_task_is_not_found() {
+        use std::io::{Read as _, Write as _};
+        let home = tempfile::tempdir().unwrap();
+        let task = crate::tasks::Task {
+            id: 1,
+            title: "On a push".into(),
+            prompt: "Look at {{body}}".into(),
+            agent: "nowhere".into(),
+            model: None,
+            mode: None,
+            project: home.path().to_path_buf(),
+            schedule: crate::tasks::Schedule::Hook("tok".into()),
+            paused: false,
+            same: false,
+            worktree: false,
+            session: None,
+            next: None,
+            last: None,
+            runs: 0,
+        };
+        let tasks = crate::tasks::Tasks { tasks: vec![task] };
+        std::fs::write(
+            home.path().join("tasks.json"),
+            serde_json::to_vec(&tasks).unwrap(),
+        )
+        .unwrap();
+        let (_server, port) = server(home.path());
+        let call = |token: &str| {
+            let mut s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+            let body = "{\"ref\":\"main\"}";
+            write!(
+                s,
+                "POST /hook/{token} HTTP/1.1\r\nHost: x\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+            let mut answer = String::new();
+            s.read_to_string(&mut answer).unwrap();
+            answer
+        };
+        assert!(call("tok").starts_with("HTTP/1.1 202"));
+        assert!(call("other").starts_with("HTTP/1.1 404"));
+        // The run is kept as the writer gets to it.
+        let ran = (0..100).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            crate::tasks::load(home.path()).is_ok_and(|t| t.tasks[0].runs == 1)
+        });
+        assert!(ran, "the task ran once");
+        assert_eq!(
+            crate::tasks::Schedule::filled("Look at {{body}}", "x"),
+            "Look at <webhook-data untrusted>\nx\n</webhook-data>"
+        );
     }
 
     type Desk = (

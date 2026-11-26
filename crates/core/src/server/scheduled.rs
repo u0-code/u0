@@ -34,9 +34,15 @@ impl Server {
             .change_tasks(|all| all.tasks.retain(|t| t.id != id));
     }
 
+    /// Run the webhook task of `token`, called with `body`: whether there
+    /// is one to run.
+    pub(crate) fn hook(&self, token: &str, body: &str) -> bool {
+        self.shared.hook(token, body)
+    }
+
     /// Run the task `id` now, unless a run of it goes on.
     pub(super) fn run_task(&self, id: u64) {
-        self.shared.run(id);
+        self.shared.run(id, None);
     }
 
     /// The tasks as they are, to the desk.
@@ -111,13 +117,26 @@ impl Shared {
             Err(_) => Vec::new(),
         };
         for id in due {
-            self.run(id);
+            self.run(id, None);
         }
     }
 
     /// Run the task `id`: its run marked going, its next one set, and the
     /// turn said; then how it went kept.
-    fn run(&self, id: u64) {
+    /// Run the webhook task of `token` with what its caller sent, `body`:
+    /// whether there is one, not paused.
+    fn hook(&self, token: &str, body: &str) -> bool {
+        let id = (tasks::load(&self.home).ok())
+            .and_then(|all| {
+                all.tasks
+                    .into_iter()
+                    .find(|t| !t.paused && t.schedule == tasks::Schedule::Hook(token.to_owned()))
+            })
+            .map(|t| t.id);
+        id.inspect(|id| self.run(*id, Some(body))).is_some()
+    }
+
+    fn run(&self, id: u64, body: Option<&str>) {
         let now = store::secs(std::time::SystemTime::now());
         let turning = self.turning.lock().expect("turning").clone();
         let mut task = None;
@@ -142,7 +161,10 @@ impl Shared {
             });
             task = Some(t.clone());
         });
-        let Some(task) = task else { return };
+        let Some(mut task) = task else { return };
+        if let Some(body) = body {
+            task.prompt = tasks::Schedule::filled(&task.prompt, body);
+        }
         let this = self.clone();
         acp::runtime().spawn(async move {
             let result = this.turn_with(&task, |_| {}).await;
