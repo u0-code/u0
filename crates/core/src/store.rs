@@ -190,6 +190,13 @@ pub fn record_path(home: &Path, agent: &str, id: &str) -> PathBuf {
         .join(format!("{}.jsonl", safe(id)))
 }
 
+/// Whether the record of the session `id` of `agent` holds `query` (in
+/// lower case), as what was said in it is searched.
+pub fn holds(home: &Path, agent: &str, id: &str, query: &str) -> bool {
+    std::fs::read_to_string(record_path(home, agent, id))
+        .is_ok_and(|t| t.to_lowercase().contains(query))
+}
+
 /// An id as a file name: what is not a letter, a digit, `-` or `_` is `_`.
 fn safe(id: &str) -> String {
     id.chars()

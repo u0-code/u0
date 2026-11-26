@@ -66,6 +66,23 @@ pub struct Check {
     pub url: String,
 }
 
+impl Check {
+    /// Whether it failed.
+    pub fn failed(&self) -> bool {
+        matches!(
+            self.state.as_str(),
+            "failure" | "error" | "timed_out" | "cancelled" | "action_required"
+        )
+    }
+
+    /// The run of GitHub Actions it is part of, by its id (`Ask::Log`,
+    /// `Act::Rerun` take it), read from where it ran: none for a check
+    /// run elsewhere.
+    pub fn run(&self) -> Option<&str> {
+        self.url.split("/runs/").nth(1)?.split('/').next()
+    }
+}
+
 /// One read whole.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Detail {

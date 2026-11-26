@@ -527,10 +527,66 @@ fn line_of(file: &Path, text: &str) -> Option<usize> {
     Some(whole[..at].matches('\n').count() + 1)
 }
 
+/// The paths among `all` that hold the letters `typed`, in order (each
+/// word typed, in any order), best first: a name above a folder, letters
+/// together above letters apart, then the shorter. Each with where its
+/// letters stand, by character: nucleo's matcher, as Helix's file
+/// picker finds them.
+pub fn paths<'a>(
+    all: impl IntoIterator<Item = &'a String>,
+    typed: &str,
+) -> Vec<(&'a String, Vec<usize>)> {
+    use nucleo_matcher::{
+        Config, Matcher, Utf32Str,
+        pattern::{CaseMatching, Normalization, Pattern},
+    };
+    let mut matcher = Matcher::new(Config::DEFAULT.match_paths());
+    let pattern = Pattern::parse(typed, CaseMatching::Ignore, Normalization::Smart);
+    let mut chars = Vec::new();
+    let mut found: Vec<(u32, &String, Vec<usize>)> = all
+        .into_iter()
+        .filter_map(|path| {
+            let mut at = Vec::new();
+            let score = pattern.indices(Utf32Str::new(path, &mut chars), &mut matcher, &mut at)?;
+            at.sort_unstable();
+            at.dedup();
+            Some((score, path, at.into_iter().map(|n| n as usize).collect()))
+        })
+        .collect();
+    found.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.len().cmp(&b.1.len())));
+    found.into_iter().map(|(_, path, at)| (path, at)).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::session::Session;
+
+    #[test]
+    fn a_path_is_found_by_its_letters_in_order_best_first_then_the_shorter() {
+        let files = [
+            "a/ma/b.rs",
+            "app/domain/maps.rs",
+            "docs/Main.md",
+            "src/main.rs",
+            "x.rs",
+        ]
+        .map(String::from)
+        .to_vec();
+        let found = paths(&files, "main");
+        let names: Vec<&str> = found.iter().map(|(f, _)| f.as_str()).collect();
+        assert_eq!(names[..2], ["src/main.rs", "docs/Main.md"]);
+        assert_eq!(found[0].1, [4, 5, 6, 7]);
+        assert!(
+            paths(&files, "ma")
+                .iter()
+                .all(|(f, _)| f.as_str() != "x.rs")
+        );
+        assert_eq!(
+            paths(&files, "smr").first().map(|(f, _)| f.as_str()),
+            Some("src/main.rs")
+        );
+    }
 
     #[test]
     fn an_ssh_address_has_an_https_one_and_others_have_none() {

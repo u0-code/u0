@@ -530,10 +530,7 @@ impl Server {
                 let home = self.shared.home.clone();
                 self.off(move || Event::Found {
                     keys: (records.into_iter())
-                        .filter(|(_, agent, id)| {
-                            std::fs::read_to_string(store::record_path(&home, agent, &id.0))
-                                .is_ok_and(|t| t.to_lowercase().contains(&query))
-                        })
+                        .filter(|(_, agent, id)| store::holds(&home, agent, &id.0, &query))
                         .map(|(key, ..)| key)
                         .collect(),
                     query,

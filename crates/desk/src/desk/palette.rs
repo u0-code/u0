@@ -668,7 +668,7 @@ impl Desk {
                     .map_or_else(|| crate::tr("Files").to_string(), |f| self.project_on(f));
                 let files = folder.as_ref().and_then(|f| self.files.get(f));
                 let typed = typed.trim_start_matches('@').trim_start_matches("./");
-                let rows = super::rank::paths(files.into_iter().flatten(), typed)
+                let rows = crate::repo::paths(files.into_iter().flatten(), typed)
                     .into_iter()
                     .take(FILES)
                     .map(|(f, at)| {

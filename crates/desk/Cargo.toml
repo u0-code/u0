@@ -29,7 +29,6 @@ imagesize.workspace = true
 usvg.workspace = true
 percent-encoding.workspace = true
 which.workspace = true
-nucleo-matcher.workspace = true
 jsonc-parser.workspace = true
 sys-locale.workspace = true
 rust-i18n.workspace = true

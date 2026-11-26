@@ -526,16 +526,8 @@ impl Desk {
         let mut checks = div().flex().flex_col().gap(px(4.));
         for (n, c) in d.checks.iter().enumerate() {
             let url = c.url.clone();
-            let failed = matches!(
-                c.state.as_str(),
-                "failure" | "error" | "timed_out" | "cancelled" | "action_required"
-            );
-            let run = url
-                .split("/runs/")
-                .nth(1)
-                .and_then(|r| r.split('/').next())
-                .map(str::to_owned)
-                .filter(|_| failed);
+            let failed = c.failed();
+            let run = c.run().map(str::to_owned).filter(|_| failed);
             checks = checks.child(
                 div()
                     .flex()

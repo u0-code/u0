@@ -59,6 +59,15 @@ pub fn root(dir: &Path) -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// The repositories of the project `project`: its own, or each of a
+/// folder of them (`repos`).
+pub fn project_repos(project: &Path) -> Vec<PathBuf> {
+    match root(project) {
+        Some(_) => vec![project.to_path_buf()],
+        None => repos(project),
+    }
+}
+
 /// The repositories a folder that is not in one holds, as t3code finds
 /// them: each folder in it that is a repository's top, and each in a
 /// folder of it that is not one. A submodule is not counted, nor a hidden

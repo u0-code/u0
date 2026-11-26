@@ -560,7 +560,7 @@ impl Desk {
         }
         offers.truncate(3);
         offers.extend(
-            super::rank::paths(
+            crate::repo::paths(
                 (self.files.get(&super::Place::folder_of(s)))
                     .into_iter()
                     .flatten(),

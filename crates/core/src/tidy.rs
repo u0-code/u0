@@ -61,12 +61,8 @@ fn size(path: &Path) -> u64 {
 
 /// Tidy `what`; what was done, in words.
 pub fn tidy(home: &Path, what: Tidy, kept: &Kept) -> String {
-    // A project's repository, or each of a folder of them.
     let repos: Vec<PathBuf> = (kept.projects.iter())
-        .flat_map(|f| match git::root(f) {
-            Some(_) => vec![f.clone()],
-            None => git::repos(f),
-        })
+        .flat_map(|f| git::project_repos(f))
         .collect();
     match what {
         Tidy::Records => {

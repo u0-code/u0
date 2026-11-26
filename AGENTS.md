@@ -268,7 +268,7 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 | A setting in the settings dialog, or a row of a list there | `prefs::item` (a gpui-kit SettingItem whose control the desk draws), under `prefs::group` (a SettingGroup); a row that is more than a name, a line and a control (an agent, a task, a run), `prefs::whole`; never a card of rows drawn by hand |
 | A setting a project may hold otherwise (`Settings::PROJECT`) | read with `Settings::of(project)` (`Desk::settings_in`), drawn with `Desk::own` under the page's `scope_group`, kept with `Settings::hold` |
 | Words the window shows | `crate::tr("English")`, or `crate::tr_with("%{n} running", &[("n", &n)])` for a sentence with values (one key, never pieces glued), its translation in every language added to `crates/desk/locales/app.yml` (a test fails on one missing); `prefs::item`, `prefs::group` and a settings page's title translate their own. What an agent or the server says is not translated |
-| What is typed, found | a file path: `rank::paths` (nucleo-matcher); sessions, commands, names: `rank::rank` and `rank::terms` |
+| What is typed, found | a file path: `repo::paths` (nucleo-matcher); sessions, commands, names: `rank::rank` and `rank::terms` |
 | A short name made of a title (a branch, a file, an id) | `git::slug` |
 
 ## Data

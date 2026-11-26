@@ -139,11 +139,10 @@ impl Desk {
                 self.viewer.open_all,
             );
             if self.viewer.held.as_ref() != Some(&held) {
-                let found: std::collections::HashSet<&String> =
-                    crate::desk::rank::paths(files, &words)
-                        .into_iter()
-                        .map(|(f, _)| f)
-                        .collect();
+                let found: std::collections::HashSet<&String> = crate::repo::paths(files, &words)
+                    .into_iter()
+                    .map(|(f, _)| f)
+                    .collect();
                 let found = files
                     .iter()
                     .filter(|f| found.contains(f))
