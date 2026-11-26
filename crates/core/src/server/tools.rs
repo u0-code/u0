@@ -461,6 +461,7 @@ impl Tools {
     async fn ask_user(&self, Parameters(ask): Parameters<AskUser>) -> Result<String, String> {
         let (id, meta) = self.session().ok_or(OUTSIDE)?;
         let field = StringPropertySchema::new()
+            .title("Your answer".to_owned())
             .enum_values((!ask.choices.is_empty()).then_some(ask.choices));
         let form = ElicitationFormMode::new(
             ElicitationSessionScope::new(id),
