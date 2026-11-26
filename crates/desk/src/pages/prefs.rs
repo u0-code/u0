@@ -709,6 +709,26 @@ impl Desk {
                                     .into_any_element()
                                 },
                             ),
+                            item(
+                                w,
+                                "An archived session's worktree is taken away after",
+                                "Its branch stays, and so does a worktree with changes not committed; opened again, the session checks it out again.",
+                                |d, _, cx| {
+                                    d.own(
+                                        "tidy-after",
+                                        [
+                                            ("A day", Some(1)),
+                                            ("7 days", Some(7)),
+                                            ("30 days", Some(30)),
+                                            ("Never", None),
+                                        ],
+                                        |s| s.tidy_after,
+                                        |s, v| s.tidy_after = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
+                            ),
                         ],
                     ),
                 ],

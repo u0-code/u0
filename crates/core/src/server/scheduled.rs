@@ -28,6 +28,9 @@ const TICK: Duration = Duration::from_secs(20);
 /// How many ticks between looks at the pull requests watched: two minutes.
 const PR_TICKS: u32 = 6;
 
+/// How many ticks between tidyings of archived sessions' worktrees: an hour.
+const TIDY_TICKS: u32 = 180;
+
 impl Server {
     pub(super) fn drop_task(&self, id: u64) {
         self.shared
@@ -80,9 +83,43 @@ impl Shared {
             loop {
                 tokio::time::sleep(TICK).await;
                 this.run_due();
-                ticks = (ticks + 1) % PR_TICKS;
-                if ticks == 0 {
+                ticks = (ticks + 1) % (PR_TICKS * TIDY_TICKS);
+                if ticks.is_multiple_of(PR_TICKS) {
                     this.watch_prs();
+                }
+                if ticks % TIDY_TICKS == 1 {
+                    this.tidy_worktrees();
+                }
+            }
+        });
+    }
+
+    /// Take away the worktree of each session archived and left longer
+    /// than its project's settings say (`tidy_after`); git keeps one with
+    /// changes not committed, and its branch.
+    fn tidy_worktrees(&self) {
+        let settings = crate::settings::Settings::load(&self.home).0;
+        let now = std::time::SystemTime::now();
+        let due: Vec<git::Worktree> = match &*self.index.lock().expect("index") {
+            Ok(index) => (index.sessions.iter())
+                .filter(|m| m.flags.archived)
+                .filter_map(|m| {
+                    let days = settings.of(&m.project).tidy_after?;
+                    let left = now.duration_since(m.updated).unwrap_or_default();
+                    let wt = m.worktree.clone()?;
+                    (left.as_secs() >= u64::from(days) * 86_400 && wt.path.exists()).then_some(wt)
+                })
+                .collect(),
+            Err(_) => return,
+        };
+        if due.is_empty() {
+            return;
+        }
+        acp::runtime().spawn_blocking(move || {
+            for wt in due {
+                match git::remove_worktree(&wt) {
+                    Ok(()) => tracing::info!("tidied away {}", wt.path.display()),
+                    Err(why) => tracing::info!("{} was kept: {why}", wt.path.display()),
                 }
             }
         });

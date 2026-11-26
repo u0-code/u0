@@ -223,6 +223,12 @@ pub struct Settings {
     /// resets, where the agent says when.
     #[serde(default = "yes")]
     pub resume_at_reset: bool,
+    /// The days an archived session's worktree is left before it is taken
+    /// away, as t3code's worktree cleanup; none, kept. One with changes not
+    /// committed stays, and its branch always does: opened again, the
+    /// session checks it out again.
+    #[serde(default)]
+    pub tidy_after: Option<u32>,
 }
 
 fn snoozes() -> Vec<String> {
@@ -791,6 +797,7 @@ impl Default for Settings {
             snoozes: snoozes(),
             no_tools: Vec::new(),
             resume_at_reset: true,
+            tidy_after: None,
         }
     }
 }
@@ -814,12 +821,13 @@ impl Settings {
     }
 
     /// The settings a project may hold otherwise than everywhere else.
-    pub const PROJECT: [&'static str; 5] = [
+    pub const PROJECT: [&'static str; 6] = [
         "merge",
         "uncredit",
         "submodules",
         "branch_kind",
         "resume_at_reset",
+        "tidy_after",
     ];
 
     /// These settings as they hold in `project`: its own where it has them,

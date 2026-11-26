@@ -723,8 +723,23 @@ impl Server {
         R: JsonRpcRequest + std::marker::Send + 'static,
         R::Response: std::marker::Send,
     {
+        self.ask_after(id, || {}, request, then);
+    }
+
+    /// As `ask`, once `before` is done, off the window's thread.
+    fn ask_after<R>(
+        &self,
+        id: &str,
+        before: impl FnOnce() + std::marker::Send + 'static,
+        request: R,
+        then: impl FnOnce(Result<R::Response, Error>) -> Event + std::marker::Send + 'static,
+    ) where
+        R: JsonRpcRequest + std::marker::Send + 'static,
+        R::Response: std::marker::Send,
+    {
         let (agent, send) = (self.running(id), self.shared.send.clone());
         acp::runtime().spawn(async move {
+            let _ = tokio::task::spawn_blocking(before).await;
             let result = match agent {
                 Some(agent) => agent.request(request).await,
                 None => Err(Error::internal_error().data("The agent is not running")),
@@ -932,11 +947,27 @@ impl Server {
             resumed,
             result,
         };
+        // A worktree tidied away while the session was archived is
+        // checked out again first.
+        let gone = match &*self.shared.index.lock().expect("index") {
+            Ok(index) => (index.sessions.iter())
+                .find(|m| m.agent == id && m.id.as_ref() == Some(&session))
+                .and_then(|m| m.worktree.clone())
+                .filter(|w| !w.path.exists()),
+            Err(_) => None,
+        };
+        let before = move || {
+            if let Some(wt) = gone
+                && let Err(why) = git::restore_worktree(&wt)
+            {
+                tracing::warn!("{} was not checked out again: {why}", wt.path.display());
+            }
+        };
         if resumed {
             let request = ResumeSessionRequest::new(session, folder)
                 .additional_directories(also)
                 .mcp_servers(given);
-            self.ask(id, request, move |r| {
+            self.ask_after(id, before, request, move |r| {
                 loaded(r.map(|r| Opened {
                     modes: r.modes,
                     options: r.config_options,
@@ -946,7 +977,7 @@ impl Server {
             let request = LoadSessionRequest::new(session, folder)
                 .additional_directories(also)
                 .mcp_servers(given);
-            self.ask(id, request, move |r| {
+            self.ask_after(id, before, request, move |r| {
                 loaded(r.map(|r| Opened {
                     modes: r.modes,
                     options: r.config_options,

@@ -294,6 +294,13 @@ pub fn remove_worktree(wt: &Worktree) -> Result<(), String> {
     git(&wt.repo, &["worktree", "remove", &at], None).map(|_| ())
 }
 
+/// Check the worktree `wt` out again where it was, on its branch, after it
+/// was taken away.
+pub fn restore_worktree(wt: &Worktree) -> Result<(), String> {
+    let at = wt.path.to_string_lossy().into_owned();
+    git(&wt.repo, &["worktree", "add", &at, &wt.branch], None).map(|_| ())
+}
+
 /// A private index file, its own for each call.
 fn scratch_index(dir: &Path) -> Result<PathBuf, String> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -1396,6 +1403,10 @@ mod tests {
         assert_eq!(branch(&a.path).as_deref(), Some("ghost/retry-s3-uploads"));
         remove_worktree(&a).unwrap();
         assert!(!a.path.exists());
+        // Taken away, it is checked out again on its branch.
+        restore_worktree(&a).unwrap();
+        assert_eq!(branch(&a.path).as_deref(), Some("ghost/retry-s3-uploads"));
+        let _ = remove_worktree(&a);
         let _ = remove_worktree(&b);
         let _ = std::fs::remove_dir_all(&dir);
     }

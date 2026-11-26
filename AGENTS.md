@@ -305,7 +305,10 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
   `~/.ghost/worktrees/`, or the folder `settings.worktrees` names
   (`Settings::worktree_folders`, sent with each call that makes, lists or
   tidies them). It never changes your index or branch except when you
-  press Commit.
+  press Commit. The server takes away an archived session's worktree once
+  it is left `tidy_after` days (git keeps one with changes, and its
+  branch), and checks it out again on that branch when the session is
+  opened again.
 
 ## Local environment
 
