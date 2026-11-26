@@ -61,10 +61,12 @@ fn size(path: &Path) -> u64 {
 
 /// Tidy `what`; what was done, in words.
 pub fn tidy(home: &Path, what: Tidy, kept: &Kept) -> String {
-    let repos: Vec<&PathBuf> = kept
-        .projects
-        .iter()
-        .filter(|f| git::root(f).is_some())
+    // A project's repository, or each of a folder of them.
+    let repos: Vec<PathBuf> = (kept.projects.iter())
+        .flat_map(|f| match git::root(f) {
+            Some(_) => vec![f.clone()],
+            None => git::repos(f),
+        })
         .collect();
     match what {
         Tidy::Records => {
@@ -94,7 +96,7 @@ pub fn tidy(home: &Path, what: Tidy, kept: &Kept) -> String {
             let (mut gone, mut left) = (0, 0);
             for repo in &repos {
                 for wt in git::worktrees(repo, &kept.under) {
-                    if kept.worktrees.contains(&wt.path) {
+                    if kept.worktrees.iter().any(|k| wt.path.starts_with(k)) {
                         continue;
                     }
                     // `git worktree remove` keeps one with changes.

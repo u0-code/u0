@@ -207,7 +207,7 @@ pub fn make_worktree(
         }
     };
     let result = result.map(|wt| {
-        git::submodules(&wt.path, submodules);
+        git::submodules(&wt, submodules);
         let scripts = scripts::config(&wt.path).scripts;
         (wt, scripts)
     });

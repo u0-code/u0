@@ -210,14 +210,12 @@ impl Desk {
             self.settings_on_mut(host).used(&folder);
             self.save_settings_on(host);
             if worktree {
-                let s = self.sessions.at(key);
-                let from = s.and_then(|s| s.begin.clone());
-                // In a folder of repositories, a worktree of the one chosen.
-                let dir = s.and_then(crate::session::Session::git_dir);
+                let from = self.sessions.at(key).and_then(|s| s.begin.clone());
+                // In a folder of repositories, a worktree of each.
                 let settings = self.settings_on(host);
                 let call = Call::MakeWorktree {
                     submodules: settings.of(&folder).submodules,
-                    dir: dir.unwrap_or(folder),
+                    dir: folder,
                     about: text,
                     under: self.worktree_folders(host).remove(0),
                     prefix: settings.branch_prefix.clone(),

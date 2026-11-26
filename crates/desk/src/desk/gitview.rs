@@ -171,6 +171,7 @@ impl Desk {
                 repo: s.meta.project.clone(),
                 path: s.meta.folder.clone(),
                 branch,
+                repos: Vec::new(),
             });
             self.save_index();
         }

@@ -660,6 +660,12 @@ impl Session {
         }
     }
 
+    /// Whether its turns are checkpointed: its folder is in a repository,
+    /// or holds some (each checkpointed, `git::checkpoint`).
+    pub fn checkpoints(&self) -> bool {
+        self.repo || !self.git.repos.is_empty()
+    }
+
     /// Whether it is a session of `agent` on `host`.
     pub fn of(&self, host: crate::servers::Host, agent: &str) -> bool {
         self.host == host && self.meta.agent == agent

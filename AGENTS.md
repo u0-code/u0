@@ -145,7 +145,7 @@ crates/core/src/
   terminals.rs  your terminals by id, each a pty and the last 256 KiB it printed
   session.rs    a session: its thread built from session/update; its turns' checkpoints
   git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR;
-                the repositories a folder of them holds
+                the repositories a folder of them holds, a worktree and checkpoint of each
   github.rs     a project's pull requests and issues as gh lists, reads and changes them
                 (their conversations on lines, reviews with comments on lines)
   review.rs     a pull request's files from its patch: what kind each is, a mark of its changes

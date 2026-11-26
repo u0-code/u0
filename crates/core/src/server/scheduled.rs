@@ -441,7 +441,7 @@ impl Shared {
                     &from,
                     None,
                 )?;
-                git::submodules(&wt.path, settings.of(&project).submodules);
+                git::submodules(&wt, settings.of(&project).submodules);
                 Ok::<_, String>(wt)
             })
             .await

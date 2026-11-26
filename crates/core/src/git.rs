@@ -61,8 +61,10 @@ pub fn root(dir: &Path) -> Option<PathBuf> {
 
 /// The repositories a folder that is not in one holds, as t3code finds
 /// them: each folder in it that is a repository's top, and each in a
-/// folder of it that is not one. A worktree or a submodule (its `.git` a
-/// file) is not counted, nor is a hidden folder; at most 128, by name.
+/// folder of it that is not one. A submodule is not counted, nor a hidden
+/// folder, nor a worktree of a repository the folder holds too (so a
+/// session's folder of worktrees, `spanning`, holds each of them); at most
+/// 128, by name.
 pub fn repos(folder: &Path) -> Vec<PathBuf> {
     fn folders(dir: &Path) -> Vec<PathBuf> {
         let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
@@ -76,7 +78,14 @@ pub fn repos(folder: &Path) -> Vec<PathBuf> {
         found.sort();
         found
     }
-    let top = |p: &PathBuf| p.join(".git").is_dir();
+    // A worktree's `.git` is a file naming `<its repository>/.git/worktrees/…`.
+    let of = |p: &Path| {
+        let said = std::fs::read_to_string(p.join(".git")).ok()?;
+        let at = said.strip_prefix("gitdir: ")?.trim();
+        at.split_once("/.git/worktrees/")
+            .map(|(repo, _)| PathBuf::from(repo))
+    };
+    let top = |p: &PathBuf| p.join(".git").is_dir() || of(p).is_some();
     let mut found = Vec::new();
     for child in folders(folder) {
         if top(&child) {
@@ -85,6 +94,8 @@ pub fn repos(folder: &Path) -> Vec<PathBuf> {
             found.extend(folders(&child).into_iter().filter(top));
         }
     }
+    let mains: Vec<PathBuf> = found.iter().filter(|p| of(p).is_none()).cloned().collect();
+    found.retain(|p| of(p).is_none_or(|repo| !mains.contains(&repo)));
     found.truncate(128);
     found
 }
@@ -100,12 +111,16 @@ pub fn branch(dir: &Path) -> Option<String> {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Worktree {
-    /// The repository it was made from.
+    /// The repository it was made from; for a folder of them, the folder.
     pub repo: PathBuf,
     /// Where it is.
     pub path: PathBuf,
     /// The branch it is on, made for it.
     pub branch: String,
+    /// Made from a folder of repositories: the worktree of each, laid out
+    /// in `path` as they are in the folder.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repos: Vec<Worktree>,
 }
 
 /// The worktrees of the repository at `repo` that live in one of `under`
@@ -128,6 +143,7 @@ pub fn worktrees(repo: &Path, under: &[PathBuf]) -> Vec<Worktree> {
                     repo: repo.to_path_buf(),
                     path: p,
                     branch: b.to_owned(),
+                    repos: Vec::new(),
                 });
             }
         } else if line.is_empty() {
@@ -187,7 +203,8 @@ pub fn slug(text: &str) -> String {
 /// under `under/<repo>/`, on a new branch `<prefix><slug>` from `from`. A
 /// name already taken gets a number. With `sparse`, git's sparse-checkout
 /// patterns (non-cone, a line each), only the files they match are ever
-/// written in it.
+/// written in it. A folder that is not in a repository but holds some gets
+/// one of each (`spanning`), each from its own fresh base.
 pub fn worktree(
     dir: &Path,
     about: &str,
@@ -196,63 +213,161 @@ pub fn worktree(
     from: &str,
     sparse: Option<&str>,
 ) -> Result<Worktree, String> {
-    let repo = root(dir).ok_or("the folder is not in a git repository")?;
+    let Some(repo) = root(dir) else {
+        return spanning(dir, about, under, prefix);
+    };
     let name = repo
         .file_name()
         .map_or_else(|| "repo".to_owned(), |n| n.to_string_lossy().into_owned());
+    let (path, branch) = free(about, &under.join(name), prefix, |b| has_branch(&repo, b))?;
+    let at = path.to_string_lossy().into_owned();
+    let wt = Worktree {
+        repo,
+        path,
+        branch,
+        repos: Vec::new(),
+    };
+    let add = |more: &[&str]| {
+        let mut args = vec!["worktree", "add"];
+        args.extend(more);
+        args.extend(["-b", &wt.branch, &at, from]);
+        git(&wt.repo, &args, None)
+    };
+    let Some(patterns) = sparse else {
+        return add(&[]).map(|_| wt);
+    };
+    add(&["--no-checkout"])?;
+    let mut set = vec!["sparse-checkout", "set", "--no-cone"];
+    set.extend(
+        patterns
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#')),
+    );
+    match git(&wt.path, &set, None).and_then(|_| git(&wt.path, &["read-tree", "-mu", "HEAD"], None))
+    {
+        Ok(_) => Ok(wt),
+        Err(e) => {
+            let _ = git(&wt.repo, &["worktree", "remove", "--force", &at], None);
+            Err(e)
+        }
+    }
+}
+
+/// The first of `<slug>`, `<slug>-2`, … of `about` whose folder in `at`
+/// is free and whose branch `<prefix>…` is not `taken`.
+fn free(
+    about: &str,
+    at: &Path,
+    prefix: &str,
+    taken: impl Fn(&str) -> bool,
+) -> Result<(PathBuf, String), String> {
     let base = slug(about);
-    for n in 1..100 {
-        let slug = if n == 1 {
-            base.clone()
+    (1..100)
+        .map(|n| {
+            if n == 1 {
+                base.clone()
+            } else {
+                format!("{base}-{n}")
+            }
+        })
+        .map(|s| (at.join(&s), format!("{prefix}{s}")))
+        .find(|(path, branch)| !path.exists() && !taken(branch))
+        .ok_or_else(|| "no free name for a worktree".into())
+}
+
+/// Whether the repository at `repo` has the branch `branch`.
+fn has_branch(repo: &Path, branch: &str) -> bool {
+    let name = format!("refs/heads/{branch}");
+    git(repo, &["rev-parse", "--verify", "--quiet", &name], None).is_ok()
+}
+
+/// A worktree of each repository the folder `dir` holds, for a session
+/// about `about`, as t3code makes one: in one folder `under/<folder>/<slug>`
+/// laid out as `dir` is, each on the new branch `<prefix><slug>` from its
+/// remote's default branch; the rest of `dir` linked there, not copied.
+fn spanning(dir: &Path, about: &str, under: &Path, prefix: &str) -> Result<Worktree, String> {
+    let held = repos(dir);
+    if held.is_empty() {
+        return Err("the folder is not in a git repository, nor holds one".into());
+    }
+    let name = dir
+        .file_name()
+        .map_or_else(|| "folder".to_owned(), |n| n.to_string_lossy().into_owned());
+    let (path, branch) = free(about, &under.join(name), prefix, |b| {
+        held.iter().any(|r| has_branch(r, b))
+    })?;
+    let wt = Worktree {
+        repos: (held.iter())
+            .map(|r| Worktree {
+                repo: r.clone(),
+                path: path.join(r.strip_prefix(dir).unwrap_or(r)),
+                branch: branch.clone(),
+                repos: Vec::new(),
+            })
+            .collect(),
+        repo: dir.to_path_buf(),
+        path,
+        branch,
+    };
+    match lay_out(&wt, true) {
+        Ok(()) => Ok(wt),
+        Err(why) => {
+            let _ = remove_worktree(&wt);
+            Err(why)
+        }
+    }
+}
+
+/// Lay the worktree `wt` of a folder of repositories out: each
+/// repository's checked out (on its new branch from its fresh base where
+/// `new`, else on its branch again), and the rest of the folder linked.
+fn lay_out(wt: &Worktree, new: bool) -> Result<(), String> {
+    for each in &wt.repos {
+        let at = each.path.to_string_lossy();
+        if new {
+            let from = fresh_base(&each.repo);
+            let args = ["worktree", "add", "-b", &each.branch, &at, &from];
+            git(&each.repo, &args, None)?;
         } else {
-            format!("{base}-{n}")
-        };
-        let path = under.join(&name).join(&slug);
-        let branch = format!("{prefix}{slug}");
-        let taken = path.exists()
-            || git(
-                &repo,
-                &[
-                    "rev-parse",
-                    "--verify",
-                    "--quiet",
-                    &format!("refs/heads/{branch}"),
-                ],
-                None,
-            )
-            .is_ok();
-        if taken {
+            git(&each.repo, &["worktree", "add", &at, &each.branch], None)?;
+        }
+    }
+    link(&wt.repo, &wt.path, &wt.repos)
+}
+
+/// Link each thing in `from` from the same place in `to`, but the
+/// repositories of `repos` (checked out there) and the folders holding
+/// them, whose things are linked in turn.
+fn link(from: &Path, to: &Path, repos: &[Worktree]) -> Result<(), String> {
+    std::fs::create_dir_all(to).map_err(|e| e.to_string())?;
+    for entry in std::fs::read_dir(from)
+        .map_err(|e| e.to_string())?
+        .flatten()
+    {
+        let (theirs, ours) = (entry.path(), to.join(entry.file_name()));
+        if repos.iter().any(|r| r.repo == theirs) {
             continue;
         }
-        let at = path.to_string_lossy().into_owned();
-        let Some(patterns) = sparse else {
-            git(&repo, &["worktree", "add", "-b", &branch, &at, from], None)?;
-            return Ok(Worktree { repo, path, branch });
-        };
-        git(
-            &repo,
-            &["worktree", "add", "--no-checkout", "-b", &branch, &at, from],
-            None,
-        )?;
-        let mut set = vec!["sparse-checkout", "set", "--no-cone"];
-        set.extend(
-            patterns
-                .lines()
-                .map(str::trim)
-                .filter(|l| !l.is_empty() && !l.starts_with('#')),
-        );
-        let wt = Worktree { repo, path, branch };
-        return match git(&wt.path, &set, None)
-            .and_then(|_| git(&wt.path, &["read-tree", "-mu", "HEAD"], None))
-        {
-            Ok(_) => Ok(wt),
-            Err(e) => {
-                let _ = git(&wt.repo, &["worktree", "remove", "--force", &at], None);
-                Err(e)
-            }
-        };
+        if repos.iter().any(|r| r.repo.starts_with(&theirs)) {
+            link(&theirs, &ours, repos)?;
+        } else if ours.symlink_metadata().is_err() {
+            std::os::unix::fs::symlink(&theirs, &ours).map_err(|e| e.to_string())?;
+        }
     }
-    Err("no free name for a worktree".into())
+    Ok(())
+}
+
+/// Take away the links and the empty folders left in `dir`, `dir` too.
+fn unlink(dir: &Path) {
+    for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        match entry.file_type() {
+            Ok(t) if t.is_symlink() => drop(std::fs::remove_file(entry.path())),
+            Ok(t) if t.is_dir() => unlink(&entry.path()),
+            _ => {}
+        }
+    }
+    let _ = std::fs::remove_dir(dir);
 }
 
 /// The file `path` as the commit `rev` of the repository at `dir` has it.
@@ -260,10 +375,15 @@ pub fn show(dir: &Path, rev: &str, path: &str) -> Result<String, String> {
     git(dir, &["show", &format!("{rev}:{path}")], None)
 }
 
-/// Check out the submodules of the worktree `dir` as `how` says. What
-/// cannot be fetched is said, the worktree kept.
-pub fn submodules(dir: &Path, how: crate::settings::Submodules) {
+/// Check out the submodules of the worktree `wt` (of each, for a folder of
+/// repositories) as `how` says. What cannot be fetched is said, the
+/// worktree kept.
+pub fn submodules(wt: &Worktree, how: crate::settings::Submodules) {
     use crate::settings::Submodules;
+    if !wt.repos.is_empty() {
+        return wt.repos.iter().for_each(|w| submodules(w, how));
+    }
+    let dir = &wt.path;
     let args: &[&str] = match how {
         _ if !dir.join(".gitmodules").is_file() => return,
         Submodules::Skip => return,
@@ -307,6 +427,7 @@ pub fn pr_worktree(dir: &Path, number: u64, under: &Path) -> Result<Worktree, St
             repo,
             path,
             branch: branch.trim().to_owned(),
+            repos: Vec::new(),
         }),
         other => {
             let _ = git(&repo, &["worktree", "remove", "--force", &at], None);
@@ -318,15 +439,27 @@ pub fn pr_worktree(dir: &Path, number: u64, under: &Path) -> Result<Worktree, St
 }
 
 /// Take the worktree away. A worktree with changes not committed is
-/// refused, and git says so; its branch is kept.
+/// refused, and git says so; its branch is kept. One of a folder of
+/// repositories goes each, then its links; what is not a link stays.
 pub fn remove_worktree(wt: &Worktree) -> Result<(), String> {
-    let at = wt.path.to_string_lossy().into_owned();
-    git(&wt.repo, &["worktree", "remove", &at], None).map(|_| ())
+    if wt.repos.is_empty() {
+        let at = wt.path.to_string_lossy().into_owned();
+        return git(&wt.repo, &["worktree", "remove", &at], None).map(|_| ());
+    }
+    let mut done = Ok(());
+    for each in wt.repos.iter().filter(|w| w.path.exists()) {
+        done = done.and(remove_worktree(each));
+    }
+    unlink(&wt.path);
+    done
 }
 
 /// Check the worktree `wt` out again where it was, on its branch, after it
 /// was taken away.
 pub fn restore_worktree(wt: &Worktree) -> Result<(), String> {
+    if !wt.repos.is_empty() {
+        return lay_out(wt, false);
+    }
     let at = wt.path.to_string_lossy().into_owned();
     git(&wt.repo, &["worktree", "add", &at, &wt.branch], None).map(|_| ())
 }
@@ -343,8 +476,21 @@ fn scratch_index(dir: &Path) -> Result<PathBuf, String> {
 }
 
 /// The files of `dir` as they are now, ignored files left out, written as a
-/// commit kept under `refs/ghost/checkpoints/<name>`; its id.
+/// commit kept under `refs/ghost/checkpoints/<name>`; its id. A folder of
+/// repositories is checkpointed in each: a line `<commit> <its place in the
+/// folder>` each (`points`).
 pub fn checkpoint(dir: &Path, name: &str) -> Result<String, String> {
+    if root(dir).is_none() {
+        let held = repos(dir);
+        if held.is_empty() {
+            return Err("the folder holds no git repository".into());
+        }
+        let each = held.iter().map(|repo| {
+            let place = repo.strip_prefix(dir).unwrap_or(repo).display();
+            checkpoint(repo, name).map(|commit| format!("{commit} {place}"))
+        });
+        return each.collect::<Result<Vec<_>, _>>().map(|l| l.join("\n"));
+    }
     let commit = snapshot(dir, name)?;
     git(
         dir,
@@ -427,7 +573,14 @@ fn snapshot(dir: &Path, name: &str) -> Result<String, String> {
 /// it did not have are removed, the rest written as they were. Your index
 /// and branch are left alone. What was there just before is kept as a
 /// checkpoint first, and its id is returned, so that this can be undone.
+/// A folder of repositories is put back in each.
 pub fn restore(dir: &Path, commit: &str, name: &str) -> Result<String, String> {
+    if root(dir).is_none() {
+        let each = points(commit).map(|(commit, place)| {
+            restore(&dir.join(place), commit, name).map(|now| format!("{now} {place}"))
+        });
+        return each.collect::<Result<Vec<_>, _>>().map(|l| l.join("\n"));
+    }
     let now = checkpoint(dir, name)?;
     // Only `dir` is put back: a checkpoint holds the rest of the
     // repository as it was committed, not as it is on disk.
@@ -514,8 +667,50 @@ pub fn edit_diff(d: &Diff, start: Option<usize>) -> FileDiff {
 
 /// What changed in `dir` from the checkpoint `from` to `to`; with
 /// `no_spacing` (as the settings say), a change only in spacing is left out.
+/// In a folder of repositories, each one's, its paths from the folder.
 pub fn diff(dir: &Path, from: &str, to: &str, no_spacing: bool) -> Result<Vec<FileDiff>, String> {
+    if root(dir).is_some() {
+        return diff_in(dir, from, to, no_spacing, "");
+    }
+    let mut all = Vec::new();
+    for (commit, place) in points(to) {
+        let before = points(from).find(|(_, p)| *p == place);
+        let before = before.map_or(EMPTY_TREE, |(c, _)| c);
+        all.extend(diff_in(
+            &dir.join(place),
+            before,
+            commit,
+            no_spacing,
+            place,
+        )?);
+    }
+    Ok(all)
+}
+
+/// Each repository's commit in a checkpoint of a folder of them, with its
+/// place in the folder.
+fn points(point: &str) -> impl Iterator<Item = (&str, &str)> {
+    point.lines().filter_map(|l| l.split_once(' '))
+}
+
+/// What changed in the repository `dir` from `from` to `to`, its paths
+/// led by `place` (its place in a folder of repositories) where there is
+/// one.
+fn diff_in(
+    dir: &Path,
+    from: &str,
+    to: &str,
+    no_spacing: bool,
+    place: &str,
+) -> Result<Vec<FileDiff>, String> {
+    let prefixes = [
+        format!("--src-prefix=a/{place}/"),
+        format!("--dst-prefix=b/{place}/"),
+    ];
     let mut args = vec!["diff", "--no-color", "--no-ext-diff", "-M", "-U3"];
+    if !place.is_empty() {
+        args.extend(prefixes.iter().map(String::as_str));
+    }
     if no_spacing {
         args.push("-w");
     }
@@ -523,7 +718,13 @@ pub fn diff(dir: &Path, from: &str, to: &str, no_spacing: bool) -> Result<Vec<Fi
     let patch = git(dir, &args, None)?;
     args.splice(1..1, ["--numstat", "-z"]);
     let counts = git(dir, &args, None)?;
-    Ok(cut(&counts, &patch))
+    let mut files = cut(&counts, &patch);
+    if !place.is_empty() {
+        for f in &mut files {
+            f.path = format!("{place}/{}", f.path);
+        }
+    }
+    Ok(files)
 }
 
 /// The files of a diff: named and counted by git itself (`--numstat -z`,
@@ -1112,22 +1313,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_folder_of_repositories_holds_those_one_or_two_levels_down_not_worktrees() {
+    fn a_folder_of_repositories_holds_those_one_or_two_levels_down_not_their_worktrees() {
         let dir = tempfile::tempdir().unwrap();
         for d in [
             "api/.git",
             "packages/web/.git",
             "packages/notes",
             ".hidden/.git",
-            "wt",
+            "sub",
+            "api-wt",
+            "other-wt",
         ] {
             std::fs::create_dir_all(dir.path().join(d)).unwrap();
         }
-        // A worktree's `.git` is a file.
-        std::fs::write(dir.path().join("wt/.git"), "gitdir: elsewhere").unwrap();
+        // A submodule's `.git` is a file, as a worktree's is.
+        std::fs::write(dir.path().join("sub/.git"), "gitdir: ../.git/modules/sub").unwrap();
+        let of = |repo: &str| format!("gitdir: {repo}/.git/worktrees/wt\n");
+        let api = dir.path().join("api").display().to_string();
+        std::fs::write(dir.path().join("api-wt/.git"), of(&api)).unwrap();
+        std::fs::write(dir.path().join("other-wt/.git"), of("/elsewhere/other")).unwrap();
         assert_eq!(
             repos(dir.path()),
-            vec![dir.path().join("api"), dir.path().join("packages/web")]
+            vec![
+                dir.path().join("api"),
+                dir.path().join("other-wt"),
+                dir.path().join("packages/web")
+            ]
         );
     }
 
@@ -1191,6 +1402,65 @@ mod tests {
         assert!(here.join("b.txt").exists());
         let _ = std::fs::remove_dir_all(&here);
         let _ = std::fs::remove_dir_all(&origin);
+    }
+
+    #[test]
+    fn a_folder_of_repositories_gets_a_worktree_of_each_laid_out_and_checkpointed_in_each() {
+        let top = std::env::temp_dir().join(format!("ghost-git-span-{}", std::process::id()));
+        let (shop, under) = (top.join("shop"), top.join("worktrees"));
+        let _ = std::fs::remove_dir_all(&top);
+        std::fs::create_dir_all(shop.join("libs")).unwrap();
+        for (made, place) in [(repo("span-api"), "api"), (repo("span-web"), "libs/web")] {
+            std::fs::rename(made, shop.join(place)).unwrap();
+        }
+        std::fs::write(shop.join("README.md"), "the shop\n").unwrap();
+        let wt = worktree(&shop, "Fix checkout", &under, "ghost/", "HEAD", None).unwrap();
+        assert_eq!(
+            (wt.path.clone(), wt.branch.as_str()),
+            (under.join("shop/fix-checkout"), "ghost/fix-checkout")
+        );
+        let (api, web) = (wt.path.join("api"), wt.path.join("libs/web"));
+        assert_eq!(branch(&api).as_deref(), Some("ghost/fix-checkout"));
+        assert_eq!(branch(&web).as_deref(), Some("ghost/fix-checkout"));
+        // What is not a repository is the folder's own, linked.
+        assert!(
+            wt.path
+                .join("README.md")
+                .symlink_metadata()
+                .unwrap()
+                .is_symlink()
+        );
+        // The folder of worktrees holds each of them, as the folder did.
+        assert_eq!(repos(&wt.path), vec![api.clone(), web.clone()]);
+        let before = checkpoint(&wt.path, "s/0-before").unwrap();
+        std::fs::write(api.join("a.txt"), "one\n").unwrap();
+        std::fs::write(web.join("new.txt"), "new\n").unwrap();
+        let after = checkpoint(&wt.path, "s/0-after").unwrap();
+        let mut changed: Vec<(String, usize, usize)> = diff(&wt.path, &before, &after, false)
+            .unwrap()
+            .into_iter()
+            .map(|f| (f.path, f.added, f.gone))
+            .collect();
+        changed.sort();
+        assert_eq!(
+            changed,
+            [
+                ("api/a.txt".to_owned(), 0, 2),
+                ("libs/web/new.txt".to_owned(), 1, 0)
+            ]
+        );
+        restore(&wt.path, &before, "s/0-undo").unwrap();
+        assert!(!web.join("new.txt").exists());
+        assert_eq!(
+            std::fs::read_to_string(api.join("a.txt")).unwrap(),
+            "one\ntwo\nthree\n"
+        );
+        remove_worktree(&wt).unwrap();
+        assert!(!wt.path.exists());
+        assert!(shop.join("README.md").exists());
+        restore_worktree(&wt).unwrap();
+        assert!(api.join("a.txt").exists() && wt.path.join("README.md").exists());
+        let _ = std::fs::remove_dir_all(&top);
     }
 
     #[test]
