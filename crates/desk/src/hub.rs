@@ -86,9 +86,12 @@ impl Transport {
                         Ok(s) => (*s, None),
                         Err(why) => (Settings::default(), Some(why)),
                     };
+                    // The server at this home's own port is this home's,
+                    // its service: there is no other to serve.
                     let serving = crate::access::Access::new(home).kept();
-                    let here = (serving.is_ok_and(|k| k.serve))
-                        .then(|| Server::new(home.to_path_buf(), |_| {}));
+                    let here = (serving
+                        .is_ok_and(|k| k.serve && server.host != format!("127.0.0.1:{}", k.port)))
+                    .then(|| Server::new(home.to_path_buf(), |_| {}));
                     return (Self::Remote(link, name, welcome.home, here), settings);
                 }
                 Err(why) => {
@@ -334,10 +337,16 @@ pub fn write(path: PathBuf, text: String, tx: Sender) {
     });
 }
 
-/// The `ghost` command, as t3code's `t3`: each folder named (none, the
-/// one you are in) opened in Ghost as a project, through macOS, which
-/// hands it to the Ghost running or starts one.
-const COMMAND: &str = "#!/bin/sh\n# Open each folder named (none: this one) in Ghost, as a project.\n[ $# -eq 0 ] && set -- .\nfor f in \"$@\"; do open -b local.ghost.desk \"$f\" || exit; done\n";
+/// The `ghost` command, as t3code's `t3`: its words (`ghost help`) said
+/// to this program (`cli`); else each folder named (none, the one you
+/// are in) opened in Ghost as a project, through macOS, which hands it to
+/// the Ghost running or starts one.
+fn command(exe: &std::path::Path) -> String {
+    format!(
+        "#!/bin/sh\n# Ghost from a terminal: ghost help.\ncase \"$1\" in\n  serve|service|status|sessions|tasks|help|--help|-h) exec '{}' \"$@\" ;;\nesac\n[ $# -eq 0 ] && set -- .\nfor f in \"$@\"; do open -b local.ghost.desk \"$f\" || exit; done\n",
+        exe.display().to_string().replace('\'', "'\\''")
+    )
+}
 
 /// Put the `ghost` command in `~/.local/bin`, and say where it is, or
 /// why it is not.
@@ -351,7 +360,8 @@ pub fn install_command(tx: Sender) {
         };
         let path = home.join(".local/bin/ghost");
         let shown = crate::desk::Desk::shown(&path);
-        let put = crate::whole::write(&path, COMMAND.as_bytes()).and_then(|()| {
+        let exe = std::env::current_exe().unwrap_or_default();
+        let put = crate::whole::write(&path, command(&exe).as_bytes()).and_then(|()| {
             use std::os::unix::fs::PermissionsExt as _;
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
         });

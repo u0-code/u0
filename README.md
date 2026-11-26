@@ -158,6 +158,27 @@ Every Mac's Ghost can do both, in **Settings › Devices** (or ⌘K
 A link that drops (a laptop shut, a network changed) is reached again, and
 what was said meanwhile is told then.
 
+## From a terminal
+
+About → **Add the ghost command** puts `ghost` in `~/.local/bin`. As
+t3code's `t3`:
+
+```bash
+ghost .                    # open this folder in Ghost, as a project
+ghost serve                # Ghost's server with no window
+ghost service install      # run that server from login (launchd); the window opens on it
+ghost service status       # whether it runs, and where it logs
+ghost service uninstall    # stop it, and take it out of login
+ghost status               # the agents on, the server, the tasks, the service
+ghost sessions             # the sessions kept, the latest first
+ghost tasks                # the scheduled tasks, and when each runs next
+```
+
+The service is a launchd agent of yours (`~/Library/LaunchAgents`), its
+own for each `GHOST_HOME`. Installing it pairs this Mac's window with it,
+as any desk pairs, so the window opens on that server rather than
+starting a second one on the same home.
+
 ## Ghost's tools in another agent
 
 An agent Ghost did not start (Claude Code or Codex in your terminal) can

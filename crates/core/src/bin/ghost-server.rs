@@ -7,6 +7,7 @@ fn main() {
     ghost_core::path::widen();
     let kept = ghost_core::settings::Settings::load(&ghost_core::settings::home()).0;
     ghost_core::logs::start(kept.log_days);
+    ghost_core::cli::when_asked();
     if let Err(why) = ghost_core::link::serve_here() {
         eprintln!("{why}");
         std::process::exit(1);

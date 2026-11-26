@@ -78,7 +78,7 @@ impl Servers {
     }
 
     /// Keep `server`, paired with by `key`: in place of one of its name.
-    fn paired(&mut self, server: Server, key: &Key) -> Result<(), String> {
+    pub(crate) fn paired(&mut self, server: Server, key: &Key) -> Result<(), String> {
         crate::secrets::set(&account(&server.key), Some(key.kept()))?;
         self.forget(&server.name);
         self.servers.push(server);

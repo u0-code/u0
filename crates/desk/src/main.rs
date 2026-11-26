@@ -51,6 +51,8 @@ fn main() {
     path::widen();
     let kept = settings::Settings::load(&settings::home()).0;
     ghost_core::logs::start(kept.log_days);
+    // The command's words (`ghost serve`, `ghost service`, ...): no window.
+    ghost_core::cli::when_asked();
 
     // The links and folders macOS opens Ghost with (`ghost://`, `ghost
     // <folder>`), held until the window is up to take them.
