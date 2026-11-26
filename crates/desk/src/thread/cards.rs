@@ -86,13 +86,13 @@ impl Desk {
             _ => format!("{name} asks before it goes on"),
         };
         // The agent's options are the buttons: what turns it down at the
-        // left, what lets it go on at the right, the last of them first.
+        // left, what lets it go on at the right.
         let mut reject = div().flex().gap(px(6.));
         let mut allow = div().flex().gap(px(6.));
-        let last_allow = asked.options.iter().rposition(|o| allows(o.kind));
+        let primary = default_option(&asked.options);
         for (n, option) in asked.options.iter().enumerate() {
             let weight = match option.kind {
-                _ if Some(n) == last_allow => Weight::Primary,
+                _ if Some(n) == primary => Weight::Primary,
                 PermissionOptionKind::AllowOnce | PermissionOptionKind::AllowAlways => {
                     Weight::Secondary
                 }
@@ -577,4 +577,33 @@ fn allows(kind: PermissionOptionKind) -> bool {
         kind,
         PermissionOptionKind::AllowOnce | PermissionOptionKind::AllowAlways
     )
+}
+
+/// The option a permission card offers first: the narrowest yes, so that
+/// the default never grants more than this once.
+fn default_option(
+    options: &[agent_client_protocol::v1::schema::PermissionOption],
+) -> Option<usize> {
+    (options.iter())
+        .position(|o| o.kind == PermissionOptionKind::AllowOnce)
+        .or_else(|| options.iter().position(|o| allows(o.kind)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_permission_card_offers_allow_once_before_allow_always() {
+        let options: Vec<agent_client_protocol::v1::schema::PermissionOption> =
+            serde_json::from_str(
+                r#"[{"optionId":"always","name":"Allow for this session","kind":"allow_always"},
+                    {"optionId":"allow","name":"Allow","kind":"allow_once"},
+                    {"optionId":"no","name":"Reject","kind":"reject_once"}]"#,
+            )
+            .unwrap();
+        assert_eq!(default_option(&options), Some(1));
+        assert_eq!(default_option(&options[..1]), Some(0));
+        assert_eq!(default_option(&options[2..]), None);
+    }
 }

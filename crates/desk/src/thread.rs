@@ -173,11 +173,33 @@ fn row_of(tool: &Tool, folder: &Path) -> Row {
         call.status,
         ToolCallStatus::Pending | ToolCallStatus::InProgress
     );
+    // A change to the files is said in the past only once it is made: until
+    // then it waits for you, or is being made.
+    let changed = |wants: &'static str, doing: &'static str, done: &'static str| match call.status {
+        ToolCallStatus::Pending => wants,
+        ToolCallStatus::InProgress => doing,
+        _ => done,
+    };
     let (icon, verb, object, kind) = match call.kind {
         ToolKind::Read => ("file", "Read", path_or_title(), Object::Mono),
-        ToolKind::Edit if created => ("file-plus", "Created", path_or_title(), Object::Mono),
-        ToolKind::Edit => ("pencil", "Edited", path_or_title(), Object::Mono),
-        ToolKind::Delete => ("trash", "Deleted", path_or_title(), Object::Mono),
+        ToolKind::Edit if created => (
+            "file-plus",
+            changed("Wants to create", "Creating", "Created"),
+            path_or_title(),
+            Object::Mono,
+        ),
+        ToolKind::Edit => (
+            "pencil",
+            changed("Wants to edit", "Editing", "Edited"),
+            path_or_title(),
+            Object::Mono,
+        ),
+        ToolKind::Delete => (
+            "trash",
+            changed("Wants to delete", "Deleting", "Deleted"),
+            path_or_title(),
+            Object::Mono,
+        ),
         ToolKind::Move => ("arrow-right", "Moved", bare(&call.title), Object::Mono),
         ToolKind::Search => ("search", "Searched", bare(&call.title), Object::Mono),
         ToolKind::Execute if running => ("terminal", "Running", bare(&call.title), Object::Command),
@@ -1680,6 +1702,26 @@ mod tests {
         assert_eq!(bare("`cargo test`"), "cargo test");
         assert_eq!(bare("Run `ls -la`"), "ls -la");
         assert_eq!(bare("put_object"), "put_object");
+    }
+
+    #[test]
+    fn an_edit_is_said_in_the_past_only_once_it_is_made() {
+        let verb = |status: &str| {
+            let call = serde_json::from_str(&format!(
+                r#"{{"toolCallId":"e","title":"Edit a.rs","kind":"edit","status":"{status}"}}"#
+            ))
+            .unwrap();
+            let tool = Tool {
+                call,
+                started: None,
+                took: None,
+                starts: Vec::new(),
+            };
+            row_of(&tool, Path::new("/r")).verb
+        };
+        assert_eq!(verb("pending"), "Wants to edit");
+        assert_eq!(verb("in_progress"), "Editing");
+        assert_eq!(verb("completed"), "Edited");
     }
 
     #[test]
