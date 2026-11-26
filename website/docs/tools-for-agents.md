@@ -73,8 +73,16 @@ in **Settings › Agents** and switch them off. That agent's id is added to
 | `read_pr` | A pull request read whole: what it says, what was said on it and on its lines, its checks, reviewers and whether it conflicts; with `diff`, its patch too. | Any agent |
 | `review_pr` | Review a pull request: `verdict` approve, request-changes or comment, a `body`, and `lines` (comments on lines of its new side). | Sessions in Ghost; asks you first |
 | `merge_pr` | Merge a pull request, its branch deleted after: `how` (squash, merge or rebase; none, as **General › Pull requests › Merged as** says), now or once its checks pass (`auto`). | Sessions in Ghost; asks you first |
+| `reply_to_thread` | Answer a conversation on a pull request's lines (`thread`, its id as `read_pr` gives it) with a `body`. | Sessions in Ghost; asks you first |
+| `resolve_thread` | Resolve a conversation on a pull request's lines, or open it again (`reopen`). | Sessions in Ghost; asks you first |
+| `rerun_ci` | Run the failed jobs of a `run` of a pull request's checks again (GitHub Actions). | Sessions in Ghost; asks you first |
 | `pr_checks` | A pull request's checks: each one's name, how it stands, where it ran, and for one that failed on GitHub Actions the `run` that `ci_log` reads. | Any agent |
 | `ci_log` | The end of what a failed `run` of the checks printed. | Any agent |
+| `list_issues` | A project's issues, from the host of its remote or the Linear team it is bound to: `state` (open if none, closed, all) and a `search` as the host reads it. | Any agent |
+| `read_issue` | An issue read whole: what it says, what was said on it, who it is assigned to. | Any agent |
+| `create_issue` | Open an issue with a `title` and `body`. | Sessions in Ghost; asks you first |
+| `comment_on_issue` | Comment on an issue (`number`) with a `body`. | Sessions in Ghost; asks you first |
+| `set_issue_state` | Close an issue, or open it again (`open`). | Sessions in Ghost; asks you first |
 | `list_workflows` | Your workflows: each one's name, what it is for and its steps, or why its file does not read; and their runs, with where each stands and the steps it has done. An agent that may only read is not given a `run` step's command, nor what a step gave back. | Any agent |
 | `start_workflow` | Begin a run of a `workflow` with `input`: its id. | Sessions in Ghost; asks you first |
 | `list_tasks` | The scheduled tasks: each one's id, title, prompt, agent, project, schedule, whether it is paused, and its last run. A webhook's address is never given. | Any agent |
@@ -90,8 +98,10 @@ There are two kinds of caller:
 - **A session in Ghost.** It may call every tool. A tool that acts
   (`delegate_task`, `open_pr`, `schedule_task`, `use_device`,
   `send_to_session`, `interrupt_session`, `add_project`, `review_pr`,
-  `merge_pr`, `start_workflow`, `change_task`, `make_worktree`,
-  `remove_worktree`) first asks
+  `merge_pr`, `reply_to_thread`, `resolve_thread`, `rerun_ci`,
+  `create_issue`, `comment_on_issue`, `set_issue_state`,
+  `start_workflow`, `change_task`, `make_worktree`, `remove_worktree`)
+  first asks
   you on a permission card in that session's thread, the same card the
   agent's own questions use, with **Allow**, **Always allow** and
   **Reject**. **Always allow** holds for that tool in that session until

@@ -3,7 +3,7 @@
 //!
 //! What only reads (the sessions, what was said in one, a diff, what
 //! happened; your projects and what is found in them, their pull
-//! requests and checks, the workflows, tasks and worktrees) any caller
+//! requests, checks and issues, the workflows, tasks and worktrees) any caller
 //! may call, a folder only where `Tools::folder` lets it. What acts, or
 //! asks you, is for an agent in a session of Ghost's, asked of you first
 //! in its thread; one that
@@ -35,6 +35,7 @@ use serde::{Deserialize, Serialize};
 mod devices;
 mod flows;
 mod forge;
+mod issues;
 mod projects;
 mod worktrees;
 
@@ -298,6 +299,7 @@ impl Tools {
             + Self::device_router()
             + Self::project_router()
             + Self::forge_router()
+            + Self::issue_router()
             + Self::flow_router()
             + Self::worktree_router()
     }
@@ -742,7 +744,7 @@ impl Tools {
 #[tool_handler(
     name = "ghost",
     router = Self::every(),
-    instructions = "Ghost, the app this agent may be running in: the sessions it keeps of your agents, your projects and what is found in them, their diffs, worktrees, pull requests and checks, its workflows and scheduled tasks, the simulators and emulators where it runs; and the user, asked in this session's thread."
+    instructions = "Ghost, the app this agent may be running in: the sessions it keeps of your agents, your projects and what is found in them, their diffs, worktrees, pull requests, checks and issues, its workflows and scheduled tasks, the simulators and emulators where it runs; and the user, asked in this session's thread."
 )]
 impl ServerHandler for Tools {
     /// Each call made while its key still lets it in, as each request
@@ -1173,12 +1175,15 @@ esac; done"#;
                 "ask_user",
                 "change_task",
                 "ci_log",
+                "comment_on_issue",
+                "create_issue",
                 "delegate_task",
                 "device_screen",
                 "events",
                 "find_files",
                 "interrupt_session",
                 "list_devices",
+                "list_issues",
                 "list_projects",
                 "list_prs",
                 "list_sessions",
@@ -1190,14 +1195,19 @@ esac; done"#;
                 "open_pr",
                 "pr_checks",
                 "read_diff",
+                "read_issue",
                 "read_pr",
                 "read_session",
                 "remove_worktree",
+                "reply_to_thread",
+                "rerun_ci",
+                "resolve_thread",
                 "review_pr",
                 "schedule_task",
                 "search_code",
                 "search_sessions",
                 "send_to_session",
+                "set_issue_state",
                 "start_workflow",
                 "use_device",
                 "wait_for_turn"

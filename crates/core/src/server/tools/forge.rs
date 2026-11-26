@@ -1,7 +1,8 @@
 //! Ghost's tools for a project's pull requests and their checks, from
 //! the host of its remote as the PRs page has them (`forge::answer`, what
-//! `Call::Forge` asks): listed and read, reviewed and merged, a check's
-//! failed run read.
+//! `Call::Forge` asks): listed and read, reviewed and merged, their
+//! conversations answered and resolved, a check's failed run read and
+//! run again.
 
 use std::path::PathBuf;
 
@@ -69,6 +70,37 @@ struct MergePr {
     auto: bool,
 }
 
+#[derive(Serialize, Deserialize, schemars::JsonSchema)]
+struct ReplyToThread {
+    /// The project's folder; none, where this session works.
+    folder: Option<PathBuf>,
+    number: u64,
+    /// The conversation, by its id as `read_pr` gives it (`threads`).
+    thread: String,
+    body: String,
+}
+
+#[derive(Serialize, Deserialize, schemars::JsonSchema)]
+struct ResolveThread {
+    /// The project's folder; none, where this session works.
+    folder: Option<PathBuf>,
+    number: u64,
+    /// The conversation, by its id as `read_pr` gives it (`threads`).
+    thread: String,
+    /// Open it again; else resolve it.
+    #[serde(default)]
+    reopen: bool,
+}
+
+#[derive(Serialize, Deserialize, schemars::JsonSchema)]
+struct RerunCi {
+    /// The project's folder; none, where this session works.
+    folder: Option<PathBuf>,
+    number: u64,
+    /// The failed run, by its id as `pr_checks` gives it.
+    run: String,
+}
+
 #[derive(Deserialize, schemars::JsonSchema)]
 struct Checks {
     /// The project's folder; none, where this session works.
@@ -90,8 +122,8 @@ async fn asked(folder: PathBuf, ask: Ask) -> Result<Answer, String> {
     off(move || crate::forge::answer(&folder, Kind::Pr, ask, None)).await
 }
 
-/// What was done to the pull request `number`, as `answer` says.
-fn acted(answer: Answer, number: u64) -> Result<String, String> {
+/// What was done to the pull request or issue `number`, as `answer` says.
+pub(super) fn acted(answer: Answer, number: u64) -> Result<String, String> {
     match answer {
         Answer::Acted(_, done) => done.map(|said| {
             let said = said.trim();
@@ -128,10 +160,16 @@ async fn about(tools: &Tools, folder: PathBuf, number: u64) -> Result<Item, Stri
     Ok(read?.item)
 }
 
+/// A pull request or an issue (`what`) as a card names it: its number,
+/// title and address, which names its repository.
+pub(super) fn named(what: &str, item: &Item) -> String {
+    format!("{what} #{} “{}” ({})", item.number, item.title, item.url)
+}
+
 /// The card's title for `act` on `pr`: which pull request, of which
 /// repository (its address), and all it does.
 fn card(pr: &Item, act: &Act) -> String {
-    let named = format!("pull request #{} “{}” ({})", pr.number, pr.title, pr.url);
+    let named = named("pull request", pr);
     match act {
         Act::Merge { how, auto, .. } => {
             let when = if *auto { ", once its checks pass" } else { "" };
@@ -234,6 +272,59 @@ impl Tools {
         let pr = about(self, folder.clone(), ask.number).await?;
         let act = merge(&ask, &Settings::load(&self.shared.home).0.of(&folder));
         self.allowed("merge_pr", card(&pr, &act), &ask).await?;
+        acted(asked(folder, Ask::Act(ask.number, act)).await?, ask.number)
+    }
+
+    /// Answer a conversation on a pull request's lines. You are asked
+    /// first.
+    #[tool]
+    async fn reply_to_thread(
+        &self,
+        Parameters(ask): Parameters<ReplyToThread>,
+    ) -> Result<String, String> {
+        let folder = self.folder(ask.folder.clone())?;
+        let pr = about(self, folder.clone(), ask.number).await?;
+        let title = format!("Answer a conversation on {}", named("pull request", &pr));
+        self.allowed("reply_to_thread", title, &ask).await?;
+        let act = Act::Reply {
+            thread: ask.thread,
+            body: ask.body,
+        };
+        acted(asked(folder, Ask::Act(ask.number, act)).await?, ask.number)
+    }
+
+    /// Resolve a conversation on a pull request's lines, or open it again
+    /// (`reopen`). You are asked first.
+    #[tool]
+    async fn resolve_thread(
+        &self,
+        Parameters(ask): Parameters<ResolveThread>,
+    ) -> Result<String, String> {
+        let folder = self.folder(ask.folder.clone())?;
+        let pr = about(self, folder.clone(), ask.number).await?;
+        let doing = if ask.reopen { "Reopen" } else { "Resolve" };
+        let title = format!("{doing} a conversation on {}", named("pull request", &pr));
+        self.allowed("resolve_thread", title, &ask).await?;
+        let act = Act::Resolve {
+            thread: ask.thread,
+            resolved: !ask.reopen,
+        };
+        acted(asked(folder, Ask::Act(ask.number, act)).await?, ask.number)
+    }
+
+    /// Run the failed jobs of a run of a pull request's checks again (on
+    /// GitHub Actions). You are asked first.
+    #[tool]
+    async fn rerun_ci(&self, Parameters(ask): Parameters<RerunCi>) -> Result<String, String> {
+        let folder = self.folder(ask.folder.clone())?;
+        let pr = about(self, folder.clone(), ask.number).await?;
+        let title = format!(
+            "Run the failed checks of run {} again on {}",
+            ask.run,
+            named("pull request", &pr)
+        );
+        self.allowed("rerun_ci", title, &ask).await?;
+        let act = Act::Rerun(ask.run);
         acted(asked(folder, Ask::Act(ask.number, act)).await?, ask.number)
     }
 
@@ -375,6 +466,18 @@ mod tests {
                 "review_pr",
                 json!({"folder": project, "number": 1,
                 "verdict": "approve", "body": "Yes"}),
+            ),
+            (
+                "reply_to_thread",
+                json!({"folder": project, "number": 1, "thread": "t", "body": "Done"}),
+            ),
+            (
+                "resolve_thread",
+                json!({"folder": project, "number": 1, "thread": "t"}),
+            ),
+            (
+                "rerun_ci",
+                json!({"folder": project, "number": 1, "run": "9"}),
             ),
         ] {
             client.call(tool, &args);
