@@ -202,8 +202,10 @@ Steps:
 | `ask` | `name`, `title`, `choices`; optional `stop` | Asks you, with one button per choice. Your choice is the step's result. A choice listed in `stop` stops the run. |
 
 Values: `{{input}}` is the run's input, and `{{<step name>}}` is an
-earlier step's result (trimmed). In a `run` command each value is quoted
-for the shell as one word, so it is never run as code.
+earlier step's result (trimmed). In a `run` command each value is given
+to `/bin/sh` as an argument, and each `{{name}}` becomes a reference to
+it, quoted for where it stands (bare, in double quotes or in single
+quotes): the shell never reads a value as words of the command.
 
 ### Running a workflow
 

@@ -228,11 +228,12 @@ impl Shared {
             .or(flow.project.as_ref())
             .cloned()
             .ok_or("Name a project or a dir for it")?;
-        let line = run.command(command);
+        let (line, values) = run.command(command);
         let name = flow.steps[run.done.len()].name().to_owned();
         let out = tokio::task::spawn_blocking(move || {
             std::process::Command::new("/bin/sh")
-                .args(["-c", &line])
+                .args(["-c", &line, "ghost"])
+                .args(values)
                 .current_dir(dir)
                 .stdin(std::process::Stdio::null())
                 .output()

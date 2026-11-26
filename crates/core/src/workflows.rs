@@ -54,8 +54,8 @@ pub enum Step {
         after: Option<String>,
     },
     /// Run `command` in a shell, in the project (or `dir`); its result is
-    /// what it printed. Each `{{name}}` in it is one word, quoted. One that
-    /// fails pauses the run.
+    /// what it printed. Each `{{name}}` in it is given it as an argument,
+    /// never read as words of the command. One that fails pauses the run.
     Run {
         name: String,
         command: String,
@@ -77,6 +77,44 @@ impl Step {
     pub fn name(&self) -> &str {
         match self {
             Self::Agent { name, .. } | Self::Run { name, .. } | Self::Ask { name, .. } => name,
+        }
+    }
+}
+
+/// Where a shell reading a command stands: bare, or within quotes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum Within {
+    #[default]
+    Bare,
+    Single,
+    Double,
+}
+
+/// A shell's quoting, as a command is read left to right.
+#[derive(Debug, Default)]
+struct Quoting {
+    within: Within,
+    /// The last character read was a backslash that escapes the next.
+    escaped: bool,
+}
+
+impl Quoting {
+    /// Read `text` on from where it stands.
+    fn read(&mut self, text: &str) {
+        for c in text.chars() {
+            if std::mem::take(&mut self.escaped) {
+                continue;
+            }
+            self.within = match (self.within, c) {
+                (Within::Bare | Within::Double, '\\') => {
+                    self.escaped = true;
+                    self.within
+                }
+                (Within::Bare, '\'') => Within::Single,
+                (Within::Bare, '"') => Within::Double,
+                (Within::Single, '\'') | (Within::Double, '"') => Within::Bare,
+                (now, _) => now,
+            };
         }
     }
 }
@@ -136,23 +174,40 @@ impl Run {
     /// `text` with the run's input and its steps' results put in for
     /// `{{input}}` and `{{name}}`.
     pub fn fill(&self, text: &str) -> String {
-        self.put(text, str::to_owned)
+        self.put(text, |_, value| value.to_owned())
     }
 
-    /// A `run` step's `command` filled as `fill` does, each value put in
-    /// as one word, quoted for the shell: what an agent answered is never
-    /// run as a command of its own.
-    pub fn command(&self, command: &str) -> String {
-        self.put(command, |v| shell_words::quote(v).into_owned())
+    /// A `run` step's `command` for `sh -c`, and the values its
+    /// `{{name}}`s stand for, given after it as its arguments: each
+    /// `{{name}}` known becomes a reference to its argument (`${1}`, ...),
+    /// quoted as where it stands calls for (bare, in double quotes, in
+    /// single quotes), so that what an agent answered, or a webhook sent,
+    /// is never read by the shell as words of the command.
+    pub fn command(&self, command: &str) -> (String, Vec<String>) {
+        let mut values = Vec::new();
+        let mut quoting = Quoting::default();
+        let line = self.put(command, |lead, value| {
+            quoting.read(lead);
+            values.push(value.to_owned());
+            let n = values.len();
+            match quoting.within {
+                Within::Bare => format!("\"${{{n}}}\""),
+                Within::Double => format!("${{{n}}}"),
+                Within::Single => format!("'\"${{{n}}}\"'"),
+            }
+        });
+        (line, values)
     }
 
-    /// `text` with each `{{name}}` known put in as `each` writes its value,
-    /// in one pass: a value put in is never read again for more.
-    fn put(&self, text: &str, each: impl Fn(&str) -> String) -> String {
+    /// `text` with each `{{name}}` known put in as `each` writes its value
+    /// (given the text before it since the last), in one pass: a value put
+    /// in is never read again for more.
+    fn put(&self, text: &str, mut each: impl FnMut(&str, &str) -> String) -> String {
         let mut out = String::with_capacity(text.len());
-        let mut rest = text;
+        let (mut rest, mut lead) = (text, String::new());
         while let Some(at) = rest.find("{{") {
             out.push_str(&rest[..at]);
+            lead.push_str(&rest[..at]);
             let after = &rest[at + 2..];
             let found = after.find("}}").and_then(|end| {
                 let name = &after[..end];
@@ -166,10 +221,11 @@ impl Run {
                 value.map(|v| (v, end))
             });
             if let Some((value, end)) = found {
-                out.push_str(&each(value));
+                out.push_str(&each(&std::mem::take(&mut lead), value));
                 rest = &after[end + 2..];
             } else {
                 out.push_str("{{");
+                lead.push_str("{{");
                 rest = after;
             }
         }
@@ -295,6 +351,45 @@ mod tests {
     }
 
     #[test]
+    fn a_value_in_double_quotes_single_quotes_or_none_is_never_run() {
+        let dir = tempfile::tempdir().unwrap();
+        for input in [
+            "$(touch pwned)",
+            "\"; touch pwned; \"",
+            "'; touch pwned; '",
+            "`touch pwned` \\\" ${HOME}",
+        ] {
+            let run = Run {
+                id: 1,
+                workflow: "w".into(),
+                input: input.into(),
+                began: 0,
+                state: State::Going,
+                done: Vec::new(),
+                turn: None,
+            };
+            for template in [
+                "printf '%s|' \"{{input}}\"",
+                "printf '%s|' '{{input}}'",
+                "printf '%s|' {{input}}",
+                "printf '%s|' \"a {{input}} b\" 'c {{input}} d'",
+            ] {
+                let (line, values) = run.command(template);
+                let out = std::process::Command::new("/bin/sh")
+                    .args(["-c", &line, "ghost"])
+                    .args(values)
+                    .current_dir(dir.path())
+                    .output()
+                    .unwrap();
+                let said = String::from_utf8_lossy(&out.stdout);
+                assert!(out.status.success(), "{template}: {line}");
+                assert!(said.contains(input), "{template} said {said}");
+                assert!(!dir.path().join("pwned").exists(), "{template} ran {input}");
+            }
+        }
+    }
+
+    #[test]
     fn what_an_agent_answered_goes_into_a_command_as_one_word_and_never_runs() {
         let dir = tempfile::tempdir().unwrap();
         let said = "fixes; touch pwned '$(touch pwned)`touch pwned`";
@@ -311,9 +406,10 @@ mod tests {
             }],
             turn: None,
         };
-        let line = run.command("printf '%s|' {{input}} {{notes}} {{later}}");
+        let (line, values) = run.command("printf '%s|' {{input}} {{notes}} {{later}}");
         let out = std::process::Command::new("/bin/sh")
-            .args(["-c", &line])
+            .args(["-c", &line, "ghost"])
+            .args(values)
             .current_dir(dir.path())
             .output()
             .unwrap();
