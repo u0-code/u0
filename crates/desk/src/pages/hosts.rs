@@ -38,6 +38,7 @@ impl Desk {
             .description(
                 "Where your projects' code and issues are. A token of yours is used over the CLI's own sign-in, and kept in the macOS Keychain, never in a file; it may be a 1Password reference (op://).",
             )
+            .group(Self::scope_group(w))
             .group(group("Hosts", hosts))
             .group(group(
                 "Merging",
@@ -46,10 +47,10 @@ impl Desk {
                     "Agents' credits in a squash",
                     "Co-authored-by lines and footers that credit an agent are taken out of a squashed commit's message; a person's stay.",
                     |d, _, cx| {
-                        Self::pick(
+                        d.own(
                             "uncredit",
                             [("Kept", false), ("Taken out", true)],
-                            d.settings.uncredit,
+                            |s| s.uncredit,
                             |s, v| s.uncredit = v,
                             cx,
                         )

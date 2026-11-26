@@ -208,6 +208,7 @@ impl Desk {
             if worktree {
                 let from = self.sessions.at(key).and_then(|s| s.begin.clone());
                 self.transport.send(Call::MakeWorktree {
+                    submodules: self.settings.of(&folder).submodules,
                     dir: folder,
                     about: text,
                     under: self
@@ -216,7 +217,6 @@ impl Desk {
                         .remove(0),
                     prefix: self.settings.branch_prefix.clone(),
                     from,
-                    submodules: self.settings.submodules,
                     key,
                 });
             } else {
@@ -538,6 +538,7 @@ impl Desk {
     pub fn set_mode(&mut self, mode: String, cx: &mut Context<Self>) {
         self.popup = Popup::Closed;
         let Some(key) = self.current else { return };
+        self.remember(|c| c.mode = Some(mode.clone()));
         let Some(s) = self.session() else { return };
         let (agent, id) = (s.meta.agent.clone(), s.meta.id.clone());
         if id.is_none() {
@@ -563,6 +564,9 @@ impl Desk {
     pub fn set_option(&mut self, config: String, value: String, cx: &mut Context<Self>) {
         self.popup = Popup::Closed;
         let Some(key) = self.current else { return };
+        self.remember(|c| {
+            c.options.insert(config.clone(), value.clone());
+        });
         let Some(s) = self.session() else { return };
         let (agent, id) = (s.meta.agent.clone(), s.meta.id.clone());
         if id.is_none() {
@@ -580,5 +584,15 @@ impl Desk {
             });
         }
         cx.notify();
+    }
+
+    /// Keep what `chose` sets as what the next session of the agent on
+    /// screen, in its project, begins with.
+    fn remember(&mut self, chose: impl FnOnce(&mut crate::settings::Chosen)) {
+        let Some(s) = self.session() else { return };
+        let (project, agent) = (s.meta.project.clone(), s.meta.agent.clone());
+        let prefs = self.settings.prefs.entry(project).or_default();
+        chose(prefs.last.entry(agent).or_default());
+        self.save_settings();
     }
 }

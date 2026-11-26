@@ -11,6 +11,7 @@ mod hosts;
 mod looks;
 mod prefs;
 mod projects;
+mod scope;
 mod settings;
 mod tasks;
 mod updates;
@@ -81,6 +82,9 @@ pub struct Pages {
     pub dictionary: Entity<TextareaState>,
     /// The days the usage page reads over; none, all.
     pub period: Option<u64>,
+    /// The project the settings a project may hold are set for, as
+    /// t3code's "Applying settings for"; none, everywhere.
+    pub scope: Option<std::path::PathBuf>,
     /// What is known of each forge here, and a token of yours for each,
     /// as it is typed (by `forge::Host::ALL`).
     pub forges: Vec<crate::forge::Seen>,
@@ -168,6 +172,7 @@ impl Pages {
             var_secret: true,
             project: None,
             period: Some(30),
+            scope: None,
             forges: Vec::new(),
             themes_refused: Vec::new(),
             processes: Default::default(),

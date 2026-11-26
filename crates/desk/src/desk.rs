@@ -145,6 +145,8 @@ pub enum Popup {
     TaskAgent,
     /// The project of the task being written.
     TaskProject,
+    /// The project Settings' choices a project may hold are set for.
+    Scope,
 }
 
 /// Which side columns show.
@@ -697,6 +699,12 @@ impl Desk {
         self.settings.prefs.get(folder).cloned().unwrap_or_default()
     }
 
+    /// The settings as they hold in `project` (`Settings::of`); none,
+    /// everywhere's.
+    pub fn settings_in(&self, project: Option<&Path>) -> settings::Settings {
+        project.map_or_else(|| self.settings.clone(), |p| self.settings.of(p))
+    }
+
     /// The name the project `folder` shows by.
     pub fn project_name(&self, folder: &Path) -> String {
         self.prefs(folder).name.unwrap_or_else(|| {
@@ -784,20 +792,15 @@ impl Desk {
         if let Some(slot) = self.slot(agent) {
             slot.seed(&mut s);
         }
-        // As t3code: with the agent of the session open, its model too.
-        let model = self.session().filter(|o| o.meta.agent == agent).and_then(|o| {
-            o.options.iter().find_map(|opt| match &opt.kind {
-                agent_client_protocol::v1::schema::SessionConfigKind::Select(sel)
-                    if opt.category
-                        == Some(agent_client_protocol::v1::schema::SessionConfigOptionCategory::Model) =>
-                {
-                    Some((opt.id.0.to_string(), sel.current_value.0.to_string()))
-                }
-                _ => None,
-            })
-        });
-        if let Some((config, value)) = model {
-            s.choose(&config, &value);
+        // As t3code: what was last chosen in a session of this agent in
+        // this project, its model, effort and mode.
+        if let Some(last) = self.prefs(&s.meta.project).last.get(agent) {
+            for (config, value) in &last.options {
+                s.choose(config, value);
+            }
+            if let Some(mode) = &last.mode {
+                s.choose_mode(mode);
+            }
         }
         s
     }

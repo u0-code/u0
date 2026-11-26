@@ -503,7 +503,10 @@ impl Desk {
                 // agent says when.
                 let resets = (result.as_ref().err())
                     .and_then(|f| crate::usage::resets(f, std::time::SystemTime::now()))
-                    .filter(|_| self.settings.resume_at_reset);
+                    .filter(|_| {
+                        let project = self.sessions.at(key).map(|s| s.meta.project.as_path());
+                        self.settings_in(project).resume_at_reset
+                    });
                 if let Some(s) = self.sessions.at_mut(key) {
                     s.ended(result.map_err(|f| f.message), tokens);
                 }

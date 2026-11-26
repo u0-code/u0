@@ -731,7 +731,7 @@ impl Desk {
                         how: how.into(),
                         auto,
                         delete: true,
-                        uncredit: d.settings.uncredit,
+                        uncredit: d.settings_in(d.forge.folder.as_deref()).uncredit,
                     },
                     cx,
                 );
@@ -743,7 +743,10 @@ impl Desk {
             entry("Rebase and merge".into(), merge("rebase", false));
             entry(
                 "Merge when its checks pass".into(),
-                merge(self.settings.merge.gh(), true),
+                merge(
+                    self.settings_in(self.forge.folder.as_deref()).merge.gh(),
+                    true,
+                ),
             );
             entry(
                 if item.draft {

@@ -687,6 +687,26 @@ pub struct Prefs {
     /// repository's host.
     #[serde(default)]
     pub linear: Option<String>,
+    /// The settings it holds otherwise than everywhere else, as t3code's
+    /// project overrides: a sparse `settings.json` of its own, of the keys
+    /// `Settings::PROJECT` names. A key not here follows everywhere's.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub over: serde_json::Map<String, serde_json::Value>,
+    /// What its new sessions of each agent begin with, by the agent's id:
+    /// what was last chosen in one.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub last: std::collections::BTreeMap<String, Chosen>,
+}
+
+/// The options and mode last chosen in a session of one agent.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Chosen {
+    /// Each option (model, effort, ...) by its id, and its value.
+    #[serde(default)]
+    pub options: std::collections::BTreeMap<String, String>,
+    #[serde(default)]
+    pub mode: Option<String>,
 }
 
 /// A project's icon as you chose it, as t3code's: a picture, or a mark
@@ -777,7 +797,9 @@ impl Settings {
     /// that cannot be read is not overwritten: the reason comes back with
     /// the defaults, and nothing is saved until it is moved away.
     pub fn load(home: &Path) -> (Self, Option<String>) {
-        match crate::whole::read_json(&home.join("settings.json")) {
+        let read = crate::whole::read_json(&home.join("settings.json"))
+            .and_then(|s: Self| s.overs_read().map(|()| s));
+        match read {
             Ok(settings) => (settings, None),
             Err(e) => (
                 Self::default(),
@@ -785,6 +807,70 @@ impl Settings {
                     "{e}. Move it away to start afresh; until then nothing is saved."
                 )),
             ),
+        }
+    }
+
+    /// The settings a project may hold otherwise than everywhere else.
+    pub const PROJECT: [&'static str; 5] = [
+        "merge",
+        "uncredit",
+        "submodules",
+        "branch_kind",
+        "resume_at_reset",
+    ];
+
+    /// These settings as they hold in `project`: its own where it has them,
+    /// everywhere's for the rest.
+    #[must_use]
+    pub fn of(&self, project: &Path) -> Self {
+        self.overlaid(project).unwrap_or_else(|_| self.clone())
+    }
+
+    fn overlaid(&self, project: &Path) -> Result<Self, String> {
+        let Some(over) = (self.prefs.get(project))
+            .map(|p| &p.over)
+            .filter(|o| !o.is_empty())
+        else {
+            return Ok(self.clone());
+        };
+        let mut all = serde_json::to_value(self).expect("settings serialize");
+        for (k, v) in over {
+            all[k] = v.clone();
+        }
+        serde_json::from_value(all).map_err(|e| e.to_string())
+    }
+
+    /// Whether each project's own settings are ones a project may hold, and
+    /// read; why not, naming the project.
+    fn overs_read(&self) -> Result<(), String> {
+        for (project, p) in &self.prefs {
+            let shown = project.display();
+            if let Some(k) = (p.over.keys()).find(|k| !Self::PROJECT.contains(&k.as_str())) {
+                return Err(format!("{shown} holds \"{k}\", which a project cannot"));
+            }
+            self.overlaid(project)
+                .map_err(|e| format!("{shown}'s own settings do not read: {e}"))?;
+        }
+        Ok(())
+    }
+
+    /// What `set` makes of these settings, held by `project` alone: each
+    /// key it changes that a project may hold becomes the project's own,
+    /// and one back at everywhere's value follows everywhere's again.
+    pub fn hold(&mut self, project: &Path, set: impl FnOnce(&mut Self)) {
+        let mut theirs = self.of(project);
+        set(&mut theirs);
+        let (all, mine) = (
+            serde_json::to_value(&*self).expect("settings serialize"),
+            serde_json::to_value(&theirs).expect("settings serialize"),
+        );
+        let over = &mut self.prefs.entry(project.to_path_buf()).or_default().over;
+        for k in Self::PROJECT {
+            if mine[k] == all[k] {
+                over.remove(k);
+            } else {
+                over.insert(k.to_owned(), mine[k].clone());
+            }
         }
     }
 
@@ -832,6 +918,47 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_project_holds_its_own_choice_and_follows_everywhere_s_for_the_rest() {
+        let (mut s, p) = (Settings::default(), Path::new("/p"));
+        s.hold(p, |s| s.merge = crate::git::Method::Rebase);
+        assert_eq!(s.of(p).merge, crate::git::Method::Rebase);
+        assert_eq!(
+            s.merge,
+            crate::git::Method::Squash,
+            "everywhere's is untouched"
+        );
+        s.uncredit = true;
+        assert!(
+            s.of(p).uncredit,
+            "what it does not hold follows everywhere's"
+        );
+        // Set back to everywhere's, it is the project's own no more.
+        s.hold(p, |s| s.merge = crate::git::Method::Squash);
+        assert!(s.prefs[p].over.is_empty());
+        // What a project cannot hold is not held.
+        s.hold(p, |s| s.twelve = true);
+        assert!(s.prefs[p].over.is_empty() && !s.twelve);
+    }
+
+    #[test]
+    fn a_project_holding_what_it_cannot_is_refused() {
+        let home = tempfile::tempdir().unwrap();
+        let mut s = Settings::default();
+        s.prefs
+            .entry("/p".into())
+            .or_default()
+            .over
+            .insert("twelve".into(), true.into());
+        std::fs::write(
+            home.path().join("settings.json"),
+            serde_json::to_vec(&s).unwrap(),
+        )
+        .unwrap();
+        let why = Settings::load(home.path()).1.unwrap();
+        assert!(why.contains("\"twelve\", which a project cannot"), "{why}");
+    }
 
     #[test]
     fn zooming_steps_through_the_sizes_and_stops_at_either_end() {

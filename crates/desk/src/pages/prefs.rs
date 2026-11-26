@@ -31,6 +31,7 @@ impl Desk {
             Tab::General => (
                 "How Ghost tells you things, and what it does while you are away.",
                 vec![
+                    Self::scope_group(w),
                     group(
                         "While you are away",
                         vec![
@@ -107,14 +108,14 @@ impl Desk {
                             "Merged as",
                             "How Merge beside a session, and merging once its checks pass, merge a pull request; the PRs page offers each.",
                             |d, _, cx| {
-                                Self::pick(
+                                d.own(
                                     "merge",
                                     [
                                         ("Squash", crate::git::Method::Squash),
                                         ("Merge commit", crate::git::Method::Merge),
                                         ("Rebase", crate::git::Method::Rebase),
                                     ],
-                                    d.settings.merge,
+                                    |s| s.merge,
                                     |s, v| s.merge = v,
                                     cx,
                                 )
@@ -197,16 +198,14 @@ impl Desk {
                                 "Go on when a limit resets",
                                 "A turn an agent's usage limit stopped is said to go on, as a scheduled task, at the time the agent gives.",
                                 |d, _, cx| {
-                                    Switch::new("resume-at-reset")
-                                        .small()
-                                        .checked(d.settings.resume_at_reset)
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.settings.resume_at_reset =
-                                                !this.settings.resume_at_reset;
-                                            this.save_settings();
-                                            cx.notify();
-                                        }))
-                                        .into_any_element()
+                                    d.own(
+                                        "resume-at-reset",
+                                        [("Go on", true), ("Wait for me", false)],
+                                        |s| s.resume_at_reset,
+                                        |s, v| s.resume_at_reset = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
                                 },
                             ),
                             item(
@@ -631,85 +630,88 @@ impl Desk {
             ),
             Tab::NewSessions => (
                 "How a session begins in a repository.",
-                vec![group(
-                    "In a repository",
-                    vec![
-                        item(
-                            w,
-                            "A new session works",
-                            "A project can choose otherwise from its menu.",
-                            |d, _, cx| {
-                                Self::pick(
-                                    "where",
-                                    [("In the folder", false), ("In a new worktree", true)],
-                                    d.settings.worktree,
-                                    |s, v| s.worktree = v,
-                                    cx,
-                                )
-                                .into_any_element()
-                            },
-                        ),
-                        item(
-                            w,
-                            "Worktree branches begin with",
-                            "Then the name the writer gives the work, as in ghost/retry-s3-uploads.",
-                            |d, faces, _| {
-                                div()
-                                    .w(px(160.))
-                                    .font_family(faces.mono.clone())
-                                    .child(Input::new(&d.pages.prefix).small())
+                vec![
+                    Self::scope_group(w),
+                    group(
+                        "In a repository",
+                        vec![
+                            item(
+                                w,
+                                "A new session works",
+                                "A project can choose otherwise from its menu.",
+                                |d, _, cx| {
+                                    Self::pick(
+                                        "where",
+                                        [("In the folder", false), ("In a new worktree", true)],
+                                        d.settings.worktree,
+                                        |s, v| s.worktree = v,
+                                        cx,
+                                    )
                                     .into_any_element()
-                            },
-                        ),
-                        item(
-                            w,
-                            "Or they begin with",
-                            "The kind of work, as the writer sees it: feat/, fix/, docs/.",
-                            |d, _, cx| {
-                                Self::pick(
-                                    "branch-kind",
-                                    [("The prefix", false), ("The kind of work", true)],
-                                    d.settings.branch_kind,
-                                    |s, v| s.branch_kind = v,
-                                    cx,
-                                )
-                                .into_any_element()
-                            },
-                        ),
-                        item(
-                            w,
-                            "Worktree location",
-                            format!(
-                                "New worktrees are made in {}, on this Mac. Those made before stay where they are.",
-                                Desk::shown(
-                                    &self
-                                        .settings
-                                        .worktree_folders(self.transport.home_there(&self.home))[0]
-                                )
+                                },
                             ),
-                            |d, _, cx| d.worktree_location(cx).into_any_element(),
-                        ),
-                        item(
-                            w,
-                            "Submodules",
-                            "How far a new worktree's submodules are checked out. Where there are many, the top level alone, or none for a setup script to do.",
-                            |d, _, cx| {
-                                Self::pick(
-                                    "submodules",
-                                    [
-                                        ("Recursive", Submodules::Recursive),
-                                        ("Top level", Submodules::Top),
-                                        ("Skip", Submodules::Skip),
-                                    ],
-                                    d.settings.submodules,
-                                    |s, v| s.submodules = v,
-                                    cx,
-                                )
-                                .into_any_element()
-                            },
-                        ),
-                    ],
-                )],
+                            item(
+                                w,
+                                "Worktree branches begin with",
+                                "Then the name the writer gives the work, as in ghost/retry-s3-uploads.",
+                                |d, faces, _| {
+                                    div()
+                                        .w(px(160.))
+                                        .font_family(faces.mono.clone())
+                                        .child(Input::new(&d.pages.prefix).small())
+                                        .into_any_element()
+                                },
+                            ),
+                            item(
+                                w,
+                                "Or they begin with",
+                                "The kind of work, as the writer sees it: feat/, fix/, docs/.",
+                                |d, _, cx| {
+                                    d.own(
+                                        "branch-kind",
+                                        [("The prefix", false), ("The kind of work", true)],
+                                        |s| s.branch_kind,
+                                        |s, v| s.branch_kind = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
+                            ),
+                            item(
+                                w,
+                                "Worktree location",
+                                format!(
+                                    "New worktrees are made in {}, on this Mac. Those made before stay where they are.",
+                                    Desk::shown(
+                                        &self.settings.worktree_folders(
+                                            self.transport.home_there(&self.home)
+                                        )[0]
+                                    )
+                                ),
+                                |d, _, cx| d.worktree_location(cx).into_any_element(),
+                            ),
+                            item(
+                                w,
+                                "Submodules",
+                                "How far a new worktree's submodules are checked out. Where there are many, the top level alone, or none for a setup script to do.",
+                                |d, _, cx| {
+                                    d.own(
+                                        "submodules",
+                                        [
+                                            ("Recursive", Submodules::Recursive),
+                                            ("Top level", Submodules::Top),
+                                            ("Skip", Submodules::Skip),
+                                        ],
+                                        |s| s.submodules,
+                                        |s, v| s.submodules = v,
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
+                            ),
+                        ],
+                    ),
+                ],
             ),
             Tab::Keyboard => return Some(keyboard(w)),
             Tab::Writing => return Some(Self::writing_tab(w)),

@@ -164,12 +164,12 @@ impl Desk {
                 let path = wt.path.clone();
                 s.meta.worktree = Some(wt);
                 let agent = s.meta.agent.clone();
+                let semantic = self.settings.of(&s.meta.project).branch_kind;
                 // What the repository runs in each new worktree runs now;
                 // what it says to wait for, first.
                 if !self.run_worktree_scripts(key, &path, cx) {
                     self.open_when_running(&agent, key);
                 }
-                let semantic = self.settings.branch_kind;
                 self.ask_writer(key, crate::writer::Ask::Branch { said, semantic });
             }
             Err(why) => {

@@ -186,7 +186,8 @@ crates/desk/src/
                 usage, voice: dictation's settings, updates: on About, hosts:
                 Source control, looks: Appearance's themes, diagnostics,
                 devices: Devices, both ways, and the sheet that asks before pairing,
-                tasks: Scheduled tasks,
+                tasks: Scheduled tasks, scope: the project a page's choices are
+                set for,
                 flows: Workflows),
                 the PRs and Issues pages drawn (forge)
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
@@ -216,6 +217,7 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
 | A call from inside the desk's update that may call the desk back (a window call that tells its observers, such as `set_zoom`) | `window.defer`, so it runs once the update is over: the desk updated twice at once panics |
 | Something shown only on hover | `invisible`, and `visible` on `group_hover`, laid over the row; never `hidden`/`flex` on hover, which GPUI can paint without laying out, and panics |
 | A setting in the settings dialog, or a row of a list there | `prefs::item` (a gpui-kit SettingItem whose control the desk draws), under `prefs::group` (a SettingGroup); a row that is more than a name, a line and a control (an agent, a task, a run), `prefs::whole`; never a card of rows drawn by hand |
+| A setting a project may hold otherwise (`Settings::PROJECT`) | read with `Settings::of(project)` (`Desk::settings_in`), drawn with `Desk::own` under the page's `scope_group`, kept with `Settings::hold` |
 | What is typed, found | a file path: `rank::paths` (nucleo-matcher); sessions, commands, names: `rank::rank` and `rank::terms` |
 
 ## Data
@@ -223,7 +225,10 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
 - `~/.ghost/settings.json` and `~/.ghost/sessions.json` are the files
   Ghost writes that a person may care about. Their fields are
   `deny_unknown_fields`; a file that does not read is left alone and
-  nothing is saved over it.
+  nothing is saved over it. A project's `prefs` hold its own settings
+  (`over`, a sparse settings.json of the keys `Settings::PROJECT` names;
+  any other key refuses the file) and what its new sessions of each agent
+  begin with (`last`: the options and mode last chosen).
 - `~/.ghost/tasks.json` holds the scheduled tasks; the server writes it
   and runs them (`Call::SetTask`, `Event::Tasks`), each run a session kept
   in the index like any other. Workflows are your JSON files in
