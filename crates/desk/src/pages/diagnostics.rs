@@ -55,18 +55,24 @@ impl Desk {
         );
         let words = &["processes", "diagnostics", "cpu", "memory"];
         let shown = if processes.procs.is_empty() {
-            item(w, "Processes", "Ghost runs nothing else now.", |_, _, _| {
-                div().into_any_element()
-            })
+            item(
+                w,
+                crate::tr("Processes"),
+                crate::tr("Ghost runs nothing else now."),
+                |_, _, _| div().into_any_element(),
+            )
         } else {
             whole(w, words, |d, faces, cx| {
                 d.processes(faces, cx).into_any_element()
             })
         };
         let log: Vec<SettingItem> = if self.pages.troubles.is_empty() {
-            vec![item(w, "Nothing went wrong lately.", "", |_, _, _| {
-                div().into_any_element()
-            })]
+            vec![item(
+                w,
+                crate::tr("Nothing went wrong lately."),
+                "",
+                |_, _, _| div().into_any_element(),
+            )]
         } else {
             (self.pages.troubles.iter().cloned())
                 .map(|line| {
@@ -85,22 +91,31 @@ impl Desk {
         };
         vec![
             group(
-                "Ghost",
+                crate::tr("Ghost"),
                 vec![
-                    item(w, "This build", crate::update::this_build(), |_, _, _| {
-                        ui::button("diagnostics-version", "Copy", Weight::Secondary)
-                            .on_click(|_, _, cx| Desk::copy_version(cx))
-                            .into_any_element()
-                    }),
-                    item(w, "Ghost", mac, |_, _, cx| {
-                        ui::button("diagnostics-read", "Read again", Weight::Secondary)
-                            .on_click(cx.listener(|this, _, _, _| this.diagnose(this.pages.on)))
-                            .into_any_element()
+                    item(
+                        w,
+                        crate::tr("This build"),
+                        crate::update::this_build(),
+                        |_, _, _| {
+                            ui::button("diagnostics-version", crate::tr("Copy"), Weight::Secondary)
+                                .on_click(|_, _, cx| Desk::copy_version(cx))
+                                .into_any_element()
+                        },
+                    ),
+                    item(w, crate::tr("Ghost"), mac, |_, _, cx| {
+                        ui::button(
+                            "diagnostics-read",
+                            crate::tr("Read again"),
+                            Weight::Secondary,
+                        )
+                        .on_click(cx.listener(|this, _, _, _| this.diagnose(this.pages.on)))
+                        .into_any_element()
                     }),
                 ],
             ),
-            group("Processes", vec![shown]),
-            group("Warnings and errors in the log", log),
+            group(crate::tr("Processes"), vec![shown]),
+            group(crate::tr("Warnings and errors in the log"), log),
         ]
     }
 

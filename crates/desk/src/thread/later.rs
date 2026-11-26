@@ -83,7 +83,7 @@ impl Desk {
 
     /// What was put aside, the latest first: a click takes it back.
     fn stashed_list(&self, faces: &Faces, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
-        menu = menu.label("Put aside");
+        menu = menu.label(crate::tr("Put aside"));
         for (n, stashed) in self.composer.stashed.iter().enumerate().rev() {
             let first = stashed.text.lines().next().unwrap_or_default().to_owned();
             let with = stashed.attached.len();
@@ -174,7 +174,7 @@ impl Desk {
             .unwrap_or_default();
         if !waiting.is_empty() {
             let now = std::time::SystemTime::now();
-            menu = menu.separator().label("Waiting to be said");
+            menu = menu.separator().label(crate::tr("Waiting to be said"));
             for task in waiting {
                 let id = task.id;
                 let when = match &task.schedule {

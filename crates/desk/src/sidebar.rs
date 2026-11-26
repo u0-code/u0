@@ -91,7 +91,7 @@ impl Desk {
                         .small()
                         .child(ui::icon("folder", 16.))
                         .accessibility_label("Projects")
-                        .tooltip("Projects")
+                        .tooltip(crate::tr("Projects"))
                         .selected(!self.filter.is_empty()),
                     move |d, _, cx| d.projects_menu(&projects_faces, cx),
                     cx,
@@ -126,7 +126,7 @@ impl Desk {
                 .gap(px(10.))
                 .pt(px(24.))
                 .child(
-                    ui::text(faces, "No projects yet")
+                    ui::text(faces, crate::tr("No projects yet"))
                         .text_size(px(crate::style::CAPTION))
                         .text_color(theme::muted()),
                 )
@@ -134,7 +134,7 @@ impl Desk {
                     Button::new("first-project")
                         .outline()
                         .small()
-                        .label("Add project")
+                        .label(crate::tr("Add project"))
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.add_project_page(window, cx);
                         })),
@@ -319,7 +319,10 @@ impl Desk {
                         .items_center()
                         .gap(px(10.))
                         .child(ui::icon("folder-plus", 14.))
-                        .child(ui::text(faces, "Add project").text_size(px(crate::style::LABEL))),
+                        .child(
+                            ui::text(faces, crate::tr("Add project"))
+                                .text_size(px(crate::style::LABEL)),
+                        ),
                 )
                 .on_click(cx.listener(|this, _, window, cx| {
                     this.close_popup(window, cx);

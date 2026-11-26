@@ -556,7 +556,7 @@ impl Desk {
                             .ghost()
                             .xsmall()
                             .child(ui::icon("retry", 12.))
-                            .tooltip("Reach it again")
+                            .tooltip(crate::tr("Reach it again"))
                             .on_click(move |_, _, cx| {
                                 cx.stop_propagation();
                                 desk.update(cx, |d, cx| d.reach_again(host, cx));
@@ -743,7 +743,7 @@ impl Desk {
             (None, Some(st)) => ui::text(faces, st.word())
                 .text_size(px(crate::style::CAPTION))
                 .text_color(st.color()),
-            (None, None) if draft => ui::fine(faces, "Draft"),
+            (None, None) if draft => ui::fine(faces, crate::tr("Draft")),
             (None, None) => ui::fine(faces, compact(lists::used(s), now)),
         };
         // On hover: put it away a while, or done; back, on a shelf.

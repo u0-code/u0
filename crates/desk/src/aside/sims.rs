@@ -45,7 +45,7 @@ impl Sims {
             on: None,
             screen: None,
             reading: false,
-            typed: cx.new(|cx| InputState::new(window, cx).placeholder("Type into it")),
+            typed: cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Type into it"))),
             origin: Arc::default(),
         }
     }
@@ -123,14 +123,15 @@ impl Desk {
     /// The Devices tab.
     pub(super) fn sims_tab(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let Some((found, missing)) = &self.sims.listed else {
-            return div().p(px(16.)).child(empty(faces, "Looking for devices…"));
+            return div()
+                .p(px(16.))
+                .child(empty(faces, crate::tr("Looking for devices…")));
         };
-        let refresh = ui::button("devices-refresh", "Look again", Weight::Quiet).on_click(
-            cx.listener(|this, _, _, cx| {
+        let refresh = ui::button("devices-refresh", crate::tr("Look again"), Weight::Quiet)
+            .on_click(cx.listener(|this, _, _, cx| {
                 (this.sims.listed, this.sims.asked) = (None, false);
                 cx.notify();
-            }),
-        );
+            }));
         let rows = found.iter().map(|d| {
             let (chosen, id) = (Some(&d.id) == self.sims.on.as_ref(), d.id.clone());
             let (start, stop) = (d.clone(), d.clone());
@@ -155,17 +156,23 @@ impl Desk {
                     if d.android { "Android" } else { "iOS" }
                 )))
                 .child(if d.running {
-                    ui::button(format!("stop-{}", d.id), "Power off", Weight::Quiet).on_click(
-                        cx.listener(move |this, _, _, _| {
-                            this.device_act(stop.clone(), Act::Stop);
-                        }),
+                    ui::button(
+                        format!("stop-{}", d.id),
+                        crate::tr("Power off"),
+                        Weight::Quiet,
                     )
+                    .on_click(cx.listener(move |this, _, _, _| {
+                        this.device_act(stop.clone(), Act::Stop);
+                    }))
                 } else {
-                    ui::button(format!("start-{}", d.id), "Start", Weight::Secondary).on_click(
-                        cx.listener(move |this, _, _, _| {
-                            this.device_act(start.clone(), Act::Start);
-                        }),
+                    ui::button(
+                        format!("start-{}", d.id),
+                        crate::tr("Start"),
+                        Weight::Secondary,
                     )
+                    .on_click(cx.listener(move |this, _, _, _| {
+                        this.device_act(start.clone(), Act::Start);
+                    }))
                 })
         });
         div()
@@ -182,7 +189,7 @@ impl Desk {
             )
             .children(rows)
             .when(found.is_empty(), |d| {
-                d.child(empty(faces, "No simulator or emulator here."))
+                d.child(empty(faces, crate::tr("No simulator or emulator here.")))
             })
             .children(
                 missing
@@ -209,16 +216,21 @@ impl Desk {
                 .on_click(cx.listener(move |this, _, _, _| this.device_act(d.clone(), Act::Key(k))))
         };
         let (dark, light) = (d.clone(), d.clone());
-        let mut tools = div()
-            .flex()
-            .flex_wrap()
-            .gap(px(4.))
-            .child(ui::button("dark", "Dark", Weight::Quiet).on_click(
-                cx.listener(move |this, _, _, _| this.device_act(dark.clone(), Act::Dark(true))),
-            ))
-            .child(ui::button("light", "Light", Weight::Quiet).on_click(
-                cx.listener(move |this, _, _, _| this.device_act(light.clone(), Act::Dark(false))),
-            ));
+        let mut tools =
+            div()
+                .flex()
+                .flex_wrap()
+                .gap(px(4.))
+                .child(
+                    ui::button("dark", crate::tr("Dark"), Weight::Quiet).on_click(cx.listener(
+                        move |this, _, _, _| this.device_act(dark.clone(), Act::Dark(true)),
+                    )),
+                )
+                .child(
+                    ui::button("light", crate::tr("Light"), Weight::Quiet).on_click(cx.listener(
+                        move |this, _, _, _| this.device_act(light.clone(), Act::Dark(false)),
+                    )),
+                );
         if d.android {
             tools = tools
                 .child(key("Home", AndroidKey::Home, &d))
@@ -270,7 +282,7 @@ impl Desk {
             .child(tools)
             .children(picture)
             .when(screen.is_none(), |s| {
-                s.child(empty(faces, "Reading its screen…"))
+                s.child(empty(faces, crate::tr("Reading its screen…")))
             })
             .when(d.android, |s| {
                 s.child(
@@ -278,19 +290,24 @@ impl Desk {
                         .flex()
                         .gap(px(4.))
                         .child(div().flex_1().child(Input::new(&self.sims.typed)))
-                        .child(ui::button("type", "Type", Weight::Secondary).on_click(
-                            cx.listener(move |this, _, window, cx| {
-                                let words = this.sims.typed.read(cx).value().to_string();
-                                this.sims
-                                    .typed
-                                    .update(cx, |i, cx| i.set_value("", window, cx));
-                                this.device_act(typed.clone(), Act::Type(words));
-                            }),
-                        )),
+                        .child(
+                            ui::button("type", crate::tr("Type"), Weight::Secondary).on_click(
+                                cx.listener(move |this, _, window, cx| {
+                                    let words = this.sims.typed.read(cx).value().to_string();
+                                    this.sims
+                                        .typed
+                                        .update(cx, |i, cx| i.set_value("", window, cx));
+                                    this.device_act(typed.clone(), Act::Type(words));
+                                }),
+                            ),
+                        ),
                 )
             })
             .when(!d.android, |s| {
-                s.child(fine(faces, "Touch it in Simulator: simctl takes no touch."))
+                s.child(fine(
+                    faces,
+                    crate::tr("Touch it in Simulator: simctl takes no touch."),
+                ))
             })
     }
 }

@@ -2288,6 +2288,7 @@ dependencies = [
  "ratex-parser",
  "ratex-svg",
  "ratex-types",
+ "rust-i18n",
  "serde",
  "serde_json",
  "shell-words",

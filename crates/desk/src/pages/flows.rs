@@ -31,8 +31,8 @@ impl Desk {
         if self.flows.input.is_some() {
             defs.push(item(
                 w,
-                "Input",
-                "What the run begins with: Return starts it.",
+                crate::tr("Input"),
+                crate::tr("What the run begins with: Return starts it."),
                 |d, _, _| {
                     (d.flows.input.as_ref())
                         .map_or_else(div, |i| div().w(px(240.)).child(Input::new(i).small()))
@@ -43,7 +43,7 @@ impl Desk {
         if self.flows.list.is_empty() {
             defs.push(item(
                 w,
-                "No workflows yet",
+                crate::tr("No workflows yet"),
                 format!(
                     "Each is a JSON file in {}: its steps say a prompt to an agent, run a command, or ask you.",
                     Desk::shown(&folder)
@@ -88,8 +88,8 @@ impl Desk {
         }
         let showing = item(
             w,
-            "Showing",
-            "Those that need you, those going, or all.",
+            crate::tr("Showing"),
+            crate::tr("Those that need you, those going, or all."),
             |d, _, cx| {
                 let showing = d.flows.showing;
                 let show =
@@ -131,7 +131,7 @@ impl Desk {
                     })
                     .collect();
                 if shown.is_empty() {
-                    runs.push(item(w, "No runs here.", "", |_, _, _| {
+                    runs.push(item(w, crate::tr("No runs here."), "", |_, _, _| {
                         div().into_any_element()
                     }));
                 }
@@ -146,7 +146,10 @@ impl Desk {
                 }
             }
         }
-        vec![group("Workflows", defs), group("Runs", runs)]
+        vec![
+            group(crate::tr("Workflows"), defs),
+            group(crate::tr("Runs"), runs),
+        ]
     }
 
     /// A run: its workflow and input, where it stands, each step done with
@@ -154,12 +157,12 @@ impl Desk {
     fn flow_run_row(&self, faces: &Faces, run: &Run, cx: &mut Context<Self>) -> Div {
         let id = run.id;
         let tag = match &run.state {
-            State::Going => Tag::info().small().child("Going"),
-            State::Asking => Tag::warning().small().child("Needs you"),
-            State::Paused(_) => Tag::danger().small().child("Paused"),
-            State::Done => Tag::success().small().child("Done"),
-            State::Stopped(_) => Tag::secondary().small().child("Stopped"),
-            State::Cancelled => Tag::secondary().small().child("Cancelled"),
+            State::Going => Tag::info().small().child(crate::tr("Going")),
+            State::Asking => Tag::warning().small().child(crate::tr("Needs you")),
+            State::Paused(_) => Tag::danger().small().child(crate::tr("Paused")),
+            State::Done => Tag::success().small().child(crate::tr("Done")),
+            State::Stopped(_) => Tag::secondary().small().child(crate::tr("Stopped")),
+            State::Cancelled => Tag::secondary().small().child(crate::tr("Cancelled")),
         };
         let began = when::said_at(
             store::time(run.began),
@@ -205,7 +208,7 @@ impl Desk {
                     .children(session.map(|key| {
                         ui::opener(SharedString::from(format!("run-{id}-session-{n}")))
                             .xsmall()
-                            .label("Open")
+                            .label(crate::tr("Open"))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.close_settings(window, cx);
                                 this.show(key, window, cx);

@@ -74,8 +74,9 @@ impl Tab {
         Self::About,
     ];
 
-    pub fn title(self) -> &'static str {
-        match self {
+    /// Its name, in your language.
+    pub fn title(self) -> SharedString {
+        crate::tr(match self {
             Self::General => "General",
             Self::Appearance => "Appearance",
             Self::Chat => "Chat",
@@ -93,7 +94,7 @@ impl Tab {
             Self::Tasks => "Scheduled tasks",
             Self::Workflows => "Workflows",
             Self::Telemetry => "Telemetry",
-        }
+        })
     }
 
     pub fn icon(self) -> &'static str {
@@ -224,7 +225,7 @@ impl Desk {
                     .gap(px(8.))
                     .children(self.server_pick(cx))
                     .child(
-                        ui::icon_button("close-settings", "x", "Close · Esc").on_click(
+                        ui::icon_button("close-settings", "x", crate::tr("Close · Esc")).on_click(
                             cx.listener(|this, _, window, cx| this.close_settings(window, cx)),
                         ),
                     ),
@@ -295,8 +296,8 @@ impl Desk {
             // Said, not chosen here: the first agent on is it.
             head.push(item(
                 w,
-                "Default for new sessions",
-                "The first agent switched on.",
+                crate::tr("Default for new sessions"),
+                crate::tr("The first agent switched on."),
                 move |d, faces, cx| {
                     div()
                         .flex()
@@ -330,9 +331,12 @@ impl Desk {
             }));
         }
         if self.registry.agents.is_empty() && self.registry_trouble.is_none() {
-            head.push(item(w, "Reading the registry…", "", |_, _, _| {
-                div().into_any_element()
-            }));
+            head.push(item(
+                w,
+                crate::tr("Reading the registry…"),
+                "",
+                |_, _, _| div().into_any_element(),
+            ));
         }
         head.push(whole(w, &["search"], |d, _, _| {
             Input::new(&d.pages.agent_search)
@@ -359,14 +363,18 @@ impl Desk {
         );
         vec![
             SettingGroup::new().items(head),
-            group("Agents", rows).description(format!(
+            group(crate::tr("Agents"), rows).description(format!(
                 "Ghost keeps its settings and the agents it installs in {}.",
                 Desk::shown(self.home_on(self.pages.on))
             )),
             SettingGroup::new().item(item(w, read, "", |_, _, cx| {
-                ui::button("refresh", "Read the registry again", Weight::Secondary)
-                    .on_click(cx.listener(|this, _, _, cx| this.refresh_registry(cx)))
-                    .into_any_element()
+                ui::button(
+                    "refresh",
+                    crate::tr("Read the registry again"),
+                    Weight::Secondary,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.refresh_registry(cx)))
+                .into_any_element()
             })),
         ]
     }
@@ -462,7 +470,7 @@ impl Desk {
         if self.store_refused(self.pages.on).is_none() {
             items.push(item(
                 w,
-                "Tidy",
+                crate::tr("Tidy"),
                 self.pages.tidied.clone().unwrap_or_default(),
                 |_, _, cx| {
                     let button = |id: &'static str, label: &'static str, what: Tidy| {
@@ -498,7 +506,7 @@ impl Desk {
                 ui::trouble(refused.clone()).into_any_element()
             }));
         }
-        group("What Ghost keeps", items).description(format!(
+        group(crate::tr("What Ghost keeps"), items).description(format!(
             "In {}. A worktree with changes not committed is left as it is; undo reaches only the turns of this run.",
             Desk::shown(self.home_on(self.pages.on))
         ))
@@ -528,7 +536,7 @@ impl Desk {
                 )
             })
             .collect();
-        (!items.is_empty()).then(|| group("Archived projects", items))
+        (!items.is_empty()).then(|| group(crate::tr("Archived projects"), items))
     }
 
     /// Sessions put away: archived ones, restored or deleted here; and what
@@ -547,12 +555,14 @@ impl Desk {
         if list.is_empty() {
             list.push(item(
                 w,
-                "Nothing archived",
-                "A session archived from its menu waits here, read only, until it is restored.",
+                crate::tr("Nothing archived"),
+                crate::tr(
+                    "A session archived from its menu waits here, read only, until it is restored.",
+                ),
                 |_, _, _| div().into_any_element(),
             ));
         }
-        let mut groups = vec![group("Archived sessions", list)];
+        let mut groups = vec![group(crate::tr("Archived sessions"), list)];
         groups.extend(self.archived_projects(w));
         groups.push(self.storage(w));
         groups

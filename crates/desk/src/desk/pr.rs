@@ -44,7 +44,8 @@ type Written = Result<String, String>;
 
 impl Review {
     pub(super) fn new(home: &std::path::Path, window: &mut Window, cx: &mut Context<Desk>) -> Self {
-        let note = cx.new(|cx| InputState::new(window, cx).placeholder("Comment on this line"));
+        let note =
+            cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Comment on this line")));
         cx.subscribe_in(
             &note,
             window,
@@ -55,7 +56,7 @@ impl Review {
             },
         )
         .detach();
-        let reply = cx.new(|cx| InputState::new(window, cx).placeholder("Reply"));
+        let reply = cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Reply")));
         cx.subscribe_in(
             &reply,
             window,

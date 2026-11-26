@@ -446,7 +446,7 @@ impl Desk {
         mirror(&settings, cx);
         let composer = mention::Composer::new(settings.send.return_sends(""), window, cx);
         let reader = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 24));
-        let menu_search = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
+        let menu_search = cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Search")));
         cx.subscribe_in(
             &menu_search,
             window,
@@ -462,7 +462,8 @@ impl Desk {
             },
         )
         .detach();
-        let side_line = cx.new(|cx| InputState::new(window, cx).placeholder("Ask on the side"));
+        let side_line =
+            cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Ask on the side")));
         cx.subscribe_in(
             &side_line,
             window,
@@ -474,7 +475,7 @@ impl Desk {
             },
         )
         .detach();
-        let rename = cx.new(|cx| InputState::new(window, cx).placeholder("Name"));
+        let rename = cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Name")));
         cx.subscribe(&rename, |this, input, e: &InputEvent, cx| {
             if let InputEvent::PressEnter { .. } = e {
                 let text = input.read(cx).value().trim().to_owned();
@@ -2094,6 +2095,7 @@ pub const EDITORS: [(&str, &str); 4] = [
 fn mirror(settings: &settings::Settings, cx: &mut gpui::App) {
     theme::set_blue_orange(settings.blue_orange);
     crate::figures::set_math(settings.math);
+    crate::i18n::set(settings.language.as_deref());
     theme::set_contrast(settings.contrast);
     theme::set_glass(settings.glass);
     theme::set_themes(settings.theme_dark.clone(), settings.theme_light.clone());

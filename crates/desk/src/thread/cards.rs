@@ -124,7 +124,7 @@ impl Desk {
                     "No, and tell it…",
                     Weight::Quiet,
                 )
-                .tooltip("Reject it, then write what it should do instead")
+                .tooltip(crate::tr("Reject it, then write what it should do instead"))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.choose(at, request, &no, cx);
                     window.focus(&gpui::Focusable::focus_handle(line.read(cx), cx), cx);
@@ -284,10 +284,12 @@ impl Desk {
                     .px(px(10.))
                     .when(ready, |d| {
                         d.flex().items_center().gap(px(10.)).child(
-                            ui::button("run-plan", "Carry out the plan", Weight::Secondary)
-                                .on_click(
-                                    cx.listener(move |this, _, _, cx| this.run_plan(key, cx)),
-                                ),
+                            ui::button(
+                                "run-plan",
+                                crate::tr("Carry out the plan"),
+                                Weight::Secondary,
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| this.run_plan(key, cx))),
                         )
                     })
             }
@@ -386,7 +388,7 @@ impl Desk {
                         format!("Goes on{clock}, as the limit resets."),
                     ))
                     .child(
-                        ui::button("limit-not", "Don't go on", Weight::Quiet)
+                        ui::button("limit-not", crate::tr("Don't go on"), Weight::Quiet)
                             .on_click(cx.listener(move |this, _, _, _| this.drop_task(id))),
                     ),
             );
@@ -398,7 +400,7 @@ impl Desk {
             .gap(px(2.))
             .pt(px(6.))
             .child(
-                ui::button("limit-retry", "Try again", Weight::Quiet)
+                ui::button("limit-retry", crate::tr("Try again"), Weight::Quiet)
                     .on_click(cx.listener(|this, _, _, cx| this.say("Continue", cx))),
             );
         if let Some(at) = when::reset_at(text, now) {
@@ -480,15 +482,14 @@ impl Desk {
                     .flex()
                     .gap(px(6.))
                     .child(
-                        ui::button("restart", "Restart session", Weight::Secondary)
+                        ui::button("restart", crate::tr("Restart session"), Weight::Secondary)
                             .on_click(cx.listener(|this, _, window, cx| this.restart(window, cx))),
                     )
                     .child(
-                        ui::button("copy-why", "Copy the error", Weight::Quiet).on_click(
-                            move |_, _, cx| {
+                        ui::button("copy-why", crate::tr("Copy the error"), Weight::Quiet)
+                            .on_click(move |_, _, cx| {
                                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(why.clone()));
-                            },
-                        ),
+                            }),
                     )
             })
     }
@@ -563,7 +564,7 @@ impl Desk {
                     .child(buttons)
                     .child(div().flex_1())
                     .child(
-                        ui::button("auth-retry", "I have signed in", Weight::Quiet).on_click(
+                        ui::button("auth-retry", crate::tr("I have signed in"), Weight::Quiet).on_click(
                             cx.listener(move |this, _, _, cx| this.retry_open(host, &agent, cx)),
                         ),
                     ),

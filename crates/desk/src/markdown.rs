@@ -261,9 +261,11 @@ impl MarkdownPlugin for Paths {
                 };
                 let (desk, path) = (opens.clone(), written.clone());
                 menu.item(
-                    PopupMenuItem::new("Open in your editor").on_click(move |_, _, cx| {
-                        let _ = desk.update(cx, |d, _| d.open_named(&path));
-                    }),
+                    PopupMenuItem::new(crate::tr("Open in your editor")).on_click(
+                        move |_, _, cx| {
+                            let _ = desk.update(cx, |d, _| d.open_named(&path));
+                        },
+                    ),
                 )
                 .item(copy("Copy the path", written.clone()))
                 .item(copy("Copy the full path", full.clone()))
@@ -286,16 +288,15 @@ fn code_actions(desk: &WeakEntity<Desk>, lang: &str, code: &str) -> Div {
         .gap(px(2.))
         .when(shell, |d| {
             d.child(
-                ui::icon_button("run", "play", "Run it in a terminal of yours").on_click(
-                    move |_, window, cx| {
+                ui::icon_button("run", "play", crate::tr("Run it in a terminal of yours"))
+                    .on_click(move |_, window, cx| {
                         let _ =
                             desk.update(cx, |d, cx| d.open_terminal(Some(&command), window, cx));
-                    },
-                ),
+                    }),
             )
         })
         .child(
-            ui::icon_button("copy", "copy", "Copy").on_click(move |_, _, cx| {
+            ui::icon_button("copy", "copy", crate::tr("Copy")).on_click(move |_, _, cx| {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
             }),
         )

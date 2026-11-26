@@ -276,19 +276,24 @@ impl Desk {
                 },
             ));
         }
-        let period = item(w, "Period", "⇧⌘1 to ⇧⌘5 choose it.", |d, _, cx| {
-            let picks = PERIODS
-                .iter()
-                .map(|&(label, days)| {
-                    let pick: ui::Pick = Box::new(cx.listener(move |this, _, _, cx| {
-                        this.pages.period = days;
-                        cx.notify();
-                    }));
-                    (label, d.pages.period == days, pick)
-                })
-                .collect();
-            ui::segmented("usage-period", picks).into_any_element()
-        });
+        let period = item(
+            w,
+            crate::tr("Period"),
+            crate::tr("⇧⌘1 to ⇧⌘5 choose it."),
+            |d, _, cx| {
+                let picks = PERIODS
+                    .iter()
+                    .map(|&(label, days)| {
+                        let pick: ui::Pick = Box::new(cx.listener(move |this, _, _, cx| {
+                            this.pages.period = days;
+                            cx.notify();
+                        }));
+                        (label, d.pages.period == days, pick)
+                    })
+                    .collect();
+                ui::segmented("usage-period", picks).into_any_element()
+            },
+        );
         let mut agents: Vec<SettingItem> = Vec::new();
         for (agent, (cost, took, sessions)) in &by_agent {
             let about = [
@@ -313,8 +318,8 @@ impl Desk {
         if by_agent.is_empty() {
             agents.push(item(
                 w,
-                "Nothing said",
-                "No agent said what a session cost or took in this time. Not every agent says; Ghost does not guess.",
+                crate::tr("Nothing said"),
+                crate::tr("No agent said what a session cost or took in this time. Not every agent says; Ghost does not guess."),
                 |_, _, _| div().into_any_element(),
             ));
         }
@@ -378,19 +383,20 @@ impl Desk {
         }
         let mut groups = Vec::new();
         if !windows.is_empty() {
-            groups.push(group("Limits", windows).description(
-                "As an agent says them while you work: Claude's adapter does; Codex's says them only in answer to /status.",
+            groups.push(group(crate::tr("Limits"), windows).description(
+                crate::tr("As an agent says them while you work: Claude's adapter does; Codex's says them only in answer to /status."),
             ));
         }
         groups.push(SettingGroup::new().item(period));
         groups.push(
-            group("By agent", agents).description("Costs and tokens are each agent's own count."),
+            group(crate::tr("By agent"), agents)
+                .description(crate::tr("Costs and tokens are each agent's own count.")),
         );
         if !models.is_empty() {
-            groups.push(group("By model", models));
+            groups.push(group(crate::tr("By model"), models));
         }
         if !sessions.is_empty() {
-            groups.push(group("By session", sessions));
+            groups.push(group(crate::tr("By session"), sessions));
         }
         groups
     }

@@ -97,7 +97,7 @@ impl Desk {
         let control = self.controls();
         let controlling = item(
             w,
-            "Control other Macs",
+            crate::tr("Control other Macs"),
             if control {
                 "The Macs paired with are in this window beside this one; pair with another's link."
             } else {
@@ -114,9 +114,9 @@ impl Desk {
                     .into_any_element()
             },
         );
-        let mut page = SettingPage::new("Devices")
+        let mut page = SettingPage::new(crate::tr("Devices"))
             .description(
-                "Use Ghost on one Mac from another: its agents, sessions, files and terminals, as there. Each device comes in by a key of its own, made as it pairs: its private half stays in that device's Keychain, and only the public half, shown by its fingerprint, is sent.",
+                crate::tr("Use Ghost on one Mac from another: its agents, sessions, files and terminals, as there. Each device comes in by a key of its own, made as it pairs: its private half stays in that device's Keychain, and only the public half, shown by its fingerprint, is sent."),
             )
             .group(SettingGroup::new().items(
                 std::iter::once(serve)
@@ -128,14 +128,23 @@ impl Desk {
             ));
         if listening {
             page = page
-                .group(group("Pair a device with this Mac", self.pairing_link(w)))
-                .group(group("Reach", self.reached(w)))
-                .group(group("Devices that control this Mac", self.devices(w)));
+                .group(group(
+                    crate::tr("Pair a device with this Mac"),
+                    self.pairing_link(w),
+                ))
+                .group(group(crate::tr("Reach"), self.reached(w)))
+                .group(group(
+                    crate::tr("Devices that control this Mac"),
+                    self.devices(w),
+                ));
         }
         if control {
             page = page
-                .group(group("Macs this Mac controls", self.machines(w)))
-                .group(group("Pair with another Mac", vec![Self::pair_field(w)]));
+                .group(group(crate::tr("Macs this Mac controls"), self.machines(w)))
+                .group(group(
+                    crate::tr("Pair with another Mac"),
+                    vec![Self::pair_field(w)],
+                ));
         }
         page
     }
@@ -149,11 +158,16 @@ impl Desk {
     /// another.
     fn pairing_link(&self, w: &WeakEntity<Desk>) -> Vec<gpui::component::setting::SettingItem> {
         let renew = |w: &WeakEntity<Desk>, about: &str| {
-            item(w, "Pairing link", about.to_owned(), |_, _, cx| {
-                ui::button("pair", "New link", Weight::Primary)
-                    .on_click(cx.listener(|this, _, _, _| this.share(Share::Serve(true))))
-                    .into_any_element()
-            })
+            item(
+                w,
+                crate::tr("Pairing link"),
+                about.to_owned(),
+                |_, _, cx| {
+                    ui::button("pair", crate::tr("New link"), Weight::Primary)
+                        .on_click(cx.listener(|this, _, _, _| this.share(Share::Serve(true))))
+                        .into_any_element()
+                },
+            )
         };
         let Some((link, at)) = self.pages.shared.as_ref().and_then(|s| s.link.clone()) else {
             return vec![renew(
@@ -176,13 +190,15 @@ impl Desk {
                     div()
                         .flex()
                         .gap(px(6.))
-                        .child(ui::button("copy-link", "Copy", Weight::Secondary).on_click(
-                            move |_, _, cx| {
-                                cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
-                            },
-                        ))
                         .child(
-                            ui::button("pair", "New link", Weight::Quiet).on_click(
+                            ui::button("copy-link", crate::tr("Copy"), Weight::Secondary).on_click(
+                                move |_, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
+                                },
+                            ),
+                        )
+                        .child(
+                            ui::button("pair", crate::tr("New link"), Weight::Quiet).on_click(
                                 cx.listener(|this, _, _, _| this.share(Share::Serve(true))),
                             ),
                         )
@@ -213,15 +229,20 @@ impl Desk {
             Tunnel::Up(host) => (format!("Connected at {host}"), true),
             Tunnel::Down(why) => (format!("Stopped: {why}"), false),
         };
-        let tunnel = item(w, "Tunnel (cloudflared)", status, move |_, _, cx| {
-            ui::button(
-                "tunnel",
-                if running { "Stop" } else { "Start" },
-                Weight::Secondary,
-            )
-            .on_click(cx.listener(move |this, _, _, _| this.share(Share::Tunnel(!running))))
-            .into_any_element()
-        });
+        let tunnel = item(
+            w,
+            crate::tr("Tunnel (cloudflared)"),
+            status,
+            move |_, _, cx| {
+                ui::button(
+                    "tunnel",
+                    if running { "Stop" } else { "Start" },
+                    Weight::Secondary,
+                )
+                .on_click(cx.listener(move |this, _, _, _| this.share(Share::Tunnel(!running))))
+                .into_any_element()
+            },
+        );
         let named = shared.named.is_some();
         let address = match &shared.named {
             Some(host) => format!("A named tunnel of yours, at {host}."),
@@ -230,9 +251,9 @@ impl Desk {
                     .into()
             }
         };
-        let mode = item(w, "Address", address, move |d, _, cx| {
+        let mode = item(w, crate::tr("Address"), address, move |d, _, cx| {
             if named {
-                return ui::button("unname", "Use a quick tunnel", Weight::Quiet)
+                return ui::button("unname", crate::tr("Use a quick tunnel"), Weight::Quiet)
                     .on_click(cx.listener(|this, _, _, _| this.share(Share::Named(None))))
                     .into_any_element();
             }
@@ -250,7 +271,7 @@ impl Desk {
                         .child(Input::new(&d.pages.named_token).small()),
                 )
                 .child(
-                    ui::button("name", "Use", Weight::Secondary).on_click(cx.listener(
+                    ui::button("name", crate::tr("Use"), Weight::Secondary).on_click(cx.listener(
                         |this, _, _, cx| {
                             let host = this.pages.named_host.read(cx).value().trim().to_owned();
                             let token = this.pages.named_token.read(cx).value().trim().to_owned();
@@ -265,8 +286,8 @@ impl Desk {
         let awake = shared.awake;
         let keep_awake = item(
             w,
-            "Keep the Mac awake while serving",
-            "So that it can be reached with its lid open and no one at it.",
+            crate::tr("Keep the Mac awake while serving"),
+            crate::tr("So that it can be reached with its lid open and no one at it."),
             move |_, _, cx| {
                 Switch::new("serve-awake")
                     .accessibility_label("Keep the Mac awake while serving")
@@ -284,9 +305,9 @@ impl Desk {
         let none = |_: &mut Desk, _: &Faces, _: &mut Context<Desk>| div().into_any_element();
         match self.pages.shared.as_ref().map(|s| &s.devices) {
             None => Vec::new(),
-            Some(Err(why)) => vec![item(w, "Devices", why.clone(), none)],
+            Some(Err(why)) => vec![item(w, crate::tr("Devices"), why.clone(), none)],
             Some(Ok(devices)) if devices.is_empty() => {
-                vec![item(w, "No device is paired", "", none)]
+                vec![item(w, crate::tr("No device is paired"), "", none)]
             }
             Some(Ok(devices)) => (devices.iter())
                 .map(|d| {
@@ -348,8 +369,10 @@ impl Desk {
     fn pair_field(w: &WeakEntity<Desk>) -> gpui::component::setting::SettingItem {
         item(
             w,
-            "Pair with a link",
-            "Paste the link the other Mac shows under Pair a device with this Mac, or open it here. Its projects come down the left, beside this Mac's.",
+            crate::tr("Pair with a link"),
+            crate::tr(
+                "Paste the link the other Mac shows under Pair a device with this Mac, or open it here. Its projects come down the left, beside this Mac's.",
+            ),
             |d, _, cx| {
                 div()
                     .flex()
@@ -360,7 +383,7 @@ impl Desk {
                             .child(Input::new(&d.pages.pair_link).small()),
                     )
                     .child(
-                        ui::button("add-server", "Pair", Weight::Primary)
+                        ui::button("add-server", crate::tr("Pair"), Weight::Primary)
                             .loading(d.pages.pairing)
                             .on_click(cx.listener(|this, _, window, cx| this.pair(window, cx))),
                     )
@@ -534,7 +557,7 @@ impl Desk {
             alert
                 .title(format!("Pair with {host}?"))
                 .description(about)
-                .ok_text("Pair")
+                .ok_text(crate::tr("Pair"))
                 .show_cancel(true)
                 .on_ok(move |_, _, cx| {
                     desk.update(cx, |d, cx| d.pair_with(&host, &code, &kept, both, cx));

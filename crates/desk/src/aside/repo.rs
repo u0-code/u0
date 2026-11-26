@@ -73,7 +73,7 @@ impl Desk {
                 let chip = ui::opener("commits")
                     .h(px(22.))
                     .px(px(6.))
-                    .child(fine(faces, "Commits"))
+                    .child(fine(faces, crate::tr("Commits")))
                     .child(ui::icon("chevron-down", 10.).text_color(theme::faint()));
                 let (faces, key) = (faces.clone(), s.key);
                 d.child(
@@ -195,7 +195,7 @@ impl Desk {
         if any {
             menu
         } else {
-            menu.label("No other branch here to compare with.")
+            menu.label(crate::tr("No other branch here to compare with."))
         }
     }
 
@@ -253,13 +253,15 @@ impl Desk {
                             cx,
                             crate::repo::GitAction::CommitPush,
                         )
-                        .tooltip("On the main branch, a branch of its own is made first"),
+                        .tooltip(crate::tr(
+                            "On the main branch, a branch of its own is made first",
+                        )),
                     )
                     .child(
-                        ui::button("do-pr", "Create PR", Weight::Secondary)
-                            .tooltip(
+                        ui::button("do-pr", crate::tr("Create PR"), Weight::Secondary)
+                            .tooltip(crate::tr(
                                 "Its title and description by the writer, from the branch's work",
-                            )
+                            ))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.ask_pr(key, cx);
                             })),
@@ -348,7 +350,7 @@ impl Desk {
             line = line.child(fine(faces, pr.review.clone()));
         }
         Some(
-            section(faces, "Pull request", Some(fine(faces, state)))
+            section(faces, crate::tr("Pull request"), Some(fine(faces, state)))
                 .child(ui::one_line(
                     ui::text(faces, format!("#{} {}", pr.number, pr.title))
                         .text_size(px(crate::style::LABEL))
@@ -360,11 +362,11 @@ impl Desk {
                         .flex()
                         .gap(px(6.))
                         .child(
-                            ui::button("open-pr", "Open", Weight::Secondary)
+                            ui::button("open-pr", crate::tr("Open"), Weight::Secondary)
                                 .on_click(move |_, _, cx| cx.open_url(&url)),
                         )
                         .child(
-                            ui::button("refresh-pr", "Check again", Weight::Quiet)
+                            ui::button("refresh-pr", crate::tr("Check again"), Weight::Quiet)
                                 .on_click(cx.listener(move |this, _, _, _| this.refresh_git(key))),
                         )
                         .when(pr.state == "open", |d| {
@@ -376,7 +378,7 @@ impl Desk {
                                     Weight::Quiet,
                                 )
                                 .selected(watching)
-                                .tooltip("Its checks finishing, or a review coming in, is said in this session")
+                                .tooltip(crate::tr("Its checks finishing, or a review coming in, is said in this session"))
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     if let Some(s) = this.sessions.at_mut(key) {
                                         s.meta.watch = (!watching).then_some(number);
@@ -395,7 +397,7 @@ impl Desk {
                         .flex_wrap()
                         .gap(px(6.))
                         .when(open && pr.failed == 0 && pr.going == 0 && !pr.conflicts, |d| {
-                            d.child(ui::button("merge-pr", "Merge", Weight::Secondary).on_click(
+                            d.child(ui::button("merge-pr", crate::tr("Merge"), Weight::Secondary).on_click(
                                 cx.listener(|this, _, _, cx| {
                                     let p = this.session().map(crate::desk::Place::project_of);
                                     let s = this.settings_in(p.as_ref());
@@ -404,14 +406,14 @@ impl Desk {
                             ))
                         })
                         .when(open && pr.failed > 0, |d| {
-                            d.child(ui::button("fix-checks", "Have it fix the checks", Weight::Quiet).on_click(
+                            d.child(ui::button("fix-checks", crate::tr("Have it fix the checks"), Weight::Quiet).on_click(
                                 cx.listener(|this, _, _, cx| {
                                     this.say("The pull request's checks failed. Look at them (gh pr checks, and the failed runs' logs), fix what broke, commit and push.", cx);
                                 }),
                             ))
                         })
                         .when(open && pr.conflicts, |d| {
-                            d.child(ui::button("fix-conflicts", "Have it resolve the conflicts", Weight::Quiet).on_click(
+                            d.child(ui::button("fix-conflicts", crate::tr("Have it resolve the conflicts"), Weight::Quiet).on_click(
                                 cx.listener(|this, _, _, cx| {
                                     this.say("The pull request conflicts with its base branch. Bring the base in, resolve the conflicts, run the tests, commit and push.", cx);
                                 }),

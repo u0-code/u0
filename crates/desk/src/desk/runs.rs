@@ -89,9 +89,9 @@ impl Drawer {
             closing: None,
             writing: None,
             name: cx.new(|cx| InputState::new(window, cx).placeholder("dev")),
-            command: cx.new(|cx| InputState::new(window, cx).placeholder("npm run dev")),
+            command: cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("npm run dev"))),
             preview: cx.new(|cx| {
-                InputState::new(window, cx).placeholder("Preview: http://localhost:3000")
+                InputState::new(window, cx).placeholder(crate::tr("Preview: http://localhost:3000"))
             }),
         }
     }

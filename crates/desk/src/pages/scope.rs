@@ -20,7 +20,7 @@ impl Desk {
     /// project its choices marked so are set for.
     pub(super) fn scope_group(w: &WeakEntity<Desk>) -> SettingGroup {
         group(
-            "Applying to",
+            crate::tr("Applying to"),
             vec![whole(
                 w,
                 &["project", "override", "scope"],

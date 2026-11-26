@@ -122,7 +122,7 @@ impl Desk {
         );
         bar = bar
             .child(
-                ui::icon_button("new-terminal", "plus", "New terminal")
+                ui::icon_button("new-terminal", "plus", crate::tr("New terminal"))
                     .size(px(24.))
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.open_terminal(None, window, cx);
@@ -132,7 +132,7 @@ impl Desk {
         let scripts_none = scripts.is_empty();
         if !scripts_none {
             bar = bar.child(
-                ui::text(faces, "Scripts")
+                ui::text(faces, crate::tr("Scripts"))
                     .text_size(px(crate::style::CAPTION))
                     .text_color(theme::faint())
                     .mr(px(2.)),
@@ -165,11 +165,13 @@ impl Desk {
         }
         if self.session().is_some_and(|s| s.repo) {
             bar = bar.child(
-                ui::icon_button("add-script", "file-plus", "Add a script to ghost.json")
-                    .size(px(24.))
-                    .on_click(
-                        cx.listener(|this, _, window, cx| this.write_script(None, window, cx)),
-                    ),
+                ui::icon_button(
+                    "add-script",
+                    "file-plus",
+                    crate::tr("Add a script to ghost.json"),
+                )
+                .size(px(24.))
+                .on_click(cx.listener(|this, _, window, cx| this.write_script(None, window, cx))),
             );
         }
         let shown = on.and_then(|id| terms.iter().find(|t| t.id == id).copied());
@@ -185,7 +187,7 @@ impl Desk {
         let ruled = !scripts_none || preview.is_some();
         if let Some(url) = preview {
             bar = bar.child(
-                ui::button("open-preview", "Open preview", Weight::Quiet)
+                ui::button("open-preview", crate::tr("Open preview"), Weight::Quiet)
                     .tooltip(url.clone())
                     .on_click(move |_, _, cx| cx.open_url(&url)),
             );
@@ -372,17 +374,17 @@ impl Desk {
             ))
             .child(div().flex_1())
             .child(
-                ui::button("script-save", "Save", Weight::Primary)
+                ui::button("script-save", crate::tr("Save"), Weight::Primary)
                     .on_click(cx.listener(|this, _, _, cx| this.save_script(true, cx))),
             );
         if w.at.is_some() {
             form = form.child(
-                ui::button("script-delete", "Delete", Weight::Quiet)
+                ui::button("script-delete", crate::tr("Delete"), Weight::Quiet)
                     .on_click(cx.listener(|this, _, _, cx| this.save_script(false, cx))),
             );
         }
         Some(form.child(
-            ui::button("script-cancel", "Cancel", Weight::Quiet).on_click(cx.listener(
+            ui::button("script-cancel", crate::tr("Cancel"), Weight::Quiet).on_click(cx.listener(
                 |this, _, _, cx| {
                     this.drawer.writing = None;
                     cx.notify();
@@ -733,7 +735,7 @@ impl Desk {
                     }))
                 }))
                 .child(
-                    ui::button("copy-chosen", "Copy", Weight::Quiet)
+                    ui::button("copy-chosen", crate::tr("Copy"), Weight::Quiet)
                         .h(px(24.))
                         .px(px(8.))
                         .on_click(cx.listener(move |this, _, _, cx| {

@@ -201,7 +201,7 @@ impl Desk {
                         })),
                 )
                 .when(!cleaning, |row| {
-                    row.child(ui::fine(faces, "Esc").text_color(theme::muted()))
+                    row.child(ui::fine(faces, crate::tr("Esc")).text_color(theme::muted()))
                 }),
         )
     }
@@ -307,7 +307,7 @@ impl Desk {
             (
                 "archive",
                 "Archived. Restore it to write in it again.".to_owned(),
-                ui::button("restore", "Restore", ui::Weight::Secondary)
+                ui::button("restore", crate::tr("Restore"), ui::Weight::Secondary)
                     .on_click(cx.listener(move |this, _, _, cx| this.restore(key, cx))),
             )
         } else {
@@ -320,7 +320,7 @@ impl Desk {
             (
                 "user",
                 format!("A subagent of “{parent}”: it answers to it."),
-                ui::button("to-parent", "Back to it", ui::Weight::Secondary)
+                ui::button("to-parent", crate::tr("Back to it"), ui::Weight::Secondary)
                     .on_click(cx.listener(move |this, _, window, cx| this.show(up, window, cx))),
             )
         };
@@ -497,7 +497,7 @@ impl Desk {
 
     /// The + at the box's left: what can go with what you write.
     fn add_menu(&self, s: &Session, cx: &mut Context<Self>) -> Popover {
-        let button = ui::icon_button("add", "plus", "Add files, a window, a command")
+        let button = ui::icon_button("add", "plus", crate::tr("Add files, a window, a command"))
             .size(px(28.))
             .text_color(theme::muted());
         let able = s.state == State::Draft
@@ -560,9 +560,11 @@ impl Desk {
             "⇧⌘Return"
         };
         Some(if force {
-            ui::button("force-stop", "Force stop", ui::Weight::Secondary)
+            ui::button("force-stop", crate::tr("Force stop"), ui::Weight::Secondary)
                 .danger()
-                .tooltip("It would not stop: its process is ended, and started again when wanted")
+                .tooltip(crate::tr(
+                    "It would not stop: its process is ended, and started again when wanted",
+                ))
                 .on_click(cx.listener(move |this, _, _, cx| this.force_stop(key, cx)))
         } else if working && typed.is_empty() {
             round(ui::icon_button(
@@ -651,7 +653,7 @@ impl Desk {
                 SharedString::from(format!("branch-{}", s.key)),
                 format!("It last ran on {was}; what you send now goes on on {now}."),
             )
-            .title("The branch changed")
+            .title(crate::tr("The branch changed"))
             .w(px(column))
             .mb(px(8.))
         })
@@ -739,14 +741,17 @@ impl Desk {
                 .child(ui::counts(faces, added, gone, crate::style::CAPTION))
                 .child(div().flex_1())
                 .child(
-                    ui::button("commit-changes", "Commit changes", ui::Weight::Secondary).on_click(
-                        cx.listener(|this, _, window, cx| {
-                            this.open_surface(crate::desk::Surface::Diff, cx);
-                            if !this.review.committing {
-                                this.toggle_commit(window, cx);
-                            }
-                        }),
-                    ),
+                    ui::button(
+                        "commit-changes",
+                        crate::tr("Commit changes"),
+                        ui::Weight::Secondary,
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.open_surface(crate::desk::Surface::Diff, cx);
+                        if !this.review.committing {
+                            this.toggle_commit(window, cx);
+                        }
+                    })),
                 ),
         )
     }
@@ -797,18 +802,17 @@ impl Desk {
                         )),
                 )
                 .child(
-                    ui::button("sign-in-now", "Sign in", ui::Weight::Primary).on_click(
+                    ui::button("sign-in-now", crate::tr("Sign in"), ui::Weight::Primary).on_click(
                         cx.listener(move |this, _, _, cx| {
                             this.sign_in_agent(host, &a, cx);
                         }),
                     ),
                 )
                 .child(
-                    ui::button("signed-in", "I've signed in", ui::Weight::Quiet).on_click(
-                        cx.listener(move |this, _, _, cx| {
+                    ui::button("signed-in", crate::tr("I've signed in"), ui::Weight::Quiet)
+                        .on_click(cx.listener(move |this, _, _, cx| {
                             this.recheck_auth(host, &b, cx);
-                        }),
-                    ),
+                        })),
                 ),
         )
     }
@@ -938,7 +942,7 @@ impl Desk {
                                 .description(AttachmentDescription::new(about)),
                         )
                         .when(matches!(a, Attached::Text(_)), |c| {
-                            c.tooltip("Click to write a note on it")
+                            c.tooltip(crate::tr("Click to write a note on it"))
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.begin_note(n, window, cx);
                                 }))
@@ -973,7 +977,7 @@ impl Desk {
                 )
                 .when(matches!(chip, Chip { from: Some(_), .. }), |d| {
                     d.child(
-                        ui::button("chip-back", "Show where", ui::Weight::Quiet)
+                        ui::button("chip-back", crate::tr("Show where"), ui::Weight::Quiet)
                             .h(px(24.))
                             .on_click(
                                 cx.listener(move |this, _, window, cx| this.go_back(n, window, cx)),
@@ -981,7 +985,7 @@ impl Desk {
                     )
                 })
                 .child(
-                    ui::button("chips-copy", "Copy chips", ui::Weight::Quiet)
+                    ui::button("chips-copy", crate::tr("Copy chips"), ui::Weight::Quiet)
                         .h(px(24.))
                         .on_click(cx.listener(|this, _, _, cx| this.copy_chips(cx))),
                 ),
@@ -1175,14 +1179,20 @@ impl Desk {
                 )
                 .when(answered, |d| {
                     d.child(
-                        ui::button("answer-back", "Add the answer to it", ui::Weight::Secondary)
-                            .on_click(cx.listener(move |this, _, window, cx| {
+                        ui::button(
+                            "answer-back",
+                            crate::tr("Add the answer to it"),
+                            ui::Weight::Secondary,
+                        )
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
                                 this.answer_back(key, window, cx);
-                            })),
+                            },
+                        )),
                     )
                 })
                 .child(
-                    ui::button("beside-back", "Back to it", ui::Weight::Quiet).on_click(
+                    ui::button("beside-back", crate::tr("Back to it"), ui::Weight::Quiet).on_click(
                         cx.listener(move |this, _, window, cx| this.show(up, window, cx)),
                     ),
                 )

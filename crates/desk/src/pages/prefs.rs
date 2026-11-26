@@ -36,19 +36,18 @@ impl Desk {
                 vec![
                     Self::scope_group(w),
                     group(
-                        "While you are away",
+                        crate::tr("While you are away"),
                         vec![
                             item(
                                 w,
-                                "When a session ends a turn or needs you",
-                                "From macOS while Ghost is behind, clicked to go to the session; in Ghost while another is on screen.",
+                                crate::tr("When a session ends a turn or needs you"),
+                                crate::tr("From macOS while Ghost is behind, clicked to go to the session; in Ghost while another is on screen."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "notify",
+                                    Self::pick("notify",
                                         [
-                                            ("Off", Notify::Off),
-                                            ("Notify", Notify::Banner),
-                                            ("Notify and sound", Notify::BannerAndSound),
+                                            (crate::tr("Off"), Notify::Off),
+                                            (crate::tr("Notify"), Notify::Banner),
+                                            (crate::tr("Notify and sound"), Notify::BannerAndSound),
                                         ],
                                         d.settings.notify,
                                         |s, v| s.notify = v,
@@ -78,8 +77,8 @@ impl Desk {
                             ).disabled(scoped),
                             item(
                                 w,
-                                "Keep the Mac awake while an agent works",
-                                "The display may sleep; a turn going on is not cut short by the Mac sleeping.",
+                                crate::tr("Keep the Mac awake while an agent works"),
+                                crate::tr("The display may sleep; a turn going on is not cut short by the Mac sleeping."),
                                 |d, _, cx| {
                                     Switch::new("awake")
                                         .accessibility_label("Keep the Mac awake")
@@ -97,20 +96,20 @@ impl Desk {
                         ],
                     ),
                     group(
-                        "Files",
+                        crate::tr("Files"),
                         vec![item(
                             w,
-                            "Files open in",
-                            "A file the agent named, an edit, or keybindings.json.",
+                            crate::tr("Files open in"),
+                            crate::tr("A file the agent named, an edit, or keybindings.json."),
                             |d, _, cx| d.editor_pick(cx).into_any_element(),
                         ).disabled(scoped)],
                     ),
                     group(
-                        "Pull requests",
+                        crate::tr("Pull requests"),
                         vec![item(
                             w,
-                            "Merged as",
-                            "How Merge beside a session, and merging once its checks pass, merge a pull request; the PRs page offers each.",
+                            crate::tr("Merged as"),
+                            crate::tr("How Merge beside a session, and merging once its checks pass, merge a pull request; the PRs page offers each."),
                             |d, _, cx| {
                                 d.own(
                                     "merge",
@@ -128,21 +127,20 @@ impl Desk {
                         )],
                     ),
                     group(
-                        "Done for now",
+                        crate::tr("Done for now"),
                         vec![
                             item(
                                 w,
-                                "A session is done after it is left for",
-                                "It moves to Settled in the sidebar; anything said to it brings it back.",
+                                crate::tr("A session is done after it is left for"),
+                                crate::tr("It moves to Settled in the sidebar; anything said to it brings it back."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "settle_days",
+                                    Self::pick("settle_days",
                                         [
-                                            ("3 days", Some(3)),
-                                            ("7 days", Some(7)),
-                                            ("14 days", Some(14)),
-                                            ("30 days", Some(30)),
-                                            ("Never", None),
+                                            (crate::tr("3 days"), Some(3)),
+                                            (crate::tr("7 days"), Some(7)),
+                                            (crate::tr("14 days"), Some(14)),
+                                            (crate::tr("30 days"), Some(30)),
+                                            (crate::tr("Never"), None),
                                         ],
                                         d.settings.settle_days,
                                         |s, v| s.settle_days = v,
@@ -153,12 +151,11 @@ impl Desk {
                             ).disabled(scoped),
                             item(
                                 w,
-                                "When its pull request merges or closes",
-                                "The session is done then, while it waits on nothing.",
+                                crate::tr("When its pull request merges or closes"),
+                                crate::tr("The session is done then, while it waits on nothing."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "settle_merged",
-                                        [("Settle it", true), ("Leave it", false)],
+                                    Self::pick("settle_merged",
+                                        [(crate::tr("Settle it"), true), (crate::tr("Leave it"), false)],
                                         d.settings.settle_merged,
                                         |s, v| s.settle_merged = v,
                                         cx,
@@ -168,8 +165,8 @@ impl Desk {
                             ).disabled(scoped),
                             item(
                                 w,
-                                "Snooze for",
-                                "The ways to snooze offered first, each as you would type it in Custom…: 1h, 5pm, tomorrow, next week. Commas between.",
+                                crate::tr("Snooze for"),
+                                crate::tr("The ways to snooze offered first, each as you would type it in Custom…: 1h, 5pm, tomorrow, next week. Commas between."),
                                 |d, _, _| {
                                     div()
                                         .w(px(220.))
@@ -179,12 +176,11 @@ impl Desk {
                             ).disabled(scoped),
                             item(
                                 w,
-                                "Keep sessions with a pull request",
-                                "One whose pull request is open is never done for being left.",
+                                crate::tr("Keep sessions with a pull request"),
+                                crate::tr("One whose pull request is open is never done for being left."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "keep_with_pr",
-                                        [("Keep them", true), ("Let them settle", false)],
+                                    Self::pick("keep_with_pr",
+                                        [(crate::tr("Keep them"), true), (crate::tr("Let them settle"), false)],
                                         d.settings.keep_with_pr,
                                         |s, v| s.keep_with_pr = v,
                                         cx,
@@ -195,12 +191,12 @@ impl Desk {
                         ],
                     ),
                     group(
-                        "In the background",
+                        crate::tr("In the background"),
                         vec![
                             item(
                                 w,
-                                "Go on when a limit resets",
-                                "A turn an agent's usage limit stopped is said to go on, as a scheduled task, at the time the agent gives.",
+                                crate::tr("Go on when a limit resets"),
+                                crate::tr("A turn an agent's usage limit stopped is said to go on, as a scheduled task, at the time the agent gives."),
                                 |d, _, cx| {
                                     d.own(
                                         "resume-at-reset",
@@ -214,16 +210,15 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "Fetch each project's remote every",
-                                "So branches and pull requests are up to date; projects set to pull are moved on too.",
+                                crate::tr("Fetch each project's remote every"),
+                                crate::tr("So branches and pull requests are up to date; projects set to pull are moved on too."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "fetch_every",
+                                    Self::pick("fetch_every",
                                         [
-                                            ("Minute", Some(1)),
-                                            ("5 minutes", Some(5)),
-                                            ("15 minutes", Some(15)),
-                                            ("Never", None),
+                                            (crate::tr("Minute"), Some(1)),
+                                            (crate::tr("5 minutes"), Some(5)),
+                                            (crate::tr("15 minutes"), Some(15)),
+                                            (crate::tr("Never"), None),
                                         ],
                                         d.settings.fetch_every,
                                         |s, v| s.fetch_every = v,
@@ -234,12 +229,11 @@ impl Desk {
                             ).disabled(scoped),
                             item(
                                 w,
-                                "Look for agents' new versions",
-                                "The ACP registry is read again each hour; an agent that stops working is updated to the newest.",
+                                crate::tr("Look for agents' new versions"),
+                                crate::tr("The ACP registry is read again each hour; an agent that stops working is updated to the newest."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "check_agents",
-                                        [("Each hour", true), ("Never", false)],
+                                    Self::pick("check_agents",
+                                        [(crate::tr("Each hour"), true), (crate::tr("Never"), false)],
                                         d.settings.check_agents,
                                         |s, v| s.check_agents = v,
                                         cx,
@@ -250,7 +244,7 @@ impl Desk {
                         ],
                     ),
                     group(
-                        "Confirmations",
+                        crate::tr("Confirmations"),
                         vec![
                             asks(w, ("Unpin", "Ask before a session is unpinned."), |c| {
                                 &mut c.unpin
@@ -276,15 +270,14 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "Quit with ⌘Q",
-                                "Quit in the menu always quits at once.",
+                                crate::tr("Quit with ⌘Q"),
+                                crate::tr("Quit in the menu always quits at once."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "confirm-quit",
+                                    Self::pick("confirm-quit",
                                         [
-                                            ("Hold", Quit::Hold),
-                                            ("Double press", Quit::Double),
-                                            ("Direct", Quit::Direct),
+                                            (crate::tr("Hold"), Quit::Hold),
+                                            (crate::tr("Double press"), Quit::Double),
+                                            (crate::tr("Direct"), Quit::Direct),
                                         ],
                                         d.settings.confirm.quit,
                                         |s, v| s.confirm.quit = v,
@@ -301,20 +294,19 @@ impl Desk {
                 "How the thread and what is beside it read.",
                 vec![
                     group(
-                        "Reading",
+                        crate::tr("Reading"),
                         vec![
                             item(
                                 w,
-                                "The sidebar sorts by",
-                                "A project's sessions, and the projects: your last message, anything happening, when each began, or name. Pinned ones stay on top.",
+                                crate::tr("The sidebar sorts by"),
+                                crate::tr("A project's sessions, and the projects: your last message, anything happening, when each began, or name. Pinned ones stay on top."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "sort",
+                                    Self::pick("sort",
                                         [
-                                            ("Your message", crate::settings::Sort::Used),
-                                            ("Activity", crate::settings::Sort::Updated),
-                                            ("Begun", crate::settings::Sort::Begun),
-                                            ("Name", crate::settings::Sort::Name),
+                                            (crate::tr("Your message"), crate::settings::Sort::Used),
+                                            (crate::tr("Activity"), crate::settings::Sort::Updated),
+                                            (crate::tr("Begun"), crate::settings::Sort::Begun),
+                                            (crate::tr("Name"), crate::settings::Sort::Name),
                                         ],
                                         d.settings.sort,
                                         |s, v| s.sort = v,
@@ -325,15 +317,14 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "Look",
-                                "Light and dark keep the same amber for what is going on now.",
+                                crate::tr("Look"),
+                                crate::tr("Light and dark keep the same amber for what is going on now."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "look",
+                                    Self::pick("look",
                                         [
-                                            ("Dark", crate::settings::Look::Dark),
-                                            ("Light", crate::settings::Look::Light),
-                                            ("As the system", crate::settings::Look::System),
+                                            (crate::tr("Dark"), crate::settings::Look::Dark),
+                                            (crate::tr("Light"), crate::settings::Look::Light),
+                                            (crate::tr("As the system"), crate::settings::Look::System),
                                         ],
                                         d.settings.look,
                                         |s, v| s.look = v,
@@ -344,8 +335,8 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "Size",
-                                "Everything in the window, larger or smaller: ⌘+, ⌘− and ⌘0.",
+                                crate::tr("Size"),
+                                crate::tr("Everything in the window, larger or smaller: ⌘+, ⌘− and ⌘0."),
                                 |d, _, cx| {
                                     Self::pick(
                                         "scale",
@@ -359,12 +350,11 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "Contrast",
-                                "More draws the greys of what matters less, and the edges, stronger.",
+                                crate::tr("Contrast"),
+                                crate::tr("More draws the greys of what matters less, and the edges, stronger."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "contrast",
-                                        [("As designed", false), ("More", true)],
+                                    Self::pick("contrast",
+                                        [(crate::tr("As designed"), false), (crate::tr("More"), true)],
                                         d.settings.contrast,
                                         |s, v| s.contrast = v,
                                         cx,
@@ -374,12 +364,11 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "Glass",
-                                "The window's grounds let the desktop show through, blurred.",
+                                crate::tr("Glass"),
+                                crate::tr("The window's grounds let the desktop show through, blurred."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "glass",
-                                        [("Solid", false), ("Glass", true)],
+                                    Self::pick("glass",
+                                        [(crate::tr("Solid"), false), (crate::tr("Glass"), true)],
                                         d.settings.glass,
                                         |s, v| s.glass = v,
                                         cx,
@@ -389,18 +378,16 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "Code font",
-                                "What code, commands and numbers are set in.",
+                                crate::tr("Code font"),
+                                crate::tr("What code, commands and numbers are set in."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "mono",
+                                    Self::pick("mono",
                                         [
-                                            (
-                                                "JetBrains Mono",
+                                            (crate::tr("JetBrains Mono"),
                                                 crate::settings::CodeFont::JetBrains,
                                             ),
-                                            ("SF Mono", crate::settings::CodeFont::SfMono),
-                                            ("Menlo", crate::settings::CodeFont::Menlo),
+                                            (crate::tr("SF Mono"), crate::settings::CodeFont::SfMono),
+                                            (crate::tr("Menlo"), crate::settings::CodeFont::Menlo),
                                         ],
                                         d.settings.mono,
                                         |s, v| s.mono = v,
@@ -411,15 +398,14 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "Terminal text",
-                                "How large your terminals' text is, in the code font.",
+                                crate::tr("Terminal text"),
+                                crate::tr("How large your terminals' text is, in the code font."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "terminal_size",
+                                    Self::pick("terminal_size",
                                         [
-                                            ("Small", crate::settings::TermSize::Small),
-                                            ("Medium", crate::settings::TermSize::Medium),
-                                            ("Large", crate::settings::TermSize::Large),
+                                            (crate::tr("Small"), crate::settings::TermSize::Small),
+                                            (crate::tr("Medium"), crate::settings::TermSize::Medium),
+                                            (crate::tr("Large"), crate::settings::TermSize::Large),
                                         ],
                                         d.settings.terminal_size,
                                         |s, v| s.terminal_size = v,
@@ -430,16 +416,15 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "Terminal shell",
-                                "What a new terminal runs: your login shell, or one named.",
+                                crate::tr("Terminal shell"),
+                                crate::tr("What a new terminal runs: your login shell, or one named."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "shell",
+                                    Self::pick("shell",
                                         [
-                                            ("Login shell", crate::settings::Shell::Login),
-                                            ("zsh", crate::settings::Shell::Zsh),
-                                            ("bash", crate::settings::Shell::Bash),
-                                            ("fish", crate::settings::Shell::Fish),
+                                            (crate::tr("Login shell"), crate::settings::Shell::Login),
+                                            (crate::tr("zsh"), crate::settings::Shell::Zsh),
+                                            (crate::tr("bash"), crate::settings::Shell::Bash),
+                                            (crate::tr("fish"), crate::settings::Shell::Fish),
                                         ],
                                         d.settings.shell,
                                         |s, v| s.shell = v,
@@ -450,15 +435,14 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "Reading width",
-                                "How wide the thread and the composer are.",
+                                crate::tr("Reading width"),
+                                crate::tr("How wide the thread and the composer are."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "width",
+                                    Self::pick("width",
                                         [
-                                            ("Comfortable", Width::Comfortable),
-                                            ("Wide", Width::Wide),
-                                            ("Full", Width::Full),
+                                            (crate::tr("Comfortable"), Width::Comfortable),
+                                            (crate::tr("Wide"), Width::Wide),
+                                            (crate::tr("Full"), Width::Full),
                                         ],
                                         d.settings.width,
                                         |s, v| s.width = v,
@@ -469,12 +453,11 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "What a change added and took away",
-                                "Blue and orange tell them apart without green and red.",
+                                crate::tr("What a change added and took away"),
+                                crate::tr("Blue and orange tell them apart without green and red."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "blue_orange",
-                                        [("Green and red", false), ("Blue and orange", true)],
+                                    Self::pick("blue_orange",
+                                        [(crate::tr("Green and red"), false), (crate::tr("Blue and orange"), true)],
                                         d.settings.blue_orange,
                                         |s, v| s.blue_orange = v,
                                         cx,
@@ -484,12 +467,11 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "Times",
-                                "When a message was said, and what Ghost says of times.",
+                                crate::tr("Times"),
+                                crate::tr("When a message was said, and what Ghost says of times."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "twelve",
-                                        [("24-hour", false), ("12-hour", true)],
+                                    Self::pick("twelve",
+                                        [(crate::tr("24-hour"), false), (crate::tr("12-hour"), true)],
                                         d.settings.twelve,
                                         |s, v| s.twelve = v,
                                         cx,
@@ -499,12 +481,11 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "A diff's long lines",
-                                "Wrapped, they show whole; kept to a line, they are cut at the edge.",
+                                crate::tr("A diff's long lines"),
+                                crate::tr("Wrapped, they show whole; kept to a line, they are cut at the edge."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "diff_wrap",
-                                        [("Wrap", true), ("Cut", false)],
+                                    Self::pick("diff_wrap",
+                                        [(crate::tr("Wrap"), true), (crate::tr("Cut"), false)],
                                         d.settings.diff_wrap,
                                         |s, v| s.diff_wrap = v,
                                         cx,
@@ -514,12 +495,11 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "Changes only in spacing",
-                                "Left out, a diff shows what changed in the words alone.",
+                                crate::tr("Changes only in spacing"),
+                                crate::tr("Left out, a diff shows what changed in the words alone."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "no_spacing",
-                                        [("Shown", false), ("Left out", true)],
+                                    Self::pick("no_spacing",
+                                        [(crate::tr("Shown"), false), (crate::tr("Left out"), true)],
                                         d.settings.no_spacing,
                                         |s, v| s.no_spacing = v,
                                         cx,
@@ -529,12 +509,11 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "A file's diff opens",
-                                "Side by side widens the column beside the thread.",
+                                crate::tr("A file's diff opens"),
+                                crate::tr("Side by side widens the column beside the thread."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "side_by_side",
-                                        [("Stacked", false), ("Side by side", true)],
+                                    Self::pick("side_by_side",
+                                        [(crate::tr("Stacked"), false), (crate::tr("Side by side"), true)],
                                         d.settings.side_by_side,
                                         |s, v| s.side_by_side = v,
                                         cx,
@@ -544,12 +523,11 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "A diff's files",
-                                "Folded, each shows its name and counts until opened.",
+                                crate::tr("A diff's files"),
+                                crate::tr("Folded, each shows its name and counts until opened."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "diff_folded",
-                                        [("Open", false), ("Folded", true)],
+                                    Self::pick("diff_folded",
+                                        [(crate::tr("Open"), false), (crate::tr("Folded"), true)],
                                         d.settings.diff_folded,
                                         |s, v| s.diff_folded = v,
                                         cx,
@@ -566,15 +544,14 @@ impl Desk {
                 "What you write, and what the agent did.",
                 vec![
                     group(
-                        "While a turn goes on",
+                        crate::tr("While a turn goes on"),
                         vec![item(
                             w,
-                            "What you send waits, or steers",
-                            "Steer stops the turn and says it now; waiting says it once the turn ends.",
+                            crate::tr("What you send waits, or steers"),
+                            crate::tr("Steer stops the turn and says it now; waiting says it once the turn ends."),
                             |d, _, cx| {
-                                Self::pick(
-                                    "steer",
-                                    [("Wait its turn", false), ("Steer", true)],
+                                Self::pick("steer",
+                                    [(crate::tr("Wait its turn"), false), (crate::tr("Steer"), true)],
                                     d.settings.steer,
                                     |s, v| s.steer = v,
                                     cx,
@@ -584,21 +561,19 @@ impl Desk {
                         )],
                     ),
                     group(
-                        "Sending",
+                        crate::tr("Sending"),
                         vec![item(
                             w,
-                            "What sends what you write",
-                            "Where Return does not send, it breaks the line. The other key (⌘Return, or ⇧⌘Return) begins another session beside it, or while a turn goes on does the opposite of the setting above.",
+                            crate::tr("What sends what you write"),
+                            crate::tr("Where Return does not send, it breaks the line. The other key (⌘Return, or ⇧⌘Return) begins another session beside it, or while a turn goes on does the opposite of the setting above."),
                             |d, _, cx| {
-                                Self::pick(
-                                    "send",
+                                Self::pick("send",
                                     [
-                                        ("Return", crate::settings::SendKey::Return),
-                                        (
-                                            "⌘Return if multiline",
+                                        (crate::tr("Return"), crate::settings::SendKey::Return),
+                                        (crate::tr("⌘Return if multiline"),
                                             crate::settings::SendKey::Multiline,
                                         ),
-                                        ("⌘Return", crate::settings::SendKey::Command),
+                                        (crate::tr("⌘Return"), crate::settings::SendKey::Command),
                                     ],
                                     d.settings.send,
                                     |s, v| s.send = v,
@@ -610,21 +585,20 @@ impl Desk {
                     ),
                     Self::dictation_group(w),
                     group(
-                        "The agent's work",
+                        crate::tr("The agent's work"),
                         vec![
                             item(
                                 w,
-                                "Transcript view (⌃O)",
-                                "Answers shows what you said and its answers; quiet leaves out the calls that went well; normal folds each run of calls into a line; thinking shows its reasoning too; verbose shows every call and step.",
+                                crate::tr("Transcript view (⌃O)"),
+                                crate::tr("Answers shows what you said and its answers; quiet leaves out the calls that went well; normal folds each run of calls into a line; thinking shows its reasoning too; verbose shows every call and step."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "view",
+                                    Self::pick("view",
                                         [
-                                            ("Answers", crate::settings::View::Zen),
-                                            ("Quiet", crate::settings::View::Quiet),
-                                            ("Normal", crate::settings::View::Normal),
-                                            ("Thinking", crate::settings::View::Thinking),
-                                            ("Verbose", crate::settings::View::Verbose),
+                                            (crate::tr("Answers"), crate::settings::View::Zen),
+                                            (crate::tr("Quiet"), crate::settings::View::Quiet),
+                                            (crate::tr("Normal"), crate::settings::View::Normal),
+                                            (crate::tr("Thinking"), crate::settings::View::Thinking),
+                                            (crate::tr("Verbose"), crate::settings::View::Verbose),
                                         ],
                                         d.settings.view,
                                         |s, v| s.view = v,
@@ -635,12 +609,11 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "An answer streams in",
-                                "A paragraph at a time holds each back until it is whole.",
+                                crate::tr("An answer streams in"),
+                                crate::tr("A paragraph at a time holds each back until it is whole."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "paragraphs",
-                                        [("Word by word", false), ("A paragraph at a time", true)],
+                                    Self::pick("paragraphs",
+                                        [(crate::tr("Word by word"), false), (crate::tr("A paragraph at a time"), true)],
                                         d.settings.paragraphs,
                                         |s, v| s.paragraphs = v,
                                         cx,
@@ -650,12 +623,37 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "Math",
-                                "TeX in what an agent says, $…$ and $$…$$, set as formulas.",
+                                crate::tr("Language"),
+                                crate::tr("The words of Ghost's window; what agents say stays as they say it."),
                                 |d, _, cx| {
+                                    let now = (crate::i18n::LANGUAGES.iter())
+                                        .position(|(l, _)| d.settings.language.as_deref() == Some(*l))
+                                        .map_or(0, |n| n + 1);
                                     Self::pick(
-                                        "math",
-                                        [("As written", false), ("Set as formulas", true)],
+                                        "language",
+                                        [
+                                            (crate::tr("As the system"), 0),
+                                            (crate::i18n::LANGUAGES[0].1.into(), 1),
+                                            (crate::i18n::LANGUAGES[1].1.into(), 2),
+                                        ],
+                                        now,
+                                        |s, v| {
+                                            s.language = v
+                                                .checked_sub(1)
+                                                .map(|n| crate::i18n::LANGUAGES[n].0.to_owned());
+                                        },
+                                        cx,
+                                    )
+                                    .into_any_element()
+                                },
+                            ),
+                            item(
+                                w,
+                                crate::tr("Math"),
+                                crate::tr("TeX in what an agent says, $…$ and $$…$$, set as formulas."),
+                                |d, _, cx| {
+                                    Self::pick("math",
+                                        [(crate::tr("As written"), false), (crate::tr("Set as formulas"), true)],
                                         d.settings.math,
                                         |s, v| s.math = v,
                                         cx,
@@ -672,16 +670,15 @@ impl Desk {
                 vec![
                     Self::scope_group(w),
                     group(
-                        "In a repository",
+                        crate::tr("In a repository"),
                         vec![
                             item(
                                 w,
-                                "A new session works",
-                                "A project can choose otherwise from its menu.",
+                                crate::tr("A new session works"),
+                                crate::tr("A project can choose otherwise from its menu."),
                                 |d, _, cx| {
-                                    Self::pick(
-                                        "worktree",
-                                        [("In the folder", false), ("In a new worktree", true)],
+                                    Self::pick("worktree",
+                                        [(crate::tr("In the folder"), false), (crate::tr("In a new worktree"), true)],
                                         d.settings.worktree,
                                         |s, v| s.worktree = v,
                                         cx,
@@ -691,8 +688,8 @@ impl Desk {
                             ).disabled(scoped),
                             item(
                                 w,
-                                "Worktree branches begin with",
-                                "Then the name the writer gives the work, as in ghost/retry-s3-uploads.",
+                                crate::tr("Worktree branches begin with"),
+                                crate::tr("Then the name the writer gives the work, as in ghost/retry-s3-uploads."),
                                 |d, faces, _| {
                                     div()
                                         .w(px(160.))
@@ -703,8 +700,8 @@ impl Desk {
                             ).disabled(scoped),
                             item(
                                 w,
-                                "Or they begin with",
-                                "The kind of work, as the writer sees it: feat/, fix/, docs/.",
+                                crate::tr("Or they begin with"),
+                                crate::tr("The kind of work, as the writer sees it: feat/, fix/, docs/."),
                                 |d, _, cx| {
                                     d.own(
                                         "branch-kind",
@@ -718,7 +715,7 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "Worktree location",
+                                crate::tr("Worktree location"),
                                 format!(
                                     "New worktrees are made in {}. Those made before stay where they are.",
                                     Desk::shown(&self.worktree_folders(crate::hub::Host::HERE)[0])
@@ -727,8 +724,8 @@ impl Desk {
                             ).disabled(scoped),
                             item(
                                 w,
-                                "Submodules",
-                                "How far a new worktree's submodules are checked out. Where there are many, the top level alone, or none for a setup script to do.",
+                                crate::tr("Submodules"),
+                                crate::tr("How far a new worktree's submodules are checked out. Where there are many, the top level alone, or none for a setup script to do."),
                                 |d, _, cx| {
                                     d.own(
                                         "submodules",
@@ -746,8 +743,8 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                "An archived session's worktree is taken away after",
-                                "Its branch stays, and so does a worktree with changes not committed; opened again, the session checks it out again.",
+                                crate::tr("An archived session's worktree is taken away after"),
+                                crate::tr("Its branch stays, and so does a worktree with changes not committed; opened again, the session checks it out again."),
                                 |d, _, cx| {
                                     d.own(
                                         "tidy-after",
@@ -776,7 +773,7 @@ impl Desk {
         };
         Some(
             SettingPage::new(tab.title())
-                .description(lede)
+                .description(crate::tr(lede))
                 .groups(groups),
         )
     }
@@ -823,7 +820,7 @@ impl Desk {
             .gap(px(6.))
             .when(self.settings.worktrees.is_some(), |d| {
                 d.child(
-                    ui::button("worktrees-own", "Ghost's own", Weight::Quiet).on_click(
+                    ui::button("worktrees-own", crate::tr("Ghost's own"), Weight::Quiet).on_click(
                         cx.listener(move |this, _, _, cx| {
                             keep(this, None);
                             cx.notify();
@@ -832,11 +829,11 @@ impl Desk {
                 )
             })
             .child(
-                ui::button("worktrees-choose", "Choose…", Weight::Secondary).on_click(cx.listener(
-                    move |_, _, _, cx| {
+                ui::button("worktrees-choose", crate::tr("Choose…"), Weight::Secondary).on_click(
+                    cx.listener(move |_, _, _, cx| {
                         Desk::ask_folder("Make worktrees here", |d, f| keep(d, Some(f)), cx);
-                    },
-                )),
+                    }),
+                ),
             )
     }
 
@@ -874,44 +871,52 @@ impl Desk {
         let rows = vec![
             item(
                 w,
-                "The ghost command",
-                "ghost <folder> in a terminal opens the folder here as a project. It goes in ~/.local/bin.",
+                crate::tr("The ghost command"),
+                crate::tr(
+                    "ghost <folder> in a terminal opens the folder here as a project. It goes in ~/.local/bin.",
+                ),
                 |_, _, cx| {
-                    ui::button("install-command", "Add", Weight::Quiet)
+                    ui::button("install-command", crate::tr("Add"), Weight::Quiet)
                         .on_click(cx.listener(|this, _, _, _| this.install_command()))
                         .into_any_element()
                 },
             ),
             item(
                 w,
-                "Where Ghost keeps its files",
+                crate::tr("Where Ghost keeps its files"),
                 Desk::shown(&self.home),
                 |d, _, _| {
                     let home = d.home.clone();
-                    ui::button("show-home", "Show", Weight::Quiet)
+                    ui::button("show-home", crate::tr("Show"), Weight::Quiet)
                         .on_click(move |_, _, cx| cx.open_with_system(&home))
                         .into_any_element()
                 },
             ),
             item(
                 w,
-                "Ghost's log",
-                "A file a day in logs/, kept as long as Keep logs says: what to send with a bug.",
+                crate::tr("Ghost's log"),
+                crate::tr(
+                    "A file a day in logs/, kept as long as Keep logs says: what to send with a bug.",
+                ),
                 |d, _, _| {
                     let logs = d.home.join("logs");
-                    ui::button("show-logs", "Show", Weight::Quiet)
+                    ui::button("show-logs", crate::tr("Show"), Weight::Quiet)
                         .on_click(move |_, _, cx| cx.open_with_system(&logs))
                         .into_any_element()
                 },
             ),
             item(
                 w,
-                "Keep logs",
-                "The days of log kept; older files go as Ghost starts.",
+                crate::tr("Keep logs"),
+                crate::tr("The days of log kept; older files go as Ghost starts."),
                 |d, _, cx| {
                     Self::pick(
                         "log_days",
-                        [("3 days", 3), ("14 days", 14), ("30 days", 30)],
+                        [
+                            (crate::tr("3 days"), 3),
+                            (crate::tr("14 days"), 14),
+                            (crate::tr("30 days"), 30),
+                        ],
                         d.settings.log_days,
                         |s, v| s.log_days = v,
                         cx,
@@ -921,10 +926,10 @@ impl Desk {
             ),
             item(
                 w,
-                "The agents come from",
-                "The ACP registry, read again every six hours.",
+                crate::tr("The agents come from"),
+                crate::tr("The ACP registry, read again every six hours."),
                 |_, _, cx| {
-                    ui::button("open-registry", "Open", Weight::Quiet)
+                    ui::button("open-registry", crate::tr("Open"), Weight::Quiet)
                         .on_click(cx.listener(|_, _, _, cx| {
                             cx.open_url("https://agentclientprotocol.com/registry");
                         }))
@@ -1023,7 +1028,7 @@ fn keyboard(w: &WeakEntity<Desk>) -> SettingPage {
                     "A rule is { \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }, with \"when\": \"Terminal\" (or \"Composer\", with !, && and ||) for where it holds, \"action\": \"none\" to take a key away, and \"-new_session\" to take it from that action alone; \"script:dev\" runs the script dev. The last rule that holds wins. Ghost reads the file as it starts.",
                 ))
                 .child(div().flex().child(
-                    ui::button("open-keys", "Open keybindings.json", Weight::Secondary).on_click(
+                    ui::button("open-keys", crate::tr("Open keybindings.json"), Weight::Secondary).on_click(
                         cx.listener(move |this, _, _, _| {
                             this.edit(path.clone(), Some(b"[]\n"));
                         }),
@@ -1035,7 +1040,7 @@ fn keyboard(w: &WeakEntity<Desk>) -> SettingPage {
     })
     .keywords(["keybindings.json"]);
     SettingPage::new(super::Tab::Keyboard.title())
-        .description("The keys as they are now, yours over Ghost's.")
+        .description(crate::tr("The keys as they are now, yours over Ghost's."))
         .groups(
             groups
                 .into_iter()
@@ -1080,7 +1085,7 @@ impl Desk {
                     .px(px(4.))
                     .hover(|st| st.bg(theme::hover()))
                     .child(if self.pages.recording == Some(name) {
-                        ui::text(&faces, "Press the keys…  Escape to keep these")
+                        ui::text(&faces, crate::tr("Press the keys…  Escape to keep these"))
                             .text_size(px(crate::style::CAPTION))
                             .text_color(theme::link())
                             .into_any_element()
@@ -1117,9 +1122,10 @@ pub(super) fn item(
     control: impl Fn(&mut Desk, &Faces, &mut Context<Desk>) -> AnyElement + 'static,
 ) -> SettingItem {
     let w = w.clone();
-    let about: SharedString = about.into();
+    // Said in your language here, whoever called.
+    let about = crate::tr(&about.into());
     let item = SettingItem::new(
-        name,
+        crate::tr(&name.into()),
         SettingField::render(move |options, _, cx| {
             let control = w
                 .update(cx, |d, cx| {
@@ -1175,12 +1181,14 @@ pub(super) fn managed(control: impl IntoElement, by: &str) -> AnyElement {
         .child(
             div()
                 .text_color(crate::theme::muted())
-                .child(format!("Managed by {by}")),
+                .child(crate::tr("Managed by %{by}").replace("%{by}", by)),
         )
         .into_any_element()
 }
 
 /// Settings under a caption.
-pub(super) fn group(caption: &str, items: Vec<SettingItem>) -> SettingGroup {
-    SettingGroup::new().title(caption.to_owned()).items(items)
+pub(super) fn group(caption: impl Into<SharedString>, items: Vec<SettingItem>) -> SettingGroup {
+    SettingGroup::new()
+        .title(crate::tr(&caption.into()))
+        .items(items)
 }

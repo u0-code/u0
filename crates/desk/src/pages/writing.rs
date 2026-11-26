@@ -25,15 +25,15 @@ impl Desk {
         let writer = vec![
             item(
                 w,
-                "Who writes",
-                "In a session of its own, deleted once it answers; it spends what a turn spends.",
+                crate::tr("Who writes"),
+                crate::tr("In a session of its own, deleted once it answers; it spends what a turn spends."),
                 |d, faces, cx| d.writer_pick(faces, cx).into_any_element(),
             )
             .keywords(["Writer", "model", "agent", "titles", "commit"]),
             item(
                 w,
-                "Suggest what to say next",
-                "After each turn, in the empty composer: Tab takes it, Esc lets it go.",
+                crate::tr("Suggest what to say next"),
+                crate::tr("After each turn, in the empty composer: Tab takes it, Esc lets it go."),
                 |d, _, cx| {
                     Switch::new("suggest")
                         .accessibility_label("Suggest what to say next")
@@ -77,10 +77,10 @@ impl Desk {
         ];
         SettingPage::new(super::Tab::Writing.title())
             .description(
-                "Ghost has no model of its own: an agent of yours writes what Ghost writes for you.",
+                crate::tr("Ghost has no model of its own: an agent of yours writes what Ghost writes for you."),
             )
-            .group(group("The writer", writer))
-            .group(group("Your instructions", yours))
+            .group(group(crate::tr("The writer"), writer))
+            .group(group(crate::tr("Your instructions"), yours))
     }
 
     /// The writer, and the menu to choose another: the session's own

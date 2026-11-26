@@ -22,7 +22,7 @@ impl Desk {
         let Some(s) = self.sessions.at(key) else {
             return div()
                 .p(px(16.))
-                .child(fine(faces, "This side chat is gone."));
+                .child(fine(faces, crate::tr("This side chat is gone.")));
         };
         let up = s.beside;
         // What it was branched with is the session's own: shown there.
@@ -51,7 +51,7 @@ impl Desk {
         if s.items.len() <= from {
             said = said.child(fine(
                 faces,
-                "Ask what you would rather not ask in the session: the agent knows all of it, and nothing said here goes in it.",
+                crate::tr("Ask what you would rather not ask in the session: the agent knows all of it, and nothing said here goes in it."),
             ));
         }
         let working = matches!(s.state, State::Working | State::Opening);
@@ -86,21 +86,33 @@ impl Desk {
                             .flex()
                             .items_center()
                             .gap(px(6.))
-                            .when(working, |d| d.child(fine(faces, "Answering…")))
+                            .when(working, |d| d.child(fine(faces, crate::tr("Answering…"))))
                             .child(div().flex_1())
                             .when(answered, |d| {
                                 d.child(
-                                    ui::button("side-back", "Add to chat", Weight::Secondary)
-                                        .on_click(cx.listener(move |this, _, window, cx| {
+                                    ui::button(
+                                        "side-back",
+                                        crate::tr("Add to chat"),
+                                        Weight::Secondary,
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _, window, cx| {
                                             this.answer_back(key, window, cx);
-                                        })),
+                                        },
+                                    )),
                                 )
                             })
                             .child(
-                                ui::button("side-main", "Open in main view", Weight::Quiet)
-                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                ui::button(
+                                    "side-main",
+                                    crate::tr("Open in main view"),
+                                    Weight::Quiet,
+                                )
+                                .on_click(cx.listener(
+                                    move |this, _, window, cx| {
                                         this.show(key, window, cx);
-                                    })),
+                                    },
+                                )),
                             ),
                     ),
             )

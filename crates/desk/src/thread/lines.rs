@@ -34,7 +34,8 @@ pub struct Find {
 
 impl Find {
     pub fn new(window: &mut Window, cx: &mut Context<Desk>) -> Self {
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Find in this session"));
+        let input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Find in this session")));
         cx.subscribe(&input, |this, _, e: &InputEvent, cx| match e {
             InputEvent::Change => {
                 this.find.at = usize::MAX;
@@ -400,7 +401,7 @@ impl Desk {
                 .gap(px(10.))
                 .child(div().flex_1().h(px(1.)).bg(theme::link().opacity(0.35)))
                 .child(
-                    ui::text(&faces, "New since you last looked")
+                    ui::text(&faces, crate::tr("New since you last looked"))
                         .text_size(px(crate::style::CAPTION))
                         .text_color(theme::link()),
                 )
@@ -564,17 +565,17 @@ impl Desk {
                         .text_color(theme::faint()),
                 )
                 .child(
-                    ui::icon_button("find-up", "chevron-left", "Previous · ⇧Return")
+                    ui::icon_button("find-up", "chevron-left", crate::tr("Previous · ⇧Return"))
                         .size(px(24.))
                         .on_click(cx.listener(|this, _, _, cx| this.find_next(true, cx))),
                 )
                 .child(
-                    ui::icon_button("find-down", "chevron-right", "Next · Return")
+                    ui::icon_button("find-down", "chevron-right", crate::tr("Next · Return"))
                         .size(px(24.))
                         .on_click(cx.listener(|this, _, _, cx| this.find_next(false, cx))),
                 )
                 .child(
-                    ui::icon_button("find-close", "x", "Close · Esc")
+                    ui::icon_button("find-close", "x", crate::tr("Close · Esc"))
                         .size(px(24.))
                         .on_click(cx.listener(|this, _, window, cx| this.toggle_find(window, cx))),
                 ),

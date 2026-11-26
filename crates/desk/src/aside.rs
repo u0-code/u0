@@ -78,7 +78,7 @@ fn top() -> Div {
 }
 
 /// A section: its head and what is under it, ruled off below.
-fn section(faces: &Faces, head: &str, note: Option<Div>) -> Div {
+fn section(faces: &Faces, head: impl Into<SharedString>, note: Option<Div>) -> Div {
     div()
         .flex()
         .flex_col()
@@ -92,7 +92,7 @@ fn section(faces: &Faces, head: &str, note: Option<Div>) -> Div {
                 .flex()
                 .items_center()
                 .gap(px(8.))
-                .child(ui::label(faces, head).flex_1())
+                .child(ui::label(faces, &head.into()).flex_1())
                 .children(note),
         )
 }
@@ -174,9 +174,9 @@ impl Desk {
             Some(Surface::Terminal) => self.terminal_view(faces, cell, cx).into_any_element(),
             Some(Surface::PullRequest) => {
                 scrolled(Self::pull_request(faces, s, cx).unwrap_or_else(|| {
-                    section(faces, "Pull request", None).border_b_0().child(empty(
+                    section(faces, crate::tr("Pull request"), None).border_b_0().child(empty(
                     faces,
-                    "None for this branch yet: commit, push and open one from the Diff tab.",
+                    crate::tr("None for this branch yet: commit, push and open one from the Diff tab."),
                 ))
                 }))
                 .into_any_element()
@@ -321,8 +321,12 @@ impl Desk {
 
     /// What opens the choice of the details shown.
     fn details_chooser(&self, cx: &mut Context<Self>) -> gpui::component::popover::Popover {
-        let chooser =
-            ui::icon_button("details-rows", "sliders", "Choose what shows here").size(px(24.));
+        let chooser = ui::icon_button(
+            "details-rows",
+            "sliders",
+            crate::tr("Choose what shows here"),
+        )
+        .size(px(24.));
         self.menu(
             crate::desk::Popup::Details,
             chooser,
@@ -407,7 +411,8 @@ impl Desk {
                 .flex_1()
                 .min_w(px(0.))
         };
-        let stop = |id: SharedString| ui::icon_button(id, "square", "Stop it").size(px(20.));
+        let stop =
+            |id: SharedString| ui::icon_button(id, "square", crate::tr("Stop it")).size(px(20.));
         let sub_row = |c: &Session, cx: &mut Context<Self>| {
             let key = c.key;
             row_of(SharedString::from(format!("bg-sub-{key}")))
@@ -555,7 +560,7 @@ impl Desk {
     /// The branches to check out, and a line for a new one.
     fn branch_menu(&self, faces: &Faces, key: u64, branch: &str, cx: &mut Context<Self>) -> Div {
         let mut menu = div().flex().flex_col().w(px(228.)).child(
-            ui::text(faces, "Check out")
+            ui::text(faces, crate::tr("Check out"))
                 .px(px(8.))
                 .pt(px(6.))
                 .pb(px(2.))
@@ -603,7 +608,7 @@ impl Desk {
     fn plan(faces: &Faces, s: &Session) -> Div {
         let Some(plan) = s.plan.as_ref().filter(|p| !p.entries.is_empty()) else {
             return section(faces, Detail::Plan.head(), None)
-                .child(empty(faces, "Shown when the agent makes one."));
+                .child(empty(faces, crate::tr("Shown when the agent makes one.")));
         };
         let steps = thread::plan_steps(plan);
         let done = steps
@@ -666,7 +671,7 @@ impl Desk {
         let commands: Vec<_> = s.commands().collect();
         if commands.is_empty() {
             return section(faces, Detail::Terminals.head(), None)
-                .child(empty(faces, "Commands the agent runs, live."));
+                .child(empty(faces, crate::tr("Commands the agent runs, live.")));
         }
         let running = commands
             .iter()
@@ -856,7 +861,7 @@ impl Desk {
                         div()
                             .id("new-in-worktree")
                             .cursor_pointer()
-                            .child(fine(faces, "New session").text_color(theme::link()))
+                            .child(fine(faces, crate::tr("New session")).text_color(theme::link()))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.new_in_worktree(key, window, cx);
                             }))
@@ -866,7 +871,7 @@ impl Desk {
                             div()
                                 .id("remove-worktree")
                                 .cursor_pointer()
-                                .child(fine(faces, "Remove").text_color(theme::link()))
+                                .child(fine(faces, crate::tr("Remove")).text_color(theme::link()))
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.git_action(
                                         crate::repo::GitAction::RemoveWorktree(
@@ -928,8 +933,12 @@ impl Desk {
                 .unwrap_or(l)
                 .to_owned()
         });
-        let mut about_rows = section(faces, "Agent", None)
-            .child(key_value(faces, "Source", fine(faces, "ACP registry")))
+        let mut about_rows = section(faces, crate::tr("Agent"), None)
+            .child(key_value(
+                faces,
+                "Source",
+                fine(faces, crate::tr("ACP registry")),
+            ))
             .child(key_value(
                 faces,
                 "Version",
@@ -961,7 +970,7 @@ impl Desk {
                     .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&link))),
             ));
         }
-        let what = section(faces, "What Ghost does with it", None)
+        let what = section(faces, crate::tr("What Ghost does with it"), None)
             .border_b_0()
             .child(
                 ui::text(

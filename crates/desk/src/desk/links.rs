@@ -223,9 +223,9 @@ impl Desk {
         window.open_alert_dialog(cx, move |alert, _, _| {
             let (desk, prompt) = (desk.clone(), prompt.clone());
             alert
-                .title("Replace what you were writing?")
-                .description("A link brought a prompt for this session.")
-                .ok_text("Replace")
+                .title(crate::tr("Replace what you were writing?"))
+                .description(crate::tr("A link brought a prompt for this session."))
+                .ok_text(crate::tr("Replace"))
                 .show_cancel(true)
                 .on_ok(move |_, window, cx| {
                     desk.update(cx, |d, cx| d.write_prompt(Some(prompt.clone()), window, cx));

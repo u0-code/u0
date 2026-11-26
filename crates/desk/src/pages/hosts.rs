@@ -36,18 +36,18 @@ impl Desk {
                 item(w, host.name(), about, move |d, _, cx| d.token_field(n, cx)).disabled(scoped)
             })
             .collect();
-        SettingPage::new("Source control")
+        SettingPage::new(crate::tr("Source control"))
             .description(
-                "Where your projects' code and issues are. A token of yours is used over the CLI's own sign-in, and kept in the macOS Keychain, never in a file; it may be a 1Password reference (op://).",
+                crate::tr("Where your projects' code and issues are. A token of yours is used over the CLI's own sign-in, and kept in the macOS Keychain, never in a file; it may be a 1Password reference (op://)."),
             )
             .group(Self::scope_group(w))
-            .group(group("Hosts", hosts))
+            .group(group(crate::tr("Hosts"), hosts))
             .group(group(
-                "Merging",
+                crate::tr("Merging"),
                 vec![item(
                     w,
-                    "Agents' credits in a squash",
-                    "Co-authored-by lines and footers that credit an agent are taken out of a squashed commit's message; a person's stay.",
+                    crate::tr("Agents' credits in a squash"),
+                    crate::tr("Co-authored-by lines and footers that credit an agent are taken out of a squashed commit's message; a person's stay."),
                     |d, _, cx| {
                         d.own(
                             "uncredit",

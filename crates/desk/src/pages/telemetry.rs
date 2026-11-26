@@ -87,7 +87,7 @@ fn levels(state: &Entity<SliderState>, faces: &Faces, cx: &gpui::App) -> AnyElem
         )
         .child(div().flex().children(names))
         .child(ui::fine(faces, at.about()))
-        .children(by.map(|by| ui::fine(faces, format!("Managed by {by}"))))
+        .children(by.map(|by| ui::fine(faces, crate::tr("Managed by %{by}").replace("%{by}", by))))
         .into_any_element()
 }
 
@@ -97,16 +97,18 @@ impl Desk {
         let mut items = vec![
             item(
                 w,
-                "What Ghost tells",
-                "Each level sends what the one before it does, and more; none sends what you or an agent wrote, a path, a name of yours or an error's words. README.md lists every field.",
+                crate::tr("What Ghost tells"),
+                crate::tr(
+                    "Each level sends what the one before it does, and more; none sends what you or an agent wrote, a path, a name of yours or an error's words. README.md lists every field.",
+                ),
                 |d, faces, cx| levels(&d.pages.level, faces, cx),
             ),
             item(
                 w,
-                "Show what is sent",
-                "The next day's batch at this level, exactly as it goes.",
+                crate::tr("Show what is sent"),
+                crate::tr("The next day's batch at this level, exactly as it goes."),
                 |_, _, cx| {
-                    ui::button("telemetry-show", "Show", Weight::Secondary)
+                    ui::button("telemetry-show", crate::tr("Show"), Weight::Secondary)
                         .on_click(cx.listener(|this, _, _, cx| {
                             let level = level_of(this.pages.level.read(cx));
                             this.call(this.pages.on, Call::Telemetry(Ask::Show(level)));
@@ -122,10 +124,10 @@ impl Desk {
         }
         items.push(item(
             w,
-            "Reset install id",
-            "From the next batch on, this install is sent under a new random id, unlinked from the old.",
+            crate::tr("Reset install id"),
+            crate::tr("From the next batch on, this install is sent under a new random id, unlinked from the old."),
             |_, _, cx| {
-                ui::button("telemetry-forget", "Reset", Weight::Quiet)
+                ui::button("telemetry-forget", crate::tr("Reset"), Weight::Quiet)
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.call(this.pages.on, Call::Telemetry(Ask::Forget));
                         this.pages.sent = None;
@@ -134,7 +136,7 @@ impl Desk {
                     .into_any_element()
             },
         ));
-        vec![group("Telemetry", items)]
+        vec![group(crate::tr("Telemetry"), items)]
     }
 
     /// Ask, as Ghost first opens, how much it may tell: Share at the level
@@ -154,7 +156,7 @@ impl Desk {
                 .gap(px(12.))
                 .child(ui::text(
                     &faces,
-                    "Ghost can send its makers counts of how it is used, never what you or your agents write, nor paths or names. Choose how much; Settings › Telemetry changes it later.",
+                    crate::tr("Ghost can send its makers counts of how it is used, never what you or your agents write, nor paths or names. Choose how much; Settings › Telemetry changes it later."),
                 ))
                 .child(levels(&state, &faces, cx));
             let choose = |desk: Entity<Desk>, level: Option<Level>| {
@@ -169,11 +171,11 @@ impl Desk {
                 }
             };
             alert
-                .title("Help make Ghost better?")
+                .title(crate::tr("Help make Ghost better?"))
                 .description(about)
                 .show_cancel(true)
-                .cancel_text("Don't share")
-                .ok_text("Share")
+                .cancel_text(crate::tr("Don't share"))
+                .ok_text(crate::tr("Share"))
                 .on_cancel(choose(desk.clone(), Some(Level::Off)))
                 .on_ok(choose(desk.clone(), None))
         });

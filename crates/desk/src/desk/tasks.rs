@@ -147,7 +147,7 @@ impl Desk {
             prompt: cx.new(|cx| {
                 TextareaState::new(window, cx)
                     .auto_grow(3, 10)
-                    .placeholder("What to say to the agent each time")
+                    .placeholder(crate::tr("What to say to the agent each time"))
                     .default_value(task.prompt.clone())
             }),
             every: field(every, "Minutes, or 2h", window, cx),

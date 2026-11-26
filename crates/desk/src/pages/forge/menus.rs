@@ -75,8 +75,12 @@ impl Desk {
         item: &Item,
         cx: &mut Context<Self>,
     ) -> gpui::component::popover::Popover {
-        let trigger =
-            ui::icon_button("forge-actions", "dots", "What can be done with it").size(px(26.));
+        let trigger = ui::icon_button(
+            "forge-actions",
+            "dots",
+            crate::tr("What can be done with it"),
+        )
+        .size(px(26.));
         let item = item.clone();
         self.menu(
             Popup::ForgeActions,

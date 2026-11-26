@@ -30,6 +30,7 @@ which.workspace = true
 nucleo-matcher.workspace = true
 jsonc-parser.workspace = true
 sys-locale.workspace = true
+rust-i18n.workspace = true
 ratex-parser.workspace = true
 ratex-layout.workspace = true
 ratex-types.workspace = true

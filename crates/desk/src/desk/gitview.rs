@@ -50,7 +50,8 @@ pub struct Review {
 
 impl Review {
     pub(super) fn new(window: &mut Window, cx: &mut Context<Desk>) -> Self {
-        let comment = cx.new(|cx| InputState::new(window, cx).placeholder("What of this line?"));
+        let comment =
+            cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("What of this line?")));
         cx.subscribe_in(
             &comment,
             window,
@@ -65,7 +66,8 @@ impl Review {
             },
         )
         .detach();
-        let find = cx.new(|cx| InputState::new(window, cx).placeholder("Find in the diff"));
+        let find =
+            cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Find in the diff")));
         cx.subscribe_in(&find, window, |this, _, e: &InputEvent, _, cx| match e {
             InputEvent::Change => this.find_in_diff(cx),
             InputEvent::PressEnter { .. } => this.step_hit(1, cx),
@@ -74,7 +76,8 @@ impl Review {
         .detach();
         Self {
             scope: Scope::All,
-            message: cx.new(|cx| InputState::new(window, cx).placeholder("Commit message")),
+            message: cx
+                .new(|cx| InputState::new(window, cx).placeholder(crate::tr("Commit message"))),
             committing: false,
             commenting: None,
             comment,

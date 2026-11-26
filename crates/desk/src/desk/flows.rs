@@ -45,8 +45,9 @@ impl Desk {
     /// input is typed in.
     pub(crate) fn read_flows(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.flows.input.is_none() {
-            self.flows.input =
-                Some(cx.new(|cx| InputState::new(window, cx).placeholder("Its input (optional)")));
+            self.flows.input = Some(cx.new(|cx| {
+                InputState::new(window, cx).placeholder(crate::tr("Its input (optional)"))
+            }));
         }
         self.call(self.pages.on, Call::Workflows);
     }

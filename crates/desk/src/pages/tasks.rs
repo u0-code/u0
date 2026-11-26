@@ -40,9 +40,9 @@ impl Desk {
             None => "Not scheduled".to_owned(),
         };
         let status = task.last.as_ref().map(|r| match (&r.error, r.going) {
-            (_, true) => Tag::info().small().child("Running"),
-            (Some(_), _) => Tag::danger().small().child("Failed"),
-            (None, _) => Tag::success().small().child("Succeeded"),
+            (_, true) => Tag::info().small().child(crate::tr("Running")),
+            (Some(_), _) => Tag::danger().small().child(crate::tr("Failed")),
+            (None, _) => Tag::success().small().child(crate::tr("Succeeded")),
         });
         let session =
             task.last
@@ -171,10 +171,10 @@ impl Desk {
         if self.tasks.draft.is_none() {
             list.push(item(
                 w,
-                "A new task",
-                "Its prompt, said to an agent on a schedule.",
+                crate::tr("A new task"),
+                crate::tr("Its prompt, said to an agent on a schedule."),
                 |_, _, cx| {
-                    ui::button("new-task", "New task", Weight::Secondary)
+                    ui::button("new-task", crate::tr("New task"), Weight::Secondary)
                         .on_click(cx.listener(|this, _, window, cx| this.new_task(window, cx)))
                         .into_any_element()
                 },
@@ -189,8 +189,10 @@ impl Desk {
             }
             Ok(tasks) if tasks.is_empty() => list.push(item(
                 w,
-                "No tasks yet",
-                "A task says its prompt to an agent on a schedule, as a session of its own.",
+                crate::tr("No tasks yet"),
+                crate::tr(
+                    "A task says its prompt to an agent on a schedule, as a session of its own.",
+                ),
                 |_, _, _| div().into_any_element(),
             )),
             Ok(tasks) => {
@@ -206,7 +208,7 @@ impl Desk {
             }
         }
         let mut groups: Vec<SettingGroup> = self.task_form(w).into_iter().collect();
-        groups.push(group("Tasks", list));
+        groups.push(group(crate::tr("Tasks"), list));
         groups
     }
 
@@ -222,14 +224,14 @@ impl Desk {
             }));
         }
         items.extend([
-            item(w, "Name", "", |d, _, _| {
+            item(w, crate::tr("Name"), "", |d, _, _| {
                 d.tasks.draft.as_ref().map_or_else(
                     || div().into_any_element(),
                     |draft| Input::new(&draft.title).small().into_any_element(),
                 )
             })
             .layout(Axis::Vertical),
-            item(w, "Prompt", "", |d, _, _| {
+            item(w, crate::tr("Prompt"), "", |d, _, _| {
                 d.tasks.draft.as_ref().map_or_else(
                     || div().into_any_element(),
                     |draft| Textarea::new(&draft.prompt).into_any_element(),
@@ -238,21 +240,24 @@ impl Desk {
             .layout(Axis::Vertical),
             item(
                 w,
-                "Agent",
-                "Who it is said to, with which model.",
+                crate::tr("Agent"),
+                crate::tr("Who it is said to, with which model."),
                 |d, faces, cx| d.task_agent_pick(faces, cx).into_any_element(),
             ),
-            item(w, "Project", "Where it works.", |d, _, cx| {
-                d.task_project_pick(cx).into_any_element()
-            }),
-            item(w, "Schedule", "", |d, faces, cx| {
+            item(
+                w,
+                crate::tr("Project"),
+                crate::tr("Where it works."),
+                |d, _, cx| d.task_project_pick(cx).into_any_element(),
+            ),
+            item(w, crate::tr("Schedule"), "", |d, faces, cx| {
                 d.task_schedule(faces, cx).into_any_element()
             })
             .layout(Axis::Vertical),
             item(
                 w,
-                "Each run",
-                "A session of its own, or the next turn of the first run's.",
+                crate::tr("Each run"),
+                crate::tr("A session of its own, or the next turn of the first run's."),
                 |d, _, cx| {
                     let same = d.tasks.draft.as_ref().is_some_and(|d| d.task.same);
                     ui::segmented(
@@ -277,8 +282,8 @@ impl Desk {
         if !task.same {
             items.push(item(
                 w,
-                "In a worktree of its own",
-                "Each run's session works on a new branch, away from your checkout.",
+                crate::tr("In a worktree of its own"),
+                crate::tr("Each run's session works on a new branch, away from your checkout."),
                 |d, _, cx| {
                     Switch::new("task-worktree")
                         .accessibility_label("In a worktree of its own")
@@ -312,14 +317,16 @@ impl Desk {
                     .justify_end()
                     .gap(px(8.))
                     .w_full()
-                    .child(ui::button("task-cancel", "Cancel", Weight::Quiet).on_click(
-                        move |_, _, cx| {
-                            let _ = cancel.update(cx, |this, cx| {
-                                this.tasks.draft = None;
-                                cx.notify();
-                            });
-                        },
-                    ))
+                    .child(
+                        ui::button("task-cancel", crate::tr("Cancel"), Weight::Quiet).on_click(
+                            move |_, _, cx| {
+                                let _ = cancel.update(cx, |this, cx| {
+                                    this.tasks.draft = None;
+                                    cx.notify();
+                                });
+                            },
+                        ),
+                    )
                     .child(ui::button("task-save", save, Weight::Primary).on_click(
                         move |_, _, cx| {
                             let _ = keep.update(cx, Desk::save_task);
@@ -380,7 +387,7 @@ impl Desk {
                 .items_center()
                 .gap(px(8.))
                 .child(div().w(px(120.)).child(Input::new(&draft.every).small()))
-                .child(ui::fine(faces, "minutes, or a while such as 2h")),
+                .child(ui::fine(faces, crate::tr("minutes, or a while such as 2h"))),
             Schedule::Daily { days, .. } => {
                 let mut group = gpui::component::button::ButtonGroup::new("task-days")
                     .small()
@@ -411,14 +418,14 @@ impl Desk {
                     .gap(px(8.))
                     .child(TimeField::new(&draft.time))
                     .child(group)
-                    .child(ui::fine(faces, "none chosen: every day"))
+                    .child(ui::fine(faces, crate::tr("none chosen: every day")))
             }
             Schedule::Once(_) => div()
                 .flex()
                 .items_center()
                 .gap(px(8.))
                 .child(div().w(px(200.)).child(Input::new(&draft.at).small()))
-                .child(ui::fine(faces, "tomorrow, 5pm, in 3h")),
+                .child(ui::fine(faces, crate::tr("tomorrow, 5pm, in 3h"))),
             Schedule::Hook(token) => self.hook_addresses(faces, token),
         };
         div()

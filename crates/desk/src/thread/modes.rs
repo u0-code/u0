@@ -157,7 +157,7 @@ impl Desk {
     /// it does, the one now ticked, ⌘1 to ⌘9 beside the first nine.
     fn mode_menu(&self, faces: &Faces, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
         // Each has its icon, so the one chosen is ticked at the end.
-        menu = (menu.label("Mode · this session").min_w(px(300.)))
+        menu = (menu.label(crate::tr("Mode · this session")).min_w(px(300.)))
             .check_side(gpui::component::Side::Right);
         let Some((config, modes)) = self.session().and_then(modes_of) else {
             return menu;

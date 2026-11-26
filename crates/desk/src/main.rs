@@ -8,12 +8,16 @@
 //! program, with its own tools and its own sign-in, spoken to over the
 //! Agent Client Protocol.
 
+// The desk's words in your language (`i18n`), from `locales/`.
+rust_i18n::i18n!("locales", fallback = "en");
+
 mod aside;
 mod assets;
 mod desk;
 mod figures;
 mod fonts;
 mod hub;
+mod i18n;
 mod keys;
 mod macos;
 mod markdown;
@@ -35,6 +39,7 @@ use ghost_core::{
     registry, repo, review, scripts, secrets, server, servers, session, settings, share, store,
     tasks, telemetry, tidy, update, usage, when, whole, workflows, writer,
 };
+use i18n::tr;
 use keys::{
     About, BringAllToFront, CheckForUpdates, Hide, HideOthers, Minimize, NewSession, OpenSettings,
     Quit, ShowAll, Stop, ToggleSidebar, ZoomWindow,
@@ -77,62 +82,62 @@ fn main() {
         // Exit Full Screen to the View menu, and the window list to
         // the Window menu, by itself.
         cx.set_menus(vec![
-            Menu::new("Ghost").items(vec![
-                MenuItem::action("About Ghost", About),
-                MenuItem::action("Check for Updates…", CheckForUpdates),
+            Menu::new(crate::tr("Ghost")).items(vec![
+                MenuItem::action(crate::tr("About Ghost"), About),
+                MenuItem::action(crate::tr("Check for Updates…"), CheckForUpdates),
                 MenuItem::separator(),
-                MenuItem::action("Settings…", OpenSettings),
-                MenuItem::action("Pair a Device…", keys::PairDevice),
-                MenuItem::action("Show Pairing Code…", keys::ShowPairingCode),
+                MenuItem::action(crate::tr("Settings…"), OpenSettings),
+                MenuItem::action(crate::tr("Pair a Device…"), keys::PairDevice),
+                MenuItem::action(crate::tr("Show Pairing Code…"), keys::ShowPairingCode),
                 MenuItem::separator(),
                 MenuItem::os_submenu("Services", SystemMenuType::Services),
                 MenuItem::separator(),
-                MenuItem::action("Hide Ghost", Hide),
-                MenuItem::action("Hide Others", HideOthers),
-                MenuItem::action("Show All", ShowAll),
+                MenuItem::action(crate::tr("Hide Ghost"), Hide),
+                MenuItem::action(crate::tr("Hide Others"), HideOthers),
+                MenuItem::action(crate::tr("Show All"), ShowAll),
                 MenuItem::separator(),
-                MenuItem::action("Quit Ghost", Quit),
+                MenuItem::action(crate::tr("Quit Ghost"), Quit),
             ]),
-            Menu::new("File").items(vec![
-                MenuItem::action("New Session", NewSession),
-                MenuItem::action("Stop", Stop),
+            Menu::new(crate::tr("File")).items(vec![
+                MenuItem::action(crate::tr("New Session"), NewSession),
+                MenuItem::action(crate::tr("Stop"), Stop),
             ]),
-            Menu::new("Edit").items(vec![
+            Menu::new(crate::tr("Edit")).items(vec![
                 MenuItem::os_action("Undo", gpui::component::input::Undo, OsAction::Undo),
                 MenuItem::os_action("Redo", gpui::component::input::Redo, OsAction::Redo),
                 MenuItem::separator(),
                 MenuItem::os_action("Cut", gpui::component::input::Cut, OsAction::Cut),
                 MenuItem::os_action("Copy", gpui::component::input::Copy, OsAction::Copy),
                 MenuItem::os_action("Paste", gpui::component::input::Paste, OsAction::Paste),
-                MenuItem::action("Delete", gpui::component::input::Delete),
+                MenuItem::action(crate::tr("Delete"), gpui::component::input::Delete),
                 MenuItem::os_action(
                     "Select All",
                     gpui::component::input::SelectAll,
                     OsAction::SelectAll,
                 ),
                 MenuItem::separator(),
-                MenuItem::submenu(Menu::new("Speech").items(vec![
-                    MenuItem::action("Start Speaking", keys::StartSpeaking),
-                    MenuItem::action("Stop Speaking", keys::StopSpeaking),
+                MenuItem::submenu(Menu::new(crate::tr("Speech")).items(vec![
+                    MenuItem::action(crate::tr("Start Speaking"), keys::StartSpeaking),
+                    MenuItem::action(crate::tr("Stop Speaking"), keys::StopSpeaking),
                 ])),
             ]),
-            Menu::new("View").items(vec![
-                MenuItem::action("Toggle Sidebar", ToggleSidebar),
+            Menu::new(crate::tr("View")).items(vec![
+                MenuItem::action(crate::tr("Toggle Sidebar"), ToggleSidebar),
                 MenuItem::separator(),
-                MenuItem::action("Actual Size", keys::ActualSize),
-                MenuItem::action("Zoom In", keys::ZoomIn),
-                MenuItem::action("Zoom Out", keys::ZoomOut),
+                MenuItem::action(crate::tr("Actual Size"), keys::ActualSize),
+                MenuItem::action(crate::tr("Zoom In"), keys::ZoomIn),
+                MenuItem::action(crate::tr("Zoom Out"), keys::ZoomOut),
                 MenuItem::separator(),
-                MenuItem::action("Enter Full Screen", keys::FullScreen),
+                MenuItem::action(crate::tr("Enter Full Screen"), keys::FullScreen),
             ]),
-            Menu::new("Window").items(vec![
-                MenuItem::action("Minimize", Minimize),
-                MenuItem::action("Zoom", ZoomWindow),
+            Menu::new(crate::tr("Window")).items(vec![
+                MenuItem::action(crate::tr("Minimize"), Minimize),
+                MenuItem::action(crate::tr("Zoom"), ZoomWindow),
                 MenuItem::separator(),
-                MenuItem::action("Bring All to Front", BringAllToFront),
+                MenuItem::action(crate::tr("Bring All to Front"), BringAllToFront),
             ]),
-            Menu::new("Help").items(vec![MenuItem::action(
-                "Check for Updates…",
+            Menu::new(crate::tr("Help")).items(vec![MenuItem::action(
+                crate::tr("Check for Updates…"),
                 CheckForUpdates,
             )]),
         ]);

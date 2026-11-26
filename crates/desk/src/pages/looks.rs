@@ -31,36 +31,48 @@ impl Desk {
         let mut rows = vec![
             item(
                 w,
-                "Dark theme",
-                "What the dark look is drawn in: Ghost's own, one it brings, or one of yours.",
+                crate::tr("Dark theme"),
+                crate::tr(
+                    "What the dark look is drawn in: Ghost's own, one it brings, or one of yours.",
+                ),
                 |d, _, cx| d.theme_pick(true, cx).into_any_element(),
             ),
             item(
                 w,
-                "Light theme",
-                "What the light look is drawn in.",
+                crate::tr("Light theme"),
+                crate::tr("What the light look is drawn in."),
                 |d, _, cx| d.theme_pick(false, cx).into_any_element(),
             ),
             item(
                 w,
-                "Make a theme",
-                "The theme drawn now, copied into a file of yours and opened in your editor; read the themes again to see what you changed.",
+                crate::tr("Make a theme"),
+                crate::tr(
+                    "The theme drawn now, copied into a file of yours and opened in your editor; read the themes again to see what you changed.",
+                ),
                 |_, _, cx| {
                     div()
                         .flex()
                         .gap(px(8.))
                         .child(
-                            ui::button("theme-duplicate", "Duplicate", Weight::Secondary)
-                                .on_click(cx.listener(|this, _, _, cx| this.duplicate_theme(cx))),
+                            ui::button(
+                                "theme-duplicate",
+                                crate::tr("Duplicate"),
+                                Weight::Secondary,
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| this.duplicate_theme(cx))),
                         )
                         .child(
-                            ui::button("theme-import", "Import VS Code theme…", Weight::Secondary)
-                                .on_click(
-                                    cx.listener(|_, _, window, cx| Desk::import_theme(window, cx)),
-                                ),
+                            ui::button(
+                                "theme-import",
+                                crate::tr("Import VS Code theme…"),
+                                Weight::Secondary,
+                            )
+                            .on_click(
+                                cx.listener(|_, _, window, cx| Desk::import_theme(window, cx)),
+                            ),
                         )
                         .child(
-                            ui::button("theme-read", "Read again", Weight::Secondary)
+                            ui::button("theme-read", crate::tr("Read again"), Weight::Secondary)
                                 .on_click(cx.listener(|this, _, _, cx| this.read_themes(cx))),
                         )
                         .into_any_element()
@@ -114,25 +126,28 @@ impl Desk {
             .map_or_else(|| "None".to_owned(), |p| Desk::shown(p));
         rows.push(item(
             w,
-            "Picture under the thread",
+            crate::tr("Picture under the thread"),
             format!("Drawn faintly behind the thread and the composer: {backdrop}."),
             |d, _, cx| {
                 div()
                     .flex()
                     .gap(px(8.))
                     .child(
-                        ui::button("backdrop-choose", "Choose…", Weight::Secondary).on_click(
-                            cx.listener(|_, _, window, cx| Desk::choose_backdrop(window, cx)),
-                        ),
+                        ui::button("backdrop-choose", crate::tr("Choose…"), Weight::Secondary)
+                            .on_click(
+                                cx.listener(|_, _, window, cx| Desk::choose_backdrop(window, cx)),
+                            ),
                     )
                     .when(d.settings.backdrop.is_some(), |d| {
-                        d.child(ui::button("backdrop-none", "None", Weight::Quiet).on_click(
-                            cx.listener(|this, _, _, cx| {
-                                this.settings.backdrop = None;
-                                this.save_settings();
-                                cx.notify();
-                            }),
-                        ))
+                        d.child(
+                            ui::button("backdrop-none", crate::tr("None"), Weight::Quiet).on_click(
+                                cx.listener(|this, _, _, cx| {
+                                    this.settings.backdrop = None;
+                                    this.save_settings();
+                                    cx.notify();
+                                }),
+                            ),
+                        )
                     })
                     .into_any_element()
             },
@@ -144,7 +159,7 @@ impl Desk {
                 ui::trouble(why.clone()).into_any_element()
             }));
         }
-        group("Themes", rows)
+        group(crate::tr("Themes"), rows)
     }
 
     /// The theme for the dark look (or the light), and a menu of those

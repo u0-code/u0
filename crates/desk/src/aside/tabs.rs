@@ -280,43 +280,45 @@ impl Desk {
             .collect::<Vec<_>>();
         // Right-click a tab: what can be done with it and the others.
         let (desk, shown) = (cx.entity(), column.tabs.clone());
-        let menu_of = move |n: usize,
-                            menu: PopupMenu,
-                            _: &mut gpui::Window,
-                            _: &mut Context<PopupMenu>| {
-            let close = |label: &str, which: fn(usize, usize) -> bool| {
-                let desk = desk.clone();
-                PopupMenuItem::new(label.to_owned()).on_click(move |_, _, cx| {
-                    desk.update(cx, |d, cx| d.close_tabs(|at| which(at, n), cx));
-                })
+        let menu_of =
+            move |n: usize, menu: PopupMenu, _: &mut gpui::Window, _: &mut Context<PopupMenu>| {
+                let close = |label: &str, which: fn(usize, usize) -> bool| {
+                    let desk = desk.clone();
+                    PopupMenuItem::new(label.to_owned()).on_click(move |_, _, cx| {
+                        desk.update(cx, |d, cx| d.close_tabs(|at| which(at, n), cx));
+                    })
+                };
+                let mut menu = menu;
+                match shown.get(n) {
+                    Some(Surface::File(path)) => {
+                        let copied = path.display().to_string();
+                        menu = menu
+                            .item(PopupMenuItem::new(crate::tr("Copy path")).on_click(
+                                move |_, _, cx| {
+                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                                        copied.clone(),
+                                    ));
+                                },
+                            ))
+                            .separator();
+                    }
+                    Some(Surface::Side(key)) => {
+                        let (desk, key) = (desk.clone(), *key);
+                        menu = menu
+                            .item(PopupMenuItem::new(crate::tr("Open in main view")).on_click(
+                                move |_, window, cx| {
+                                    desk.update(cx, |d, cx| d.show(key, window, cx));
+                                },
+                            ))
+                            .separator();
+                    }
+                    _ => {}
+                }
+                menu.item(close("Close", |at, n| at == n))
+                    .item(close("Close others", |at, n| at != n))
+                    .item(close("Close to the right", |at, n| at > n))
+                    .item(close("Close all", |_, _| true))
             };
-            let mut menu = menu;
-            match shown.get(n) {
-                Some(Surface::File(path)) => {
-                    let copied = path.display().to_string();
-                    menu = menu
-                        .item(PopupMenuItem::new("Copy path").on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(copied.clone()));
-                        }))
-                        .separator();
-                }
-                Some(Surface::Side(key)) => {
-                    let (desk, key) = (desk.clone(), *key);
-                    menu = menu
-                        .item(PopupMenuItem::new("Open in main view").on_click(
-                            move |_, window, cx| {
-                                desk.update(cx, |d, cx| d.show(key, window, cx));
-                            },
-                        ))
-                        .separator();
-                }
-                _ => {}
-            }
-            menu.item(close("Close", |at, n| at == n))
-                .item(close("Close others", |at, n| at != n))
-                .item(close("Close to the right", |at, n| at > n))
-                .item(close("Close all", |_, _| true))
-        };
         div()
             .id("column-tabs")
             .flex()
@@ -499,7 +501,7 @@ impl Desk {
             .items_center()
             .justify_center()
             .gap(px(12.))
-            .child(ui::text(faces, "Open a surface").text_size(px(crate::style::BODY)))
+            .child(ui::text(faces, crate::tr("Open a surface")).text_size(px(crate::style::BODY)))
             .child(self.surface_list(faces, cx).w(px(240.)))
     }
 

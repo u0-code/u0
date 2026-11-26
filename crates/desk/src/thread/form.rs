@@ -116,7 +116,8 @@ fn questions(
                         _ => None,
                     };
                     let input = cx.new(|cx| {
-                        let input = InputState::new(window, cx).placeholder("Your answer");
+                        let input =
+                            InputState::new(window, cx).placeholder(crate::tr("Your answer"));
                         match start {
                             Some(s) => input.default_value(s),
                             None => input,
@@ -256,12 +257,12 @@ impl Desk {
         let (agent, key, id) = (s.meta.agent.clone(), s.key, e.id);
         let decline = {
             let agent = agent.clone();
-            ui::button("form-decline", "Decline", ui::Weight::Quiet).on_click(cx.listener(
-                move |this, _, _, cx| {
+            ui::button("form-decline", crate::tr("Decline"), ui::Weight::Quiet).on_click(
+                cx.listener(move |this, _, _, cx| {
                     let no = CreateElicitationResponse::new(ElicitationAction::Decline);
                     this.answer_form(&agent, key, id, Answer::Form(no), "Declined", cx);
-                },
-            ))
+                }),
+            )
         };
         let panel = div()
             .flex()
@@ -290,7 +291,7 @@ impl Desk {
             .child(ui::text(faces, e.message.clone()).text_size(px(crate::style::BODY)));
         if let Some(url) = e.url.clone() {
             return panel.child(div().flex().justify_end().child(
-                ui::button("form-open", "Open the page", ui::Weight::Primary).on_click(
+                ui::button("form-open", crate::tr("Open the page"), ui::Weight::Primary).on_click(
                     cx.listener(move |this, _, _, cx| {
                         cx.open_url(&url);
                         let yes = CreateElicitationResponse::new(ElicitationAction::Accept(

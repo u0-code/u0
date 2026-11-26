@@ -276,7 +276,7 @@ impl Desk {
                             .ghost()
                             .size(px(36.))
                             .child(ui::icon("star-fill", 18.).text_color(theme::text2()))
-                            .tooltip("Favourites")
+                            .tooltip(crate::tr("Favourites"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.picker.rail = Rail::Favourites;
                                 this.picker.at = 0;
@@ -413,7 +413,7 @@ impl Desk {
                             })
                             .when(m.gone, |d| {
                                 d.child(
-                                    ui::text(faces, "Unavailable")
+                                    ui::text(faces, crate::tr("Unavailable"))
                                         .flex_none()
                                         .px(px(5.))
                                         .rounded(px(4.))
@@ -494,20 +494,24 @@ impl Desk {
         let (says, button) = match &slot.stage {
             Stage::Missing(_) | Stage::Failed(_) => (
                 format!("{name} cannot start yet"),
-                ui::button("picker-agents", "Agent settings", ui::Weight::Secondary).on_click(
-                    cx.listener(|this, _, window, cx| {
-                        this.close_popup(window, cx);
-                        this.open_tab(crate::pages::Tab::Agents, window, cx);
-                    }),
-                ),
+                ui::button(
+                    "picker-agents",
+                    crate::tr("Agent settings"),
+                    ui::Weight::Secondary,
+                )
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.close_popup(window, cx);
+                    this.open_tab(crate::pages::Tab::Agents, window, cx);
+                })),
             ),
             _ if matches!(slot.auth, Auth::Needed(_)) => {
                 let agent = agent.to_owned();
                 (
                     format!("Sign in to {name}"),
-                    ui::button("picker-sign-in", "Sign in", ui::Weight::Primary).on_click(
-                        cx.listener(move |this, _, _, cx| this.sign_in_agent(host, &agent, cx)),
-                    ),
+                    ui::button("picker-sign-in", crate::tr("Sign in"), ui::Weight::Primary)
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.sign_in_agent(host, &agent, cx)),
+                        ),
                 )
             }
             _ => return None,
@@ -607,7 +611,7 @@ impl Desk {
             }
             _ if others.is_empty() => {
                 rows = rows.child(
-                    ui::text(faces, "No effort levels")
+                    ui::text(faces, crate::tr("No effort levels"))
                         .p(px(8.))
                         .text_size(px(crate::style::LABEL))
                         .text_color(theme::faint()),
@@ -732,7 +736,7 @@ impl Desk {
                                 .text_size(px(crate::style::CAPTION))
                                 .text_color(theme::muted()),
                         )
-                        .tooltip("A session each, begun with the same words")
+                        .tooltip(crate::tr("A session each, begun with the same words"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.composer.fanout = !this.composer.fanout;
                             cx.notify();

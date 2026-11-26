@@ -1,0 +1,1277 @@
+_version: 2
+# The desk's words in Simplified Chinese, each under its English, which
+# is its key (crate::tr). One not here shows in English.
+"12-hour":
+  zh-CN: "12 小时制"
+"14 days":
+  zh-CN: "14 天"
+"15 minutes":
+  zh-CN: "15 分钟"
+"24-hour":
+  zh-CN: "24 小时制"
+"3 days":
+  zh-CN: "3 天"
+"30 days":
+  zh-CN: "30 天"
+"5 minutes":
+  zh-CN: "5 分钟"
+"7 days":
+  zh-CN: "7 天"
+"A clone goes in <host>/<owner>/<repo> there, as ghq lays them out.":
+  zh-CN: "克隆放在其中的 <host>/<owner>/<repo>，与 ghq 的布局相同。"
+"A day":
+  zh-CN: "一天"
+"A diff's files":
+  zh-CN: "差异中的文件"
+"A diff's long lines":
+  zh-CN: "差异中的长行"
+"A file a day in logs/, kept as long as Keep logs says: what to send with a bug.":
+  zh-CN: "logs/ 中每天一个文件，按「保留日志」的天数保留：报告问题时可附上。"
+"A file the agent named, an edit, or keybindings.json.":
+  zh-CN: "智能体提到的文件、一处编辑，或 keybindings.json。"
+"A file's diff opens":
+  zh-CN: "文件差异的显示方式"
+"A guide leads you through the changes in the order that makes them easiest to read, with what to look at in each. The writer writes it.":
+  zh-CN: "导读按最易读懂的顺序带你浏览这些改动，并说明每处该看什么。由写作者撰写。"
+"A label, or someone's login":
+  zh-CN: "标签，或某人的登录名"
+"A link brought a prompt for this session.":
+  zh-CN: "一个链接为此会话带来了一条提示。"
+"A new session works":
+  zh-CN: "新会话的工作位置"
+"A new task":
+  zh-CN: "新任务"
+"A paragraph at a time":
+  zh-CN: "逐段"
+"A paragraph at a time holds each back until it is whole.":
+  zh-CN: "逐段会等每一段完整后再显示。"
+"A permission or a question waits on you.":
+  zh-CN: "有权限请求或问题在等你。"
+"A picture, or letters or an emoji on a colour; Automatic, its own icon file (favicon, app icon) where it has one.":
+  zh-CN: "一张图片，或彩色底上的字母或表情；自动则使用项目自带的图标文件（favicon、应用图标）。"
+"A project can choose otherwise from its menu.":
+  zh-CN: "项目可在其菜单中另作选择。"
+"A project's sessions, and the projects: your last message, anything happening, when each began, or name. Pinned ones stay on top.":
+  zh-CN: "项目内的会话及项目本身：按你的最后一条消息、最近动态、开始时间或名称排序。置顶的始终在最上方。"
+"A session archived from its menu waits here, read only, until it is restored.":
+  zh-CN: "从菜单归档的会话会以只读方式留在这里，直到被恢复。"
+"A session each, begun with the same words":
+  zh-CN: "各开一个会话，以相同的话开始"
+"A session is done after it is left for":
+  zh-CN: "会话闲置多久后视为完成"
+"A session of its own, or the next turn of the first run's.":
+  zh-CN: "独立会话，或首次运行会话的下一轮。"
+"A task says its prompt to an agent on a schedule, as a session of its own.":
+  zh-CN: "任务会按计划把提示发给智能体，作为独立的会话。"
+"A turn an agent's usage limit stopped is said to go on, as a scheduled task, at the time the agent gives.":
+  zh-CN: "因智能体用量限制而中断的一轮，会在智能体给出的时间作为计划任务继续。"
+"A turn failed or was stopped":
+  zh-CN: "一轮失败或被停止"
+"A turn finished":
+  zh-CN: "一轮结束"
+"ACP registry":
+  zh-CN: "ACP 注册表"
+"About":
+  zh-CN: "关于"
+"About Ghost":
+  zh-CN: "关于 Ghost"
+"Accounts":
+  zh-CN: "账户"
+"Activity":
+  zh-CN: "动态"
+"Actual Size":
+  zh-CN: "实际大小"
+"Add":
+  zh-CN: "添加"
+"Add a model":
+  zh-CN: "添加模型"
+"Add a script to ghost.json":
+  zh-CN: "向 ghost.json 添加脚本"
+"Add an account":
+  zh-CN: "添加账户"
+"Add files, a window, a command":
+  zh-CN: "添加文件、窗口或命令"
+"Add label":
+  zh-CN: "添加标签"
+"Add project":
+  zh-CN: "添加项目"
+"Add task":
+  zh-CN: "添加任务"
+"Add the answer to it":
+  zh-CN: "把回答加入其中"
+"Add to chat":
+  zh-CN: "加入对话"
+"Address":
+  zh-CN: "地址"
+"After each turn, in the empty composer: Tab takes it, Esc lets it go.":
+  zh-CN: "每轮结束后显示在空的输入框中：Tab 采用，Esc 放弃。"
+"Agent":
+  zh-CN: "智能体"
+"Agent settings":
+  zh-CN: "智能体设置"
+"Agents":
+  zh-CN: "智能体"
+"Agents' credits in a squash":
+  zh-CN: "压缩合并中的智能体署名"
+"All projects":
+  zh-CN: "所有项目"
+"An agent asks before it goes on":
+  zh-CN: "智能体在继续前询问"
+"An answer streams in":
+  zh-CN: "回答的显示方式"
+"An archived session's worktree is taken away after":
+  zh-CN: "归档会话的工作树在多久后移除"
+"Another account is the agent run again with its own sign-in and settings, side by side with this one: a session begun in it stays with it.":
+  zh-CN: "另一个账户会以独立的登录和设置再运行一个该智能体，与当前的并存：在其中开始的会话会一直属于它。"
+"Answering…":
+  zh-CN: "正在回答…"
+"Answers":
+  zh-CN: "仅回答"
+"Answers shows what you said and its answers; quiet leaves out the calls that went well; normal folds each run of calls into a line; thinking shows its reasoning too; verbose shows every call and step.":
+  zh-CN: "仅回答显示你说的话和回答；安静省略顺利完成的调用；普通把每组调用折叠为一行；思考还会显示推理过程；详细显示每个调用和步骤。"
+"Appearance":
+  zh-CN: "外观"
+"Applying to":
+  zh-CN: "应用于"
+"Approve":
+  zh-CN: "批准"
+"Archive":
+  zh-CN: "归档"
+"Archived":
+  zh-CN: "已归档"
+"Archived projects":
+  zh-CN: "已归档的项目"
+"Archived sessions":
+  zh-CN: "已归档的会话"
+"As Ghost starts and each time it fetches, while it is checked out with nothing changed, and only where it moves straight on.":
+  zh-CN: "在 Ghost 启动和每次拉取时，若已检出且无改动，并且只能快进时进行。"
+"As Ghost starts and every four hours; an update is installed only when you say.":
+  zh-CN: "Ghost 启动时及每四小时检查一次；只有在你同意时才会安装更新。"
+"As an agent says them while you work: Claude's adapter does; Codex's says them only in answer to /status.":
+  zh-CN: "由智能体在你工作时告知：Claude 的适配器会告知；Codex 的仅在回应 /status 时告知。"
+"As designed":
+  zh-CN: "默认"
+"As heard":
+  zh-CN: "按听到的"
+"As the system":
+  zh-CN: "跟随系统"
+"As written":
+  zh-CN: "保持原样"
+"Ask before a session and what was said in it are deleted.":
+  zh-CN: "删除会话及其内容前询问。"
+"Ask before a session is archived.":
+  zh-CN: "归档会话前询问。"
+"Ask before a session is unpinned.":
+  zh-CN: "取消置顶会话前询问。"
+"Ask before a terminal is closed with something running in it.":
+  zh-CN: "关闭仍有程序运行的终端前询问。"
+"Ask for anything, or give a task":
+  zh-CN: "提出任何问题，或布置一项任务"
+"Ask for review":
+  zh-CN: "请求审查"
+"Ask on the side":
+  zh-CN: "旁问"
+"Ask what you would rather not ask in the session: the agent knows all of it, and nothing said here goes in it.":
+  zh-CN: "问那些你不想在会话中问的问题：智能体了解全部内容，而这里说的不会进入会话。"
+"Assign":
+  zh-CN: "指派"
+"Assignees":
+  zh-CN: "负责人"
+"Auto":
+  zh-CN: "自动"
+"Auto: a press begins and a press ends, or hold it while you talk. Toggle: a press begins, a press ends. Hold: it listens while held. Outside the composer, macOS's dictation types instead.":
+  zh-CN: "自动：按一下开始、再按一下结束，或说话时按住。切换：按一下开始、再按一下结束。按住：按住时收听。在输入框之外，由 macOS 听写输入。"
+"Automatic":
+  zh-CN: "自动"
+"Back to it":
+  zh-CN: "回到它"
+"Back · Esc":
+  zh-CN: "返回 · Esc"
+"Begin from":
+  zh-CN: "起点"
+"Begun":
+  zh-CN: "开始时间"
+"Blue and orange":
+  zh-CN: "蓝色和橙色"
+"Blue and orange tell them apart without green and red.":
+  zh-CN: "蓝色和橙色无需红绿即可区分。"
+"Bring All to Front":
+  zh-CN: "全部移到前面"
+"Bring it back":
+  zh-CN: "恢复"
+"By agent":
+  zh-CN: "按智能体"
+"By model":
+  zh-CN: "按模型"
+"By session":
+  zh-CN: "按会话"
+"Cancel":
+  zh-CN: "取消"
+"Cancelled":
+  zh-CN: "已取消"
+"Carry out the plan":
+  zh-CN: "执行计划"
+"Change":
+  zh-CN: "更改"
+"Changes":
+  zh-CN: "改动"
+"Changes only in spacing":
+  zh-CN: "仅空白的改动"
+"Chat":
+  zh-CN: "对话"
+"Check again":
+  zh-CN: "再次检查"
+"Check for Updates…":
+  zh-CN: "检查更新…"
+"Check now":
+  zh-CN: "立即检查"
+"Check out":
+  zh-CN: "检出"
+"Checkouts":
+  zh-CN: "检出"
+"Checks":
+  zh-CN: "检查"
+"Choose a picture…":
+  zh-CN: "选择图片…"
+"Choose a project":
+  zh-CN: "选择项目"
+"Choose a project to give it choices of its own.":
+  zh-CN: "选择一个项目，为它单独设置。"
+"Choose an agent":
+  zh-CN: "选择智能体"
+"Choose what shows here":
+  zh-CN: "选择这里显示的内容"
+"Choose…":
+  zh-CN: "选择…"
+"Clean up":
+  zh-CN: "清理"
+"Cleaned up":
+  zh-CN: "已清理"
+"Click to write a note on it":
+  zh-CN: "点击写一条备注"
+"Clone into host folders":
+  zh-CN: "按主机分文件夹克隆"
+"Close":
+  zh-CN: "关闭"
+"Close a terminal":
+  zh-CN: "关闭终端"
+"Close · Esc":
+  zh-CN: "关闭 · Esc"
+"Closed":
+  zh-CN: "已关闭"
+"Co-authored-by lines and footers that credit an agent are taken out of a squashed commit's message; a person's stay.":
+  zh-CN: "压缩提交的信息中署名智能体的 Co-authored-by 行和脚注会被移除；人的署名保留。"
+"Code":
+  zh-CN: "代码"
+"Code font":
+  zh-CN: "代码字体"
+"Comfortable":
+  zh-CN: "舒适"
+"Commands the agent runs, live.":
+  zh-CN: "智能体正在运行的命令，实时显示。"
+"Comment":
+  zh-CN: "评论"
+"Comment on the lines chosen":
+  zh-CN: "评论所选的行"
+"Comment on this line":
+  zh-CN: "评论此行"
+"Commit changes":
+  zh-CN: "提交改动"
+"Commit message":
+  zh-CN: "提交信息"
+"Commit messages and pull requests":
+  zh-CN: "提交信息和拉取请求"
+"Commits":
+  zh-CN: "提交"
+"Commit…":
+  zh-CN: "提交…"
+"Confirmations":
+  zh-CN: "确认"
+"Contrast":
+  zh-CN: "对比度"
+"Control other Macs":
+  zh-CN: "控制其他 Mac"
+"Conversations":
+  zh-CN: "讨论"
+"Copy":
+  zh-CN: "复制"
+"Copy chips":
+  zh-CN: "复制标签"
+"Copy path":
+  zh-CN: "复制路径"
+"Copy the error":
+  zh-CN: "复制错误"
+"Copy the version":
+  zh-CN: "复制版本"
+"Copy what it holds":
+  zh-CN: "复制内容"
+"Costs and tokens are each agent's own count.":
+  zh-CN: "费用和令牌数均为各智能体自己的统计。"
+"Create":
+  zh-CN: "创建"
+"Create PR":
+  zh-CN: "创建 PR"
+"Cut":
+  zh-CN: "剪切"
+"Daily":
+  zh-CN: "每天"
+"Danger zone":
+  zh-CN: "危险操作"
+"Dark":
+  zh-CN: "深色"
+"Dark theme":
+  zh-CN: "深色主题"
+"Decline":
+  zh-CN: "拒绝"
+"Default for new sessions":
+  zh-CN: "新会话的默认值"
+"Delete":
+  zh-CN: "删除"
+"Delete the worktree too?":
+  zh-CN: "同时删除工作树？"
+"Delete worktree":
+  zh-CN: "删除工作树"
+"Description":
+  zh-CN: "描述"
+"Devices":
+  zh-CN: "设备"
+"Devices that control this Mac":
+  zh-CN: "控制这台 Mac 的设备"
+"Diagnostics":
+  zh-CN: "诊断"
+"Dictation":
+  zh-CN: "听写"
+"Dictionary":
+  zh-CN: "词典"
+"Direct":
+  zh-CN: "直接"
+"Don't go on":
+  zh-CN: "不要继续"
+"Don't share":
+  zh-CN: "不共享"
+"Done":
+  zh-CN: "完成"
+"Done for now":
+  zh-CN: "暂时完成"
+"Double press":
+  zh-CN: "按两次"
+"Draft":
+  zh-CN: "草稿"
+"Duplicate":
+  zh-CN: "复制一份"
+"Each hour":
+  zh-CN: "每小时"
+"Each level sends what the one before it does, and more; none sends what you or an agent wrote, a path, a name of yours or an error's words. README.md lists every field.":
+  zh-CN: "每一级都发送前一级的内容并多一些；任何一级都不会发送你或智能体写的内容、路径、你的名称或错误文本。README.md 列出了所有字段。"
+"Each new session of it is given Ghost's tools, as an MCP server: the sessions Ghost keeps, a diff, a task handed to another session, a pull request, a task scheduled, a question put to you. What acts asks you here first.":
+  zh-CN: "它的每个新会话都会获得 Ghost 的工具（一个 MCP 服务器）：Ghost 保存的会话、差异、交给另一个会话的任务、拉取请求、计划任务、向你提出的问题。会产生动作的工具会先在这里征求你的同意。"
+"Each run":
+  zh-CN: "每次运行"
+"Each run's session works on a new branch, away from your checkout.":
+  zh-CN: "每次运行的会话都在新分支上工作，不影响你的检出。"
+"Edit":
+  zh-CN: "编辑"
+"Edit task":
+  zh-CN: "编辑任务"
+"Enter Full Screen":
+  zh-CN: "进入全屏"
+"Every":
+  zh-CN: "每隔"
+"Everything in the window, larger or smaller: ⌘+, ⌘− and ⌘0.":
+  zh-CN: "放大或缩小窗口中的一切：⌘+、⌘− 和 ⌘0。"
+"Failed":
+  zh-CN: "失败"
+"Favourites":
+  zh-CN: "收藏"
+"Fetch each project's remote every":
+  zh-CN: "拉取每个项目远程仓库的间隔"
+"File":
+  zh-CN: "文件"
+"Files":
+  zh-CN: "文件"
+"Files open in":
+  zh-CN: "打开文件所用的编辑器"
+"Filler words":
+  zh-CN: "语气词"
+"Find a file":
+  zh-CN: "查找文件"
+"Find in the diff":
+  zh-CN: "在差异中查找"
+"Find in this session":
+  zh-CN: "在此会话中查找"
+"First found":
+  zh-CN: "首个找到的"
+"Folded":
+  zh-CN: "折叠"
+"Folded, each shows its name and counts until opened.":
+  zh-CN: "折叠时，每个文件只显示名称和计数，直到展开。"
+"Force stop":
+  zh-CN: "强制停止"
+"Forget":
+  zh-CN: "忘记"
+"Forgets the project and its sessions here. Files on disk are not touched.":
+  zh-CN: "在此忘记该项目及其会话。磁盘上的文件不受影响。"
+"From macOS while Ghost is behind, clicked to go to the session; in Ghost while another is on screen.":
+  zh-CN: "Ghost 在后台时由 macOS 通知，点击可前往该会话；Ghost 在前台显示其他会话时在 Ghost 内通知。"
+"From the next batch on, this install is sent under a new random id, unlinked from the old.":
+  zh-CN: "从下一批开始，此安装将以新的随机 ID 发送，与旧 ID 不再关联。"
+"Full":
+  zh-CN: "全宽"
+"General":
+  zh-CN: "通用"
+"Ghost can send its makers counts of how it is used, never what you or your agents write, nor paths or names. Choose how much; Settings › Telemetry changes it later.":
+  zh-CN: "Ghost 可以向开发者发送使用情况的统计，绝不包括你或智能体写的内容、路径或名称。选择发送多少；之后可在 设置 › 遥测 中更改。"
+"Ghost has no model of its own: an agent of yours writes what Ghost writes for you.":
+  zh-CN: "Ghost 没有自己的模型：Ghost 为你写的内容由你的某个智能体撰写。"
+"Ghost runs nothing else now.":
+  zh-CN: "Ghost 现在没有运行其他进程。"
+"Ghost's log":
+  zh-CN: "Ghost 的日志"
+"Ghost's own":
+  zh-CN: "Ghost 自带"
+"Ghost's tools":
+  zh-CN: "Ghost 的工具"
+"Ghost's version":
+  zh-CN: "Ghost 的版本"
+"Glass":
+  zh-CN: "玻璃"
+"Go on":
+  zh-CN: "继续"
+"Go on when a limit resets":
+  zh-CN: "限额重置后继续"
+"Going":
+  zh-CN: "进行中"
+"Green and red":
+  zh-CN: "绿色和红色"
+"Guide":
+  zh-CN: "导读"
+"Have it fix the checks":
+  zh-CN: "让它修复检查"
+"Have it resolve the conflicts":
+  zh-CN: "让它解决冲突"
+"Heard by macOS's speech recognition on this Mac alone: a language it can't hear on the device is not sent away.":
+  zh-CN: "仅由这台 Mac 上的 macOS 语音识别收听：无法在本机识别的语言不会被发送出去。"
+"Help":
+  zh-CN: "帮助"
+"Help make Ghost better?":
+  zh-CN: "帮助改进 Ghost？"
+"Hide Ghost":
+  zh-CN: "隐藏 Ghost"
+"Hide Others":
+  zh-CN: "隐藏其他"
+"Hides the project from the sidebar and project pickers. Sessions and files are kept.":
+  zh-CN: "在侧边栏和项目选择器中隐藏该项目。会话和文件都会保留。"
+"Hold":
+  zh-CN: "按住"
+"Hosts":
+  zh-CN: "托管平台"
+"How Ghost tells you things, and what it does while you are away.":
+  zh-CN: "Ghost 如何通知你，以及你离开时它做什么。"
+"How Merge beside a session, and merging once its checks pass, merge a pull request; the PRs page offers each.":
+  zh-CN: "会话旁的「合并」以及检查通过后自动合并时，拉取请求的合并方式；PR 页面提供每一种。"
+"How a session begins in a repository.":
+  zh-CN: "会话在仓库中如何开始。"
+"How far a new worktree's submodules are checked out. Where there are many, the top level alone, or none for a setup script to do.":
+  zh-CN: "新工作树的子模块检出深度。子模块很多时可只检出顶层，或不检出，交给设置脚本处理。"
+"How large your terminals' text is, in the code font.":
+  zh-CN: "终端文字的大小，使用代码字体。"
+"How the thread and what is beside it read.":
+  zh-CN: "对话及其旁边内容的呈现方式。"
+"How wide the thread and the composer are.":
+  zh-CN: "对话和输入框的宽度。"
+"I have signed in":
+  zh-CN: "我已登录"
+"I've signed in":
+  zh-CN: "我已登录"
+"Icon":
+  zh-CN: "图标"
+"Import VS Code theme…":
+  zh-CN: "导入 VS Code 主题…"
+"In a new worktree":
+  zh-CN: "在新工作树中"
+"In a repository":
+  zh-CN: "在仓库中"
+"In a session of its own, deleted once it answers; it spends what a turn spends.":
+  zh-CN: "在独立会话中进行，回答后即删除；消耗与一轮对话相同。"
+"In a worktree of its own":
+  zh-CN: "在独立的工作树中"
+"In the Keychain":
+  zh-CN: "在钥匙串中"
+"In the background":
+  zh-CN: "在后台"
+"In the folder":
+  zh-CN: "在文件夹中"
+"In this window":
+  zh-CN: "在此窗口中"
+"Input":
+  zh-CN: "输入"
+"Install":
+  zh-CN: "安装"
+"It ended in an error, or you stopped it.":
+  zh-CN: "因错误结束，或被你停止。"
+"It moves to Settled in the sidebar; anything said to it brings it back.":
+  zh-CN: "它会移到侧边栏的「已完成」；对它说任何话都会让它回来。"
+"It would not stop: its process is ended, and started again when wanted":
+  zh-CN: "它无法停止：进程将被结束，需要时再重新启动"
+"Its answer is in.":
+  zh-CN: "回答已完成。"
+"Its branch is kept; one with changes not committed is refused":
+  zh-CN: "保留其分支；有未提交改动的会被拒绝"
+"Its branch stays, and so does a worktree with changes not committed; opened again, the session checks it out again.":
+  zh-CN: "分支会保留，有未提交改动的工作树也会保留；再次打开时，会话会重新检出它。"
+"Its checks finishing, or a review coming in, is said in this session":
+  zh-CN: "检查完成或收到审查时，会在此会话中告知"
+"Its default model":
+  zh-CN: "默认模型"
+"Its input (optional)":
+  zh-CN: "输入（可选）"
+"Its prompt, said to an agent on a schedule.":
+  zh-CN: "按计划发给智能体的提示。"
+"Its title and description by the writer, from the branch's work":
+  zh-CN: "标题和描述由写作者根据分支的工作撰写"
+"Keep":
+  zh-CN: "保留"
+"Keep it":
+  zh-CN: "保留"
+"Keep logs":
+  zh-CN: "保留日志"
+"Keep sessions with a pull request":
+  zh-CN: "保留有拉取请求的会话"
+"Keep the Mac awake while an agent works":
+  zh-CN: "智能体工作时保持 Mac 唤醒"
+"Keep the Mac awake while serving":
+  zh-CN: "提供服务时保持 Mac 唤醒"
+"Keep them":
+  zh-CN: "保留"
+"Kept":
+  zh-CN: "已保留"
+"Keyboard":
+  zh-CN: "键盘"
+"Labels":
+  zh-CN: "标签"
+"Language":
+  zh-CN: "语言"
+"Large":
+  zh-CN: "大"
+"Leave it":
+  zh-CN: "保持不变"
+"Left out":
+  zh-CN: "忽略"
+"Left out, a diff shows what changed in the words alone.":
+  zh-CN: "忽略后，差异只显示文字上的改动。"
+"Let other devices control this Mac":
+  zh-CN: "允许其他设备控制这台 Mac"
+"Let them settle":
+  zh-CN: "让它们完成"
+"Letters or an emoji…":
+  zh-CN: "字母或表情…"
+"Light":
+  zh-CN: "浅色"
+"Light and dark keep the same amber for what is going on now.":
+  zh-CN: "浅色和深色都用同一种琥珀色表示正在进行的事。"
+"Light theme":
+  zh-CN: "浅色主题"
+"Limits":
+  zh-CN: "限额"
+"Linear team":
+  zh-CN: "Linear 团队"
+"Local":
+  zh-CN: "本地"
+"Log out":
+  zh-CN: "退出登录"
+"Login shell":
+  zh-CN: "登录 shell"
+"Look":
+  zh-CN: "外观"
+"Look again":
+  zh-CN: "重新查找"
+"Look for agents' new versions":
+  zh-CN: "检查智能体的新版本"
+"Look for updates":
+  zh-CN: "检查更新"
+"Looking for devices…":
+  zh-CN: "正在查找设备…"
+"Macs this Mac controls":
+  zh-CN: "这台 Mac 控制的 Mac"
+"Make a theme":
+  zh-CN: "制作主题"
+"Managed by %{by}":
+  zh-CN: "由 %{by} 管理"
+"Math":
+  zh-CN: "数学公式"
+"Medium":
+  zh-CN: "中"
+"Merge":
+  zh-CN: "合并"
+"Merge commit":
+  zh-CN: "合并提交"
+"Merged":
+  zh-CN: "已合并"
+"Merged as":
+  zh-CN: "合并方式"
+"Merging":
+  zh-CN: "正在合并"
+"Minimize":
+  zh-CN: "最小化"
+"Minute":
+  zh-CN: "分钟"
+"Mode · this session":
+  zh-CN: "模式 · 此会话"
+"Model ids of yours are offered in the composer beside those the agent lists; the agent may refuse one it does not know.":
+  zh-CN: "你添加的模型 ID 会与智能体列出的模型一起出现在输入框中；智能体可能拒绝它不认识的模型。"
+"More":
+  zh-CN: "更高"
+"More draws the greys of what matters less, and the edges, stronger.":
+  zh-CN: "更高会加深次要内容的灰色和边框。"
+"Name":
+  zh-CN: "名称"
+"Name this branch in what you write there":
+  zh-CN: "在你写的内容中为此分支命名"
+"Needs you":
+  zh-CN: "需要你处理"
+"Never":
+  zh-CN: "从不"
+"New Session":
+  zh-CN: "新会话"
+"New issue":
+  zh-CN: "新议题"
+"New link":
+  zh-CN: "新链接"
+"New projects go in":
+  zh-CN: "新项目存放位置"
+"New session":
+  zh-CN: "新会话"
+"New sessions":
+  zh-CN: "新会话"
+"New since you last looked":
+  zh-CN: "自你上次查看以来的新内容"
+"New task":
+  zh-CN: "新任务"
+"New terminal":
+  zh-CN: "新终端"
+"New worktree":
+  zh-CN: "新工作树"
+"Newest first":
+  zh-CN: "最新在前"
+"Next · Return":
+  zh-CN: "下一个 · Return"
+"Nightly":
+  zh-CN: "每夜版"
+"No agent said what a session cost or took in this time. Not every agent says; Ghost does not guess.":
+  zh-CN: "在此期间没有智能体告知会话的费用或用量。并非所有智能体都会告知；Ghost 不做猜测。"
+"No conversations on its lines.":
+  zh-CN: "其代码行上没有讨论。"
+"No description.":
+  zh-CN: "无描述。"
+"No device is paired":
+  zh-CN: "没有配对的设备"
+"No effort levels":
+  zh-CN: "没有思考强度选项"
+"No other branch here to compare with.":
+  zh-CN: "这里没有其他可比较的分支。"
+"No project":
+  zh-CN: "无项目"
+"No projects yet":
+  zh-CN: "还没有项目"
+"No runs here.":
+  zh-CN: "这里没有运行记录。"
+"No simulator or emulator here.":
+  zh-CN: "这里没有模拟器。"
+"No tasks yet":
+  zh-CN: "还没有任务"
+"No workflows yet":
+  zh-CN: "还没有工作流"
+"None":
+  zh-CN: "无"
+"None for this branch yet: commit, push and open one from the Diff tab.":
+  zh-CN: "此分支还没有拉取请求：在「差异」标签页中提交、推送并创建一个。"
+"Normal":
+  zh-CN: "普通"
+"Nothing archived":
+  zh-CN: "没有归档内容"
+"Nothing said":
+  zh-CN: "没有说任何话"
+"Nothing said yet.":
+  zh-CN: "还没有说任何话。"
+"Nothing went wrong lately.":
+  zh-CN: "最近没有出错。"
+"Notify":
+  zh-CN: "通知"
+"Notify and sound":
+  zh-CN: "通知并发声"
+"Off":
+  zh-CN: "关闭"
+"Off: nothing listens, and no device comes in.":
+  zh-CN: "关闭：不监听，任何设备都无法接入。"
+"Off: this Mac controls only itself.":
+  zh-CN: "关闭：这台 Mac 只控制它自己。"
+"Oldest first":
+  zh-CN: "最早在前"
+"On the main branch, a branch of its own is made first":
+  zh-CN: "在主分支上时，会先创建一个独立分支"
+"Once":
+  zh-CN: "一次"
+"One whose pull request is open is never done for being left.":
+  zh-CN: "有打开的拉取请求的会话不会因闲置而被视为完成。"
+"Open":
+  zh-CN: "打开"
+"Open a surface":
+  zh-CN: "打开面板"
+"Open in main view":
+  zh-CN: "在主视图中打开"
+"Open in your editor":
+  zh-CN: "在编辑器中打开"
+"Open keybindings.json":
+  zh-CN: "打开 keybindings.json"
+"Open on its host":
+  zh-CN: "在托管平台上打开"
+"Open preview":
+  zh-CN: "打开预览"
+"Open the page":
+  zh-CN: "打开页面"
+"Or they begin with":
+  zh-CN: "或以此开头"
+"Other":
+  zh-CN: "其他"
+"Outdated":
+  zh-CN: "已过时"
+"Pair":
+  zh-CN: "配对"
+"Pair a Device…":
+  zh-CN: "配对设备…"
+"Pair a device with this Mac":
+  zh-CN: "将设备与这台 Mac 配对"
+"Pair with a link":
+  zh-CN: "通过链接配对"
+"Pair with another Mac":
+  zh-CN: "与另一台 Mac 配对"
+"Pairing link":
+  zh-CN: "配对链接"
+"Paste the link the other Mac shows under Pair a device with this Mac, or open it here. Its projects come down the left, beside this Mac's.":
+  zh-CN: "粘贴另一台 Mac 在「将设备与这台 Mac 配对」下显示的链接，或在这里打开它。它的项目会出现在左侧，与这台 Mac 的项目并列。"
+"Paused":
+  zh-CN: "已暂停"
+"Period":
+  zh-CN: "时段"
+"Picture under the thread":
+  zh-CN: "对话下方的图片"
+"Pinned":
+  zh-CN: "已置顶"
+"Pinned projects come first in the sidebar and in project pickers.":
+  zh-CN: "置顶的项目在侧边栏和项目选择器中排在最前。"
+"Plain text":
+  zh-CN: "明文"
+"Power off":
+  zh-CN: "关机"
+"Press the keys…  Escape to keep these":
+  zh-CN: "按下按键…  按 Escape 保持不变"
+"Previous · ⇧Return":
+  zh-CN: "上一个 · ⇧Return"
+"Processes":
+  zh-CN: "进程"
+"Project":
+  zh-CN: "项目"
+"Projects":
+  zh-CN: "项目"
+"Prompt":
+  zh-CN: "提示"
+"Pull":
+  zh-CN: "拉取"
+"Pull its default branch":
+  zh-CN: "拉取默认分支"
+"Pull request":
+  zh-CN: "拉取请求"
+"Pull requests":
+  zh-CN: "拉取请求"
+"Pull requests: on its own branch":
+  zh-CN: "拉取请求：在独立分支上"
+"Put aside":
+  zh-CN: "放到一边"
+"Put this away":
+  zh-CN: "收起"
+"Quiet":
+  zh-CN: "安静"
+"Quit Ghost":
+  zh-CN: "退出 Ghost"
+"Quit in the menu always quits at once.":
+  zh-CN: "菜单中的「退出」总是立即退出。"
+"Quit with ⌘Q":
+  zh-CN: "用 ⌘Q 退出"
+"Quote in your reply":
+  zh-CN: "在回复中引用"
+"Reach":
+  zh-CN: "访问方式"
+"Reach it again":
+  zh-CN: "重新连接"
+"Read again":
+  zh-CN: "重新读取"
+"Read the files again":
+  zh-CN: "重新读取文件"
+"Read the registry again":
+  zh-CN: "重新读取注册表"
+"Reading":
+  zh-CN: "阅读"
+"Reading git…":
+  zh-CN: "正在读取 git…"
+"Reading its screen…":
+  zh-CN: "正在读取屏幕…"
+"Reading the registry…":
+  zh-CN: "正在读取注册表…"
+"Reading width":
+  zh-CN: "阅读宽度"
+"Reading…":
+  zh-CN: "正在读取…"
+"Rebase":
+  zh-CN: "变基"
+"Recursive":
+  zh-CN: "递归"
+"Reject it, then write what it should do instead":
+  zh-CN: "拒绝，然后写下它应该怎么做"
+"Remove":
+  zh-CN: "移除"
+"Remove project":
+  zh-CN: "移除项目"
+"Remove…":
+  zh-CN: "移除…"
+"Rename":
+  zh-CN: "重命名"
+"Reopen":
+  zh-CN: "重新打开"
+"Replace":
+  zh-CN: "替换"
+"Replace what you were writing?":
+  zh-CN: "替换你正在写的内容？"
+"Reply":
+  zh-CN: "回复"
+"Request changes":
+  zh-CN: "请求修改"
+"Reset":
+  zh-CN: "重置"
+"Reset install id":
+  zh-CN: "重置安装 ID"
+"Resolve":
+  zh-CN: "解决"
+"Resolved":
+  zh-CN: "已解决"
+"Restart":
+  zh-CN: "重新启动"
+"Restart session":
+  zh-CN: "重启会话"
+"Restore":
+  zh-CN: "恢复"
+"Resume":
+  zh-CN: "继续"
+"Return":
+  zh-CN: "Return"
+"Reveal in Finder":
+  zh-CN: "在访达中显示"
+"Reviewers":
+  zh-CN: "审查者"
+"Revoke":
+  zh-CN: "撤销"
+"Run again":
+  zh-CN: "再次运行"
+"Run it in a terminal of yours":
+  zh-CN: "在你的终端中运行"
+"Run now":
+  zh-CN: "立即运行"
+"Running":
+  zh-CN: "运行中"
+"Runs":
+  zh-CN: "运行记录"
+"Save":
+  zh-CN: "保存"
+"Say something":
+  zh-CN: "说点什么"
+"Say what of these lines":
+  zh-CN: "对这些行说点什么"
+"Schedule":
+  zh-CN: "计划"
+"Scheduled tasks":
+  zh-CN: "计划任务"
+"Scripts":
+  zh-CN: "脚本"
+"Search":
+  zh-CN: "搜索"
+"Search: label:bug, author:someone, words":
+  zh-CN: "搜索：label:bug、author:某人、关键词"
+"Secret":
+  zh-CN: "机密"
+"Sending":
+  zh-CN: "发送中"
+"Sessions":
+  zh-CN: "会话"
+"Sessions put away, and what Ghost keeps on this Mac.":
+  zh-CN: "收起的会话，以及 Ghost 在这台 Mac 上保存的内容。"
+"Set as formulas":
+  zh-CN: "排版为公式"
+"Set in the agent's environment as it starts. A secret one is kept in the macOS Keychain, never in Ghost's files; a value may be a 1Password reference, read by op as it starts.":
+  zh-CN: "在智能体启动时设置到其环境中。机密值保存在 macOS 钥匙串中，从不写入 Ghost 的文件；值也可以是 1Password 引用，启动时由 op 读取。"
+"Settings…":
+  zh-CN: "设置…"
+"Settle it":
+  zh-CN: "标为完成"
+"Share":
+  zh-CN: "共享"
+"Show":
+  zh-CN: "显示"
+"Show All":
+  zh-CN: "全部显示"
+"Show Pairing Code…":
+  zh-CN: "显示配对码…"
+"Show the terminals":
+  zh-CN: "显示终端"
+"Show what is sent":
+  zh-CN: "显示发送的内容"
+"Show where":
+  zh-CN: "显示位置"
+"Showing":
+  zh-CN: "显示中"
+"Shown":
+  zh-CN: "已显示"
+"Shown when the agent makes one.":
+  zh-CN: "智能体制定计划时显示。"
+"Side by side":
+  zh-CN: "并排"
+"Side by side widens the column beside the thread.":
+  zh-CN: "并排会加宽对话旁的栏。"
+"Sign in":
+  zh-CN: "登录"
+"Size":
+  zh-CN: "大小"
+"Skip":
+  zh-CN: "跳过"
+"Small":
+  zh-CN: "小"
+"Snooze for":
+  zh-CN: "稍后提醒"
+"So branches and pull requests are up to date; projects set to pull are moved on too.":
+  zh-CN: "使分支和拉取请求保持最新；设为拉取的项目也会前移。"
+"So that it can be reached with its lid open and no one at it.":
+  zh-CN: "这样在无人值守、开盖状态下也能访问它。"
+"Solid":
+  zh-CN: "不透明"
+"Source control":
+  zh-CN: "源代码管理"
+"Speech":
+  zh-CN: "语音"
+"Squash":
+  zh-CN: "压缩合并"
+"Stable":
+  zh-CN: "稳定版"
+"Stable is each release, as the ghost cask installs it; Nightly is what main is now, rebuilt with each change, as ghost@nightly installs it.":
+  zh-CN: "稳定版是每个正式版本，由 ghost cask 安装；每夜版是 main 的当前状态，每次改动都会重新构建，由 ghost@nightly 安装。"
+"Stacked":
+  zh-CN: "上下"
+"Start":
+  zh-CN: "启动"
+"Start Speaking":
+  zh-CN: "开始朗读"
+"Steer":
+  zh-CN: "引导"
+"Steer stops the turn and says it now; waiting says it once the turn ends.":
+  zh-CN: "引导会停止当前一轮并立即发送；等待则在这一轮结束后发送。"
+"Stop":
+  zh-CN: "停止"
+"Stop Speaking":
+  zh-CN: "停止朗读"
+"Stop it":
+  zh-CN: "停止它"
+"Stop setting it up, and begin":
+  zh-CN: "停止设置，直接开始"
+"Stopped":
+  zh-CN: "已停止"
+"Submodules":
+  zh-CN: "子模块"
+"Succeeded":
+  zh-CN: "成功"
+"Suggest what to say next":
+  zh-CN: "建议下一步说什么"
+"Summary":
+  zh-CN: "概要"
+"Tasks":
+  zh-CN: "任务"
+"TeX in what an agent says, $…$ and $$…$$, set as formulas.":
+  zh-CN: "将智能体所说内容中的 TeX（$…$ 和 $$…$$）排版为公式。"
+"Telemetry":
+  zh-CN: "遥测"
+"Terminal shell":
+  zh-CN: "终端 shell"
+"Terminal text":
+  zh-CN: "终端文字"
+"The ACP registry is read again each hour; an agent that stops working is updated to the newest.":
+  zh-CN: "每小时重新读取 ACP 注册表；无法工作的智能体会被更新到最新版本。"
+"The ACP registry, read again every six hours.":
+  zh-CN: "ACP 注册表，每六小时重新读取。"
+"The Macs paired with are in this window beside this one; pair with another's link.":
+  zh-CN: "已配对的 Mac 与这台并列显示在此窗口中；用另一台的链接配对。"
+"The agent its new sessions begin with.":
+  zh-CN: "其新会话所用的智能体。"
+"The agent's work":
+  zh-CN: "智能体的工作"
+"The agents come from":
+  zh-CN: "智能体来源"
+"The branch changed":
+  zh-CN: "分支已改变"
+"The days of log kept; older files go as Ghost starts.":
+  zh-CN: "日志保留的天数；更早的文件在 Ghost 启动时删除。"
+"The dictation key (⇧⌘D)":
+  zh-CN: "听写键（⇧⌘D）"
+"The display may sleep; a turn going on is not cut short by the Mac sleeping.":
+  zh-CN: "显示器可以休眠；正在进行的一轮不会因 Mac 休眠而中断。"
+"The first agent switched on.":
+  zh-CN: "第一个启用的智能体。"
+"The folders you work in, and how each one's sessions begin.":
+  zh-CN: "你工作的文件夹，以及各自的会话如何开始。"
+"The ghost command":
+  zh-CN: "ghost 命令"
+"The keys as they are now, yours over Ghost's.":
+  zh-CN: "当前的按键设置，你的设置优先于 Ghost 的。"
+"The kind of work":
+  zh-CN: "工作类型"
+"The kind of work, as the writer sees it: feat/, fix/, docs/.":
+  zh-CN: "写作者判断的工作类型：feat/、fix/、docs/。"
+"The next":
+  zh-CN: "下一个"
+"The next day's batch at this level, exactly as it goes.":
+  zh-CN: "按此级别次日要发送的一批数据，与实际发送的完全一致。"
+"The one before":
+  zh-CN: "上一个"
+"The prefix":
+  zh-CN: "前缀"
+"The registry does not list this agent.":
+  zh-CN: "注册表中没有列出此智能体。"
+"The session is done then, while it waits on nothing.":
+  zh-CN: "此时若会话无待办，即视为完成。"
+"The session's agent":
+  zh-CN: "会话的智能体"
+"The sidebar sorts by":
+  zh-CN: "侧边栏排序方式"
+"The theme drawn now, copied into a file of yours and opened in your editor; read the themes again to see what you changed.":
+  zh-CN: "当前使用的主题会复制到你的文件中并在编辑器中打开；重新读取主题即可看到你的修改。"
+"The ways to snooze offered first, each as you would type it in Custom…: 1h, 5pm, tomorrow, next week. Commas between.":
+  zh-CN: "优先提供的稍后提醒选项，按你在「自定义…」中输入的方式书写：1h、5pm、tomorrow、next week，用逗号分隔。"
+"The window's grounds let the desktop show through, blurred.":
+  zh-CN: "窗口背景透出模糊的桌面。"
+"The words of Ghost's window; what agents say stays as they say it.":
+  zh-CN: "Ghost 窗口中的文字；智能体所说的内容保持原样。"
+"The writer":
+  zh-CN: "写作者"
+"The writer corrects what was misheard and punctuates it before it goes in; Skip puts it in as heard.":
+  zh-CN: "写作者会先纠正听错的内容并加上标点再填入；跳过则按听到的原样填入。"
+"The writer is reading the changes…":
+  zh-CN: "写作者正在阅读这些改动…"
+"Themes":
+  zh-CN: "主题"
+"Then the name the writer gives the work, as in ghost/retry-s3-uploads.":
+  zh-CN: "然后是写作者为这项工作起的名字，例如 ghost/retry-s3-uploads。"
+"Thinking":
+  zh-CN: "思考"
+"This build":
+  zh-CN: "此版本"
+"This session":
+  zh-CN: "此会话"
+"This side chat is gone.":
+  zh-CN: "此旁聊已不存在。"
+"Those that need you, those going, or all.":
+  zh-CN: "需要你处理的、进行中的，或全部。"
+"Tidy":
+  zh-CN: "整理"
+"Timeline":
+  zh-CN: "时间线"
+"Times":
+  zh-CN: "时间"
+"Title":
+  zh-CN: "标题"
+"Titles":
+  zh-CN: "标题"
+"Toggle":
+  zh-CN: "切换"
+"Toggle Sidebar":
+  zh-CN: "显示或隐藏侧边栏"
+"Top level":
+  zh-CN: "仅顶层"
+"Touch it in Simulator: simctl takes no touch.":
+  zh-CN: "请在 Simulator 中触控：simctl 不支持触控。"
+"Transcript view":
+  zh-CN: "记录视图"
+"Transcript view (⌃O)":
+  zh-CN: "记录视图（⌃O）"
+"Try again":
+  zh-CN: "重试"
+"Tunnel (cloudflared)":
+  zh-CN: "隧道（cloudflared）"
+"Tunnel token":
+  zh-CN: "隧道令牌"
+"Turn off":
+  zh-CN: "关闭"
+"Turn on":
+  zh-CN: "开启"
+"Turn on the agents you use. Each runs its own CLI over ACP, with its own sign-in.":
+  zh-CN: "启用你使用的智能体。每个都通过 ACP 运行自己的 CLI，使用自己的登录。"
+"Type":
+  zh-CN: "输入"
+"Type into it":
+  zh-CN: "向其中输入"
+"Unavailable":
+  zh-CN: "不可用"
+"Uninstall":
+  zh-CN: "卸载"
+"Unpin":
+  zh-CN: "取消置顶"
+"Updates":
+  zh-CN: "更新"
+"Updates from":
+  zh-CN: "更新来源"
+"Usage":
+  zh-CN: "用量"
+"Use":
+  zh-CN: "使用"
+"Use Ghost on one Mac from another: its agents, sessions, files and terminals, as there. Each device comes in by a key of its own, made as it pairs: its private half stays in that device's Keychain, and only the public half, shown by its fingerprint, is sent.":
+  zh-CN: "在一台 Mac 上使用另一台 Mac 的 Ghost：它的智能体、会话、文件和终端，如同在那台机器上。每个设备都通过配对时生成的专属密钥接入：私钥留在该设备的钥匙串中，只发送公钥（以指纹显示）。"
+"Use a quick tunnel":
+  zh-CN: "使用快速隧道"
+"Use this command":
+  zh-CN: "使用此命令"
+"Variables":
+  zh-CN: "变量"
+"Verbose":
+  zh-CN: "详细"
+"View":
+  zh-CN: "查看"
+"Viewed":
+  zh-CN: "已查看"
+"Views":
+  zh-CN: "视图"
+"Wait for me":
+  zh-CN: "等我"
+"Wait its turn":
+  zh-CN: "排队等待"
+"Waiting to be said":
+  zh-CN: "等待发送"
+"Warnings and errors in the log":
+  zh-CN: "日志中的警告和错误"
+"What Ghost does with it":
+  zh-CN: "Ghost 如何处理"
+"What Ghost keeps":
+  zh-CN: "Ghost 保存的内容"
+"What Ghost runs on this Mac, and what went wrong.":
+  zh-CN: "Ghost 在这台 Mac 上运行的进程，以及出过什么问题。"
+"What Ghost tells":
+  zh-CN: "Ghost 发送的内容"
+"What a change added and took away":
+  zh-CN: "改动中增加和删除的内容"
+"What a new terminal runs: your login shell, or one named.":
+  zh-CN: "新终端运行的程序：你的登录 shell，或指定的 shell。"
+"What can be done with it":
+  zh-CN: "可执行的操作"
+"What code, commands and numbers are set in.":
+  zh-CN: "代码、命令和数字所用的字体。"
+"What it is about":
+  zh-CN: "关于什么"
+"What of this line?":
+  zh-CN: "关于这一行？"
+"What sends what you write":
+  zh-CN: "发送方式"
+"What sessions cost and took, and where your limits stand, as agents said.":
+  zh-CN: "会话的费用和用量，以及你的限额状况，均来自智能体的报告。"
+"What the dark look is drawn in: Ghost's own, one it brings, or one of yours.":
+  zh-CN: "深色外观所用的主题：Ghost 自带的、内置的或你自己的。"
+"What the light look is drawn in.":
+  zh-CN: "浅色外观所用的主题。"
+"What the run begins with: Return starts it.":
+  zh-CN: "运行开始时的输入：按 Return 开始。"
+"What the server these settings are of tells the people who make Ghost, as far as you let it.":
+  zh-CN: "这些设置所属的服务器在你允许的范围内向 Ghost 的开发者发送的内容。"
+"What the sidebar calls it.":
+  zh-CN: "在侧边栏中显示的名称。"
+"What to say to the agent each time":
+  zh-CN: "每次对智能体说的话"
+"What you send waits, or steers":
+  zh-CN: "你发送的内容排队等待，或引导当前一轮"
+"What you write, and what the agent did.":
+  zh-CN: "你写的内容，以及智能体做了什么。"
+"When a message was said, and what Ghost says of times.":
+  zh-CN: "消息的发送时间，以及 Ghost 显示时间的方式。"
+"When a session ends a turn or needs you":
+  zh-CN: "当会话结束一轮或需要你时"
+"When its pull request merges or closes":
+  zh-CN: "当其拉取请求被合并或关闭时"
+"Where Ghost keeps its files":
+  zh-CN: "Ghost 存放文件的位置"
+"Where Return does not send, it breaks the line. The other key (⌘Return, or ⇧⌘Return) begins another session beside it, or while a turn goes on does the opposite of the setting above.":
+  zh-CN: "Return 不发送时用于换行。另一个键（⌘Return 或 ⇧⌘Return）会在旁边开始另一个会话，或在一轮进行中时执行与上方设置相反的操作。"
+"Where it works.":
+  zh-CN: "工作位置。"
+"Where they work: in the folder, or a worktree of their own on a new branch.":
+  zh-CN: "工作位置：在文件夹中，或在新分支上的独立工作树中。"
+"Where your projects' code and issues are. A token of yours is used over the CLI's own sign-in, and kept in the macOS Keychain, never in a file; it may be a 1Password reference (op://).":
+  zh-CN: "你的项目代码和议题所在的平台。你的令牌优先于 CLI 自身的登录，保存在 macOS 钥匙串中，从不写入文件；也可以是 1Password 引用（op://）。"
+"While a turn goes on":
+  zh-CN: "一轮进行中时"
+"While you are away":
+  zh-CN: "你离开时"
+"Who it is said to, with which model.":
+  zh-CN: "发给谁，使用哪个模型。"
+"Who writes":
+  zh-CN: "由谁撰写"
+"Wide":
+  zh-CN: "宽"
+"Window":
+  zh-CN: "窗口"
+"Word by word":
+  zh-CN: "逐字"
+"Workflows":
+  zh-CN: "工作流"
+"Worktree branches":
+  zh-CN: "工作树分支"
+"Worktree branches begin with":
+  zh-CN: "工作树分支前缀"
+"Worktree location":
+  zh-CN: "工作树位置"
+"Wrap":
+  zh-CN: "换行"
+"Wrap long lines":
+  zh-CN: "长行换行"
+"Wrapped, they show whole; kept to a line, they are cut at the edge.":
+  zh-CN: "换行时完整显示；保持单行时在边缘截断。"
+"Writer":
+  zh-CN: "写作者"
+"Writing":
+  zh-CN: "写作"
+"Written before its latest commits.":
+  zh-CN: "写于最近几次提交之前。"
+"Your answer":
+  zh-CN: "你的回答"
+"Your instructions":
+  zh-CN: "你的指示"
+"Your message":
+  zh-CN: "你的消息"
+"Your note on it":
+  zh-CN: "你的备注"
+"Zoom":
+  zh-CN: "缩放"
+"Zoom In":
+  zh-CN: "放大"
+"Zoom Out":
+  zh-CN: "缩小"
+"a token":
+  zh-CN: "令牌"
+"conflicts with its base":
+  zh-CN: "与基准分支冲突"
+"ghost <folder> in a terminal opens the folder here as a project. It goes in ~/.local/bin.":
+  zh-CN: "在终端中运行 ghost <文件夹> 会在这里把该文件夹作为项目打开。它安装在 ~/.local/bin。"
+"minutes, or a while such as 2h":
+  zh-CN: "分钟数，或如 2h 这样的时长"
+"none chosen: every day":
+  zh-CN: "未选择：每天"
+"tomorrow, 5pm, in 3h":
+  zh-CN: "tomorrow、5pm、in 3h"
+"value, or op://vault/item/field":
+  zh-CN: "值，或 op://vault/item/field"
+"“Um”, “uh” and the like.":
+  zh-CN: "“嗯”“呃”之类的词。"
+"⇧⌘1 to ⇧⌘5 choose it.":
+  zh-CN: "用 ⇧⌘1 到 ⇧⌘5 选择。"
+"⌘Return if multiline":
+  zh-CN: "多行时用 ⌘Return"

@@ -34,7 +34,7 @@ impl Desk {
             }
             Updating::Failed(why) => format!("Couldn't look: {why}"),
         };
-        let mut items = vec![item(w, "Ghost's version", said, |d, _, cx| {
+        let mut items = vec![item(w, crate::tr("Ghost's version"), said, |d, _, cx| {
             d.update_button(cx)
         })];
         // What the release says of itself, under it.
@@ -53,12 +53,11 @@ impl Desk {
         items.extend([
             item(
                 w,
-                "Updates from",
-                "Stable is each release, as the ghost cask installs it; Nightly is what main is now, rebuilt with each change, as ghost@nightly installs it.",
+                crate::tr("Updates from"),
+                crate::tr("Stable is each release, as the ghost cask installs it; Nightly is what main is now, rebuilt with each change, as ghost@nightly installs it."),
                 |d, _, cx| {
-                    Self::pick(
-                        "channel",
-                        [("Stable", Channel::Stable), ("Nightly", Channel::Nightly)],
+                    Self::pick("channel",
+                        [(crate::tr("Stable"), Channel::Stable), (crate::tr("Nightly"), Channel::Nightly)],
                         d.settings.channel,
                         |s, v| s.channel = v,
                         cx,
@@ -68,8 +67,8 @@ impl Desk {
             ),
             item(
                 w,
-                "Look for updates",
-                "As Ghost starts and every four hours; an update is installed only when you say.",
+                crate::tr("Look for updates"),
+                crate::tr("As Ghost starts and every four hours; an update is installed only when you say."),
                 |d, _, cx| {
                     let switch = Switch::new("check-updates")
                         .accessibility_label("Look for updates")
@@ -87,7 +86,7 @@ impl Desk {
                 },
             ),
         ]);
-        group("Updates", items)
+        group(crate::tr("Updates"), items)
     }
 
     /// What can be done about an update now: look, install, restart.
@@ -103,7 +102,7 @@ impl Desk {
             .flex()
             .gap_1()
             .child(
-                ui::icon_button("copy-version", "copy", "Copy the version")
+                ui::icon_button("copy-version", "copy", crate::tr("Copy the version"))
                     .small()
                     .on_click(|_, _, cx| Self::copy_version(cx)),
             )

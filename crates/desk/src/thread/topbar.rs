@@ -48,7 +48,7 @@ impl Desk {
         };
         if self.page != Page::Thread {
             bar = bar.child(
-                ui::icon_button("back", "chevron-left", "Back · Esc").on_click(
+                ui::icon_button("back", "chevron-left", crate::tr("Back · Esc")).on_click(
                     cx.listener(|this, _, window, cx| this.open_page(Page::Thread, window, cx)),
                 ),
             );
@@ -94,9 +94,10 @@ impl Desk {
                             })
                             .into_any_element()
                     };
-                    let caret = ui::icon_button("title-menu", "chevron-down", "This session")
-                        .size(px(22.))
-                        .text_color(theme::faint());
+                    let caret =
+                        ui::icon_button("title-menu", "chevron-down", crate::tr("This session"))
+                            .size(px(22.))
+                            .text_color(theme::faint());
                     bar = bar
                         .child(named)
                         .child(self.menu(
@@ -167,7 +168,7 @@ impl Desk {
         let Some(s) = self.session() else {
             return menu;
         };
-        menu = menu.label("Transcript view").min_w(px(240.));
+        menu = menu.label(crate::tr("Transcript view")).min_w(px(240.));
         for (says, view) in [
             ("Answers only", View::Zen),
             ("Calls that went wrong", View::Quiet),

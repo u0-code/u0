@@ -211,6 +211,8 @@ crates/desk/src/
                 as Ghost first opens),
                 the PRs and Issues pages drawn (forge, its menus forge/menus;
                 a pull request reviewed, pr)
+  i18n.rs       the desk's words in your language (rust-i18n, as gpui-kit): `tr`, the
+                language set; locales/app.yml holds each English string's Chinese
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   figures.rs    what Markdown shows as a picture: Mermaid (mermaid-rs-renderer) and
                 TeX (ratex), drawn natively as SVG
@@ -244,6 +246,7 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 | Something shown only on hover | `invisible`, and `visible` on `group_hover`, laid over the row; never `hidden`/`flex` on hover, which GPUI can paint without laying out, and panics |
 | A setting in the settings dialog, or a row of a list there | `prefs::item` (a gpui-kit SettingItem whose control the desk draws), under `prefs::group` (a SettingGroup); a row that is more than a name, a line and a control (an agent, a task, a run), `prefs::whole`; never a card of rows drawn by hand |
 | A setting a project may hold otherwise (`Settings::PROJECT`) | read with `Settings::of(project)` (`Desk::settings_in`), drawn with `Desk::own` under the page's `scope_group`, kept with `Settings::hold` |
+| Words the window shows | `crate::tr("English")`, its translation added to `crates/desk/locales/app.yml`; `prefs::item`, `prefs::group` and a settings page's title translate their own. What an agent or the server says is not translated |
 | What is typed, found | a file path: `rank::paths` (nucleo-matcher); sessions, commands, names: `rank::rank` and `rank::terms` |
 
 ## Data

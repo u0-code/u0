@@ -57,6 +57,9 @@ jiff = "1.0.2"
 # The system's language, for telemetry at its most detailed: gpui-kit's
 # dependency already.
 sys-locale = "0.3"
+# The desk's words in your language: gpui-kit's own i18n, so one locale
+# is set for both.
+rust-i18n = "4.2"
 tempfile = "3.27"
 # What Markdown shows as a picture, drawn natively as SVG: a formula set
 # by RaTeX (KaTeX in Rust, its glyphs as outlines), a Mermaid diagram by

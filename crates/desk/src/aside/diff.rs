@@ -467,12 +467,12 @@ impl Desk {
                     },
                 ))
                 .child(
-                    ui::icon_button("hit-up", "arrow-up", "The one before")
+                    ui::icon_button("hit-up", "arrow-up", crate::tr("The one before"))
                         .size(px(22.))
                         .on_click(cx.listener(|this, _, _, cx| this.step_hit(-1, cx))),
                 )
                 .child(
-                    ui::icon_button("hit-down", "arrow-down", "The next")
+                    ui::icon_button("hit-down", "arrow-down", crate::tr("The next"))
                         .size(px(22.))
                         .on_click(cx.listener(|this, _, _, cx| this.step_hit(1, cx))),
                 )
@@ -481,7 +481,7 @@ impl Desk {
             div()
                 .flex_1()
                 .p(px(16.))
-                .child(empty(faces, "Reading git…"))
+                .child(empty(faces, crate::tr("Reading git…")))
         } else if shown == 0 {
             div().flex_1().p(px(16.)).child(empty(
                 faces,
@@ -756,7 +756,7 @@ impl Desk {
                         d.child(
                             ui::button(
                                 "commit",
-                                "Commit…",
+                                crate::tr("Commit…"),
                                 if idle && !clean {
                                     Weight::Primary
                                 } else {
@@ -773,7 +773,7 @@ impl Desk {
                     .when(behind > 0, |d| {
                         d.child(fine(faces, format!("{behind} behind its upstream")))
                             .child(
-                                ui::button("pull", "Pull", Weight::Quiet)
+                                ui::button("pull", crate::tr("Pull"), Weight::Quiet)
                                     .h(px(24.))
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.git_action(crate::repo::GitAction::Pull, cx);

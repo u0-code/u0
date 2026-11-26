@@ -42,7 +42,7 @@ pub struct Search {
 
 impl Search {
     pub(super) fn new(window: &mut Window, cx: &mut Context<Desk>) -> Self {
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
+        let input = cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Search")));
         cx.subscribe(&input, |this, _, e: &InputEvent, cx| {
             if let InputEvent::Change = e {
                 this.search_records(cx);
@@ -451,10 +451,10 @@ impl Desk {
             window.open_alert_dialog(cx, move |alert, _, _| {
                 let (yes, no) = (desk.clone(), desk.clone());
                 alert
-                    .title("Delete the worktree too?")
+                    .title(crate::tr("Delete the worktree too?"))
                     .description(said.clone())
-                    .ok_text("Delete worktree")
-                    .cancel_text("Keep it")
+                    .ok_text(crate::tr("Delete worktree"))
+                    .cancel_text(crate::tr("Keep it"))
                     .show_cancel(true)
                     .on_ok(move |_, _, cx| {
                         yes.update(cx, |d, cx| d.undoable(Undone::Delete, &[key], cx));

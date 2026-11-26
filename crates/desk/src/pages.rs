@@ -145,7 +145,7 @@ impl Pages {
         .detach();
         let snoozes = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("1h, tomorrow")
+                .placeholder(crate::tr("1h, tomorrow"))
                 .default_value(settings.snoozes.join(", "))
         });
         cx.subscribe(&snoozes, |this, input, e: &InputEvent, cx| {
@@ -175,7 +175,7 @@ impl Pages {
             account: field("Work", window, cx),
             var_value: cx.new(|cx| {
                 InputState::new(window, cx)
-                    .placeholder("value, or op://vault/item/field")
+                    .placeholder(crate::tr("value, or op://vault/item/field"))
                     .masked(true)
             }),
             var_secret: true,
@@ -191,7 +191,7 @@ impl Pages {
             tokens: crate::forge::Host::ALL.map(|_| {
                 cx.new(|cx| {
                     InputState::new(window, cx)
-                        .placeholder("a token")
+                        .placeholder(crate::tr("a token"))
                         .masked(true)
                 })
             }),
@@ -200,7 +200,7 @@ impl Pages {
             named_host: field("ghost.example.com", window, cx),
             named_token: cx.new(|cx| {
                 InputState::new(window, cx)
-                    .placeholder("Tunnel token")
+                    .placeholder(crate::tr("Tunnel token"))
                     .masked(true)
             }),
             servers: crate::servers::Servers::default(),
@@ -283,7 +283,7 @@ fn dictionary_field(
     let input = cx.new(|cx| {
         TextareaState::new(window, cx)
             .auto_grow(2, 8)
-            .placeholder("Ghost\ngpui kit = gpui-kit")
+            .placeholder(crate::tr("Ghost\ngpui kit = gpui-kit"))
             .default_value(now.join("\n"))
     });
     cx.subscribe(&input, |this, input, e: &InputEvent, cx| {
@@ -337,7 +337,10 @@ impl Desk {
             .min_h(px(0.));
         let Some(entry) = self.entry(id) else {
             return page
-                .child(ui::text(faces, "The registry does not list this agent.").mt(px(72.)))
+                .child(
+                    ui::text(faces, crate::tr("The registry does not list this agent."))
+                        .mt(px(72.)),
+                )
                 .overflow_y_scrollbar();
         };
         let enabled = self.settings_on(host).enabled.iter().any(|e| e == id);
@@ -548,7 +551,7 @@ impl Desk {
         match &stage {
             Stage::Installing(_) => {
                 actions = actions.child(
-                    ui::button("cancel-install", "Cancel", Weight::Secondary).on_click(
+                    ui::button("cancel-install", crate::tr("Cancel"), Weight::Secondary).on_click(
                         cx.listener(move |this, _, _, cx| {
                             this.cancel_install(host, &cancel_id, cx);
                         }),
@@ -571,7 +574,7 @@ impl Desk {
                 let label = url.trim_start_matches("https://").trim_end_matches('/');
                 actions = actions
                     .child(
-                        ui::button("recheck", "Try again", Weight::Secondary).on_click(
+                        ui::button("recheck", crate::tr("Try again"), Weight::Secondary).on_click(
                             cx.listener(move |this, _, _, cx| this.recheck(host, &recheck_id, cx)),
                         ),
                     )
@@ -582,20 +585,20 @@ impl Desk {
             }
             Stage::Failed(_) => {
                 actions = actions.child(
-                    ui::button("recheck", "Try again", Weight::Secondary).on_click(
+                    ui::button("recheck", crate::tr("Try again"), Weight::Secondary).on_click(
                         cx.listener(move |this, _, _, cx| this.recheck(host, &recheck_id, cx)),
                     ),
                 );
             }
             _ if enabled => {
                 actions = actions.child(
-                    ui::button("start", "New session", Weight::Primary).on_click(cx.listener(
-                        move |this, _, window, cx| {
+                    ui::button("start", crate::tr("New session"), Weight::Primary).on_click(
+                        cx.listener(move |this, _, window, cx| {
                             if let Some(project) = this.project() {
                                 this.new_session(&start_id, project, window, cx);
                             }
-                        },
-                    )),
+                        }),
+                    ),
                 );
             }
             _ => {}
@@ -614,27 +617,30 @@ impl Desk {
             let (a, b) = (id.to_owned(), id.to_owned());
             actions = actions
                 .child(
-                    ui::button("page-sign-in", "Sign in", Weight::Primary).on_click(
+                    ui::button("page-sign-in", crate::tr("Sign in"), Weight::Primary).on_click(
                         cx.listener(move |this, _, _, cx| this.sign_in_agent(host, &a, cx)),
                     ),
                 )
                 .child(
-                    ui::button("page-signed-in", "I've signed in", Weight::Quiet).on_click(
-                        cx.listener(move |this, _, _, cx| this.recheck_auth(host, &b, cx)),
-                    ),
+                    ui::button("page-signed-in", crate::tr("I've signed in"), Weight::Quiet)
+                        .on_click(
+                            cx.listener(move |this, _, _, cx| this.recheck_auth(host, &b, cx)),
+                        ),
                 );
         } else if can_log_out && auth == crate::hub::Auth::Ready && !busy {
             let a = id.to_owned();
             actions = actions.child(
-                ui::button("log-out", "Log out", Weight::Quiet)
+                ui::button("log-out", crate::tr("Log out"), Weight::Quiet)
                     .on_click(cx.listener(move |this, _, _, cx| this.log_out(host, &a, cx))),
             );
         }
         if installed.is_some() && !busy && !matches!(stage, Stage::Installing(_)) {
             actions = actions.child(
-                ui::button("uninstall", "Uninstall", Weight::Quiet).on_click(cx.listener(
-                    move |this, _, window, cx| this.uninstall(host, &uninstall_id, window, cx),
-                )),
+                ui::button("uninstall", crate::tr("Uninstall"), Weight::Quiet).on_click(
+                    cx.listener(move |this, _, window, cx| {
+                        this.uninstall(host, &uninstall_id, window, cx);
+                    }),
+                ),
             );
         }
         let toggle_weight = if enabled || !ready {
@@ -736,7 +742,7 @@ impl Desk {
             )
             .child(ui::fine(
                 faces,
-                "Each new session of it is given Ghost's tools, as an MCP server: the sessions Ghost keeps, a diff, a task handed to another session, a pull request, a task scheduled, a question put to you. What acts asks you here first.",
+                crate::tr("Each new session of it is given Ghost's tools, as an MCP server: the sessions Ghost keeps, a diff, a task handed to another session, a pull request, a task scheduled, a question put to you. What acts asks you here first."),
             ))
             .child(ui::label(faces, "Your own"))
             .child(
@@ -746,7 +752,7 @@ impl Desk {
                     .gap(px(8.))
                     .child(field(&self.pages.command))
                     .child(
-                        ui::button("save-command", "Use this command", Weight::Secondary)
+                        ui::button("save-command", crate::tr("Use this command"), Weight::Secondary)
                             .on_click(cx.listener(move |this, _, _, cx| this.save_command(host, &a, cx))),
                     ),
             )
@@ -764,7 +770,7 @@ impl Desk {
                     .gap(px(8.))
                     .child(field(&self.pages.model))
                     .child(
-                        ui::button("add-model", "Add a model", Weight::Secondary)
+                        ui::button("add-model", crate::tr("Add a model"), Weight::Secondary)
                             .on_click(cx.listener(move |this, _, window, cx| this.add_model(host, &b, window, cx))),
                     ),
             );
@@ -805,7 +811,7 @@ impl Desk {
         }
         own = own.child(models).child(ui::fine(
             faces,
-            "Model ids of yours are offered in the composer beside those the agent lists; the agent may refuse one it does not know.",
+            crate::tr("Model ids of yours are offered in the composer beside those the agent lists; the agent may refuse one it does not know."),
         ));
         own = own.child(self.agent_vars(faces, host, id, cx));
         own = own.child(self.agent_accounts(faces, host, id, cx));
@@ -901,14 +907,14 @@ impl Desk {
                     .gap(px(8.))
                     .child(div().w(px(180.)).child(Input::new(&self.pages.account).small()))
                     .child(
-                        ui::button("add-account", "Add an account", Weight::Secondary).on_click(
+                        ui::button("add-account", crate::tr("Add an account"), Weight::Secondary).on_click(
                             cx.listener(move |this, _, window, cx| this.add_account(host, &base, window, cx)),
                         ),
                     ),
             )
             .child(ui::fine(
                 faces,
-                "Another account is the agent run again with its own sign-in and settings, side by side with this one: a session begun in it stays with it.",
+                crate::tr("Another account is the agent run again with its own sign-in and settings, side by side with this one: a session begun in it stays with it."),
             ))
     }
 
@@ -989,20 +995,20 @@ impl Desk {
                             .accessibility_label("Secret")
                             .small()
                             .checked(secret)
-                            .label("Secret")
+                            .label(crate::tr("Secret"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.pages.var_secret = !this.pages.var_secret;
                                 cx.notify();
                             })),
                     )
                     .child(
-                        ui::button("add-var", "Add", Weight::Secondary)
+                        ui::button("add-var", crate::tr("Add"), Weight::Secondary)
                             .on_click(cx.listener(move |this, _, window, cx| this.add_var(host, &agent, window, cx))),
                     ),
             )
             .child(ui::fine(
                 faces,
-                "Set in the agent's environment as it starts. A secret one is kept in the macOS Keychain, never in Ghost's files; a value may be a 1Password reference, read by op as it starts.",
+                crate::tr("Set in the agent's environment as it starts. A secret one is kept in the macOS Keychain, never in Ghost's files; a value may be a 1Password reference, read by op as it starts."),
             ))
     }
 }

@@ -60,7 +60,7 @@ pub struct Viewer {
 
 impl Viewer {
     pub fn new(window: &mut Window, cx: &mut Context<Desk>) -> Self {
-        let search = cx.new(|cx| InputState::new(window, cx).placeholder("Find a file"));
+        let search = cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Find a file")));
         cx.subscribe(&search, |this: &mut Desk, _, e: &InputEvent, cx| {
             if matches!(e, InputEvent::Change) {
                 this.viewer.held = None;
@@ -68,7 +68,9 @@ impl Viewer {
             }
         })
         .detach();
-        let note = cx.new(|cx| InputState::new(window, cx).placeholder("Say what of these lines"));
+        let note = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(crate::tr("Say what of these lines"))
+        });
         cx.subscribe_in(
             &note,
             window,
@@ -285,7 +287,7 @@ impl Desk {
                 })),
             )
             .child(
-                ui::icon_button("files-refresh", "retry", "Read the files again")
+                ui::icon_button("files-refresh", "retry", crate::tr("Read the files again"))
                     .size(px(24.))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.files.remove(&folder);
@@ -464,14 +466,18 @@ impl Desk {
             // Lines are commented on where they are shown as lines.
             .when(text.is_some() && !(markdown && self.viewer.drawn), |d| {
                 d.child(
-                    ui::icon_button("file-comment", "square-pen", "Comment on the lines chosen")
-                        .size(px(24.))
-                        .on_click(cx.listener(|this, _, window, cx| this.begin_lines(window, cx))),
+                    ui::icon_button(
+                        "file-comment",
+                        "square-pen",
+                        crate::tr("Comment on the lines chosen"),
+                    )
+                    .size(px(24.))
+                    .on_click(cx.listener(|this, _, window, cx| this.begin_lines(window, cx))),
                 )
             })
             .when(text.is_some(), |d| {
                 d.child(
-                    ui::icon_button("file-wrap", "arrow-right", "Wrap long lines")
+                    ui::icon_button("file-wrap", "arrow-right", crate::tr("Wrap long lines"))
                         .size(px(24.))
                         .when(self.viewer.wrap, |b| b.text_color(theme::text()))
                         .on_click(cx.listener(|this, _, window, cx| {
@@ -483,7 +489,7 @@ impl Desk {
                         })),
                 )
                 .child(
-                    ui::icon_button("file-copy", "copy", "Copy what it holds")
+                    ui::icon_button("file-copy", "copy", crate::tr("Copy what it holds"))
                         .size(px(24.))
                         .on_click({
                             let value = value.clone();
@@ -496,18 +502,18 @@ impl Desk {
                 )
             })
             .child(
-                ui::icon_button("file-editor", "pencil", "Open in your editor")
+                ui::icon_button("file-editor", "pencil", crate::tr("Open in your editor"))
                     .size(px(24.))
                     .on_click(cx.listener(move |this, _, _, _| this.edit(edit.clone(), None))),
             )
             .child(
-                ui::icon_button("file-reveal", "folder", "Reveal in Finder")
+                ui::icon_button("file-reveal", "folder", crate::tr("Reveal in Finder"))
                     .size(px(24.))
                     .on_click(move |_, _, cx| cx.reveal_path(&reveal)),
             )
             .when(changed, |d| {
                 d.child(
-                    ui::button("file-save", "Save", Weight::Primary)
+                    ui::button("file-save", crate::tr("Save"), Weight::Primary)
                         .h(px(24.))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let text = this.viewer.editor.read(cx).value().to_string();
@@ -520,7 +526,7 @@ impl Desk {
         let body: gpui::AnyElement = match &self.viewer.shown {
             None => div()
                 .p(px(16.))
-                .child(empty(faces, "Reading…"))
+                .child(empty(faces, crate::tr("Reading…")))
                 .into_any_element(),
             Some(Shown::Text(_)) if markdown && self.viewer.drawn => div()
                 .id("file-drawn")

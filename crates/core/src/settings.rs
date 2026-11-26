@@ -159,6 +159,10 @@ pub struct Settings {
     /// TeX in what an agent says (`$…$`, `$$…$$`) is set as formulas.
     #[serde(default)]
     pub math: bool,
+    /// The language Ghost speaks, by locale (`en`, `zh-CN`); none, the
+    /// system's.
+    #[serde(default)]
+    pub language: Option<String>,
     /// What a worktree's branch begins with, before the name the writer
     /// gives it.
     #[serde(default = "prefix")]
@@ -813,6 +817,7 @@ impl Default for Settings {
             send: SendKey::default(),
             paragraphs: false,
             math: false,
+            language: None,
             left: left(),
             right: right(),
             diff_wrap: yes(),

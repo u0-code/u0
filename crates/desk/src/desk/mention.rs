@@ -70,7 +70,7 @@ impl Composer {
             TextareaState::new(window, cx)
                 .auto_grow(1, 12)
                 .submit_on_enter(return_sends)
-                .placeholder("Ask for anything, or give a task")
+                .placeholder(crate::tr("Ask for anything, or give a task"))
         });
         cx.subscribe_in(&input, window, |this, input, e: &InputEvent, window, cx| {
             match e {
@@ -101,7 +101,8 @@ impl Composer {
             }
         })
         .detach();
-        let note = cx.new(|cx| InputState::new(window, cx).placeholder("Your note on it"));
+        let note =
+            cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Your note on it")));
         cx.subscribe_in(&note, window, |this, _, e: &InputEvent, window, cx| {
             if matches!(e, InputEvent::PressEnter { .. }) {
                 this.keep_note(window, cx);

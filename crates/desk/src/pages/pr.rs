@@ -124,7 +124,7 @@ impl Desk {
                 let desk = desk.clone();
                 Checkbox::new(SharedString::from(format!("viewed-{path}")))
                     .small()
-                    .label("Viewed")
+                    .label(crate::tr("Viewed"))
                     .checked(on)
                     .on_click(move |_: &bool, _, cx: &mut App| {
                         desk.update(cx, |d, cx| d.toggle_viewed(&path, cx));
@@ -138,7 +138,7 @@ impl Desk {
     pub(super) fn pr_threads(&self, faces: &Faces, d: &Detail, cx: &mut Context<Self>) -> Div {
         let mut list = div().flex().flex_col().gap(px(12.)).px(px(20.)).py(px(14.));
         if d.threads.is_empty() {
-            list = list.child(ui::fine(faces, "No conversations on its lines."));
+            list = list.child(ui::fine(faces, crate::tr("No conversations on its lines.")));
         }
         let mut threads: Vec<_> = d.threads.iter().collect();
         threads.sort_by_key(|t| t.resolved);
@@ -164,10 +164,10 @@ impl Desk {
                         .gap(px(8.))
                         .child(ui::one_line(ui::fine_mono(faces, place)).flex_1())
                         .when(resolved, |d| {
-                            d.child(Tag::success().small().child("Resolved"))
+                            d.child(Tag::success().small().child(crate::tr("Resolved")))
                         })
                         .when(t.outdated, |d| {
-                            d.child(Tag::secondary().small().child("Outdated"))
+                            d.child(Tag::secondary().small().child(crate::tr("Outdated")))
                         }),
                 );
             for (n, s) in t.said.iter().enumerate() {
@@ -241,7 +241,7 @@ impl Desk {
             None => body
                 .child(ui::fine(
                     faces,
-                    "A guide leads you through the changes in the order that makes them easiest to read, with what to look at in each. The writer writes it.",
+                    crate::tr("A guide leads you through the changes in the order that makes them easiest to read, with what to look at in each. The writer writes it."),
                 ))
                 .child(div().child(ask("Write a review guide"))),
             Some((_, _, None)) => body.child(
@@ -250,7 +250,7 @@ impl Desk {
                     .items_center()
                     .gap(px(6.))
                     .child(ui::live_dot())
-                    .child(ui::fine(faces, "The writer is reading the changes…")),
+                    .child(ui::fine(faces, crate::tr("The writer is reading the changes…"))),
             ),
             Some((_, _, Some(Err(e)))) => body
                 .child(ui::fine(faces, format!("The writer couldn't write it: {e}")).text_color(theme::coral()))
@@ -262,7 +262,7 @@ impl Desk {
                             .flex()
                             .items_center()
                             .gap(px(8.))
-                            .child(ui::fine(faces, "Written before its latest commits."))
+                            .child(ui::fine(faces, crate::tr("Written before its latest commits.")))
                             .child(ask("Write it again")),
                     )
                 })

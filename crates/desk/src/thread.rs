@@ -523,31 +523,34 @@ impl Desk {
                     .text_color(theme::text2()),
                 )
                 .child(
-                    ui::button("setup-show", "Show the terminals", ui::Weight::Quiet).on_click(
-                        cx.listener(|this, _, _, cx| {
-                            this.drawer.open = true;
-                            cx.notify();
-                        }),
-                    ),
+                    ui::button(
+                        "setup-show",
+                        crate::tr("Show the terminals"),
+                        ui::Weight::Quiet,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.drawer.open = true;
+                        cx.notify();
+                    })),
                 )
                 .when(waiting, |d| {
                     d.child(
-                        ui::button("setup-cancel", "Cancel", ui::Weight::Quiet)
-                            .tooltip("Stop setting it up, and begin")
+                        ui::button("setup-cancel", crate::tr("Cancel"), ui::Weight::Quiet)
+                            .tooltip(crate::tr("Stop setting it up, and begin"))
                             .on_click(
                                 cx.listener(move |this, _, _, cx| this.cancel_setup(key, cx)),
                             ),
                     )
                 })
                 .child(
-                    ui::icon_button("setup-done", "x", "Put this away").on_click(cx.listener(
-                        move |this, _, _, cx| {
+                    ui::icon_button("setup-done", "x", crate::tr("Put this away")).on_click(
+                        cx.listener(move |this, _, _, cx| {
                             if let Some(s) = this.sessions.at_mut(key) {
                                 s.setup.clear();
                             }
                             cx.notify();
-                        },
-                    )),
+                        }),
+                    ),
                 )
         });
         div()
@@ -580,12 +583,18 @@ impl Desk {
                                 cx.listener(move |this, _, window, cx| this.show(back, window, cx)),
                             )
                             .child(
-                                ui::button("bring-back", "Bring it back", ui::Weight::Quiet)
-                                    .tooltip("Name this branch in what you write there")
-                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                ui::button(
+                                    "bring-back",
+                                    crate::tr("Bring it back"),
+                                    ui::Weight::Quiet,
+                                )
+                                .tooltip(crate::tr("Name this branch in what you write there"))
+                                .on_click(cx.listener(
+                                    move |this, _, window, cx| {
                                         cx.stop_propagation();
                                         this.bring_back(here, window, cx);
-                                    })),
+                                    },
+                                )),
                             )
                     })),
             )
@@ -700,7 +709,9 @@ impl Desk {
         }
         let prs = (self.prs.get(&crate::desk::Place::project_of(s))).filter(|p| !p.is_empty());
         if let Some(prs) = prs {
-            menu = menu.separator().label("Pull requests: on its own branch");
+            menu = menu
+                .separator()
+                .label(crate::tr("Pull requests: on its own branch"));
             for (number, title) in prs {
                 let on = matches!(&s.begin, Some(Begin::Pr(p, _)) if p == number);
                 menu = menu.item(pick(
@@ -1253,7 +1264,7 @@ impl Desk {
                                 .text_color(theme::muted()),
                         )
                         .child(
-                            ui::icon_button("zoom-close", "x", "Close")
+                            ui::icon_button("zoom-close", "x", crate::tr("Close"))
                                 .text_color(theme::text2())
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.zoom = None;
@@ -1332,7 +1343,7 @@ impl Desk {
                                 .child(
                                     ui::button(
                                         "reading-quote",
-                                        "Quote in your reply",
+                                        crate::tr("Quote in your reply"),
                                         ui::Weight::Secondary,
                                     )
                                     .on_click(cx.listener(
@@ -1349,12 +1360,13 @@ impl Desk {
                                         },
                                     )),
                                 )
-                                .child(ui::icon_button("reading-close", "x", "Close").on_click(
-                                    cx.listener(|this, _, _, cx| {
-                                        this.reading = None;
-                                        cx.notify();
-                                    }),
-                                )),
+                                .child(
+                                    ui::icon_button("reading-close", "x", crate::tr("Close"))
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.reading = None;
+                                            cx.notify();
+                                        })),
+                                ),
                         )
                         .child(
                             div()

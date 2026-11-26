@@ -250,7 +250,8 @@ const CANDIDATES: usize = 12;
 impl Forge {
     pub(super) fn new(home: &std::path::Path, window: &mut Window, cx: &mut Context<Desk>) -> Self {
         let search = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Search: label:bug, author:someone, words")
+            InputState::new(window, cx)
+                .placeholder(crate::tr("Search: label:bug, author:someone, words"))
         });
         cx.subscribe(&search, |this: &mut Desk, _, e: &InputEvent, cx| {
             if matches!(e, InputEvent::PressEnter { .. }) {
@@ -258,8 +259,9 @@ impl Forge {
             }
         })
         .detach();
-        let who =
-            cx.new(|cx| InputState::new(window, cx).placeholder("A label, or someone's login"));
+        let who = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(crate::tr("A label, or someone's login"))
+        });
         let offered = Offered {
             all: Vec::new(),
             shown: Vec::new(),
@@ -267,7 +269,7 @@ impl Forge {
             desk: cx.entity().downgrade(),
         };
         let offered = cx.new(|cx| ListState::new(offered, window, cx));
-        let team = cx.new(|cx| InputState::new(window, cx).placeholder("Linear team"));
+        let team = cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Linear team")));
 
         cx.subscribe(&team, |this: &mut Desk, _, e: &InputEvent, cx| {
             if matches!(e, InputEvent::PressEnter { .. }) {
@@ -301,14 +303,14 @@ impl Forge {
             line: cx.new(|cx| {
                 TextareaState::new(window, cx)
                     .auto_grow(2, 10)
-                    .placeholder("Say something")
+                    .placeholder(crate::tr("Say something"))
             }),
             who,
-            title: cx.new(|cx| InputState::new(window, cx).placeholder("Title")),
+            title: cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Title"))),
             body: cx.new(|cx| {
                 TextareaState::new(window, cx)
                     .auto_grow(4, 16)
-                    .placeholder("What it is about")
+                    .placeholder(crate::tr("What it is about"))
             }),
             editing: false,
             creating: false,

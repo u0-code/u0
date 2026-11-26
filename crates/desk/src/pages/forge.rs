@@ -119,7 +119,9 @@ impl Desk {
                     ui::opener("forge-views")
                         .h(px(26.))
                         .px(px(8.))
-                        .child(ui::text(faces, "Views").text_size(px(crate::style::LABEL)))
+                        .child(
+                            ui::text(faces, crate::tr("Views")).text_size(px(crate::style::LABEL)),
+                        )
                         .child(ui::icon("chevron-down", 10.).text_color(theme::faint())),
                     |d, menu, desk, _| d.forge_views(menu, desk),
                     cx,
@@ -135,13 +137,14 @@ impl Desk {
             .when(f.kind == Kind::Issue, |d| {
                 d.child(div().w(px(110.)).child(Input::new(&f.team).small()))
                     .child(
-                        ui::button("new-issue", "New issue", Weight::Secondary).on_click(
-                            cx.listener(|this, _, window, cx| this.edit_forge(true, window, cx)),
-                        ),
+                        ui::button("new-issue", crate::tr("New issue"), Weight::Secondary)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.edit_forge(true, window, cx);
+                            })),
                     )
             })
             .child(
-                ui::icon_button("forge-refresh", "retry", "Read again")
+                ui::icon_button("forge-refresh", "retry", crate::tr("Read again"))
                     .size(px(26.))
                     .on_click(cx.listener(|this, _, _, cx| this.list_forge(cx))),
             );
@@ -268,7 +271,11 @@ impl Desk {
                     },
                 ));
             }
-            None => return shell.p(px(16.)).child(ui::fine(faces, "Reading…")),
+            None => {
+                return shell
+                    .p(px(16.))
+                    .child(ui::fine(faces, crate::tr("Reading…")));
+            }
             Some(Err(e)) => {
                 return shell
                     .p(px(16.))
@@ -300,7 +307,7 @@ impl Desk {
                             .text_color(theme::text()),
                     )
                     .child(
-                        ui::button("forge-open", "Open on its host", Weight::Quiet)
+                        ui::button("forge-open", crate::tr("Open on its host"), Weight::Quiet)
                             .h(px(26.))
                             .on_click(move |_, _, cx| cx.open_url(&url)),
                     )
@@ -332,7 +339,8 @@ impl Desk {
                     })
                     .when(d.conflicts, |d| {
                         d.child(
-                            ui::fine(faces, "conflicts with its base").text_color(theme::coral()),
+                            ui::fine(faces, crate::tr("conflicts with its base"))
+                                .text_color(theme::coral()),
                         )
                     })
                     .child(ui::fine(faces, when_of(&item.updated))),
@@ -421,7 +429,7 @@ impl Desk {
                 }
                 let mut list = div().flex().flex_col().gap(px(14.)).px(px(20.)).py(px(14.));
                 if said.is_empty() {
-                    list = list.child(ui::fine(faces, "Nothing said yet."));
+                    list = list.child(ui::fine(faces, crate::tr("Nothing said yet.")));
                 }
                 for (n, s) in said.into_iter().enumerate() {
                     list = list.child(
@@ -581,7 +589,7 @@ impl Desk {
                             div()
                                 .flex()
                                 .gap(px(10.))
-                                .child(ui::fine(faces, "Changes").w(px(80.)).flex_none())
+                                .child(ui::fine(faces, crate::tr("Changes")).w(px(80.)).flex_none())
                                 .child(super::pr::breakdown(&self.forge.pr.files)),
                         )
                     })
@@ -599,7 +607,7 @@ impl Desk {
                         ),
                     )
                     .child(
-                        ui::button("add-label", "Add label", Weight::Quiet)
+                        ui::button("add-label", crate::tr("Add label"), Weight::Quiet)
                             .h(px(24.))
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.add_person_or_label(0, window, cx);
@@ -641,7 +649,7 @@ impl Desk {
             }))
             .child(ui::label(faces, "Description"))
             .child(if d.body.trim().is_empty() {
-                ui::fine(faces, "No description.").into_any_element()
+                ui::fine(faces, crate::tr("No description.")).into_any_element()
             } else {
                 markdown::render(faces, "forge-body", &d.body, cx).into_any_element()
             })
@@ -706,17 +714,22 @@ impl Desk {
                     .child(div().flex_1())
                     .when(pr, |d| {
                         d.child(
-                            ui::button("review-changes", "Request changes", Weight::Quiet)
-                                .on_click(cx.listener(|this, _, window, cx| {
+                            ui::button(
+                                "review-changes",
+                                crate::tr("Request changes"),
+                                Weight::Quiet,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
                                     this.say_forge(Some("request-changes"), window, cx);
-                                })),
+                                },
+                            )),
                         )
                         .child(
-                            ui::button("review-approve", "Approve", Weight::Secondary).on_click(
-                                cx.listener(|this, _, window, cx| {
+                            ui::button("review-approve", crate::tr("Approve"), Weight::Secondary)
+                                .on_click(cx.listener(|this, _, window, cx| {
                                     this.say_forge(Some("approve"), window, cx);
-                                }),
-                            ),
+                                })),
                         )
                     })
                     .child(
@@ -761,7 +774,7 @@ impl Desk {
                             .flex_wrap()
                             .items_center()
                             .gap(px(6.))
-                            .child(ui::fine(faces, "Begin from"))
+                            .child(ui::fine(faces, crate::tr("Begin from")))
                             .children(self.forge.templates.iter().enumerate().map(
                                 |(n, (name, _))| {
                                     ui::button(
@@ -788,13 +801,15 @@ impl Desk {
                         ui::button("form-done", done, Weight::Primary)
                             .on_click(cx.listener(|this, _, _, cx| this.save_forge(cx))),
                     )
-                    .child(ui::button("form-cancel", "Cancel", Weight::Quiet).on_click(
-                        cx.listener(|this, _, _, cx| {
-                            this.forge.editing = false;
-                            this.forge.creating = false;
-                            cx.notify();
-                        }),
-                    )),
+                    .child(
+                        ui::button("form-cancel", crate::tr("Cancel"), Weight::Quiet).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.forge.editing = false;
+                                this.forge.creating = false;
+                                cx.notify();
+                            }),
+                        ),
+                    ),
             )
     }
 }
