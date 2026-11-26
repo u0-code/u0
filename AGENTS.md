@@ -202,7 +202,8 @@ crates/desk/src/
   themes.rs     themes in gpui-kit's format: Ghost's, yours, a VS Code theme imported
   fonts.rs, assets.rs   faces, icons
 assets/         fonts, the desk's own icons and the themes it brings, built into the app
-telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf deploy`
+telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf deploy`;
+                batch.schema.json, made from `telemetry::Batch` by a core test
 
 ```
 

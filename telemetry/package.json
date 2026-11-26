@@ -5,5 +5,8 @@
   "devDependencies": {
     "cf": "1.0.0-rc.6",
     "wrangler": "4.168.0"
+  },
+  "dependencies": {
+    "@cfworker/json-schema": "4.1.6"
   }
 }

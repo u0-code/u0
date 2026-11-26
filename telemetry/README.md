@@ -2,10 +2,14 @@
 
 The Cloudflare Worker that takes the batches Ghost sends
 (`crates/core/src/telemetry.rs`; what each level sends is in the main
-README). It checks each batch field by field, refuses one with a field
-it does not know or a value of the wrong shape, and keeps it as a row of
-the D1 database `ghost-telemetry` (`schema.sql`): the batch and the
-country Cloudflare saw it from, nothing else of the request.
+README). It checks each batch against `batch.schema.json`, refuses one
+with a field it does not know or a value of the wrong shape, and keeps it
+as a row of the D1 database `ghost-telemetry` (`schema.sql`): the batch
+and the country Cloudflare saw it from, nothing else of the request.
+
+`batch.schema.json` is made from `telemetry::Batch`, the Rust that sends
+the batches: `cargo test -p ghost-core telemetry` writes it anew, and
+fails, when it was not the batch's. Deploy the Worker with the new one.
 
 Deploy it with Cloudflare's `cf` CLI, logged in:
 

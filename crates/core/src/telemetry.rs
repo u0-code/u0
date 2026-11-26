@@ -17,14 +17,15 @@
 //! can have made anew.
 
 use std::{
+    borrow::Cow,
     collections::BTreeMap,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
 
+use rmcp::schemars::{self, JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 
 use crate::{
     proto::{Call, Event},
@@ -119,20 +120,26 @@ pub struct Counts {
     pub window: Option<Window>,
 }
 
-/// The window, as the desk says it.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// The window, as the desk says it. A server with no window says its look and language empty.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Window {
     /// Its size in points.
+    #[schemars(range(max = MOST))]
     pub width: u32,
+    #[schemars(range(max = MOST))]
     pub height: u32,
     /// Its zoom, in percent.
+    #[schemars(range(max = MOST))]
     pub zoom: u32,
     /// `light`, `dark` or `system`.
+    #[schemars(extend("enum" = ["light", "dark", "system", ""]))]
     pub look: String,
     /// The system's language, as `en` or `pt-BR`.
+    #[schemars(regex(pattern = r"^([a-z]{2,3}(-[A-Za-z0-9]{2,8})?)?$"))]
     pub language: String,
     /// From launch to the window's first frame.
+    #[schemars(range(max = MOST))]
     pub startup_ms: u64,
 }
 
@@ -166,12 +173,7 @@ struct Kept {
 /// What is read of the machine as a batch is made.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Facts {
-    version: String,
-    commit: String,
-    channel: String,
-    /// `macos 26`, or `linux`.
-    os: String,
-    arch: String,
+    build: Build,
     /// The agents switched on, by registry id, with the version here.
     agents: BTreeMap<String, String>,
     servers: usize,
@@ -202,15 +204,17 @@ impl Facts {
         });
         let major = sysinfo::System::os_version().unwrap_or_default();
         Self {
-            version: crate::update::VERSION.to_owned(),
-            commit: crate::update::short(crate::update::COMMIT).to_owned(),
-            channel: crate::update::BUILT_AS.to_owned(),
-            os: if cfg!(target_os = "macos") {
-                format!("macos {}", major.split('.').next().unwrap_or_default())
-            } else {
-                "linux".to_owned()
+            build: Build {
+                version: crate::update::VERSION.to_owned(),
+                commit: crate::update::short(crate::update::COMMIT).to_owned(),
+                channel: crate::update::BUILT_AS.to_owned(),
+                os: if cfg!(target_os = "macos") {
+                    format!("macos {}", major.split('.').next().unwrap_or_default())
+                } else {
+                    "linux".to_owned()
+                },
+                arch: std::env::consts::ARCH.to_owned(),
             },
-            arch: std::env::consts::ARCH.to_owned(),
             agents,
             servers: crate::servers::Servers::load(home).map_or(0, |s| s.servers.len()),
             listening: devices.serve,
@@ -219,8 +223,10 @@ impl Facts {
     }
 }
 
-/// Whether `s` is a name a batch may carry: a short token, never a path
-/// or words.
+/// A name a batch may carry: a short token, never a path or words.
+const NAME: &str = r"^[A-Za-z0-9][A-Za-z0-9._:@/+-]{0,63}$";
+
+/// Whether `s` is a [`NAME`].
 fn named(s: &str) -> bool {
     let mut chars = s.chars();
     chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
@@ -235,70 +241,232 @@ pub(crate) fn tally(map: &mut BTreeMap<String, u64>, name: &str) {
     }
 }
 
-/// The batch of `level`, of `counts`, from the install `id`.
-fn batch(level: Level, id: &str, counts: &Counts, facts: &Facts) -> Value {
-    let mut batch = json!({
-        "level": u8::from(level),
-        "version": facts.version,
-        "commit": facts.commit,
-        "channel": facts.channel,
-        "os": facts.os,
-        "arch": facts.arch,
-    });
-    let window = counts.window.clone().unwrap_or_default();
-    let more = [
-        (
-            Level::Basic,
-            json!({
-                "id": id,
-                "agents": facts.agents,
-                "servers": facts.servers,
-                "listening": facts.listening,
-            }),
-        ),
-        (
-            Level::Usage,
-            json!({
-                "sessions": counts.sessions,
-                "turns": counts.turns,
-                "worktrees": counts.worktrees,
-                "tasks": counts.tasks,
-                "runs": counts.runs,
-                "tools": counts.tools,
-                "opened": counts.opened,
-                "crashes": counts.crashes,
-            }),
-        ),
-        (
-            Level::Detailed,
-            json!({
-                "startup_ms": window.startup_ms,
-                "memory_mb": facts.memory_mb,
-                "errors": counts.errors,
-                "models": counts.models,
-                "width": window.width,
-                "height": window.height,
-                "zoom": window.zoom,
-                "look": window.look,
-                "language": window.language,
-            }),
-        ),
-    ];
-    for (from, fields) in more {
-        if level >= from
-            && let (Some(batch), Value::Object(fields)) = (batch.as_object_mut(), fields)
-        {
-            batch.extend(fields);
-        }
+/// The most a count may be, and the most names a map may hold.
+const MOST: u64 = 10_000_000;
+const ENTRIES: usize = 64;
+
+/// Names to counts, as a batch's maps are.
+fn counts_schema(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({
+        "type": "object",
+        "maxProperties": ENTRIES,
+        "propertyNames": { "pattern": NAME },
+        "additionalProperties": { "type": "integer", "minimum": 0, "maximum": MOST },
+    })
+}
+
+/// Names to names: the agents, with their versions.
+fn names_schema(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({
+        "type": "object",
+        "maxProperties": ENTRIES,
+        "propertyNames": { "pattern": NAME },
+        "additionalProperties": { "type": "string", "pattern": NAME },
+    })
+}
+
+/// A batch's `level`, which is `N` and nothing else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Exactly<const N: u8>;
+
+impl<const N: u8> Serialize for Exactly<N> {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_u8(N)
     }
-    batch
+}
+
+impl<const N: u8> JsonSchema for Exactly<N> {
+    fn schema_name() -> Cow<'static, str> {
+        format!("Level{N}").into()
+    }
+
+    fn inline_schema() -> bool {
+        true
+    }
+
+    fn json_schema(_: &mut SchemaGenerator) -> Schema {
+        json_schema!({ "const": N })
+    }
+}
+
+/// What every batch says: the build, and what it runs on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+struct Build {
+    #[schemars(regex(pattern = r"^\d{1,4}\.\d{1,4}\.\d{1,4}[0-9A-Za-z.+-]{0,24}$"))]
+    version: String,
+    #[schemars(regex(pattern = r"^[0-9a-f]{7,40}$"))]
+    commit: String,
+    #[schemars(extend("enum" = ["stable", "nightly", "dev"]))]
+    channel: String,
+    /// `macos 26`, or `linux`.
+    #[schemars(regex(pattern = r"^(macos \d{1,3}|linux)$"))]
+    os: String,
+    #[schemars(extend("enum" = ["aarch64", "x86_64"]))]
+    arch: String,
+}
+
+/// What Basic adds: this install, and what it runs with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+struct Install {
+    /// Random, made for this install.
+    #[schemars(regex(pattern = r"^[A-Za-z0-9_-]{22}$"))]
+    id: String,
+    #[schemars(schema_with = "names_schema")]
+    agents: BTreeMap<String, String>,
+    #[schemars(range(max = MOST))]
+    servers: usize,
+    listening: bool,
+}
+
+/// What Usage adds: how much each part is used.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+struct Use {
+    #[schemars(schema_with = "counts_schema")]
+    sessions: BTreeMap<String, u64>,
+    #[schemars(range(max = MOST))]
+    turns: u64,
+    #[schemars(range(max = MOST))]
+    worktrees: u64,
+    #[schemars(range(max = MOST))]
+    tasks: u64,
+    #[schemars(range(max = MOST))]
+    runs: u64,
+    #[schemars(schema_with = "counts_schema")]
+    tools: BTreeMap<String, u64>,
+    #[schemars(schema_with = "counts_schema")]
+    opened: BTreeMap<String, u64>,
+    #[schemars(range(max = MOST))]
+    crashes: u64,
+}
+
+/// What Detailed adds: how Ghost runs, and the window.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+struct Detail {
+    #[schemars(range(max = MOST))]
+    memory_mb: u64,
+    #[schemars(schema_with = "counts_schema")]
+    errors: BTreeMap<String, u64>,
+    #[schemars(schema_with = "counts_schema")]
+    models: BTreeMap<String, u64>,
+    #[serde(flatten)]
+    window: Window,
+}
+
+/// What goes at Off: the first launch's, once ever.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Off {
+    level: Exactly<0>,
+    #[serde(flatten)]
+    build: Build,
+}
+
+/// What goes each day at Basic.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Basic {
+    level: Exactly<1>,
+    #[serde(flatten)]
+    build: Build,
+    #[serde(flatten)]
+    install: Install,
+}
+
+/// What goes each day at Usage.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Usage {
+    level: Exactly<2>,
+    #[serde(flatten)]
+    build: Build,
+    #[serde(flatten)]
+    install: Install,
+    #[serde(flatten)]
+    used: Use,
+}
+
+/// What goes each day at Detailed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct Detailed {
+    level: Exactly<3>,
+    #[serde(flatten)]
+    build: Build,
+    #[serde(flatten)]
+    install: Install,
+    #[serde(flatten)]
+    used: Use,
+    #[serde(flatten)]
+    detail: Detail,
+}
+
+/// A batch of Ghost's telemetry: one of a level, every field of it and
+/// nothing more. The Worker checks each against its schema,
+/// `telemetry/batch.schema.json`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(untagged)]
+enum Batch {
+    Off(Off),
+    Basic(Basic),
+    Usage(Usage),
+    Detailed(Detailed),
+}
+
+/// The batch of `level`, of `counts`, from the install `id`.
+fn batch(level: Level, id: &str, counts: &Counts, facts: &Facts) -> Batch {
+    let build = facts.build.clone();
+    let install = || Install {
+        id: id.to_owned(),
+        agents: facts.agents.clone(),
+        servers: facts.servers,
+        listening: facts.listening,
+    };
+    let usage = || Use {
+        sessions: counts.sessions.clone(),
+        turns: counts.turns,
+        worktrees: counts.worktrees,
+        tasks: counts.tasks,
+        runs: counts.runs,
+        tools: counts.tools.clone(),
+        opened: counts.opened.clone(),
+        crashes: counts.crashes,
+    };
+    match level {
+        Level::Off => Batch::Off(Off {
+            level: Exactly,
+            build,
+        }),
+        Level::Basic => Batch::Basic(Basic {
+            level: Exactly,
+            build,
+            install: install(),
+        }),
+        Level::Usage => Batch::Usage(Usage {
+            level: Exactly,
+            build,
+            install: install(),
+            used: usage(),
+        }),
+        Level::Detailed => Batch::Detailed(Detailed {
+            level: Exactly,
+            build,
+            install: install(),
+            used: usage(),
+            detail: Detail {
+                memory_mb: facts.memory_mb,
+                errors: counts.errors.clone(),
+                models: counts.models.clone(),
+                window: counts.window.clone().unwrap_or_default(),
+            },
+        }),
+    }
 }
 
 /// The batches due `today` at `level` (none: not chosen yet), with
 /// `kept` moved on past them: the first launch's, once ever; and the
 /// day's, once a day, from level 1 on. The counts begin again each day,
 /// sent or not.
-fn due(kept: &mut Kept, level: Option<Level>, today: u64, facts: &Facts) -> Vec<Value> {
+fn due(kept: &mut Kept, level: Option<Level>, today: u64, facts: &Facts) -> Vec<Batch> {
     let mut out = Vec::new();
     if !kept.pinged {
         kept.pinged = true;
@@ -484,15 +652,24 @@ impl Telemetry {
 
 #[cfg(test)]
 mod tests {
+    use serde_json::{Value, json};
+
     use super::*;
+
+    /// `batch` as the JSON it goes as.
+    fn sent(level: Level, id: &str, counts: &Counts) -> Value {
+        serde_json::to_value(batch(level, id, counts, &facts())).expect("a batch serializes")
+    }
 
     fn facts() -> Facts {
         Facts {
-            version: "0.2.0".into(),
-            commit: "abc1234".into(),
-            channel: "nightly".into(),
-            os: "macos 26".into(),
-            arch: "aarch64".into(),
+            build: Build {
+                version: "0.2.0".into(),
+                commit: "abc1234".into(),
+                channel: "nightly".into(),
+                os: "macos 26".into(),
+                arch: "aarch64".into(),
+            },
             agents: [("claude-code".to_owned(), "1.2.3".to_owned())].into(),
             servers: 1,
             listening: true,
@@ -553,7 +730,7 @@ mod tests {
         let id = "AAAAAAAAAAAAAAAAAAAAAA";
         let off = json!({"level": 0, "version": "0.2.0", "commit": "abc1234",
                          "channel": "nightly", "os": "macos 26", "arch": "aarch64"});
-        assert_eq!(batch(Level::Off, id, &counts, &facts()), off);
+        assert_eq!(sent(Level::Off, id, &counts), off);
         let mut basic = off.clone();
         basic.as_object_mut().unwrap().extend(
             json!({"level": 1, "id": id, "agents": {"claude-code": "1.2.3"},
@@ -562,7 +739,7 @@ mod tests {
             .unwrap()
             .clone(),
         );
-        assert_eq!(batch(Level::Basic, id, &counts, &facts()), basic);
+        assert_eq!(sent(Level::Basic, id, &counts), basic);
         let mut usage = basic.clone();
         usage.as_object_mut().unwrap().extend(
             json!({"level": 2, "sessions": {"claude-code": 1}, "turns": 1, "worktrees": 1,
@@ -572,7 +749,7 @@ mod tests {
             .unwrap()
             .clone(),
         );
-        assert_eq!(batch(Level::Usage, id, &counts, &facts()), usage);
+        assert_eq!(sent(Level::Usage, id, &counts), usage);
         let mut detailed = usage.clone();
         detailed.as_object_mut().unwrap().extend(
             json!({"level": 3, "startup_ms": 812, "memory_mb": 310, "errors": {"refused": 1},
@@ -582,12 +759,12 @@ mod tests {
             .unwrap()
             .clone(),
         );
-        assert_eq!(batch(Level::Detailed, id, &counts, &facts()), detailed);
+        assert_eq!(sent(Level::Detailed, id, &counts), detailed);
     }
 
     #[test]
     fn no_path_prompt_name_or_error_text_reaches_a_batch() {
-        let sent = batch(Level::Detailed, "id", &used(), &facts()).to_string();
+        let sent = sent(Level::Detailed, "id", &used()).to_string();
         for never in ["/Users", "zorblax", "secret", "s-private", ".ghost"] {
             assert!(!sent.contains(never), "{never} leaked into {sent}");
         }
@@ -598,8 +775,8 @@ mod tests {
         let mut kept = Kept::default();
         let first = due(&mut kept, None, 100, &facts());
         assert_eq!(first.len(), 1);
-        assert_eq!(first[0]["level"], 0);
-        assert!(first[0].get("id").is_none());
+        assert_eq!(serde_json::to_value(&first[0]).unwrap()["level"], 0);
+        assert!(matches!(first[0], Batch::Off(_)));
         // Not again: not the next day unasked, not at Off, not after an
         // update (the same file).
         assert!(due(&mut kept, None, 101, &facts()).is_empty());
@@ -618,13 +795,13 @@ mod tests {
         assert!(due(&mut kept, Some(Level::Usage), 100, &facts()).is_empty());
         let sent = due(&mut kept, Some(Level::Usage), 101, &facts());
         assert_eq!(sent.len(), 1);
-        assert_eq!(sent[0]["turns"], 5);
+        assert_eq!(serde_json::to_value(&sent[0]).unwrap()["turns"], 5);
         assert_eq!(kept.counts.turns, 0);
         assert!(due(&mut kept, Some(Level::Usage), 101, &facts()).is_empty());
         // The id is kept from day to day, and dropped at Off.
         let id = kept.id.clone().expect("an id");
         let next = due(&mut kept, Some(Level::Basic), 102, &facts());
-        assert_eq!(next[0]["id"], id.as_str());
+        assert_eq!(serde_json::to_value(&next[0]).unwrap()["id"], id.as_str());
         due(&mut kept, Some(Level::Off), 103, &facts());
         assert_eq!(kept.id, None);
     }
@@ -633,5 +810,18 @@ mod tests {
     fn a_level_above_three_is_refused() {
         assert!(serde_json::from_str::<Level>("4").is_err());
         assert_eq!(serde_json::from_str::<Level>("2").unwrap(), Level::Usage);
+    }
+
+    #[test]
+    fn the_workers_schema_is_the_batchs() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../telemetry/batch.schema.json");
+        let made = serde_json::to_string_pretty(&schemars::schema_for!(Batch)).unwrap() + "\n";
+        if std::fs::read_to_string(&path).ok().as_deref() != Some(made.as_str()) {
+            std::fs::write(&path, made).expect("the schema is written");
+            panic!(
+                "{} was not the batch's schema; it is now: deploy the Worker with it",
+                path.display()
+            );
+        }
     }
 }
