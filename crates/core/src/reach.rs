@@ -76,15 +76,22 @@ impl Way {
 
 /// The machine `host` names, where it is a host alone (a port after it or
 /// not): never one with a user before it (`127.0.0.1:1@elsewhere`, which a
-/// URL reads as elsewhere), a path or more.
+/// URL reads as elsewhere), a path or more; and only where it is written
+/// as a URL writes it, so that the name read here is the name dialled
+/// (`127.0.0.1.` is read as 127.0.0.1, but dialled as a name).
 fn bare(host: &str) -> Option<String> {
     let url = url::Url::parse(&format!("ws://{host}")).ok()?;
+    let name = match host.rsplit_once(':') {
+        Some((name, port)) if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) => name,
+        _ => host,
+    };
     let alone = url.username().is_empty()
         && url.password().is_none()
         && url.path() == "/"
         && url.query().is_none()
         && url.fragment().is_none()
-        && !host.contains(['/', '?', '#', '@', '\\']);
+        && !host.contains(['/', '?', '#', '@', '\\'])
+        && url.host_str().is_some_and(|h| h.eq_ignore_ascii_case(name));
     alone.then(|| url.host_str().map(str::to_owned)).flatten()
 }
 
@@ -287,13 +294,16 @@ mod tests {
     }
 
     #[test]
-    fn a_host_with_a_user_before_it_is_no_way_and_never_this_machine() {
+    fn a_host_with_a_user_before_it_or_not_as_a_url_writes_it_is_no_way_nor_this_machine() {
         let link = "ghost://pair?host=127.0.0.1%3A1%40evil.example#c0de";
         assert_eq!(pairing(link), None);
         for host in [
             "127.0.0.1:1@evil.example",
             "localhost@evil.example",
             "127.0.0.1/../x",
+            "127.0.0.1.",
+            "127.0.0.1.:4317",
+            "127.1:4317",
         ] {
             assert_eq!(
                 pairing(&format!("ghost://pair?host={host}#c0de")),
@@ -312,6 +322,7 @@ mod tests {
         };
         assert_eq!(here.url(), "ws://127.0.0.1:4317");
         assert!(pairing("ghost://pair?host=[::1]:4317#c0de").is_some());
+        assert!(pairing("ghost://pair?host=LOCALHOST:4317#c0de").is_some());
     }
 
     #[test]
