@@ -91,7 +91,7 @@ impl Desk {
                     .h(px(52.))
                     .cursor_pointer()
                     .hover(|d| d.bg(theme::row_hover()))
-                    .child(crate::desk::projects::project_icon(&folder, icon, 16.))
+                    .child(crate::desk::projects::project_icon(icon, 16.))
                     .child(
                         div()
                             .flex()
@@ -411,7 +411,7 @@ impl Desk {
             .flex()
             .items_center()
             .gap(px(10.))
-            .child(crate::desk::projects::project_icon(folder, icon, 20.))
+            .child(crate::desk::projects::project_icon(icon, 20.))
             .when(marking, |d| {
                 d.child(div().w(px(80.)).child(Input::new(&self.rename).small()))
             })

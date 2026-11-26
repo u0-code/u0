@@ -380,18 +380,13 @@ pub(crate) fn select_choices(kind: &SessionConfigKind) -> Option<(String, Choice
 impl Desk {
     /// An agent's name as the desk shows it.
     pub(crate) fn name_of(&self, id: &str) -> String {
-        let (agent, host) = crate::remote::split(id);
-        let name = self.entry(agent).map_or(agent, |e| e.name.as_str());
-        match host {
-            Some(host) => format!("{name} on {host}"),
-            None => name.to_owned(),
-        }
+        self.entry(id).map_or(id, |e| e.name.as_str()).to_owned()
     }
 
     /// The mark of the agent `id`: its logo where the home holds one (an
-    /// agent on another machine shows its own), else its initial.
+    /// account of an agent shows its agent's), else its initial.
     pub(crate) fn mark_of(&self, id: &str) -> Mark {
-        let agent = crate::registry::instance(crate::remote::split(id).0).0;
+        let agent = crate::registry::instance(id).0;
         if self.registry.logos.contains(agent) {
             return Mark::Logo(agent.to_owned().into());
         }

@@ -1,8 +1,8 @@
 //! What you set for a project, from its menu in the sidebar: its name,
 //! pinned on top or archived out of the list, the agent and the way of
-//! working its new sessions take; a project cloned, made, or on another
-//! machine; and the scratch sessions that have no project yet, each in a
-//! folder of its own until it becomes one.
+//! working its new sessions take; a project cloned or made; and the
+//! scratch sessions that have no project yet, each in a folder of its own
+//! until it becomes one.
 
 use std::path::{Path, PathBuf};
 
@@ -12,12 +12,11 @@ use super::{Desk, Popup};
 use crate::settings::{Icon, Prefs};
 
 /// A project's icon: the one you chose, or its own icon file where it has
-/// one, else a folder, or a server for one on another machine.
-pub fn project_icon(folder: &Path, icon: Option<Icon>, size: f32) -> gpui::AnyElement {
+/// one, else a folder.
+pub fn project_icon(icon: Option<Icon>, size: f32) -> gpui::AnyElement {
     use gpui::{IntoElement as _, ParentElement as _, Styled as _};
-    let remote = crate::remote::parse(folder).is_some();
     match icon {
-        Some(Icon::Picture(icon)) if !remote => gpui::div()
+        Some(Icon::Picture(icon)) => gpui::div()
             .size(gpui::px(size))
             .flex_none()
             .child(gpui::img(icon).size(gpui::px(size)).rounded(gpui::px(3.)))
@@ -35,7 +34,7 @@ pub fn project_icon(folder: &Path, icon: Option<Icon>, size: f32) -> gpui::AnyEl
             .font_weight(gpui::FontWeight::SEMIBOLD)
             .child(text)
             .into_any_element(),
-        _ => crate::ui::icon(if remote { "server" } else { "folder" }, size)
+        _ => crate::ui::icon("folder", size)
             .flex_none()
             .text_color(crate::theme::muted())
             .into_any_element(),
@@ -82,12 +81,10 @@ fn made_here() -> PathBuf {
         .join("Ghost")
 }
 
-/// Adding a project from the palette: the machines your SSH configuration
-/// names, and a clone going on, from the address `url` (none for a new
-/// project being made).
+/// Adding a project from the palette: a clone going on, from the address
+/// `url` (none for a new project being made).
 #[derive(Default)]
 pub struct Adding {
-    pub hosts: Vec<String>,
     pub cloning: Option<crate::hub::Install>,
     pub url: Option<String>,
 }
@@ -178,13 +175,6 @@ impl Source {
             _ => base.join(self.name()),
         }
     }
-}
-
-/// A project on another machine as typed, `host:/path`: its machine and
-/// folder there.
-pub fn remote_typed(typed: &str) -> Option<(&str, &str)> {
-    let (host, path) = typed.trim().split_once(':')?;
-    (!host.is_empty() && path.starts_with('/')).then_some((host, path))
 }
 
 impl Desk {
@@ -339,15 +329,6 @@ impl Desk {
         cx.notify();
     }
 
-    /// Add the project typed as `host:/path`, on a machine reached over
-    /// SSH; its sessions are those of the agents there.
-    pub fn add_remote(&mut self, typed: &str, cx: &mut Context<Self>) {
-        if let Some((host, path)) = remote_typed(typed) {
-            self.adopt(&crate::remote::project(host, path));
-        }
-        cx.notify();
-    }
-
     /// The folders the agents have sessions in that are not projects yet:
     /// how many sessions each, and which agents; most first.
     pub(crate) fn found_elsewhere(&self) -> Vec<(PathBuf, usize, Vec<String>)> {
@@ -430,7 +411,7 @@ impl Desk {
         let projects: Vec<(PathBuf, bool)> = self
             .projects()
             .into_iter()
-            .filter(|p| crate::remote::parse(p).is_none() && !self.is_scratch(p))
+            .filter(|p| !self.is_scratch(p))
             .map(|p| {
                 let pull = self.prefs(&p).pull;
                 (p, pull)

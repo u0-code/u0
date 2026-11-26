@@ -1,9 +1,9 @@
 //! A terminal of yours in the drawer under the thread, as t3code's: a real
 //! shell in a pseudo-terminal, run by the server (ghost-core's
-//! `terminals`), in the session's folder (or on the machine a remote
-//! project is on, over SSH), whose screen is kept here by a VT parser and
-//! drawn by the desk. What you type goes to it as a terminal sends keys
-//! (a `Call::TermInput`); what it prints comes back as `Event::TermOutput`.
+//! `terminals`), in the session's folder, whose screen is kept here by a
+//! VT parser and drawn by the desk. What you type goes to it as a
+//! terminal sends keys (a `Call::TermInput`); what it prints comes back
+//! as `Event::TermOutput`.
 
 use std::{
     num::NonZeroU16,
@@ -459,7 +459,7 @@ mod tests {
             let _ = tx.send(e);
         });
         let shells = ghost_core::terminals::Terminals::default();
-        let at = (std::env::temp_dir(), None, None);
+        let at = (std::env::temp_dir(), None);
         let first = Some("echo ghost-$((40+2))".to_owned());
         shells.open(1, at.clone(), first.clone(), (6, 40), send.clone());
         let mut t = Terminal::new(1, 1, (6, 40));

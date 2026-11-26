@@ -2,8 +2,8 @@
 //! in a project chosen (⌘1 to ⌘9 there), the look, and adding a project:
 //! a path typed and browsed (Tab goes into the folder chosen, ⌘Return
 //! takes the path as typed), the folder picker, a repository cloned, a
-//! new one made, one on another machine, or a folder the agents already
-//! worked in. ⌫ with nothing typed goes back.
+//! new one made, or a folder the agents already worked in. ⌫ with
+//! nothing typed goes back.
 
 use std::path::{Path, PathBuf};
 
@@ -22,7 +22,6 @@ pub enum Sub {
     Add,
     Clone,
     Make,
-    Remote,
     /// Until when the sessions in `Palette::snoozing` are out of the way.
     Snooze,
     /// A pull request or issue of the project, linked to the session.
@@ -40,7 +39,7 @@ impl Sub {
             Self::Add => "Add project",
             Self::Clone => "Clone a repository",
             Self::Make => "New project",
-            Self::Remote => "On another machine",
+
             Self::Snooze => "Snooze until…",
             Self::Link => "Link a pull request or issue",
             Self::Tag => "Tag the session",
@@ -55,7 +54,7 @@ impl Sub {
             Self::Add => "Enter project path (e.g. ~/projects/my-app)",
             Self::Clone => "Repository URL",
             Self::Make => "Project name",
-            Self::Remote => "host:/path",
+
             Self::Snooze => "In 3h, in 2 days, at 5pm…",
         }
     }
@@ -88,9 +87,7 @@ impl Desk {
     pub(super) fn palette_page(&mut self, sub: Sub, window: &mut Window, cx: &mut Context<Self>) {
         let typed = self.palette.state.read(cx).query(cx).to_string();
         self.palette.pages.push((sub, typed));
-        if sub == Sub::Remote {
-            self.transport.send(crate::proto::Call::Hosts);
-        }
+
         self.palette
             .state
             .update(cx, |s, cx| s.set_query("", window, cx));
@@ -200,9 +197,7 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if crate::remote::parse(folder).is_none()
-            && let Err(e) = std::fs::create_dir_all(folder)
-        {
+        if let Err(e) = std::fs::create_dir_all(folder) {
             self.trouble("Couldn't make the folder", Some(e.to_string()), None);
             return;
         }
@@ -246,7 +241,7 @@ impl Desk {
                     .into_iter()
                     .enumerate()
                     .map(|(n, p)| Row {
-                        lead: Lead::Project(p.clone(), self.icon_of(&p)),
+                        lead: Lead::Project(self.icon_of(&p)),
                         keys: (n < 9)
                             .then(|| crate::keys::numbered(n + 1))
                             .into_iter()
@@ -386,7 +381,6 @@ impl Desk {
                     Row::new("folder", "Choose a folder…", Act::Choose),
                     Row::new("branch", "Clone a repository", Act::Sub(Sub::Clone)),
                     Row::new("folder-plus", "New project", Act::Sub(Sub::Make)),
-                    Row::new("server", "On another machine", Act::Sub(Sub::Remote)),
                 ];
                 // The folders the agents already worked in, a step from
                 // being projects.
@@ -446,26 +440,6 @@ impl Desk {
                     }
                 }
                 rows.push(self.parent_row());
-                rows
-            }
-            Sub::Remote => {
-                let mut rows = Vec::new();
-                if crate::desk::projects::remote_typed(typed).is_some() {
-                    rows.push(
-                        Row::new(
-                            "server",
-                            format!("Add {typed}"),
-                            Act::Remote(typed.to_owned()),
-                        )
-                        .sub("Over SSH with your key; the agent runs there by npx or uvx"),
-                    );
-                }
-                for host in self.adding.hosts.iter().filter(|h| h.starts_with(typed)) {
-                    rows.push(
-                        Row::new("server", host.clone(), Act::Fill(format!("{host}:/")))
-                            .sub("From ~/.ssh/config"),
-                    );
-                }
                 rows
             }
         };

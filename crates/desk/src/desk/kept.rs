@@ -163,10 +163,6 @@ impl Desk {
         for key in keys {
             self.flush(key);
         }
-        // Ports brought here go with Ghost.
-        for (_, tunnel) in &mut self.tunnels {
-            let _ = tunnel.kill();
-        }
         self.save_index();
         self.transport.settle();
     }

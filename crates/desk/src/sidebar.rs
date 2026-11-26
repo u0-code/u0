@@ -295,7 +295,7 @@ impl Desk {
                             .flex()
                             .items_center()
                             .gap(px(10.))
-                            .child(crate::desk::projects::project_icon(&p, icon, 14.))
+                            .child(crate::desk::projects::project_icon(icon, 14.))
                             .child(ui::one_line(
                                 ui::text(faces, name).text_size(px(crate::style::LABEL)),
                             )),

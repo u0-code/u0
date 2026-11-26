@@ -121,11 +121,6 @@ impl Desk {
         first: Option<&str>,
         cx: &mut Context<Self>,
     ) {
-        let host = self
-            .sessions
-            .at(key)
-            .and_then(|s| crate::remote::parse(&s.meta.project))
-            .map(|(host, _)| host);
         let id = self.sessions.take_key();
         let size = self
             .drawer
@@ -135,7 +130,6 @@ impl Desk {
         self.transport.send(Call::TermOpen {
             id,
             dir: dir.to_path_buf(),
-            host,
             shell: self.settings.shell.program().map(str::to_owned),
             first: first.map(str::to_owned),
             size,
@@ -542,44 +536,6 @@ impl Desk {
             script,
             key,
         });
-        cx.notify();
-    }
-
-    /// Bring the port of `address` on the machine `host` here (ssh -L),
-    /// and open it once it is: kept while Ghost runs.
-    pub fn forward(&mut self, host: &str, address: &str, cx: &mut Context<Self>) {
-        let Some(port) = address
-            .rsplit(':')
-            .next()
-            .and_then(|p| p.split('/').next())
-            .and_then(|p| p.parse::<u16>().ok())
-        else {
-            return;
-        };
-        if !self.tunnels.iter().any(|(p, _)| *p == port) {
-            match std::process::Command::new("ssh")
-                .args(["-N", "-L", &format!("{port}:localhost:{port}"), "--", host])
-                .stdin(std::process::Stdio::null())
-                .spawn()
-            {
-                Ok(child) => self.tunnels.push((port, child)),
-                Err(e) => {
-                    self.trouble(
-                        format!("Couldn't forward port {port} from {host}"),
-                        Some(e.to_string()),
-                        None,
-                    );
-                    cx.notify();
-                    return;
-                }
-            }
-        }
-        self.done(
-            format!("Port {port} on {host} is here now"),
-            Some(super::notices::Way::Open(format!(
-                "http://localhost:{port}"
-            ))),
-        );
         cx.notify();
     }
 

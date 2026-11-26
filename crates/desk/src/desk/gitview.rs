@@ -114,12 +114,9 @@ impl Desk {
         });
     }
 
-    /// Ask git about the folder the session `key` works in: not on another
-    /// machine, whose git the desk does not read.
+    /// Ask git about the folder the session `key` works in.
     pub(crate) fn look(&self, key: u64) {
-        if let Some(s) = self.sessions.at(key)
-            && crate::remote::parse(&s.meta.project).is_none()
-        {
+        if let Some(s) = self.sessions.at(key) {
             self.transport.send(crate::proto::Call::Look {
                 folder: s.meta.folder.clone(),
                 key,
@@ -174,14 +171,13 @@ impl Desk {
     }
 
     /// Find where the diffs of the calls of the session `key` that have
-    /// just ended start in their files; not on another machine, whose
-    /// files are not here.
+    /// just ended start in their files.
     pub(crate) fn place(&mut self, key: u64) {
         let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
         let calls = std::mem::take(&mut s.placing);
-        if !calls.is_empty() && crate::remote::parse(&s.meta.project).is_none() {
+        if !calls.is_empty() {
             self.transport
                 .send(crate::proto::Call::Place { key, calls });
         }

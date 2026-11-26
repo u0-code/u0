@@ -29,14 +29,14 @@ struct Term {
 pub struct Terminals(Arc<Mutex<HashMap<u64, Term>>>);
 
 impl Terminals {
-    /// Open the terminal `id` in `dir` (on `host`, over SSH), `rows` by
+    /// Open the terminal `id` in `dir`, `rows` by
     /// `cols`, `first` typed into it; one open already is said again as it
     /// is: its title, what it printed, and its end. What it prints is said
     /// as it comes, to `send`.
     pub fn open(
         &self,
         id: u64,
-        (dir, host, shell): (PathBuf, Option<String>, Option<String>),
+        (dir, shell): (PathBuf, Option<String>),
         first: Option<String>,
         size: (u16, u16),
         send: Arc<dyn Fn(Event) + Send + Sync>,
@@ -61,22 +61,17 @@ impl Terminals {
         let all = self.0.clone();
         // Opening starts a process, and reading waits: a thread of its own.
         std::thread::spawn(move || {
-            let (pty, title, mut from) = match Pty::open(
-                &dir,
-                host.as_deref(),
-                shell.as_deref(),
-                first.as_deref(),
-                size,
-            ) {
-                Ok(opened) => opened,
-                Err(why) => {
-                    send(Event::TermOpened {
-                        id,
-                        result: Err(why),
-                    });
-                    return;
-                }
-            };
+            let (pty, title, mut from) =
+                match Pty::open(&dir, shell.as_deref(), first.as_deref(), size) {
+                    Ok(opened) => opened,
+                    Err(why) => {
+                        send(Event::TermOpened {
+                            id,
+                            result: Err(why),
+                        });
+                        return;
+                    }
+                };
             let term = Term {
                 pty,
                 title: title.clone(),

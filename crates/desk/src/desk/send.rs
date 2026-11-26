@@ -249,13 +249,6 @@ impl Desk {
 
     /// Open the session `key` once its agent runs, starting it if need be.
     pub(crate) fn open_when_running(&mut self, agent: &str, key: u64) {
-        // One on another machine has no slot after a restart until wanted.
-        if self.slot(agent).is_none()
-            && let (base, Some(host)) = crate::remote::split(agent)
-        {
-            let (base, host) = (base.to_owned(), host.to_owned());
-            self.remote_slot(&base, &host);
-        }
         let ((folder, also), id, recorded) = self
             .sessions
             .at(key)

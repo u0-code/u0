@@ -516,7 +516,6 @@ impl Desk {
                 .items_center()
                 .gap(px(10.))
                 .child(crate::desk::projects::project_icon(
-                    folder,
                     self.icon_of(folder),
                     16.,
                 ))

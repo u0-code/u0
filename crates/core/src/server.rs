@@ -676,22 +676,14 @@ impl Server {
                     Event::Sizes(tidy::sizes(&home, &kept.under))
                 });
             }
-            Call::Hosts => self.off(|| Event::Hosts(crate::remote::hosts())),
             Call::Forges => self.off(|| Event::Forges(crate::forge::seen())),
             Call::TermOpen {
                 id,
                 dir,
-                host,
                 shell,
                 first,
                 size,
-            } => (self.terminals).open(
-                id,
-                (dir, host, shell),
-                first,
-                size,
-                self.shared.send.clone(),
-            ),
+            } => (self.terminals).open(id, (dir, shell), first, size, self.shared.send.clone()),
             Call::TermInput { id, bytes } => self.terminals.input(id, &bytes),
             Call::TermResize { id, size } => self.terminals.resize(id, size),
             Call::TermClose { id, force } => {
@@ -841,10 +833,10 @@ impl Server {
         });
     }
 
-    /// The sessions the agent `id` keeps in each of `places` (where it
-    /// works, and the project that is) and in Ghost's worktrees of them,
-    /// those in `under`, each with the project it belongs to.
-    fn list(&self, id: &str, places: Vec<(PathBuf, PathBuf)>, under: Vec<PathBuf>) {
+    /// The sessions the agent `id` keeps in each of the projects `places`
+    /// and in Ghost's worktrees of them, those in `under`, each with the
+    /// project it belongs to.
+    fn list(&self, id: &str, places: Vec<PathBuf>, under: Vec<PathBuf>) {
         let Some(agent) = self.running(id) else {
             return;
         };
@@ -855,13 +847,9 @@ impl Server {
         );
         acp::runtime().spawn(async move {
             let mut all: Vec<(PathBuf, PathBuf)> = Vec::new();
-            // Each project's folder (on another machine, its path there), and
-            // here, Ghost's worktrees of it.
-            for (cwd, project) in places {
-                all.push((cwd.clone(), project.clone()));
-                if cwd != project {
-                    continue;
-                }
+            // Each project's folder, and Ghost's worktrees of it.
+            for project in places {
+                all.push((project.clone(), project.clone()));
                 let p = project.clone();
                 let u = under.clone();
                 let worktrees = tokio::task::spawn_blocking(move || git::worktrees(&p, &u))

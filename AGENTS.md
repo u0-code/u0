@@ -126,7 +126,7 @@ crates/core/src/
   records.rs    the record of each session open with its agent, written as it comes
   repo.rs       what is asked of a project's folder and its git: each a Call, one Event;
                 a file read for the viewer (a PDF's pages drawn by hayro)
-  remote.rs     projects on another machine; their agents over SSH
+
   pty.rs        a shell in a pseudo-terminal: its process, input and size
   terminals.rs  your terminals by id, each a pty and the last 256 KiB it printed
   session.rs    a session: its thread built from session/update; its turns' checkpoints

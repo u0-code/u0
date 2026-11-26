@@ -42,9 +42,7 @@ enum Act {
     Clone(String),
     CancelClone,
     Make(String, bool),
-    Remote(String),
-    /// What to type in the palette's line, put there.
-    Fill(String),
+
     CopyThread,
     CopyPromptLink,
     Restart,
@@ -247,8 +245,8 @@ impl Desk {
 enum Lead {
     Icon(&'static str),
     Mark(ui::Mark),
-    /// A project: its folder, and its own icon file if it has one.
-    Project(PathBuf, Option<crate::settings::Icon>),
+    /// A project: its own icon, if it has one.
+    Project(Option<crate::settings::Icon>),
 }
 
 /// A row of the palette: what leads it, its title (the characters in
@@ -708,7 +706,7 @@ impl Desk {
                 .projects()
                 .into_iter()
                 .map(|p| Row {
-                    lead: Lead::Project(p.clone(), self.icon_of(&p)),
+                    lead: Lead::Project(self.icon_of(&p)),
                     words: vec![p.display().to_string()],
                     ..Row::new("", self.project_name(&p), Act::Open(p.clone())).sub(Desk::shown(&p))
                 })
@@ -847,13 +845,7 @@ impl Desk {
         // going on.
         match &row.act {
             Act::Sub(sub) => return self.palette_page(*sub, window, cx),
-            Act::Fill(text) => {
-                let text = text.clone();
-                return self
-                    .palette
-                    .state
-                    .update(cx, |s, cx| s.set_query(text, window, cx));
-            }
+
             Act::ChooseParent => return Self::choose_parent(cx),
             Act::Clone(url) => return self.start_clone(url, cx),
             Act::CancelClone => return self.cancel_clone(cx),
@@ -861,11 +853,11 @@ impl Desk {
         }
         self.close_palette(window, cx);
         match row.act {
-            Act::Sub(_) | Act::Fill(_) | Act::ChooseParent | Act::Clone(_) | Act::CancelClone => {}
+            Act::Sub(_) | Act::ChooseParent | Act::Clone(_) | Act::CancelClone => {}
             Act::Adopt(folder) => self.add_and_begin(&folder, window, cx),
             Act::Choose => Self::add_project(window, cx),
             Act::Make(name, publish) => self.create_project(&name, publish, cx),
-            Act::Remote(typed) => self.add_remote(&typed, cx),
+
             Act::Key(name) => {
                 if let Some(action) = crate::keys::action(name) {
                     window.dispatch_action(action, cx);
@@ -1112,7 +1104,7 @@ fn row_view(faces: &Faces, row: &Row) -> gpui::Div {
             .text_color(theme::muted())
             .into_any_element(),
         Lead::Mark(mark) => ui::mark(faces, mark, 16.),
-        Lead::Project(folder, icon) => super::projects::project_icon(folder, icon.clone(), 16.),
+        Lead::Project(icon) => super::projects::project_icon(icon.clone(), 16.),
     };
     let title = row.title.clone();
     let bold: Vec<(Range<usize>, HighlightStyle)> = row

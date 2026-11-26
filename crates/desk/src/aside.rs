@@ -614,8 +614,7 @@ impl Desk {
     }
 
     /// The servers the session's terminals run (each a local address one
-    /// printed): opened in the browser, stopped with their terminal, or,
-    /// on another machine, forwarded here first.
+    /// printed): opened in the browser, stopped with their terminal.
     fn servers(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
         let found: Vec<(u64, String)> = self
             .drawer
@@ -627,37 +626,26 @@ impl Desk {
         if found.is_empty() {
             return None;
         }
-        let remote = crate::remote::parse(&s.meta.project).map(|(host, _)| host);
         let mut sec = section(
             faces,
             Detail::Servers.head(),
             Some(fine(faces, found.len().to_string())),
         );
         for (n, (id, address)) in found.into_iter().enumerate() {
-            let (open, forward) = (address.clone(), address.clone());
-            let host = remote.clone();
+            let open = address.clone();
             sec = sec.child(
                 frow()
                     .child(ui::dot(theme::ok()))
                     .child(ui::one_line(fine_mono(faces, address.clone())).flex_1())
-                    .child(match host {
-                        Some(host) => ui::button(
-                            SharedString::from(format!("forward-{n}")),
-                            "Forward",
-                            Weight::Quiet,
-                        )
-                        .h(px(22.))
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.forward(&host, &forward, cx)),
-                        ),
-                        None => ui::button(
+                    .child(
+                        ui::button(
                             SharedString::from(format!("serve-open-{n}")),
                             "Open",
                             Weight::Quiet,
                         )
                         .h(px(22.))
                         .on_click(move |_, _, cx| cx.open_url(&open)),
-                    })
+                    )
                     .child(
                         ui::button(
                             SharedString::from(format!("serve-stop-{n}")),

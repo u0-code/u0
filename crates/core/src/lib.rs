@@ -27,7 +27,6 @@ pub mod proto;
 pub mod pty;
 pub mod records;
 pub mod registry;
-pub mod remote;
 pub mod repo;
 pub mod scripts;
 pub mod secrets;

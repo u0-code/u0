@@ -71,12 +71,11 @@ pub enum Call {
         folder: PathBuf,
         also: Vec<PathBuf>,
     },
-    /// The sessions `agent` keeps in each of `places` (where it works, and
-    /// the project that is) and in Ghost's worktrees of them, those in
-    /// `under`.
+    /// The sessions `agent` keeps in each of the projects `places` and in
+    /// Ghost's worktrees of them, those in `under`.
     List {
         agent: String,
-        places: Vec<(PathBuf, PathBuf)>,
+        places: Vec<PathBuf>,
         under: Vec<PathBuf>,
     },
     /// Open again a session the agent keeps: resumed, without what was
@@ -403,17 +402,14 @@ pub enum Call {
         what: tidy::Tidy,
         kept: tidy::Kept,
     },
-    /// The hosts your SSH config names.
-    Hosts,
     /// What is known of each forge here (`forge::seen`).
     Forges,
-    /// Open the terminal `id` in `dir` (on `host`, over SSH), running
+    /// Open the terminal `id` in `dir`, running
     /// `shell` (your login shell when none), `size` rows by columns, `first`
     /// typed into it; one open already is said again.
     TermOpen {
         id: u64,
         dir: PathBuf,
-        host: Option<String>,
         shell: Option<String>,
         first: Option<String>,
         size: (u16, u16),
@@ -742,8 +738,6 @@ pub enum Event {
     /// How much each part of Ghost's home takes, and what a tidying did.
     Sizes(Vec<(String, u64)>),
     Tidied(String),
-    /// The hosts your SSH config names.
-    Hosts(Vec<String>),
     /// What is known of each forge here.
     Forges(Vec<crate::forge::Seen>),
     /// The terminal `id` opened, called what it is called in its tab, or
@@ -1035,12 +1029,10 @@ mod tests {
                     "records": [["a", "s1"]], "worktrees": ["/w"], "under": ["/u"], "projects": ["/p"], "uids": ["u"],
                 })),
             },
-            Call::Hosts,
             Call::Forges,
             Call::TermOpen {
                 id: 2,
                 dir: dir.clone(),
-                host: Some("box".into()),
                 shell: Some("fish".into()),
                 first: Some("make dev".into()),
                 size: (24, 80),
@@ -1174,7 +1166,6 @@ mod tests {
             },
             Event::Sizes(vec![("Session records".into(), 3)]),
             Event::Tidied("1 record removed".into()),
-            Event::Hosts(vec!["box".into()]),
             Event::Forges(vec![crate::forge::Seen {
                 host: crate::forge::Host::GitLab,
                 cli: Some("glab 1.50".into()),
@@ -1251,7 +1242,7 @@ mod tests {
             },
             Call::List {
                 agent: "a".into(),
-                places: vec![(dir.clone(), dir.clone())],
+                places: vec![dir.clone()],
                 under: vec![dir.join("w")],
             },
             Call::Reopen {

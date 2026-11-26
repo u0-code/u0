@@ -16,14 +16,13 @@ pub struct Pty {
 }
 
 impl Pty {
-    /// Open `shell` (your login shell when none) in `dir`, or over SSH on
-    /// `host` in `dir` there, `rows` by `cols`; `first`, if given, is typed into it once it
+    /// Open `shell` (your login shell when none) in `dir`, `rows` by
+    /// `cols`; `first`, if given, is typed into it once it
     /// starts (a script's command). Blocking: it starts a process. Handed
     /// back with it, what it is called in a tab (the shell, or `first`) and
     /// what reads what it prints.
     pub fn open(
         dir: &Path,
-        host: Option<&str>,
         shell: Option<&str>,
         first: Option<&str>,
         (rows, cols): (u16, u16),
@@ -40,23 +39,12 @@ impl Pty {
             || std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into()),
             str::to_owned,
         );
-        let (mut command, title) = if let Some(host) = host {
-            let mut c = CommandBuilder::new("ssh");
-            let there = crate::remote::shell_in(dir, "exec \"$SHELL\" -l");
-            c.args(["-t", "--", host, &there]);
-            if let Some(home) = std::env::var_os("HOME") {
-                c.cwd(home);
-            }
-            (c, format!("ssh {host}"))
-        } else {
-            let mut c = CommandBuilder::new(&shell);
-            c.arg("-l");
-            c.cwd(dir);
-            let name = Path::new(&shell)
-                .file_name()
-                .map_or_else(|| shell.clone(), |n| n.to_string_lossy().into_owned());
-            (c, name)
-        };
+        let mut command = CommandBuilder::new(&shell);
+        command.arg("-l");
+        command.cwd(dir);
+        let title = Path::new(&shell)
+            .file_name()
+            .map_or_else(|| shell.clone(), |n| n.to_string_lossy().into_owned());
         command.env("TERM", "xterm-256color");
         command.env("COLORTERM", "truecolor");
         // macOS's bash would otherwise open every terminal with a notice
@@ -147,7 +135,6 @@ mod tests {
     fn what_is_sent_to_a_program_that_does_not_read_does_not_wait() {
         let (pty, _, mut from) = Pty::open(
             &std::env::temp_dir(),
-            None,
             None,
             // Raw, so that its input fills rather than being dropped.
             Some("stty raw -echo; sleep 10"),

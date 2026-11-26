@@ -217,8 +217,6 @@ pub struct Desk {
     /// does; going back or ahead is under way.
     pub trail: gpui::base::History<u64>,
     pub trailing: bool,
-    /// Ports brought here from another machine (ssh -L), each its tunnel.
-    pub tunnels: Vec<(u16, std::process::Child)>,
     /// The sessions chosen with ⌘-click in the sidebar.
     pub chosen: std::collections::BTreeSet<u64>,
     /// The sessions a Settle pressed and dragged down the sidebar has
@@ -524,7 +522,6 @@ impl Desk {
             keep_worktree: HashSet::new(),
             chosen: std::collections::BTreeSet::new(),
             sweep: Vec::new(),
-            tunnels: Vec::new(),
             trail: gpui::base::History::new(),
             trailing: false,
             stopping: None,
@@ -686,11 +683,10 @@ impl Desk {
         out
     }
 
-    /// Ask what the folder of each project here holds, once: not on
-    /// another machine.
+    /// Ask what the folder of each project here holds, once.
     fn read_projects(&mut self) {
         for folder in self.projects() {
-            if !self.held.contains_key(&folder) && crate::remote::parse(&folder).is_none() {
+            if !self.held.contains_key(&folder) {
                 self.held
                     .insert(folder.clone(), crate::repo::Held::default());
                 self.transport.send(Call::ReadProject { folder });
@@ -721,13 +717,9 @@ impl Desk {
                     folder.file_name().unwrap_or_default().display()
                 );
             }
-            let name = folder
+            folder
                 .file_name()
-                .map_or_else(|| Desk::shown(folder), |n| n.to_string_lossy().into_owned());
-            match crate::remote::parse(folder) {
-                Some((host, _)) => format!("{name} · {host}"),
-                None => name,
-            }
+                .map_or_else(|| Desk::shown(folder), |n| n.to_string_lossy().into_owned())
         })
     }
 
@@ -742,18 +734,6 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // In a project on another machine, the agent is the one there.
-        let there = match crate::remote::parse(&folder) {
-            Some((host, _)) if crate::remote::split(agent).1.is_none() => {
-                let Some(id) = self.remote_slot(agent, &host) else {
-                    self.open_tab(crate::pages::Tab::Agents, window, cx);
-                    return;
-                };
-                Some(id)
-            }
-            _ => None,
-        };
-        let agent = there.as_deref().unwrap_or(agent);
         if !self.slot(agent).is_some_and(Slot::usable) {
             self.page = Page::Agent(agent.to_owned());
             cx.notify();
@@ -774,25 +754,18 @@ impl Desk {
         self.show(key, window, cx);
     }
 
-    /// A new session of `agent` in the project `folder`: on another
-    /// machine it works in the path there, whose git the desk does not
-    /// read.
+    /// A new session of `agent` in the project `folder`.
     fn begun_in(&self, key: u64, agent: &str, folder: PathBuf) -> Session {
         let worktree = self
             .prefs(&folder)
             .worktree
             .unwrap_or(self.settings.worktree);
-        let there = crate::remote::parse(&folder);
         let mut s = Session::new(key, agent, folder);
         s.wants_worktree = worktree;
-        if let Some((_, path)) = there {
-            s.meta.folder = path;
-        } else {
-            self.transport.send(Call::Look {
-                folder: s.meta.folder.clone(),
-                key,
-            });
-        }
+        self.transport.send(Call::Look {
+            folder: s.meta.folder.clone(),
+            key,
+        });
         if let Some(slot) = self.slot(agent) {
             slot.seed(&mut s);
         }
@@ -910,29 +883,6 @@ impl Desk {
             self.new_scratch(window, cx);
             return;
         }
-        // A project on another machine: the agent there, started over SSH.
-        if let Some((host, _)) = crate::remote::parse(&folder) {
-            let shown = self
-                .session()
-                .map(|s| crate::remote::split(&s.meta.agent).0.to_owned());
-            let base = self
-                .prefs(&folder)
-                .agent
-                .into_iter()
-                .chain(shown)
-                .chain(self.settings.enabled.clone())
-                .find(|a| {
-                    self.registry
-                        .agents
-                        .iter()
-                        .any(|e| &e.id == a && crate::remote::command(e, &host).is_some())
-                });
-            match base.and_then(|a| self.remote_slot(&a, &host)) {
-                Some(id) => self.new_session(&id, folder, window, cx),
-                None => self.open_tab(crate::pages::Tab::Agents, window, cx),
-            }
-            return;
-        }
         match self.agent_for(&folder) {
             Some(agent) => self.new_session(&agent, folder, window, cx),
             None => self.open_tab(crate::pages::Tab::Agents, window, cx),
@@ -956,12 +906,12 @@ impl Desk {
     /// With no session on screen, the one the composer writes in: a new
     /// session in the chosen project with its agent, drawn but not begun,
     /// as Claude's home offers its composer. None where one cannot begin
-    /// here (no project, no agent that can run, a project elsewhere).
+    /// here (no project, no agent that can run).
     pub(crate) fn unbegun(&self) -> Option<Session> {
         if self.page != Page::Thread || self.current.is_some() {
             return None;
         }
-        let folder = (self.chosen_project()).filter(|p| crate::remote::parse(p).is_none())?;
+        let folder = self.chosen_project()?;
         let agent = self.agent_for(&folder)?;
         let slot = self.slot(&agent).filter(|s| s.usable())?;
         let mut s = Session::new(0, &agent, folder);

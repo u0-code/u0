@@ -177,12 +177,12 @@ impl Desk {
     /// Install the registry's newest of each agent switched on that is not
     /// here, or that failed as an older version: what is here runs as it
     /// is, and is updated only when it does not work. One you start with a
-    /// command of yours, or on another machine, is left as it is.
+    /// command of yours is left as it is.
     pub(crate) fn install_due(&mut self, cx: &mut Context<Self>) {
         let due: Vec<String> = self
             .slots
             .iter()
-            .filter(|s| crate::remote::split(&s.entry.id).1.is_none() && s.command.is_none())
+            .filter(|s| s.command.is_none())
             .filter(|s| {
                 let e = &s.entry;
                 let installed = self.here.get(&e.id).and_then(|h| h.installed.as_ref());
@@ -236,10 +236,6 @@ impl Desk {
     /// there as they are.
     pub(crate) fn fill_slots(&mut self) {
         let mut old: Vec<Slot> = std::mem::take(&mut self.slots);
-        // The slots on other machines stay as they are.
-        let remote: Vec<Slot> = old
-            .extract_if(.., |s| crate::remote::split(&s.entry.id).1.is_some())
-            .collect();
         for id in &self.settings.enabled {
             if let Some(at) = old.iter().position(|s| &s.entry.id == id) {
                 self.slots.push(old.remove(at));
@@ -252,7 +248,6 @@ impl Desk {
                 ));
             }
         }
-        self.slots.extend(remote);
         // Those switched off are let go.
         for slot in old {
             self.transport.send(Call::Stop {
@@ -266,12 +261,8 @@ impl Desk {
     /// that the sessions it keeps are listed. One let go after running
     /// idle starts again when it is wanted, not here.
     pub(crate) fn start_ready(&mut self) {
-        // One on another machine starts when it is wanted.
         for slot in &mut self.slots {
-            if matches!(slot.stage, Stage::Ready)
-                && slot.known.is_none()
-                && crate::remote::split(&slot.entry.id).1.is_none()
-            {
+            if matches!(slot.stage, Stage::Ready) && slot.known.is_none() {
                 slot.stage = Stage::Starting;
                 self.transport.send(Call::Start {
                     entry: slot.entry.clone(),
@@ -307,22 +298,6 @@ impl Desk {
         }
     }
 
-    /// The slot of `agent` on the host of a project on another machine,
-    /// made the first time it is wanted; its id.
-    pub(crate) fn remote_slot(&mut self, agent: &str, host: &str) -> Option<String> {
-        let id = crate::remote::agent_on(agent, host);
-        if self.slot(&id).is_none() {
-            let base = self.registry.agents.iter().find(|e| e.id == agent)?.clone();
-            let command = crate::remote::command(&base, host)?;
-            let mut entry = base;
-            entry.name = format!("{} on {host}", self.name_of(agent));
-            entry.id.clone_from(&id);
-            let slot = Slot::new(entry, None, Some(command));
-            self.slots.push(slot);
-        }
-        Some(id)
-    }
-
     /// Ask `agent`, if it is running and can list them, for the sessions
     /// it keeps in the projects.
     pub(crate) fn list_sessions(&self, agent: &str) {
@@ -333,19 +308,7 @@ impl Desk {
         if caps.session_capabilities.list.is_none() {
             return;
         }
-        // An agent here lists the projects here; one on another machine,
-        // the projects there, by their paths there.
-        let host = crate::remote::split(agent).1;
-        let places = self
-            .settings
-            .folders
-            .iter()
-            .filter_map(|f| match (crate::remote::parse(f), host) {
-                (None, None) => Some((f.clone(), f.clone())),
-                (Some((h, path)), Some(on)) if h == on => Some((path, f.clone())),
-                _ => None,
-            })
-            .collect();
+        let places = self.settings.folders.clone();
         self.transport.send(Call::List {
             agent: agent.to_owned(),
             places,
@@ -369,18 +332,16 @@ impl Desk {
     }
 
     /// Where a session of `agent` that is not yours is opened, while it
-    /// runs: a folder that is there (Ghost's home here, /tmp on another
-    /// machine), out of every project; and whether it can then be deleted,
-    /// or else closed.
+    /// runs: Ghost's home, out of every project; and whether it can then
+    /// be deleted, or else closed.
     pub(crate) fn aside_place(&self, agent: &str) -> Option<(PathBuf, bool, bool)> {
         let slot = self.slot(agent)?;
         let caps = &slot.caps().filter(|_| slot.running())?.session_capabilities;
-        let dir = if crate::remote::split(agent).1.is_some() {
-            PathBuf::from("/tmp")
-        } else {
-            self.home.clone()
-        };
-        Some((dir, caps.delete.is_some(), caps.close.is_some()))
+        Some((
+            self.home.clone(),
+            caps.delete.is_some(),
+            caps.close.is_some(),
+        ))
     }
 
     /// Sign in to `agent` the way it offers: its own method when it lists
