@@ -57,10 +57,10 @@ allow-wildcard-paths = true
 
 [sources]
 # crates.io, and the git sources Cargo.toml patches in until their fixes
-# are released: the gpui-kit branch, and the Zed branch gpui-pre comes from.
+# are released: the gpui-kit branch, and the GPUI Fast branch.
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-git = [
     "https://github.com/mizorewww/gpui-kit",
-    "https://github.com/mizorewww/zed",
+    "https://github.com/mizorewww/gpui-fast",
 ]

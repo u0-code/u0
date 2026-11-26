@@ -89,10 +89,18 @@ no HTML rendered from what an agent says (Markdown is the thread's format).
   needs it". The pull request carries screenshots of the component, before
   and after where it shows. Meanwhile Ghost takes the fix from a fork through
   `[patch.crates-io]`, and drops the patch once upstream releases it.
-- gpui itself is the exception: Zed takes no gpui pull requests for use
-  outside Zed. A change to gpui stays on the owner's fork
-  (`mizorewww/zed`), which Ghost patches from; never a pull request to
-  `zed-industries/zed`.
+- gpui is GPUI Fast (`longbridge/gpui-fast`, through gpui-kit's
+  `gpui-fast` feature), a fork of Zed's gpui. It takes performance work and
+  fixes of bugs, its own or upstream gpui's, and never a feature: only such
+  a fix goes there by pull request, by its CONTRIBUTING.md (the logic in
+  `src/fast/<topic>.rs`, upstream's files holding only hooks that name
+  `fast`, `script/check-upstream` green). A feature Ghost needs of gpui (a
+  window's zoom, the system's spell checker) is written the same way and
+  stays on the owner's fork (`mizorewww/gpui-fast`), its `ghost` branch;
+  Ghost patches the gpui-fast crates from `ghost-release`, that branch
+  built as a release is (`script/prepare-release.ts`). gpui-pre, the
+  snapshots of Zed's gpui, is never patched, and `zed-industries/zed` is
+  never sent a pull request.
 - Anything else a crate already does (a PDF view, a parser, a format) comes
   from that crate.
 
