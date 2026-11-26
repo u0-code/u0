@@ -36,8 +36,7 @@ const TIDY: Duration = Duration::from_secs(3600);
 
 impl Server {
     pub(super) fn drop_task(&self, id: u64) {
-        self.shared
-            .change_tasks(|all| all.tasks.retain(|t| t.id != id));
+        self.shared.drop_task(id);
     }
 
     /// Run the webhook task of `token` as `call` asks: what came of it.
@@ -80,6 +79,11 @@ impl Server {
 }
 
 impl Shared {
+    /// Take the task `id` away.
+    pub(super) fn drop_task(&self, id: u64) {
+        self.change_tasks(|all| all.tasks.retain(|t| t.id != id));
+    }
+
     /// Keep `task` as it is now: a new one (id 0) is given the next id. Its
     /// next run is worked out again from its schedule.
     pub(super) fn set_task(&self, mut task: Task) {
@@ -286,7 +290,7 @@ impl Shared {
     /// Run the task `id`: its run marked going, its next one set, and its
     /// prompt (filled by `fill`, for what ran it) said, or its workflow
     /// begun with it; then how it went kept.
-    fn run(&self, id: u64, fill: impl FnOnce(&str) -> String) {
+    pub(super) fn run(&self, id: u64, fill: impl FnOnce(&str) -> String) {
         let now = store::secs(std::time::SystemTime::now());
         let mut task = None;
         self.change_tasks(|all| {

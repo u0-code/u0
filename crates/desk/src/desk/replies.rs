@@ -652,6 +652,14 @@ impl Desk {
                 self.tasks.list = list;
                 cx.notify();
             }
+            // Changed there by one of Ghost's tools: taken as they are.
+            Event::Settings(settings) => {
+                *self.settings_on_mut(host) = *settings;
+                if host == Host::HERE {
+                    self.settings_took(cx);
+                }
+                cx.notify();
+            }
             Event::Workflows { flows, runs } => {
                 (self.flows.list, self.flows.runs) = (flows, runs);
                 cx.notify();

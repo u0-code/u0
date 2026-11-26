@@ -116,7 +116,7 @@ pub struct Thread {
 }
 
 /// A comment on a line of a pull request's new side, in a review.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Line {
     pub path: String,
     pub line: u64,

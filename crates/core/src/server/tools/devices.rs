@@ -5,13 +5,11 @@
 
 use base64::Engine as _;
 use rmcp::{
-    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
-    model::ContentBlock,
-    schemars, tool, tool_router,
+    handler::server::wrapper::Parameters, model::ContentBlock, schemars, tool, tool_router,
 };
 use serde::{Deserialize, Serialize};
 
-use super::Tools;
+use super::{Tools, off, said};
 use crate::devices::{self, Act, Device};
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
@@ -32,32 +30,20 @@ struct UseDevice {
 
 /// The device here whose id is `id`.
 async fn found(id: String) -> Result<Device, String> {
-    let (found, _) = tokio::task::spawn_blocking(devices::list)
-        .await
-        .map_err(|e| e.to_string())?;
+    let (found, _) = off(devices::list).await?;
     (found.into_iter().find(|d| d.id == id))
         .ok_or_else(|| format!("No device here is {id}: list_devices says which are"))
 }
 
-impl Tools {
-    /// Every tool: these, and the rest.
-    pub(super) fn every() -> ToolRouter<Self> {
-        Self::tool_router() + Self::device_router()
-    }
-}
-
-#[tool_router(router = device_router)]
+#[tool_router(router = device_router, vis = "pub(super)")]
 impl Tools {
     /// The iOS simulators and Android emulators where Ghost runs: each
     /// one's id, name, whether it is Android and whether it runs; and what
     /// is missing to have any.
     #[tool]
     async fn list_devices(&self) -> Result<String, String> {
-        let (found, missing) = tokio::task::spawn_blocking(devices::list)
-            .await
-            .map_err(|e| e.to_string())?;
-        serde_json::to_string_pretty(&serde_json::json!({"found": found, "missing": missing}))
-            .map_err(|e| e.to_string())
+        let (found, missing) = off(devices::list).await?;
+        said(&serde_json::json!({"found": found, "missing": missing}))
     }
 
     /// What a running device shows now, as a picture.
@@ -67,9 +53,7 @@ impl Tools {
         Parameters(ask): Parameters<Named>,
     ) -> Result<ContentBlock, String> {
         let device = found(ask.device).await?;
-        let picture = tokio::task::spawn_blocking(move || devices::screen(&device))
-            .await
-            .map_err(|e| e.to_string())??;
+        let picture = off(move || devices::screen(&device)).await??;
         let kind = if picture.starts_with(b"\x89PNG") {
             "image/png"
         } else {
@@ -88,9 +72,7 @@ impl Tools {
         let title = format!("Use the device {}", device.name);
         self.allowed("use_device", title, &ask).await?;
         let act = ask.act;
-        tokio::task::spawn_blocking(move || devices::act(&device, &act))
-            .await
-            .map_err(|e| e.to_string())??;
+        off(move || devices::act(&device, &act)).await??;
         Ok("Done.".into())
     }
 }

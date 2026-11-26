@@ -730,6 +730,9 @@ pub enum Event {
     Index(Result<store::Index, String>),
     /// How sharing this Ghost stands.
     Shared(Box<crate::share::Shared>),
+    /// The settings as the server keeps them now, changed there by one of
+    /// Ghost's tools (a project added), not by the desk.
+    Settings(Box<crate::settings::Settings>),
     /// The scheduled tasks as they are now, or why `tasks.json` does not
     /// read.
     Tasks(Result<Vec<tasks::Task>, String>),
@@ -947,10 +950,11 @@ pub enum Event {
 impl Event {
     /// This event as a device that may only read is told it, where it
     /// carries what would let one act: a webhook task's address (its
-    /// token) taken out. None where it carries nothing such. (The
-    /// settings it is welcomed with are `Settings::for_reader`.)
+    /// token) taken out; the settings as it reads them in its welcome
+    /// (`Settings::for_reader`). None where it carries nothing such.
     pub fn for_reader(&self) -> Option<Self> {
         match self {
+            Self::Settings(settings) => Some(Self::Settings(Box::new(settings.for_reader()))),
             Self::Tasks(Ok(tasks)) => Some(Self::Tasks(Ok((tasks.iter().cloned())
                 .map(|mut t| {
                     if let tasks::Schedule::Hook(hook) = &mut t.schedule {
@@ -1824,6 +1828,7 @@ mod tests {
                 session: Ok(SessionId::new("s1")),
                 answer: Some("Done.".into()),
             },
+            Event::Settings(Box::default()),
             Event::Shared(Box::new(crate::share::Shared {
                 serving: Some(Ok(4317)),
                 tunnel: crate::share::Tunnel::Up("a.trycloudflare.com".into()),
@@ -1876,6 +1881,20 @@ mod tests {
         assert_eq!(called, variants::<Call>());
         let said: BTreeSet<String> = events.iter().map(round_trip).collect();
         assert_eq!(said, variants::<Event>());
+    }
+
+    #[test]
+    fn settings_a_tool_changed_are_told_a_reader_without_an_agents_key() {
+        let settings: crate::settings::Settings = serde_json::from_value(json!({
+            "enabled": [], "folders": [],
+            "env": {"a": {"API_KEY": "sk-1"}}, "commands": {"a": "a --key sk-2"},
+        }))
+        .unwrap();
+        let Some(Event::Settings(told)) = Event::Settings(Box::new(settings)).for_reader() else {
+            panic!("told otherwise")
+        };
+        let told = serde_json::to_string(&told).unwrap();
+        assert!(!told.contains("sk-1") && !told.contains("sk-2"), "{told}");
     }
 
     #[test]

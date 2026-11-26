@@ -2,8 +2,11 @@
 //! what the server already does for the desk, reached as `door` says.
 //!
 //! What only reads (the sessions, what was said in one, a diff, what
-//! happened) any caller may call. What acts, or asks you, is for an agent
-//! in a session of Ghost's, asked of you first in its thread; one that
+//! happened; your projects and what is found in them, their pull
+//! requests and checks, the workflows, tasks and worktrees) any caller
+//! may call, a folder only where `Tools::folder` lets it. What acts, or
+//! asks you, is for an agent in a session of Ghost's, asked of you first
+//! in its thread; one that
 //! acts on a session it names (says something in it, stops its turn) is
 //! also for an agent outside Ghost where your settings let it, or on a
 //! device paired of full scope, asked of you first in that session. Each
@@ -23,11 +26,17 @@ use agent_client_protocol::v1::schema::{
     StringPropertySchema, ToolCallUpdate, ToolCallUpdateFields,
 };
 use rmcp::{
-    ServerHandler, handler::server::wrapper::Parameters, schemars, tool, tool_handler, tool_router,
+    ServerHandler,
+    handler::server::{router::tool::ToolRouter, wrapper::Parameters},
+    schemars, tool, tool_handler, tool_router,
 };
 use serde::{Deserialize, Serialize};
 
 mod devices;
+mod flows;
+mod forge;
+mod projects;
+mod worktrees;
 
 use super::{Shared, door::Caller};
 use crate::{
@@ -244,12 +253,38 @@ impl Tools {
     }
 }
 
+/// What `work` gives, done on a thread of its own: it waits on git, a
+/// forge or the disk.
+async fn off<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// `what` as the tools give it back: JSON, laid out.
+fn said(what: &impl Serialize) -> Result<String, String> {
+    serde_json::to_string_pretty(what).map_err(|e| e.to_string())
+}
+
+impl Tools {
+    /// Every tool: these, and those of each subject.
+    pub(super) fn every() -> ToolRouter<Self> {
+        Self::tool_router()
+            + Self::device_router()
+            + Self::project_router()
+            + Self::forge_router()
+            + Self::flow_router()
+            + Self::worktree_router()
+    }
+}
+
 #[derive(Deserialize, schemars::JsonSchema)]
 struct ListSessions {
     /// Only the sessions of this project (its folder).
     project: Option<PathBuf>,
 }
 
+/// A session kept, as the tools list it.
 #[derive(Serialize)]
 struct Listed {
     agent: String,
@@ -258,6 +293,24 @@ struct Listed {
     project: PathBuf,
     folder: PathBuf,
     archived: bool,
+}
+
+impl Listed {
+    /// The first hundred of `sessions`, the latest first.
+    fn latest<'a>(sessions: impl Iterator<Item = &'a Meta>) -> Vec<Self> {
+        let mut sessions: Vec<&Meta> = sessions.collect();
+        sessions.sort_by_key(|m| std::cmp::Reverse(m.updated));
+        (sessions.into_iter().take(100))
+            .map(|m| Self {
+                agent: m.agent.clone(),
+                id: m.id.clone(),
+                title: m.title.clone(),
+                project: m.project.clone(),
+                folder: m.folder.clone(),
+                archived: m.flags.archived,
+            })
+            .collect()
+    }
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
@@ -381,21 +434,9 @@ impl Tools {
         Parameters(ask): Parameters<ListSessions>,
     ) -> Result<String, String> {
         let index = self.shared.index.lock().expect("index").clone()?;
-        let mut sessions: Vec<&Meta> = (index.sessions.iter())
-            .filter(|m| ask.project.as_ref().is_none_or(|p| &m.project == p))
-            .collect();
-        sessions.sort_by_key(|m| std::cmp::Reverse(m.updated));
-        let listed: Vec<Listed> = (sessions.into_iter().take(100))
-            .map(|m| Listed {
-                agent: m.agent.clone(),
-                id: m.id.clone(),
-                title: m.title.clone(),
-                project: m.project.clone(),
-                folder: m.folder.clone(),
-                archived: m.flags.archived,
-            })
-            .collect();
-        serde_json::to_string_pretty(&listed).map_err(|e| e.to_string())
+        let sessions = (index.sessions.iter())
+            .filter(|m| ask.project.as_ref().is_none_or(|p| &m.project == p));
+        said(&Listed::latest(sessions))
     }
 
     /// What was said in a session: what the user said (led by "You:")
@@ -416,9 +457,7 @@ impl Tools {
     #[tool]
     async fn read_diff(&self, Parameters(ask): Parameters<ReadDiff>) -> Result<String, String> {
         let folder = self.folder(ask.folder)?;
-        let diffs = tokio::task::spawn_blocking(move || git::uncommitted(&folder, None, false))
-            .await
-            .map_err(|e| e.to_string())??;
+        let diffs = off(move || git::uncommitted(&folder, None, false)).await??;
         Ok(if diffs.is_empty() {
             "Nothing is uncommitted.".into()
         } else {
@@ -475,7 +514,7 @@ impl Tools {
             )
             .await?;
         let home = self.shared.home.clone();
-        let done = tokio::task::spawn_blocking(move || {
+        let done = off(move || {
             let prefix = Settings::load(&home).0.branch_prefix;
             let action = GitAction::PullRequest {
                 message: ask.message.unwrap_or_else(|| ask.title.clone()),
@@ -484,8 +523,7 @@ impl Tools {
             };
             repo::git_action(&meta.folder, action, &prefix, &[], 0, &|_| {})
         })
-        .await
-        .map_err(|e| e.to_string())?;
+        .await?;
         match done {
             Event::Git { result, .. } => result,
             _ => Err("No pull request was opened".into()),
@@ -635,8 +673,7 @@ impl Tools {
     async fn events(&self, Parameters(ask): Parameters<Since>) -> Result<String, String> {
         let most = std::time::Duration::from_secs(ask.seconds).min(MOST);
         let (happened, missed) = self.shared.happened.after(ask.after, most).await;
-        let said = serde_json::json!({"happened": happened, "missed": missed});
-        serde_json::to_string_pretty(&said).map_err(|e| e.to_string())
+        said(&serde_json::json!({"happened": happened, "missed": missed}))
     }
 
     /// Ask the user a question in this session's thread, and wait for the
@@ -680,7 +717,7 @@ impl Tools {
 #[tool_handler(
     name = "ghost",
     router = Self::every(),
-    instructions = "Ghost, the app this agent may be running in: the sessions it keeps of your agents, their diffs and pull requests, its scheduled tasks, the simulators and emulators where it runs; and the user, asked in this session's thread."
+    instructions = "Ghost, the app this agent may be running in: the sessions it keeps of your agents, your projects and what is found in them, their diffs, worktrees, pull requests and checks, its workflows and scheduled tasks, the simulators and emulators where it runs; and the user, asked in this session's thread."
 )]
 impl ServerHandler for Tools {
     /// Each call counted by its tool (`telemetry`), then made.
@@ -696,7 +733,7 @@ impl ServerHandler for Tools {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use std::{
         io::{BufRead as _, Write as _},
         time::Duration,
@@ -710,14 +747,14 @@ mod tests {
 
     /// A stand-in for an MCP client: JSON-RPC lines through the door, after
     /// the key it came with.
-    struct Client {
+    pub(in crate::server) struct Client {
         lines: std::io::BufReader<std::net::TcpStream>,
         out: std::net::TcpStream,
         asked: u64,
     }
 
     /// The door of the server of `home`, once it is written.
-    fn door(home: &std::path::Path) -> mcp::Door {
+    pub(in crate::server) fn door(home: &std::path::Path) -> mcp::Door {
         for _ in 0..250 {
             if let Ok(text) = std::fs::read_to_string(mcp::path(home)) {
                 return serde_json::from_str(&text).unwrap();
@@ -730,7 +767,7 @@ mod tests {
     impl Client {
         /// In at the door of the server of `home` with `key` (none, the
         /// door's own: an agent outside Ghost), and past MCP's hello.
-        fn new(home: &std::path::Path, key: Option<&str>) -> Self {
+        pub(in crate::server) fn new(home: &std::path::Path, key: Option<&str>) -> Self {
             let door = door(home);
             let mut out = std::net::TcpStream::connect(("127.0.0.1", door.port)).unwrap();
             out.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
@@ -771,12 +808,12 @@ mod tests {
             }
         }
 
-        fn call(&mut self, tool: &str, arguments: &Value) {
+        pub(in crate::server) fn call(&mut self, tool: &str, arguments: &Value) {
             self.ask("tools/call", &json!({"name": tool, "arguments": arguments}));
         }
 
         /// What the tool called last said, and whether as a failure.
-        fn result(&mut self) -> (String, bool) {
+        pub(in crate::server) fn result(&mut self) -> (String, bool) {
             let said = self.reply();
             let result = &said["result"];
             let text = result["content"][0]["text"].as_str().unwrap_or_default();
@@ -784,12 +821,107 @@ mod tests {
         }
     }
 
-    fn meta(folder: &std::path::Path, title: &str) -> Meta {
+    pub(in crate::server) fn meta(folder: &std::path::Path, title: &str) -> Meta {
         serde_json::from_value(json!({
             "agent": "a", "id": "s1", "project": folder, "folder": folder,
             "title": title, "begun": 5, "updated": 7,
         }))
         .unwrap()
+    }
+
+    /// A server of `home` running the agent `a` (a stand-in that opens
+    /// `s1` and ends each turn), its session `s1` opened in `folder` and
+    /// kept; what the server says, and a client of that session's tools,
+    /// by the key it was given.
+    pub(in crate::server) fn in_session(
+        home: &std::path::Path,
+        folder: &std::path::Path,
+    ) -> (
+        std::sync::Arc<crate::server::Server>,
+        std::sync::mpsc::Receiver<Event>,
+        Client,
+    ) {
+        let agent = home.join("agent.sh");
+        let script = r#"id() { printf '%s' "$line" | sed -E 's/.*"id":("[^"]*"|[0-9]+).*/\1/'; }
+while read line; do case "$line" in
+*'"initialize"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1}}\n' "$(id)" ;;
+*'"session/new"'*) echo "$line" > "$0.opened"
+printf '{"jsonrpc":"2.0","id":%s,"result":{"sessionId":"s1"}}\n' "$(id)" ;;
+*'"session/prompt"'*) printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$(id)" ;;
+esac; done"#;
+        std::fs::write(&agent, script).unwrap();
+        let (server, said) = server(home);
+        let entry: Entry = serde_json::from_value(json!({
+            "id": "a", "name": "A", "version": "1", "distribution": {},
+        }))
+        .unwrap();
+        server.handle(Call::Start {
+            entry,
+            command: Some(format!("/bin/sh {}", agent.display())),
+            env: std::collections::BTreeMap::new(),
+        });
+        let next = || said.recv_timeout(Duration::from_secs(10)).unwrap();
+        while !matches!(next(), Event::Started { result: Ok(_), .. }) {}
+        server.handle(Call::Open {
+            agent: "a".into(),
+            key: 1,
+            folder: folder.to_path_buf(),
+            also: Vec::new(),
+        });
+        while !matches!(next(), Event::Opened { result: Ok(_), .. }) {}
+        server.handle(Call::Keep(vec![meta(folder, "Work")]));
+        let opened = std::fs::read_to_string(home.join("agent.sh.opened")).unwrap();
+        let opened: Value = serde_json::from_str(&opened).unwrap();
+        let given = &opened["params"]["mcpServers"][0]["env"];
+        let key = (given.as_array().unwrap().iter())
+            .find(|v| v["name"] == mcp::KEY)
+            .and_then(|v| v["value"].as_str())
+            .unwrap()
+            .to_owned();
+        let client = Client::new(home, Some(&key));
+        (server, said, client)
+    }
+
+    /// A repository at `dir` with `files` (each a path and what it holds)
+    /// committed.
+    pub(in crate::server) fn repo_at(dir: &std::path::Path, files: &[(&str, &str)]) {
+        std::fs::create_dir_all(dir).unwrap();
+        let git = |args: &[&str]| {
+            let named = ["-c", "user.name=Ghost", "-c", "user.email=ghost@localhost"];
+            crate::git::yours(dir, "git", &[&named[..], args].concat()).unwrap();
+        };
+        git(&["init", "-q", "-b", "main"]);
+        for (path, text) in files {
+            let path = dir.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        git(&["add", "."]);
+        git(&["commit", "-q", "-m", "first"]);
+    }
+
+    /// Answer the next permission card the server raises with `chosen`
+    /// (`once`, `always`, `no`): its title.
+    pub(in crate::server) fn answer_card(
+        server: &std::sync::Arc<crate::server::Server>,
+        said: &std::sync::mpsc::Receiver<Event>,
+        chosen: &str,
+    ) -> String {
+        let (request, asked) = loop {
+            if let Event::Said { event, .. } = said.recv_timeout(Duration::from_secs(10)).unwrap()
+                && let acp::Event::Permission { id, request } = *event
+            {
+                break (id, request);
+            }
+        };
+        server.handle(Call::Answer {
+            agent: "a".into(),
+            request,
+            answer: Answer::Permission(RequestPermissionOutcome::Selected(
+                SelectedPermissionOutcome::new(chosen.to_owned()),
+            )),
+        });
+        asked.tool_call.fields.title.unwrap_or_default()
     }
 
     /// What the tools answer over HTTP at the door of `home` to `message`,
@@ -938,18 +1070,36 @@ mod tests {
         assert_eq!(
             names,
             [
+                "add_project",
                 "ask_user",
+                "change_task",
+                "ci_log",
                 "delegate_task",
                 "device_screen",
                 "events",
+                "find_files",
                 "interrupt_session",
                 "list_devices",
+                "list_projects",
+                "list_prs",
                 "list_sessions",
+                "list_tasks",
+                "list_workflows",
+                "list_worktrees",
+                "make_worktree",
+                "merge_pr",
                 "open_pr",
+                "pr_checks",
                 "read_diff",
+                "read_pr",
                 "read_session",
+                "remove_worktree",
+                "review_pr",
                 "schedule_task",
+                "search_code",
+                "search_sessions",
                 "send_to_session",
+                "start_workflow",
                 "use_device",
                 "wait_for_turn"
             ]

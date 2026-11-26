@@ -121,8 +121,9 @@ crates/core/src/
   server.rs     the agents running, held by id; the store's one writer; each Call
                 handled, answered as Events; server/scheduled: the scheduled tasks run;
                 server/flows: the workflows' runs, step by step; server/tools: Ghost's
-                tools, the one MCP server (rmcp), given to each session it opens (its
-                devices' tools in server/tools/devices); server/happened: the turns
+                tools, the one MCP server (rmcp), given to each session it opens (by
+                subject in server/tools/: devices, projects, forge, flows,
+                worktrees); server/happened: the turns
                 going on and what happened, for the tools; server/door: how agents
                 reach the tools (a pipe, HTTP, a link), who calls
   mcp.rs        how an agent reaches the tools: `--mcp`, the pipe to them; mcp.json
@@ -259,7 +260,7 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 | Anything over HTTP | `http::get`, `http::call`, `http::download` (ureq), off the window's thread |
 | An agent's logo | `Desk::mark_of` and `ui::mark` |
 | Anything git | `git.rs`, in the server: a `proto::Call` handled with `repo.rs` |
-| A tool for agents | a `#[tool]` in `server/tools.rs`, over what the server already does for a `Call`; one that acts calls `Tools::allowed` first, or `Tools::allowed_on` for one that acts on a session it names |
+| A tool for agents | a `#[tool]` in `server/tools.rs` or the file of its subject in `server/tools/` (its router added to `Tools::every`), over what the server already does for a `Call`; one that acts calls `Tools::allowed` first, or `Tools::allowed_on` for one that acts on a session it names |
 | Text written for you (a title, a commit message, ...) | `Desk::ask_writer` with a `writer::Ask`: the writer agent, in a session of its own |
 | A widget (switch, button, menu, ...) | `gpui::component` (gpui-kit, which the desk names `gpui`), coloured by `theme::kit` |
 | A menu opened from a trigger | `Desk::menu`: gpui-kit's PopupMenu (items, ticked for a choice) in a Popover held open by `Desk::popup`; one with a line to type in, `Desk::popover`; a choice among several in the settings, gpui-kit's `SettingField::dropdown` |
@@ -268,7 +269,7 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 | A setting in the settings dialog, or a row of a list there | `prefs::item` (a gpui-kit SettingItem whose control the desk draws), under `prefs::group` (a SettingGroup); a row that is more than a name, a line and a control (an agent, a task, a run), `prefs::whole`; never a card of rows drawn by hand |
 | A setting a project may hold otherwise (`Settings::PROJECT`) | read with `Settings::of(project)` (`Desk::settings_in`), drawn with `Desk::own` under the page's `scope_group`, kept with `Settings::hold` |
 | Words the window shows | `crate::tr("English")`, or `crate::tr_with("%{n} running", &[("n", &n)])` for a sentence with values (one key, never pieces glued), its translation in every language added to `crates/desk/locales/app.yml` (a test fails on one missing); `prefs::item`, `prefs::group` and a settings page's title translate their own. What an agent or the server says is not translated |
-| What is typed, found | a file path: `repo::paths` (nucleo-matcher); sessions, commands, names: `rank::rank` and `rank::terms` |
+| What is typed, found | a file path: `repo::paths` (nucleo-matcher), in the desk and the tools alike; sessions, commands, names: `rank::rank` and `rank::terms` |
 | A short name made of a title (a branch, a file, an id) | `git::slug` |
 
 ## Data
