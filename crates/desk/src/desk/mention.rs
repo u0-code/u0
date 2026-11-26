@@ -148,6 +148,7 @@ impl Desk {
     /// else said and left to go on while a new one is begun beside it.
     /// While a picture is still being read for it, it waits for that.
     pub(crate) fn send_typed(&mut self, other: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.begin_unbegun(window, cx);
         let text = self.typed(cx);
         if text.is_empty() {
             return;

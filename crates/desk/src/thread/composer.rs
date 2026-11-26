@@ -37,7 +37,9 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let Some(s) = self.session() else {
+        // The session's, or with none on screen, the one not begun yet.
+        let unbegun = self.unbegun();
+        let Some(s) = self.session().or(unbegun.as_ref()) else {
             return div();
         };
         if let Some(shut) = self.shut(faces, s, column, cx) {
@@ -69,6 +71,13 @@ impl Desk {
             .flex_none()
             .items_center()
             .pb(px(16.))
+            // Not begun: a press anywhere in it begins it, before what was
+            // pressed does its part.
+            .when(self.current.is_none(), |d| {
+                d.capture_any_mouse_down(cx.listener(|this, _, window, cx| {
+                    this.begin_unbegun(window, cx);
+                }))
+            })
             .children(self.side_question(faces, s, column, cx))
             .children(self.children_asking(faces, s, column, cx))
             .children(self.sign_in_banner(faces, s, &name, column, cx))

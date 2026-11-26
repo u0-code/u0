@@ -438,7 +438,12 @@ impl Desk {
         let mut col = div().flex().flex_col().w(px(column)).py(px(28.));
         let fresh = self.session();
         col = col
-            .child(self.start(faces, column, fresh.is_some(), cx))
+            .child(self.start(
+                faces,
+                column,
+                fresh.is_some() || self.unbegun().is_some(),
+                cx,
+            ))
             .children(fresh.and_then(|s| Self::also_row(faces, s, cx)));
         // The card in the middle of the page, as Claude's.
         div()

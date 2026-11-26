@@ -933,10 +933,16 @@ impl Desk {
             }
             return;
         }
-        // The project's own agent, else that of the session on screen, else
-        // the first that can run.
-        let agent = self
-            .prefs(&folder)
+        match self.agent_for(&folder) {
+            Some(agent) => self.new_session(&agent, folder, window, cx),
+            None => self.open_tab(crate::pages::Tab::Agents, window, cx),
+        }
+    }
+
+    /// The agent a new session in `folder` begins with: the project's own,
+    /// else that of the session on screen, else the first that can run.
+    fn agent_for(&self, folder: &Path) -> Option<String> {
+        self.prefs(folder)
             .agent
             .and_then(|a| self.slot(&a))
             .filter(|s| s.usable())
@@ -944,10 +950,35 @@ impl Desk {
             .filter(|s| s.usable())
             .or_else(|| self.slots.iter().find(|s| s.usable()))
             .or_else(|| self.slots.first())
-            .map(|s| s.entry.id.clone());
-        match agent {
-            Some(agent) => self.new_session(&agent, folder, window, cx),
-            None => self.open_tab(crate::pages::Tab::Agents, window, cx),
+            .map(|s| s.entry.id.clone())
+    }
+
+    /// With no session on screen, the one the composer writes in: a new
+    /// session in the chosen project with its agent, drawn but not begun,
+    /// as Claude's home offers its composer. None where one cannot begin
+    /// here (no project, no agent that can run, a project elsewhere).
+    pub(crate) fn unbegun(&self) -> Option<Session> {
+        if self.page != Page::Thread || self.current.is_some() {
+            return None;
+        }
+        let folder = (self.chosen_project()).filter(|p| crate::remote::parse(p).is_none())?;
+        let agent = self.agent_for(&folder)?;
+        let slot = self.slot(&agent).filter(|s| s.usable())?;
+        let mut s = Session::new(0, &agent, folder);
+        slot.seed(&mut s);
+        Some(s)
+    }
+
+    /// Begin the session the composer was drawn for with none on screen,
+    /// what was typed in it kept.
+    pub(crate) fn begin_unbegun(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.unbegun().is_none() {
+            return;
+        }
+        let typed = self.typed(cx);
+        self.new_default(window, cx);
+        if !typed.is_empty() {
+            self.put_line(&typed, window, cx);
         }
     }
 
