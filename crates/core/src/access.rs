@@ -10,7 +10,10 @@
 
 use std::{
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{
+        Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -18,6 +21,10 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
 use crate::{key, proto::Hello, whole};
+
+/// How many failed attempts wait their second at once: more are turned
+/// away without it.
+const WAITING: usize = 8;
 
 /// How long a pairing code is good for.
 const CODE_LIFE: Duration = Duration::from_mins(10);
@@ -136,6 +143,8 @@ pub struct Access {
     codes: Mutex<Vec<(String, Instant, Grant)>>,
     /// Held through each failed attempt's wait.
     failing: tokio::sync::Mutex<()>,
+    /// How many failed attempts wait for it.
+    waiting: AtomicUsize,
     /// Told each time what is kept changes: a link whose device was
     /// unpaired then closes.
     changed: tokio::sync::watch::Sender<()>,
@@ -155,6 +164,7 @@ impl Access {
             kept: Mutex::new(kept),
             codes: Mutex::default(),
             failing: tokio::sync::Mutex::const_new(()),
+            waiting: AtomicUsize::new(0),
             changed: tokio::sync::watch::Sender::new(()),
         }
     }
@@ -209,9 +219,14 @@ impl Access {
     /// not.
     pub async fn admit(&self, hello: &Hello, nonce: &str) -> Result<(String, Scope), Turned> {
         let admitted = self.check(hello, nonce);
-        if admitted.is_err() {
+        // Past a few waiting, one more is turned away at once: the wait
+        // slows guessing, and is no queue for anyone to fill.
+        if admitted.is_err() && self.waiting.fetch_add(1, Ordering::SeqCst) < WAITING {
             let _one_at_a_time = self.failing.lock().await;
             tokio::time::sleep(Duration::from_secs(1)).await;
+        }
+        if admitted.is_err() {
+            self.waiting.fetch_sub(1, Ordering::SeqCst);
         }
         admitted
     }
@@ -417,6 +432,28 @@ mod tests {
         assert!(began.elapsed() >= Duration::from_secs(1));
         // The code was not spent on it.
         assert!(block(access.admit(&hello(&key, "new", Some(code)), "new")).is_ok());
+    }
+
+    #[test]
+    fn failed_attempts_past_a_few_waiting_are_turned_away_without_waiting() {
+        let home = tempfile::tempdir().unwrap();
+        let access = std::sync::Arc::new(Access::new(home.path()));
+        let began = Instant::now();
+        let quick = block(async {
+            let tries = (0..WAITING + 4).map(|n| {
+                let access = access.clone();
+                tokio::spawn(async move {
+                    let stranger = hello(&Key::generate(), &format!("n{n}"), None);
+                    let _ = access.admit(&stranger, &format!("n{n}")).await;
+                    began.elapsed()
+                })
+            });
+            let took = futures_util::future::join_all(tries).await;
+            took.into_iter()
+                .filter(|t| t.as_ref().is_ok_and(|t| *t < Duration::from_millis(500)))
+                .count()
+        });
+        assert!(quick >= 4, "{quick} turned away at once");
     }
 
     #[test]

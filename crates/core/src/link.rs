@@ -55,7 +55,27 @@ const QUIET: Duration = Duration::from_secs(60);
 /// How long a desk waits to reach a server, and a server for a hello.
 const WAIT: Duration = Duration::from_secs(15);
 
-/// A record or a file read can be many megabytes: sent as one message.
+/// The most a connection not yet let in may send in one message: a hello
+/// is a few hundred bytes.
+const BEFORE: usize = 64 << 10;
+/// The most a device let in may send in one message: a prompt with its
+/// pictures, a settings file.
+const AFTER: usize = 64 << 20;
+/// How many connections may wait at once to be let in (or answered, a
+/// webhook's): more are closed as they come.
+const PENDING: usize = 64;
+
+/// What a server reads from a connection, `before` it is let in, or
+/// after: so that no one it does not know can make it hold much.
+fn server_config(before: bool) -> WebSocketConfig {
+    let most = if before { BEFORE } else { AFTER };
+    WebSocketConfig::default()
+        .max_message_size(Some(most))
+        .max_frame_size(Some(most))
+}
+
+/// A record or a file read can be many megabytes: sent as one message,
+/// by a server the desk knows.
 fn config() -> WebSocketConfig {
     WebSocketConfig::default()
         .max_message_size(None)
@@ -155,6 +175,7 @@ pub async fn listen(
     tls: Option<tokio_rustls::TlsAcceptor>,
 ) {
     server.outbox().open.store(true, Ordering::Relaxed);
+    let pending = Arc::new(tokio::sync::Semaphore::new(PENDING));
     let mut links = tokio::task::JoinSet::new();
     loop {
         let stream = tokio::select! {
@@ -164,12 +185,17 @@ pub async fn listen(
             },
             Some(_) = links.join_next() => continue,
         };
+        // Held until it is let in, or answered: past `PENDING` waiting,
+        // a new one is closed at once.
+        let Ok(waits) = pending.clone().try_acquire_owned() else {
+            continue;
+        };
         let (server, tls) = (server.clone(), tls.clone());
         links.spawn(async move {
             let ended = match tls {
-                None => Box::pin(http(server, stream)).await,
+                None => Box::pin(http(server, stream, waits)).await,
                 Some(tls) => match tokio::time::timeout(WAIT, tls.accept(stream)).await {
-                    Ok(Ok(stream)) => Box::pin(http(server, stream)).await,
+                    Ok(Ok(stream)) => Box::pin(http(server, stream, waits)).await,
                     Ok(Err(e)) => Err(e.to_string()),
                     Err(_) => Err("no TLS in time".into()),
                 },
@@ -187,7 +213,11 @@ const HEAD: usize = 16 << 10;
 /// One connection, as HTTP/1.1 (hyper's): a webhook's call answered, or
 /// a desk's WebSocket upgraded from it and served on this same task, so
 /// that it ends when listening does.
-async fn http<S>(server: Arc<Server>, stream: S) -> Result<(), String>
+async fn http<S>(
+    server: Arc<Server>,
+    stream: S,
+    waits: tokio::sync::OwnedSemaphorePermit,
+) -> Result<(), String>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
@@ -212,11 +242,8 @@ where
     };
     let io = hyper_util::rt::TokioIo::new(upgrade.await.map_err(|e| e.to_string())?);
     let role = tokio_tungstenite::tungstenite::protocol::Role::Server;
-    serve(
-        &server,
-        WebSocketStream::from_raw_socket(io, role, Some(config())).await,
-    )
-    .await
+    let ws = WebSocketStream::from_raw_socket(io, role, Some(server_config(true))).await;
+    Box::pin(serve(&server, ws, waits)).await
 }
 
 type Answer = hyper::Response<http_body_util::Full<Bytes>>;
@@ -581,7 +608,11 @@ fn cut(why: Turned) -> String {
 type Upgraded = Socket<hyper_util::rt::TokioIo<hyper::upgrade::Upgraded>>;
 
 /// One desk's link: its hello, then what it asks and what it is told.
-async fn serve(server: &Arc<Server>, mut ws: Upgraded) -> Result<(), String> {
+async fn serve(
+    server: &Arc<Server>,
+    mut ws: Upgraded,
+    waits: tokio::sync::OwnedSemaphorePermit,
+) -> Result<(), String> {
     let nonce = crate::access::random::<32>();
     let challenge = Challenge {
         nonce: nonce.clone(),
@@ -624,6 +655,12 @@ async fn serve(server: &Arc<Server>, mut ws: Upgraded) -> Result<(), String> {
             return refuse_as(ws, CloseCode::Again, &name).await;
         }
     };
+    // Let in: it no longer waits, and may send what a device sends. It
+    // has sent nothing since its hello: it waits for its welcome.
+    drop(waits);
+    let role = tokio_tungstenite::tungstenite::protocol::Role::Server;
+    let mut ws =
+        WebSocketStream::from_raw_socket(ws.into_inner(), role, Some(server_config(false))).await;
     if hello.then == Then::Tools {
         let welcome = welcome(server, scope);
         let text = serde_json::to_string(&welcome).expect("a welcome serializes");
@@ -1667,6 +1704,48 @@ esac; done"#;
             "the port carried was closed, not left open: {read:?}"
         );
         drop(mcp);
+    }
+
+    #[test]
+    fn one_not_let_in_can_send_little_and_only_so_many_wait_at_once() {
+        use std::io::Read as _;
+        let home = tempfile::tempdir().unwrap();
+        let (server, port) = server(home.path());
+        let rt = crate::acp::runtime();
+        // A hello far larger than any is refused before it is read whole.
+        let huge = rt.block_on(async {
+            let url = format!("ws://127.0.0.1:{port}");
+            let (mut ws, _) =
+                tokio_tungstenite::connect_async_with_config(&url, Some(config()), false)
+                    .await
+                    .unwrap();
+            let _challenge = ws.next().await;
+            let _ = ws.send(Message::text("x".repeat(BEFORE * 4))).await;
+            match tokio::time::timeout(WAIT, ws.next()).await {
+                Ok(Some(Ok(Message::Text(t)))) => Some(t.to_string()),
+                _ => None,
+            }
+        });
+        assert_eq!(huge, None, "nothing but a close or an error answers it");
+        // So many connections waiting to be let in; one more is closed.
+        let held: Vec<std::net::TcpStream> = (0..PENDING)
+            .map(|_| std::net::TcpStream::connect(("127.0.0.1", port)).unwrap())
+            .collect();
+        std::thread::sleep(Duration::from_millis(300));
+        let mut more = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        more.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let mut said = Vec::new();
+        assert!(
+            matches!(more.read_to_end(&mut said), Ok(0)),
+            "closed at once"
+        );
+        drop(held);
+        std::thread::sleep(Duration::from_millis(300));
+        // Once they go, a desk comes in as ever, and may send much.
+        let (link, _, heard, _) = desk(port, Key::generate(), Some(&server)).unwrap();
+        link.send(Call::Stash(vec!["y".repeat(BEFORE * 4)]));
+        link.send(Call::Watch);
+        assert!(matches!(told(&heard), Event::Index(Ok(i)) if i.stashed[0].len() == BEFORE * 4));
     }
 
     #[test]
