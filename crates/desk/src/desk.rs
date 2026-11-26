@@ -1720,8 +1720,8 @@ impl Render for Desk {
                 let column = self.settings.width.column(pane);
                 middle
                     .child(self.thread(&faces, column, cx))
-                    .children(self.drawer(&faces, cell, cx))
                     .child(self.composer(&faces, column, window, cx))
+                    .children(self.drawer(&faces, cell, cx))
             }
             Page::Agent(id) => middle.child(self.agent_page(&faces, &id, cx)),
             Page::Forge(_) => middle.child(self.forge_page(&faces, cx)),
