@@ -3,9 +3,13 @@
 //! memory, and this Mac's load; a signal sent to one of them; and what
 //! went wrong, as its log says.
 
-use std::path::Path;
+use std::{
+    path::Path,
+    sync::{LazyLock, Mutex},
+};
 
 use serde::{Deserialize, Serialize};
+use sysinfo::{CpuRefreshKind, Pid, ProcessRefreshKind, ProcessesToUpdate, Signal, System};
 
 /// One process under Ghost's: its id, how deep under Ghost's it is (1, a
 /// child), its CPU in percent of one core, its memory, and its program.
@@ -28,63 +32,61 @@ pub struct Processes {
     pub memory: u64,
 }
 
-/// The processes under `root`, as `ps` lists them, in a tree's order.
-pub fn processes(root: u32) -> Processes {
-    // The ps that lists them is left out of what it lists.
-    let (ps, own) = std::process::Command::new("ps")
-        .args(["-A", "-o", "pid=,ppid=,pcpu=,rss=,comm="])
-        .stdout(std::process::Stdio::piped())
-        .spawn()
-        .and_then(|child| {
-            let own = child.id();
-            child
-                .wait_with_output()
-                .map(|o| (String::from_utf8_lossy(&o.stdout).into_owned(), own))
-        })
-        .unwrap_or_default();
-    let sysctl = |name: &str| {
-        std::process::Command::new("sysctl")
-            .args(["-n", name])
-            .output()
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
-            .unwrap_or_default()
-    };
-    Processes {
-        procs: tree(&ps, root)
-            .into_iter()
-            .filter(|p| p.pid != own)
-            .collect(),
+/// The machine as last read: kept between reads, since a process's CPU is
+/// what it used between two of them. None where it cannot be read.
+static SYSTEM: LazyLock<Option<Mutex<System>>> =
+    LazyLock::new(|| System::new().ok().map(Mutex::new));
 
-        load: sysctl("vm.loadavg")
-            .trim_matches(['{', '}', ' '])
-            .to_owned(),
-        cores: sysctl("hw.ncpu").parse().unwrap_or(0),
-        memory: sysctl("hw.memsize").parse().unwrap_or(0),
+/// The machine as last read, held.
+fn system() -> Option<std::sync::MutexGuard<'static, System>> {
+    let held = SYSTEM.as_ref()?.lock();
+    Some(held.unwrap_or_else(std::sync::PoisonError::into_inner))
+}
+
+/// A process as read: its id, its parent's, its CPU, its memory in
+/// kilobytes and its program.
+type Read = (u32, u32, f32, u64, String);
+
+/// The processes under `root`, in a tree's order, and this machine.
+pub fn processes(root: u32) -> Processes {
+    let Some(mut system) = system() else {
+        return Processes::default();
+    };
+    system.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::nothing().with_cpu().with_memory(),
+    );
+    system.refresh_memory();
+    system.refresh_cpu_list(CpuRefreshKind::nothing());
+    let all: Vec<Read> = system
+        .processes()
+        .iter()
+        .map(|(pid, p)| {
+            (
+                pid.as_u32(),
+                p.parent().map_or(0, Pid::as_u32),
+                p.cpu_usage(),
+                p.memory() / 1024,
+                p.name().to_string_lossy().into_owned(),
+            )
+        })
+        .collect();
+    let mut procs = Vec::new();
+    walk(&all, root, 1, &mut procs);
+    Processes {
+        procs,
+        load: System::load_average().map_or_else(
+            |_| String::new(),
+            |l| format!("{:.2} {:.2} {:.2}", l.one, l.five, l.fifteen),
+        ),
+        cores: system.cpus().len() as u32,
+        memory: system.total_memory(),
     }
 }
 
-/// The processes `ps` printed under `root`, each after its parent.
-fn tree(ps: &str, root: u32) -> Vec<Proc> {
-    let all: Vec<(u32, u32, f32, u64, String)> = ps
-        .lines()
-        .filter_map(|l| {
-            let mut w = l.split_whitespace();
-            let pid = w.next()?.parse().ok()?;
-            let parent = w.next()?.parse().ok()?;
-            let cpu = w.next()?.parse().ok()?;
-            let kb = w.next()?.parse().ok()?;
-            let name = w.collect::<Vec<_>>().join(" ");
-            let name = name.rsplit('/').next().unwrap_or(&name).to_owned();
-            Some((pid, parent, cpu, kb, name))
-        })
-        .collect();
-    let mut out = Vec::new();
-    walk(&all, root, 1, &mut out);
-    out
-}
-
 /// Those of `all` whose parent is `at`, each followed by those under it.
-fn walk(all: &[(u32, u32, f32, u64, String)], at: u32, depth: usize, out: &mut Vec<Proc>) {
+fn walk(all: &[Read], at: u32, depth: usize, out: &mut Vec<Proc>) {
     for (pid, parent, cpu, kb, name) in all {
         if *parent == at {
             out.push(Proc {
@@ -105,14 +107,17 @@ pub fn signal(root: u32, pid: u32, signal: &str) -> Result<String, String> {
     if !processes(root).procs.iter().any(|p| p.pid == pid) {
         return Err(format!("{pid} is not one of Ghost's processes"));
     }
-    let done = std::process::Command::new("kill")
-        .args([&format!("-{signal}"), &pid.to_string()])
-        .status()
-        .map_err(|e| e.to_string())?;
-    if done.success() {
-        Ok(format!("Sent {signal} to {pid}"))
-    } else {
-        Err(format!("kill said no to {pid}"))
+    let sent = match signal {
+        "KILL" => Signal::Kill,
+        _ => Signal::Term,
+    };
+    let system = system().ok_or("this machine's processes cannot be read")?;
+    match system
+        .process(Pid::from_u32(pid))
+        .and_then(|p| p.kill_with(sent))
+    {
+        Some(true) => Ok(format!("Sent {signal} to {pid}")),
+        _ => Err(format!("{pid} could not be sent {signal}")),
     }
 }
 
@@ -149,13 +154,17 @@ mod tests {
 
     #[test]
     fn the_processes_under_ghost_are_listed_each_after_its_parent() {
-        let ps = "  1     0  0.1  100 /sbin/launchd
- 10     1  2.0 2048 /Applications/Ghost.app/Contents/MacOS/ghost-desk
- 20    10 12.5 4096 /x/agents/claude-acp/claude-agent-acp
- 30    20  0.0  512 node
- 40    10  0.3  256 -zsh
- 50     1  9.9  999 other";
-        let t = tree(ps, 10);
+        let read = |pid, parent, cpu, kb, name: &str| (pid, parent, cpu, kb, name.to_owned());
+        let all = [
+            read(1, 0, 0.1, 100, "launchd"),
+            read(10, 1, 2.0, 2048, "ghost-desk"),
+            read(20, 10, 12.5, 4096, "claude-agent-acp"),
+            read(30, 20, 0.0, 512, "node"),
+            read(40, 10, 0.3, 256, "zsh"),
+            read(50, 1, 9.9, 999, "other"),
+        ];
+        let mut t = Vec::new();
+        walk(&all, 10, 1, &mut t);
         assert_eq!(
             t.iter().map(|p| (p.pid, p.depth)).collect::<Vec<_>>(),
             [(20, 1), (30, 2), (40, 1)]
@@ -164,6 +173,23 @@ mod tests {
             (t[0].name.as_str(), t[0].cpu, t[0].kb),
             ("claude-agent-acp", 12.5, 4096)
         );
+    }
+
+    #[test]
+    fn this_machine_and_the_processes_under_this_one_are_read() {
+        let mut child = std::process::Command::new("sleep")
+            .arg("5")
+            .spawn()
+            .unwrap();
+        let here = processes(std::process::id());
+        let _ = child.kill();
+        let _ = child.wait();
+        assert!(
+            here.procs
+                .iter()
+                .any(|p| p.pid == child.id() && p.depth == 1)
+        );
+        assert!(here.cores > 0 && here.memory > 0);
     }
 
     #[test]

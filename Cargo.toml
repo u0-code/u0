@@ -45,6 +45,8 @@ which = "8"
 nucleo-matcher = "0.3"
 # JSON with comments and trailing commas, as VS Code writes a theme.
 jsonc-parser = { version = "0.34", features = ["serde"] }
+# The processes Ghost runs, their CPU and memory; this machine's load: Diagnostics.
+sysinfo = { version = "0.40", default-features = false, features = ["system"] }
 similar = { version = "2.7", default-features = false, features = ["text"] }
 jiff = "1.0.2"
 tempfile = "3.27"
