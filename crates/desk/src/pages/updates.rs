@@ -73,6 +73,7 @@ impl Desk {
                 "As Ghost starts and every four hours; an update is installed only when you say.",
                 |d, _, cx| {
                     Switch::new("check-updates")
+                        .accessibility_label("Look for updates")
                         .small()
                         .checked(d.settings.check_updates)
                         .on_click(cx.listener(|this, _, _, cx| {

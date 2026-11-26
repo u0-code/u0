@@ -1376,6 +1376,7 @@ impl Desk {
             PopupMenuItem::element(move |_, _| {
                 ui::described(&faces, label, Some(about)).w(px(268.))
             })
+            .accessibility_label(label)
             .on_click(Self::does(desk, move |this, window, cx| {
                 this.rewind(key, item, files, window, cx);
             }))

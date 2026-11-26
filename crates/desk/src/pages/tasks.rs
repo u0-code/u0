@@ -113,6 +113,7 @@ impl Desk {
             )
             .child(
                 Switch::new(SharedString::from(format!("task-on-{id}")))
+                    .accessibility_label("On")
                     .small()
                     .checked(!task.paused)
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -277,6 +278,7 @@ impl Desk {
                 "Each run's session works on a new branch, away from your checkout.",
                 |d, _, cx| {
                     Switch::new("task-worktree")
+                        .accessibility_label("In a worktree of its own")
                         .small()
                         .checked(d.tasks.draft.as_ref().is_some_and(|d| d.task.worktree))
                         .on_click(cx.listener(|this, _, _, cx| {

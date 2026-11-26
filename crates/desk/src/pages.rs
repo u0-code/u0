@@ -685,6 +685,7 @@ impl Desk {
                     .child(ui::label(faces, "Ghost's tools").flex_1())
                     .child(
                         gpui::component::switch::Switch::new("agent-tools")
+                            .accessibility_label("Ghost's tools")
                             .small()
                             .checked(tools)
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -938,6 +939,7 @@ impl Desk {
                     )
                     .child(
                         gpui::component::switch::Switch::new("var-secret")
+                            .accessibility_label("Secret")
                             .small()
                             .checked(secret)
                             .label("Secret")

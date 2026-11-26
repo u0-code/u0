@@ -36,6 +36,7 @@ impl Desk {
                 "After each turn, in the empty composer: Tab takes it, Esc lets it go.",
                 |d, _, cx| {
                     Switch::new("suggest")
+                        .accessibility_label("Suggest what to say next")
                         .small()
                         .checked(d.settings.writer.suggest)
                         .on_click(cx.listener(|this, _, _, cx| {

@@ -166,6 +166,7 @@ impl Desk {
             let icon = mode_icon(&m.id, &m.name);
             let (config, id, on) = (config.clone(), m.id, m.on);
             let (faces, name, about) = (faces.clone(), m.name, m.about);
+            let said = name.clone();
             menu = menu.item(
                 PopupMenuItem::element(move |_, _| {
                     div()
@@ -176,6 +177,7 @@ impl Desk {
                         .child(ui::described(&faces, name.clone(), about.clone()).flex_1())
                         .when(n < 9, |d| d.child(Kbd::new(crate::keys::numbered(n + 1))))
                 })
+                .accessibility_label(said)
                 .icon(ui::menu_glyph(icon))
                 .checked(on)
                 .on_click(Self::does(desk, move |this, window, cx| {

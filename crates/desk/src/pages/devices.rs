@@ -84,6 +84,7 @@ impl Desk {
             about,
             move |_, _, cx| {
                 Switch::new("serve")
+                    .accessibility_label("Let other devices control this Mac")
                     .small()
                     .checked(listening)
                     .disabled(!known)
@@ -102,6 +103,7 @@ impl Desk {
             },
             move |_, _, cx| {
                 Switch::new("control")
+                    .accessibility_label("Control other Macs")
                     .small()
                     .checked(control)
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -265,6 +267,7 @@ impl Desk {
             "So that it can be reached with its lid open and no one at it.",
             move |_, _, cx| {
                 Switch::new("serve-awake")
+                    .accessibility_label("Keep the Mac awake while serving")
                     .small()
                     .checked(awake)
                     .on_click(cx.listener(move |this, _, _, _| this.share(Share::Awake(!awake))))

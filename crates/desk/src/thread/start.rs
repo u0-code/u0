@@ -34,6 +34,8 @@ impl Desk {
                    says: String,
                    aside: Option<&'static str>| {
             ListItem::new(id)
+                .role(gpui::Role::Button)
+                .accessibility_label(says.clone())
                 .h(px(34.))
                 .px(px(12.))
                 .rounded(px(6.))

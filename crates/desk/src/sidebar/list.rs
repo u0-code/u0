@@ -564,6 +564,10 @@ impl Desk {
                                 .ghost()
                                 .xsmall()
                                 .child(ui::icon("square-pen", 14.))
+                                .accessibility_label(format!(
+                                    "New session in {}",
+                                    self.project_name(folder)
+                                ))
                                 .tooltip(format!("New session in {}", self.project_name(folder)))
                                 .on_click(move |_, window, cx| {
                                     cx.stop_propagation();
@@ -637,6 +641,7 @@ impl Desk {
                 .ghost()
                 .xsmall()
                 .child(ui::icon(icon, 14.))
+                .accessibility_label(tip.to_owned())
                 .tooltip(tip.to_owned())
         };
         let pinned = s.meta.flags.pinned.is_some();

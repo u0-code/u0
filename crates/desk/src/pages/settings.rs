@@ -356,6 +356,7 @@ impl Desk {
         let (id, page_id) = (e.id.clone(), e.id.clone());
         let control = if installed || on {
             Switch::new(SharedString::from(format!("toggle-{id}")))
+                .accessibility_label(e.name.clone())
                 .small()
                 .checked(on)
                 .on_click(cx.listener(move |this, _, _, cx| this.toggle_agent(&id, cx)))

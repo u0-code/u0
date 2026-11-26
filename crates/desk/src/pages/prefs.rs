@@ -79,6 +79,7 @@ impl Desk {
                                 "The display may sleep; a turn going on is not cut short by the Mac sleeping.",
                                 |d, _, cx| {
                                     Switch::new("awake")
+                                        .accessibility_label("Keep the Mac awake")
                                         .small()
                                         .checked(d.settings.awake)
                                         .on_click(cx.listener(|this, _, _, cx| {
@@ -930,6 +931,7 @@ fn told(
     item(w, name, about, move |d, _, cx| {
         let mut on = d.settings.notify_on.clone();
         Switch::new(SharedString::from(name))
+            .accessibility_label(name)
             .small()
             .checked(*of(&mut on))
             .disabled(d.settings.notify == Notify::Off)
@@ -953,6 +955,7 @@ fn asks(
     item(w, name, about, move |d, _, cx| {
         let mut confirm = d.settings.confirm.clone();
         Switch::new(SharedString::from(format!("confirm-{name}")))
+            .accessibility_label(name)
             .small()
             .checked(*of(&mut confirm))
             .on_click(cx.listener(move |this, _, _, cx| {

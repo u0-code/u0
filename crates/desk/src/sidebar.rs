@@ -40,6 +40,7 @@ impl Desk {
                 .ghost()
                 .xsmall()
                 .child(ui::icon(icon, 14.))
+                .accessibility_label(tip.to_owned())
                 .tooltip(crate::keys::hint(cx, tip, name))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.step_trail(ahead, window, cx);
@@ -89,6 +90,7 @@ impl Desk {
                         .ghost()
                         .small()
                         .child(ui::icon("folder", 16.))
+                        .accessibility_label("Projects")
                         .tooltip("Projects")
                         .selected(!self.filter.is_empty()),
                     move |d, _, cx| d.projects_menu(&projects_faces, cx),
@@ -101,6 +103,7 @@ impl Desk {
                     .ghost()
                     .small()
                     .child(ui::icon("square-pen", 16.))
+                    .accessibility_label("New session")
                     .tooltip(crate::keys::hint(cx, "New session", "new_session"))
                     .on_click(cx.listener(|this, e: &gpui::ClickEvent, window, cx| {
                         if e.modifiers().shift {
@@ -182,6 +185,7 @@ impl Desk {
                     .xsmall()
                     .child(ui::mark(faces, &self.mark_of(&id), 12.))
                     .child(word)
+                    .accessibility_label(format!("{word}: {}", slot.entry.name))
                     .tooltip(slot.entry.name.clone())
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.open_page(Page::Agent(id.clone()), window, cx);
@@ -193,6 +197,7 @@ impl Desk {
             Button::new(id)
                 .ghost()
                 .child(ui::icon(icon, 16.))
+                .accessibility_label(tip)
                 .tooltip(crate::keys::hint(cx, tip, id))
                 .selected(on)
                 .on_click(move |_, window, cx| {

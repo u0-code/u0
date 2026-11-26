@@ -221,6 +221,7 @@ impl Desk {
         for (id, subject, when) in commits.unwrap_or_default() {
             let to = Scope::Commit(id.clone());
             let on = self.review.scope == to;
+            let said = subject.clone();
             let (faces, id, subject, when) =
                 (faces.clone(), id.clone(), subject.clone(), when.clone());
             menu = menu.item(
@@ -246,6 +247,7 @@ impl Desk {
                         )
                         .child(fine(&faces, when.clone()).flex_none())
                 })
+                .accessibility_label(said)
                 .checked(on)
                 .on_click(Self::does(desk, move |this, _, cx| {
                     this.show_changes(to.clone(), cx);
