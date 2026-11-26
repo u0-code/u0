@@ -39,7 +39,7 @@ Ghost 打开会话时，通过 ACP 的 `mcpServers` 把服务器作为一个要�
 调用方有两类：
 
 - **Ghost 中的会话。** 它可以调用所有工具。会执行操作的工具（`delegate_task`、`open_pr`、`schedule_task`、`use_device`、`send_to_session`、`interrupt_session`）会先在该会话的对话中用权限卡片询问你，这与智能体自身提问所用的卡片相同，有 **Allow**、**Always allow** 和 **Reject**。**Always allow** 在该会话中对该工具一直有效，直到会话的连接结束。
-- **Ghost 之外的智能体**（见下文）。它可以读取：`list_sessions`、`read_session`、`read_diff`、`wait_for_turn`、`events`、`list_devices` 和 `device_screen`。打开 **设置 › 智能体 › Ghost 之外的智能体可以执行操作**（`outside_acts`）后，它还可以 `send_to_session` 和 `interrupt_session`，每次都在那个会话的卡片上询问你。其他会执行操作或向你提问的工具会回答：只有 Ghost 会话中的智能体才能这样做。
+- **Ghost 之外的智能体**（见下文）。它可以读取：`list_sessions`、`read_session`、`read_diff`、`wait_for_turn`、`events`、`list_devices` 和 `device_screen`。打开 **设置 › 智能体 › Ghost 之外的智能体可以执行操作**（`outside_acts`）后，它还可以 `send_to_session` 和 `interrupt_session`，每次都在那个会话的卡片上询问你，只有 **Allow** 和 **Reject**：Ghost 之外的每个智能体都用 `mcp.json` 中的同一个密钥进入，**Always allow** 会让它们全都获准，所以没有这一项。其他会执行操作或向你提问的工具会回答：只有 Ghost 会话中的智能体才能这样做。
 - **另一台 Mac 上的智能体**，通过已配对设备的连接访问这台 Mac 的工具（`--mcp --on`，见下文）：它可以读取，并在该设备允许的范围内执行操作（只读设备的智能体只能读取）。
 
 ## 从 Ghost 之外的智能体使用 {#using-them-from-an-agent-outside-ghost}

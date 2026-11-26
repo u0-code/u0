@@ -62,7 +62,10 @@ There are two kinds of caller:
   `read_session`, `read_diff`, `wait_for_turn`, `events`, `list_devices`
   and `device_screen`. With **Settings › Agents › Agents outside Ghost may
   act** on (`outside_acts`), it may also `send_to_session` and
-  `interrupt_session`, each asked of you on that session's card. Any
+  `interrupt_session`, each asked of you on that session's card with
+  **Allow** and **Reject** alone: every agent outside Ghost comes in by
+  the one key in `mcp.json`, so an **Always allow** would let each of
+  them, and there is none. Any
   other tool that acts or asks you answers that only an agent in a Ghost
   session can do it.
 - **An agent on another Mac**, reaching this Mac's tools through a

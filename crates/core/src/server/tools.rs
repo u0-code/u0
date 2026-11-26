@@ -170,11 +170,28 @@ impl Tools {
         if self.always.lock().expect("always").contains(tool) {
             return Ok(());
         }
-        let options = vec![
-            PermissionOption::new("once", "Allow", PermissionOptionKind::AllowOnce),
-            PermissionOption::new("always", "Always allow", PermissionOptionKind::AllowAlways),
-            PermissionOption::new("no", "Reject", PermissionOptionKind::RejectOnce),
-        ];
+        // Every agent outside Ghost comes in by the one key `mcp.json`
+        // holds: a yes for always would be a yes to each of them, so it
+        // is asked each time.
+        let shared_key = self.caller() == Some(Caller::Outside);
+        let options = [
+            Some(PermissionOption::new(
+                "once",
+                "Allow",
+                PermissionOptionKind::AllowOnce,
+            )),
+            (!shared_key).then(|| {
+                PermissionOption::new("always", "Always allow", PermissionOptionKind::AllowAlways)
+            }),
+            Some(PermissionOption::new(
+                "no",
+                "Reject",
+                PermissionOptionKind::RejectOnce,
+            )),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
         let call = ToolCallUpdate::new(
             format!("ghost-{tool}-{}", crate::access::number()),
             ToolCallUpdateFields::new()
@@ -192,7 +209,7 @@ impl Tools {
             return Err("You did not allow it".into());
         };
         match &*chosen.option_id.0 {
-            "always" => {
+            "always" if !shared_key => {
                 self.always.lock().expect("always").insert(tool);
                 Ok(())
             }
@@ -1103,7 +1120,7 @@ esac; done"#,
     }
 
     #[test]
-    fn an_agent_outside_ghost_acts_on_a_session_only_where_let_and_as_you_allow_it_there() {
+    fn an_agent_outside_ghost_acts_on_a_session_only_where_let_and_as_you_allow_it_each_time() {
         let home = tempfile::tempdir().unwrap();
         // An agent that opens s1 and answers each prompt in the session it
         // was said in.
@@ -1168,6 +1185,9 @@ esac; done"#;
             title.starts_with("An agent outside Ghost: Say “Go on”"),
             "{title}"
         );
+        // Each agent outside Ghost has the one key: none is let always.
+        let offered: Vec<&str> = (asked.options.iter()).map(|o| &*o.option_id.0).collect();
+        assert_eq!(offered, ["once", "no"]);
         server.handle(answer(request, "no"));
         assert_eq!(client.result(), ("You did not allow it".to_owned(), true));
         // Allowed, it is said as the session's next turn, and answered.
