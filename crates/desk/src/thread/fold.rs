@@ -83,41 +83,18 @@ pub fn rows(
             .rposition(|x| matches!(x, Item::Ended { .. }))
             .map(|p| i + 1 + p)
             .or((end < items.len() || !going).then_some(end));
-        let work = match ended {
-            // The answer stays out: the last thing the agent said, if
-            // nothing but notes and the end come after it.
-            Some(e) => {
-                let answer = items[i + 1..e]
-                    .iter()
-                    .rposition(|x| matches!(x, Item::Agent(_)))
-                    .map(|p| i + 1 + p)
-                    .filter(|&a| {
-                        items[a + 1..e]
-                            .iter()
-                            .all(|x| matches!(x, Item::Note { .. }))
-                    });
-                // Without one, the notes it ended with stay out: what went
-                // wrong is not folded away.
-                let to = answer.unwrap_or_else(|| {
-                    (i + 1..e)
-                        .rev()
-                        .find(|&k| !matches!(items[k], Item::Note { .. }))
-                        .map_or(i + 1, |k| k + 1)
-                });
-                Some((i + 1, to, e))
-            }
-            None => None,
-        };
-        // What the agent said before its first call stays out too.
-        let work = work.map(|(from, to, e)| {
-            let first = (from..to)
-                .find(|&k| !matches!(items[k], Item::Agent(_)))
-                .unwrap_or(to);
-            out.extend((from..first).map(Row::Item));
-            (first, to, e)
+        // The work runs from the first call to the last: a plan, a thought
+        // or a note between them goes with it, but none of them opens or
+        // extends it, so what the agent said before its first call and
+        // after its last (its answer) stays out.
+        let work = ended.and_then(|e| {
+            let first = (i + 1..e).find(|&k| is_call(&items[k]))?;
+            let last = (i + 1..e).rfind(|&k| is_call(&items[k]))?;
+            out.extend((i + 1..first).map(Row::Item));
+            Some((first, last + 1, e))
         });
         match work {
-            Some((from, to, e)) if fold_turns && to > from => {
+            Some((from, to, e)) if fold_turns => {
                 let secs = match items.get(e) {
                     Some(Item::Ended { secs, .. }) => Some(*secs),
                     _ => None,
@@ -137,12 +114,20 @@ pub fn rows(
             Some((from, ..)) => {
                 grouped(session, items, from, end, expanded, &open_call, &mut out);
             }
-            // Going on: every row shows.
+            // Going on, or no call made: every row shows.
             None => out.extend((i + 1..end).map(Row::Item)),
         }
         i = end;
     }
     out
+}
+
+/// Whether the item is work done: a call, a question asked, a subagent.
+fn is_call(item: &Item) -> bool {
+    matches!(
+        item,
+        Item::Tool(_) | Item::Asked(_) | Item::Elicited(_) | Item::Child { .. }
+    )
 }
 
 /// The items `from..to`, with each run of quiet calls folded into a group.
@@ -363,6 +348,53 @@ mod tests {
                     secs: Some(0),
                     open: false
                 }
+            ]
+        );
+    }
+
+    #[test]
+    fn a_plan_or_a_thought_beside_the_calls_neither_opens_nor_extends_the_fold() {
+        let plan = |status: &str| {
+            serde_json::from_str(&format!(
+                r#"{{"sessionUpdate":"plan","entries":[{{"content":"a","priority":"high","status":"{status}"}}]}}"#
+            ))
+            .unwrap()
+        };
+        let mut s = Session::new(7, "x", "/r".into());
+        s.said("go");
+        s.apply(
+            serde_json::from_str(
+                r#"{"sessionUpdate":"agent_thought_chunk","content":{"type":"text","text":"hm"}}"#,
+            )
+            .unwrap(),
+        );
+        s.apply(plan("in_progress"));
+        s.apply(serde_json::from_str(r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Looking."}}"#).unwrap());
+        s.apply(serde_json::from_str(r#"{"sessionUpdate":"tool_call","toolCallId":"a","title":"t","kind":"read","status":"completed"}"#).unwrap());
+        s.apply(serde_json::from_str(r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Done."}}"#).unwrap());
+        s.apply(plan("completed"));
+        s.ended(
+            Ok(agent_client_protocol::v1::schema::StopReason::EndTurn),
+            Vec::new(),
+        );
+        let rows = rows(7, &s.items, &HashSet::new(), |_| false, false, true);
+        // You, the thought, the plan, "Looking.", the fold over the one
+        // call, the answer, the end.
+        assert_eq!(
+            rows,
+            vec![
+                Row::Item(0),
+                Row::Item(1),
+                Row::Item(2),
+                Row::Item(3),
+                Row::Turn {
+                    from: 4,
+                    to: 5,
+                    secs: Some(0),
+                    open: false
+                },
+                Row::Item(5),
+                Row::Item(6)
             ]
         );
     }
