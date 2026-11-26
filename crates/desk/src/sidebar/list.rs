@@ -312,8 +312,11 @@ impl Desk {
     pub(crate) fn side_row(&self, entry: &TreeEntry, desk: &Entity<Self>, cx: &App) -> ListItem {
         let faces = crate::fonts::faces(cx).clone();
         let id = entry.item().id.clone();
+        // Rows stand a little apart, so that the ground of one lit (hovered,
+        // chosen) never runs into the next.
         let item = ListItem::new(SharedString::from(format!("row-{id}")))
-            .h(px(36.))
+            .h(px(34.))
+            .my(px(2.))
             .px(px(10.))
             .rounded(px(8.));
         match Row::of(&id) {
@@ -459,17 +462,33 @@ impl Desk {
                 .when(self.prefs(folder).pinned, |d| {
                     d.child(ui::icon("pin", 12.).flex_none().text_color(theme::faint()))
                 })
-                .when(!hidden.is_empty(), |d| {
-                    d.child(
-                        ui::fine(faces, hidden.len().to_string())
-                            .group_hover(group.clone(), gpui::Styled::invisible),
-                    )
-                })
-                .children(dot.map(|st| ui::dot(st.color())))
+                // At rest, at its end: folded, the dot for the one that
+                // most needs you and how many it hides; open, the chevron.
+                // On hover, in their place, a new session in it and the
+                // chevron; nothing keeps room for what is not shown.
                 .child(
                     div()
-                        .invisible()
-                        .group_hover(group.clone(), gpui::Styled::visible)
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .gap(px(8.))
+                        .group_hover(group.clone(), gpui::Styled::hidden)
+                        .children(dot.map(|st| ui::dot(st.color())))
+                        .when(!hidden.is_empty(), |d| {
+                            d.child(ui::fine(faces, hidden.len().to_string()))
+                        })
+                        .when(
+                            hidden.is_empty() && !entry.item().children.is_empty(),
+                            |d| d.child(chevron(open)),
+                        ),
+                )
+                .child(
+                    div()
+                        .hidden()
+                        .flex_none()
+                        .items_center()
+                        .gap(px(4.))
+                        .group_hover(group.clone(), gpui::Styled::flex)
                         .child(
                             Button::new(SharedString::from(format!("new-in-{}", folder.display())))
                                 .ghost()
@@ -480,11 +499,11 @@ impl Desk {
                                     cx.stop_propagation();
                                     desk.update(cx, |d, cx| d.new_in(new.clone(), window, cx));
                                 }),
-                        ),
-                )
-                .when(!entry.item().children.is_empty(), |d| {
-                    d.child(chevron(open))
-                }),
+                        )
+                        .when(!entry.item().children.is_empty(), |d| {
+                            d.child(chevron(open))
+                        }),
+                ),
         )
     }
 
