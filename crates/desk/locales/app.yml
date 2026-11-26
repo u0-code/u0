@@ -6182,6 +6182,16 @@ _version: 2
   pt-BR: "Ícone"
   ru: "Значок"
   sv: "Symbol"
+"If the other Mac asks, this Mac pairs with it too, and controls it from here: for a Mac of yours.":
+  zh-CN: "若另一台 Mac 请求，这台 Mac 也会与它配对，并在此控制它：用于你自己的 Mac。"
+  de: "Wenn der andere Mac darum bittet, koppelt sich dieser Mac auch mit ihm und steuert ihn von hier: für einen Mac von dir."
+  es: "Si el otro Mac lo pide, este Mac también se empareja con él y lo controla desde aquí: para un Mac tuyo."
+  fr: "Si l’autre Mac le demande, ce Mac s’associe aussi à lui et le contrôle d’ici : pour un Mac à vous."
+  ja: "相手の Mac が求めれば、この Mac もそれとペアリングし、ここから操作します。自分の Mac 向けです。"
+  ko: "다른 Mac이 요청하면 이 Mac도 그 Mac과 페어링하고 여기서 제어합니다. 내 Mac용입니다."
+  pt-BR: "Se o outro Mac pedir, este Mac também se pareia com ele e o controla daqui: para um Mac seu."
+  ru: "Если другой Mac попросит, этот Mac тоже свяжется с ним и будет управлять им отсюда: для вашего Mac."
+  sv: "Om den andra Macen ber om det parkopplar sig den här Macen också med den och styr den härifrån: för en Mac som är din."
 "Image %{n}":
   zh-CN: "图片 %{n}"
   de: "Bild %{n}"
@@ -9032,6 +9042,16 @@ _version: 2
   pt-BR: "Parear um Dispositivo…"
   ru: "Сопрячь устройство…"
   sv: "Parkoppla en enhet…"
+"Pair both ways":
+  zh-CN: "双向配对"
+  de: "In beide Richtungen koppeln"
+  es: "Emparejar en ambos sentidos"
+  fr: "Associer dans les deux sens"
+  ja: "双方向にペアリング"
+  ko: "양방향으로 페어링"
+  pt-BR: "Parear nos dois sentidos"
+  ru: "Связать в обе стороны"
+  sv: "Parkoppla åt båda hållen"
 "Pair with %{host}?":
   zh-CN: "与 %{host} 配对？"
   de: "Mit %{host} koppeln?"

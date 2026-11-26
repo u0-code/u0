@@ -314,6 +314,10 @@ pub fn serve_here() -> Result<(), String> {
     Ok(())
 }
 
+/// Why a device that asked was not paired back with.
+const NOT_BOTH: &str =
+    "Its pairing link was not made to pair both ways: it pairs with this Mac one way only";
+
 /// The most of a webhook call's body taken: more is refused.
 const HOOK_BODY: usize = 1 << 20;
 
@@ -619,7 +623,11 @@ async fn serve(
     // Its device is now paired, or last here now, or waits: Settings ›
     // Devices shows it so, wherever it is open.
     server.share(crate::share::Share::Look);
-    let (device, scope) = match admitted {
+    let crate::access::Admitted {
+        key: device,
+        scope,
+        back: may_back,
+    } = match admitted {
         Ok(admitted) => admitted,
         Err(Turned::Away(why) | Turned::Ended(why)) => return refuse(ws, &why).await,
         // Told by its close's code, with the server's name, so that a
@@ -667,9 +675,11 @@ async fn serve(
             .map_err(|e| e.to_string())?;
         return carry(ws, near, lasts(server, &device, scope)).await;
     }
-    // Asked as it paired, and so by its code: pair back with it.
+    // Asked as it paired by a code made to pair both ways: pair back
+    // with it. Any other is told no, and this Mac pairs with nothing.
     let back = match hello.pair.and_then(|p| p.back) {
-        Some(back) => Some(server.pair_back(&back).await),
+        Some(back) if may_back => Some(server.pair_back(&back).await),
+        Some(_) => Some(Err(NOT_BOTH.to_owned())),
         None => None,
     };
     let outbox = server.outbox();
@@ -1847,11 +1857,15 @@ esac; done"#;
             &here(port_b),
             &b.access().code(crate::access::Grant::default()),
         );
+        let both = crate::access::Grant {
+            both: true,
+            ..crate::access::Grant::default()
+        };
         let Paired { name, back, .. } = crate::acp::runtime()
             .block_on(crate::servers::pair(
                 home_b.path(),
                 here(port_a),
-                a.access().code(crate::access::Grant::default()),
+                a.access().code(both),
                 Key::generate(),
                 Some(back),
             ))
@@ -1885,6 +1899,37 @@ esac; done"#;
     }
 
     #[test]
+    fn only_a_link_made_to_pair_both_ways_and_for_everything_pairs_back() {
+        let (home_a, home_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let ((a, port_a), (b, port_b)) = (server(home_a.path()), server(home_b.path()));
+        let read_both = crate::access::Grant {
+            scope: crate::access::Scope::Read,
+            both: true,
+            ..crate::access::Grant::default()
+        };
+        for grant in [crate::access::Grant::default(), read_both] {
+            let back = crate::reach::pairing_link(
+                &here(port_b),
+                &b.access().code(crate::access::Grant::default()),
+            );
+            let Paired { back, .. } = crate::acp::runtime()
+                .block_on(crate::servers::pair(
+                    home_b.path(),
+                    here(port_a),
+                    a.access().code(grant),
+                    Key::generate(),
+                    Some(back),
+                ))
+                .unwrap();
+            assert_eq!(back, Some(Err(NOT_BOTH.to_owned())), "{grant:?}");
+            // A pairs with nothing, and controls nothing more.
+            let theirs = crate::servers::Servers::load(home_a.path()).unwrap();
+            assert!(theirs.servers.is_empty() && !theirs.control, "{grant:?}");
+            assert!(b.access().kept().unwrap().devices.is_empty());
+        }
+    }
+
+    #[test]
     fn a_way_back_that_does_not_reach_leaves_the_pairing_one_way() {
         let (home_a, home_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let (a, port_a) = server(home_a.path());
@@ -1893,7 +1938,10 @@ esac; done"#;
             .block_on(crate::servers::pair(
                 home_b.path(),
                 here(port_a),
-                a.access().code(crate::access::Grant::default()),
+                a.access().code(crate::access::Grant {
+                    both: true,
+                    ..crate::access::Grant::default()
+                }),
                 Key::generate(),
                 Some(nowhere),
             ))

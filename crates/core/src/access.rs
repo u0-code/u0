@@ -109,12 +109,24 @@ pub enum Scope {
 }
 
 /// What a pairing code lets in: a device of `scope`, for `days` (none,
-/// until revoked), let in at once or (`ask`) once you say so.
+/// until revoked), let in at once or (`ask`) once you say so; and
+/// whether (`both`) this Mac pairs back with it as it asks, so that it is
+/// controlled from here too: for one of full scope alone.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Grant {
     pub scope: Scope,
     pub days: Option<u32>,
     pub ask: bool,
+    pub both: bool,
+}
+
+/// A device let in: its key, what it may do, and whether this Mac pairs
+/// back with it (it paired now by a code whose grant said so).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Admitted {
+    pub key: String,
+    pub scope: Scope,
+    pub back: bool,
 }
 
 /// Why a device is not let in.
@@ -217,7 +229,7 @@ impl Access {
     /// Let in the desk that says `hello` to the challenge `nonce`: the
     /// key it is known by and what it may do; or, a second later, why
     /// not.
-    pub async fn admit(&self, hello: &Hello, nonce: &str) -> Result<(String, Scope), Turned> {
+    pub async fn admit(&self, hello: &Hello, nonce: &str) -> Result<Admitted, Turned> {
         let admitted = self.check(hello, nonce);
         // Past a few waiting, one more is turned away at once: the wait
         // slows guessing, and is no queue for anyone to fill.
@@ -231,7 +243,7 @@ impl Access {
         admitted
     }
 
-    fn check(&self, hello: &Hello, nonce: &str) -> Result<(String, Scope), Turned> {
+    fn check(&self, hello: &Hello, nonce: &str) -> Result<Admitted, Turned> {
         if let Err(why) = &*self.kept.lock().expect("access") {
             return Err(Turned::Away(why.clone()));
         }
@@ -241,6 +253,7 @@ impl Access {
             ));
         }
         let now = crate::store::secs(std::time::SystemTime::now());
+        let mut back = false;
         if let Some(pair) = &hello.pair {
             let mut codes = self.codes.lock().expect("codes");
             let at = (codes.iter())
@@ -250,6 +263,7 @@ impl Access {
                 })?;
             let (_, _, grant) = codes.remove(at);
             drop(codes);
+            back = grant.both && grant.scope == Scope::Full;
             self.change(|k| {
                 k.devices.retain(|d| d.key != hello.key);
                 k.devices.push(Device {
@@ -269,8 +283,11 @@ impl Access {
                 }
             });
         }
-        self.lets_in(&hello.key)
-            .map(|scope| (hello.key.clone(), scope))
+        self.lets_in(&hello.key).map(|scope| Admitted {
+            key: hello.key.clone(),
+            scope,
+            back,
+        })
     }
 
     /// Unpair the device known by `key`, or turn it away while it waits:
@@ -398,7 +415,11 @@ mod tests {
         let code = access.code(Grant::default());
         assert_eq!(
             block(access.admit(&hello(&key, "n1", Some(code.clone())), "n1")),
-            Ok((key.public(), Scope::Full))
+            Ok(Admitted {
+                key: key.public(),
+                scope: Scope::Full,
+                back: false
+            })
         );
         assert!(
             access.live(&code).is_none(),

@@ -99,8 +99,16 @@ impl Servers {
         self.servers.iter().find(|s| s.host == service)
     }
 
-    /// Keep `server`, paired with by `key`: in place of one of its name.
+    /// Keep `server`, paired with by `key`: in place of one of its name at
+    /// its address (paired with again); one of its name elsewhere is kept,
+    /// and this refused.
     pub(crate) fn paired(&mut self, server: Server, key: &Key) -> Result<(), String> {
+        if (self.servers.iter()).any(|s| s.name == server.name && s.host != server.host) {
+            return Err(format!(
+                "This Mac is paired with another server called {} already: forget it first",
+                server.name
+            ));
+        }
         crate::secrets::set(&account(&server.key), Some(key.kept()))?;
         self.forget(&server.name);
         self.servers.push(server);
@@ -172,6 +180,29 @@ mod tests {
         assert!(held(&servers).is_empty());
         assert!(servers.service(4317).is_some(), "the service is this Mac's");
         assert!(serde_json::from_str::<Servers>(r#"{"hosts": []}"#).is_err());
+    }
+
+    #[test]
+    fn a_server_of_a_name_paired_with_already_elsewhere_is_refused_not_replaced() {
+        let mine = Server {
+            name: "studio".into(),
+            host: "studio.example:4317".into(),
+            key: "ssh-ed25519 MINE".into(),
+            pin: None,
+        };
+        let mut servers = Servers {
+            servers: vec![mine.clone()],
+            ..Servers::default()
+        };
+        let planted = Server {
+            host: "evil.example".into(),
+            key: "ssh-ed25519 EVIL".into(),
+            ..mine.clone()
+        };
+        let why = servers.paired(planted, &Key::generate()).unwrap_err();
+        assert!(why.contains("forget it first"), "{why}");
+        assert_eq!(servers.servers, [mine]);
+        assert!(!servers.control);
     }
 
     #[test]

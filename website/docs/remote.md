@@ -90,7 +90,10 @@ link at once:
   a new link.
 - **Ask me before letting it in**: the device pairs, then waits under
   **Devices that control this Mac** until you let it in. For a link you
-  send someone. **Copy** copies
+  send someone.
+- **Pair both ways** (for **Everything** alone): if the Mac that pairs
+  asks, this Mac pairs back with it and controls it from here. For a Mac
+  of yours; off at first. **Copy** copies
 it and **New link** makes another. Open it on the other Mac, scan its QR
 code, or paste it there.
 
@@ -120,7 +123,9 @@ starts listening and the other pairs back with a key of its own, by a
 one-time code this Mac makes. The other reaches this Mac at `127.0.0.1`
 when it was itself reached there, otherwise only through this Mac's own
 tunnel, which must be up. Where it cannot reach this Mac, the pairing
-stays one way and says why. (The checkbox is not offered when this Mac's
+stays one way and says why. The other Mac pairs back only if the link
+was made with **Pair both ways**; and a server of a name this Mac is
+paired with elsewhere is refused, never put in its place. (The checkbox is not offered when this Mac's
 window runs on the launchd service.)
 
 ### Several Macs in one window

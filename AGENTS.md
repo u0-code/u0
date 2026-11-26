@@ -359,7 +359,10 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 - Pairing both ways is two pairings, each by a code and a signature: the
   desk's `Pair` carries a pairing link of its own server's (`back`), and
   the server, having let the desk's key in, makes a key of its own and
-  pairs with that link before its `Welcome`, which says how that went.
+  pairs with that link before its `Welcome`, which says how that went:
+  only when the code it came by was made to pair both ways
+  (`Grant::both`, for everything); and a server of a name this Mac is
+  paired with elsewhere is refused, never put in its place.
   The way back is reached as the way there: at 127.0.0.1 for a server
   reached there, else through the desk's own tunnel; with none, the
   pairing stays one way and says why.

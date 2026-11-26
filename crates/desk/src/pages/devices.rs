@@ -281,6 +281,27 @@ impl Desk {
                     .into_any_element()
             },
         );
+        // Whether this Mac pairs back: asked of a link for everything alone.
+        let both = item(
+            w,
+            crate::tr("Pair both ways"),
+            crate::tr(
+                "If the other Mac asks, this Mac pairs with it too, and controls it from here: for a Mac of yours.",
+            ),
+            move |_, _, cx| {
+                Switch::new("grant-both")
+                    .accessibility_label(crate::tr("Pair both ways"))
+                    .small()
+                    .checked(grant.both && grant.scope == Scope::Full)
+                    .disabled(grant.scope != Scope::Full)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.pages.grant.both = !grant.both;
+                        this.new_link();
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            },
+        );
         // Which way the link names: each this Mac is reached by now.
         let mut kinds: Vec<Route> = (self.pages.shared.as_ref())
             .and_then(|s| s.routes.as_ref().ok())
@@ -328,6 +349,7 @@ impl Desk {
                 scope,
                 ends,
                 ask,
+                both,
                 way,
                 renew(
                     w,
@@ -342,6 +364,7 @@ impl Desk {
             scope,
             ends,
             ask,
+            both,
             way,
             item(
                 w,
