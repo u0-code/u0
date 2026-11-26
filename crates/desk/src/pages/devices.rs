@@ -15,7 +15,7 @@ use gpui::component::{
     switch::Switch,
 };
 use gpui::{
-    AnyElement, ClipboardItem, Context, Div, SharedString, WeakEntity, Window, div, prelude::*, px,
+    AnyElement, ClipboardItem, Context, SharedString, WeakEntity, Window, div, prelude::*, px,
 };
 
 use super::prefs::{group, item, whole};
@@ -37,32 +37,22 @@ fn ago(secs: u64) -> String {
     when::ago(crate::store::time(secs), std::time::SystemTime::now())
 }
 
-/// The QR code of `link`, dark on light whatever the theme, each row's
-/// runs of one colour drawn as one box.
-fn qr(link: &str) -> Div {
-    const MODULE: f32 = 4.;
+/// The QR code of `link`, black on white whatever the theme, inside its
+/// quiet zone of four modules: drawn by qrcode as an SVG. A module is 4
+/// points, a whole number of pixels at any scale, so its edges stay sharp.
+fn qr(link: &str) -> gpui::Img {
+    const MODULE: u32 = 4;
     let code = link::qr(link);
-    let dark: Vec<bool> = code
-        .to_colors()
-        .iter()
-        .map(|c| c.select(true, false))
-        .collect();
-    let rows = dark.chunks(code.width()).map(|row| {
-        div()
-            .flex()
-            .children(row.chunk_by(|a, b| a == b).map(|run| {
-                div()
-                    .w(px(MODULE * run.len() as f32))
-                    .h(px(MODULE))
-                    .when(run[0], |d| d.bg(gpui::black()))
-            }))
-    });
-    div()
-        .p(px(MODULE * 4.))
-        .bg(gpui::white())
-        .flex()
-        .flex_col()
-        .children(rows)
+    let side = (code.width() as u32 + 8) * MODULE;
+    let svg = code
+        .render::<qrcode::render::svg::Color>()
+        .module_dimensions(MODULE, MODULE)
+        .build();
+    gpui::img(std::sync::Arc::new(gpui::Image::from_bytes(
+        gpui::ImageFormat::Svg,
+        svg.into_bytes(),
+    )))
+    .size(px(side as f32))
 }
 
 impl Desk {

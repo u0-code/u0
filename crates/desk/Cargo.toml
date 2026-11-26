@@ -29,6 +29,8 @@ percent-encoding.workspace = true
 which.workspace = true
 nucleo-matcher.workspace = true
 jsonc-parser.workspace = true
+# The pairing QR code, drawn as the SVG the crate writes.
+qrcode = { workspace = true, features = ["svg"] }
 
 [dev-dependencies]
 tempfile.workspace = true
