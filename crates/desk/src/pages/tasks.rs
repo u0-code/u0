@@ -11,6 +11,7 @@ use gpui::component::{
     setting::{SettingGroup, SettingItem},
     switch::Switch,
     tag::Tag,
+    time_field::TimeField,
 };
 use gpui::{Axis, Context, Div, IntoElement, SharedString, WeakEntity, div, prelude::*, px};
 
@@ -396,7 +397,7 @@ impl Desk {
                     .flex_wrap()
                     .items_center()
                     .gap(px(8.))
-                    .child(div().w(px(120.)).child(Input::new(&draft.at).small()))
+                    .child(TimeField::new(&draft.time))
                     .child(group)
                     .child(ui::fine(faces, "none chosen: every day"))
             }

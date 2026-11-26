@@ -5,6 +5,7 @@
 use std::time::SystemTime;
 
 use gpui::component::input::{InputState, TextareaState};
+use gpui::component::time_field::{HourCycle, TimeFieldState};
 use gpui::{AppContext as _, Context, Entity, Window};
 
 use super::Desk;
@@ -41,9 +42,11 @@ pub struct Draft {
     /// How often, in minutes or as a while ("2h"), for one run every so
     /// often.
     pub every: Entity<InputState>,
-    /// The time of day ("09:00", "5pm"), or for one run, when ("tomorrow",
-    /// "in 3h").
+    /// For one run, when ("tomorrow", "5pm", "in 3h").
     pub at: Entity<InputState>,
+    /// The time of day of a daily one: gpui-kit's time field, on the
+    /// clock your settings show.
+    pub time: Entity<TimeFieldState>,
     /// Why it was not kept.
     pub wrong: Option<String>,
 }
@@ -110,17 +113,34 @@ impl Desk {
                     .default_value(text)
             })
         };
-        let (every, at) = match &task.schedule {
-            Schedule::Every(m) => (m.to_string(), "09:00".to_owned()),
-            Schedule::Daily { minute, .. } => (
-                "60".to_owned(),
-                when::clock(when::at_minute(SystemTime::now(), 0, *minute), false),
-            ),
+        let (every, at, minute) = match &task.schedule {
+            Schedule::Every(m) => (m.to_string(), "09:00".to_owned(), 9 * 60),
+            Schedule::Daily { minute, .. } => ("60".to_owned(), "09:00".to_owned(), *minute),
             Schedule::Once(at) => (
                 "60".to_owned(),
                 when::said_at(store::time(*at), SystemTime::now(), false),
+                9 * 60,
             ),
         };
+        let cycle = if self.settings.twelve {
+            HourCycle::H12
+        } else {
+            HourCycle::H23
+        };
+        let time = cx.new(|cx| {
+            let mut state = TimeFieldState::new(window, cx).hour_cycle(cycle);
+            let of_day = state
+                .time()
+                .with()
+                .hour(i8::try_from(minute / 60).unwrap_or(9))
+                .minute(i8::try_from(minute % 60).unwrap_or(0))
+                .second(0)
+                .build();
+            if let Ok(t) = of_day {
+                state.set_time(t, window, cx);
+            }
+            state
+        });
         let draft = Draft {
             title: field(task.title.clone(), "Morning triage", window, cx),
             prompt: cx.new(|cx| {
@@ -130,7 +150,8 @@ impl Desk {
                     .default_value(task.prompt.clone())
             }),
             every: field(every, "Minutes, or 2h", window, cx),
-            at: field(at, "09:00, 5pm, tomorrow", window, cx),
+            at: field(at, "tomorrow, 5pm, in 3h", window, cx),
+            time,
             task,
             wrong: None,
         };
@@ -170,13 +191,12 @@ impl Desk {
                 }
                 _ => Some("Say how often: minutes, or a while such as 2h."),
             },
-            Schedule::Daily { minute, .. } => match when::ahead(&at, now) {
-                Some(t) => {
-                    *minute = when::minute_of_day(t);
-                    None
-                }
-                None => Some("Say the time of day, such as 09:00 or 5pm."),
-            },
+            Schedule::Daily { minute, .. } => {
+                let t = draft.time.read(cx).time();
+                *minute = u16::try_from(t.hour()).unwrap_or(0) * 60
+                    + u16::try_from(t.minute()).unwrap_or(0);
+                None
+            }
             Schedule::Once(secs) => match when::ahead(&at, now) {
                 Some(t) => {
                     *secs = store::secs(t);
