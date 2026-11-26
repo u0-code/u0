@@ -55,6 +55,10 @@ const QUIET: Duration = Duration::from_secs(60);
 /// How long a desk waits to reach a server, and a server for a hello.
 const WAIT: Duration = Duration::from_secs(15);
 
+/// How long a connection let up to a WebSocket has to say its hello: a
+/// desk says it at once, and one waiting holds a place others need.
+const HELLO: Duration = Duration::from_secs(5);
+
 /// The most a connection not yet let in may send in one message: a hello
 /// is a few hundred bytes.
 const BEFORE: usize = 64 << 10;
@@ -269,6 +273,11 @@ async fn respond(
     {
         let token = token.to_owned();
         return hook(server, &token, req).await;
+    }
+    // No page in a browser, which says where it comes from (Origin), is
+    // let up: a desk, the command and the tools say none.
+    if req.headers().contains_key(hyper::header::ORIGIN) {
+        return status(StatusCode::FORBIDDEN);
     }
     // The upgrade as tungstenite checks it: a GET, HTTP/1.1, version 13.
     let Ok(answer) = create_response_with_body(&req, Default::default) else {
@@ -620,7 +629,7 @@ async fn serve(
     ws.send(Message::text(text))
         .await
         .map_err(|e| e.to_string())?;
-    let hello = match tokio::time::timeout(WAIT, ws.next()).await {
+    let hello = match tokio::time::timeout(HELLO, ws.next()).await {
         Ok(Some(Ok(Message::Text(t)))) => serde_json::from_str::<Hello>(&t).ok(),
         _ => None,
     };
@@ -1125,6 +1134,9 @@ mod tests {
         };
         let whole = "Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\n";
         assert_eq!(first(&format!("GET / HTTP/1.1\r\n{whole}")), "HTTP/1.1 101");
+        // A page in a browser, which says where it comes from, is not.
+        let page = format!("GET / HTTP/1.1\r\n{whole}Origin: https://evil.example\r\n");
+        assert_eq!(first(&page), "HTTP/1.1 403");
         for head in [
             format!("PUT / HTTP/1.1\r\n{whole}"),
             "GET / HTTP/1.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n".into(),

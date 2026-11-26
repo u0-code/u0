@@ -4,9 +4,10 @@
 //! `authorized_keys` keeps them; and the one-time codes that let a new key
 //! in, kept only in memory, each good once and for ten minutes.
 //!
-//! A code is 128 bits from the system's randomness. A failed attempt to
-//! come in is answered after a second, one at a time, so that guessing
-//! goes no faster than that.
+//! A code is 128 bits from the system's randomness: what keeps it from
+//! being guessed is its length, not a limit on tries. A failed attempt to
+//! come in is answered after a second, one at a time while a few wait,
+//! and past those at once, so that failures pile up nowhere.
 
 use std::{
     path::{Path, PathBuf},
