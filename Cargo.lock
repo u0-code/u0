@@ -2225,6 +2225,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "ureq",
+ "url",
  "which",
 ]
 

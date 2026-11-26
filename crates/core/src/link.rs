@@ -533,15 +533,21 @@ pub fn url_of(host: &str) -> String {
 
 /// The host and code of a pairing link, `ghost://pair?host=…#code`.
 pub fn pairing(link: &str) -> Option<(String, String)> {
-    let rest = link.trim().strip_prefix("ghost://pair?")?;
-    let (query, code) = rest.split_once('#')?;
-    let host = query.split('&').find_map(|kv| kv.strip_prefix("host="))?;
-    (!host.is_empty() && !code.is_empty()).then(|| (host.to_owned(), code.to_owned()))
+    let url = url::Url::parse(link).ok()?;
+    if url.scheme() != "ghost" || url.host_str() != Some("pair") {
+        return None;
+    }
+    let host = url.query_pairs().find(|(k, _)| k == "host")?.1;
+    let code = url.fragment()?;
+    (!host.is_empty() && !code.is_empty()).then(|| (host.into_owned(), code.to_owned()))
 }
 
 /// The pairing link for `code` at `host`.
 pub fn pairing_link(host: &str, code: &str) -> String {
-    format!("ghost://pair?host={host}#{code}")
+    let mut url = url::Url::parse("ghost://pair").expect("a link");
+    url.query_pairs_mut().append_pair("host", host);
+    url.set_fragment(Some(code));
+    url.into()
 }
 
 /// The QR code of the pairing link `link`, for a camera to read off a
@@ -870,5 +876,15 @@ mod tests {
         assert_eq!(code, "c0de");
         assert_eq!(url_of("127.0.0.1:4317"), "ws://127.0.0.1:4317");
         assert_eq!(pairing("ghost://pair?host=#x"), None);
+        assert_eq!(pairing("ghost://new?host=h#x"), None);
+    }
+
+    #[test]
+    fn a_host_with_a_port_and_a_code_with_plus_or_percent_come_back_as_given() {
+        let link = pairing_link("127.0.0.1:4317", "a+b%2Fc");
+        assert_eq!(
+            pairing(&link),
+            Some(("127.0.0.1:4317".into(), "a+b%2Fc".into()))
+        );
     }
 }
