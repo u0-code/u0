@@ -39,7 +39,7 @@ use ghost_core::{
     registry, repo, review, scripts, secrets, server, servers, session, settings, share, store,
     tasks, telemetry, tidy, update, usage, when, whole, workflows, writer,
 };
-use i18n::tr;
+use i18n::{tr, tr_with};
 use keys::{
     About, BringAllToFront, CheckForUpdates, Hide, HideOthers, Minimize, NewSession, OpenSettings,
     Quit, ShowAll, Stop, ToggleSidebar, ZoomWindow,
@@ -90,7 +90,7 @@ fn main() {
                 MenuItem::action(crate::tr("Pair a Device…"), keys::PairDevice),
                 MenuItem::action(crate::tr("Show Pairing Code…"), keys::ShowPairingCode),
                 MenuItem::separator(),
-                MenuItem::os_submenu("Services", SystemMenuType::Services),
+                MenuItem::os_submenu(crate::tr("Services"), SystemMenuType::Services),
                 MenuItem::separator(),
                 MenuItem::action(crate::tr("Hide Ghost"), Hide),
                 MenuItem::action(crate::tr("Hide Others"), HideOthers),
@@ -103,15 +103,31 @@ fn main() {
                 MenuItem::action(crate::tr("Stop"), Stop),
             ]),
             Menu::new(crate::tr("Edit")).items(vec![
-                MenuItem::os_action("Undo", gpui::component::input::Undo, OsAction::Undo),
-                MenuItem::os_action("Redo", gpui::component::input::Redo, OsAction::Redo),
+                MenuItem::os_action(
+                    crate::tr("Undo"),
+                    gpui::component::input::Undo,
+                    OsAction::Undo,
+                ),
+                MenuItem::os_action(
+                    crate::tr("Redo"),
+                    gpui::component::input::Redo,
+                    OsAction::Redo,
+                ),
                 MenuItem::separator(),
-                MenuItem::os_action("Cut", gpui::component::input::Cut, OsAction::Cut),
-                MenuItem::os_action("Copy", gpui::component::input::Copy, OsAction::Copy),
-                MenuItem::os_action("Paste", gpui::component::input::Paste, OsAction::Paste),
+                MenuItem::os_action(crate::tr("Cut"), gpui::component::input::Cut, OsAction::Cut),
+                MenuItem::os_action(
+                    crate::tr("Copy"),
+                    gpui::component::input::Copy,
+                    OsAction::Copy,
+                ),
+                MenuItem::os_action(
+                    crate::tr("Paste"),
+                    gpui::component::input::Paste,
+                    OsAction::Paste,
+                ),
                 MenuItem::action(crate::tr("Delete"), gpui::component::input::Delete),
                 MenuItem::os_action(
-                    "Select All",
+                    crate::tr("Select All"),
                     gpui::component::input::SelectAll,
                     OsAction::SelectAll,
                 ),

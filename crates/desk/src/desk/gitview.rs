@@ -309,8 +309,8 @@ impl Desk {
         });
         if busy {
             self.trouble(
-                "The branch is not switched",
-                Some("A session is at work in this checkout.".into()),
+                crate::tr("The branch is not switched"),
+                Some(crate::tr("A session is at work in this checkout.").into()),
                 None,
             );
             cx.notify();
@@ -364,7 +364,7 @@ impl Desk {
         let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
-        s.git.step = Some("Writing the pull request".into());
+        s.git.step = Some(crate::tr("Writing the pull request").into());
         let dir = s.meta.folder.clone();
         self.ask_writer(key, crate::writer::Ask::Pr { dir, message });
         cx.notify();

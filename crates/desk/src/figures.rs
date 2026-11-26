@@ -101,7 +101,8 @@ fn draw(kind: &Kind, source: &str, colour: gpui::Rgba) -> Result<Drawn, String> 
         Kind::Mermaid => (mermaid(source, colour)?, 0.),
         Kind::Math { display } => tex(source, *display, colour)?,
     };
-    let (width, height) = size(&svg).ok_or("the drawing has no size")?;
+    let (width, height) =
+        size(&svg).ok_or_else(|| crate::tr("the drawing has no size").to_string())?;
     Ok(Drawn {
         image: Arc::new(gpui::Image::from_bytes(
             gpui::ImageFormat::Svg,
@@ -185,11 +186,10 @@ fn block(figure: &Figure, cx: &App) -> gpui::AnyElement {
             .flex()
             .flex_col()
             .gap(px(4.))
-            .child(
-                div()
-                    .text_color(theme::muted())
-                    .child(format!("This can't be drawn: {why}")),
-            )
+            .child(div().text_color(theme::muted()).child(crate::tr_with(
+                "This can't be drawn: %{why}",
+                &[("why", &why)],
+            )))
             .child(
                 div()
                     .font_family(crate::fonts::faces(cx).mono.clone())

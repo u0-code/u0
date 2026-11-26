@@ -136,7 +136,11 @@ impl Desk {
         for text in links {
             match Link::parse(text) {
                 Some(link) => self.open_link(link, window, cx),
-                None => self.trouble("Ghost doesn't open that link", Some(text.clone()), None),
+                None => self.trouble(
+                    crate::tr("Ghost doesn't open that link"),
+                    Some(text.clone()),
+                    None,
+                ),
             }
         }
         cx.notify();
@@ -180,7 +184,7 @@ impl Desk {
                 let found = self.sessions.by_id(crate::hub::Host::HERE, &agent, &id);
                 let Some(key) = found.map(|s| s.key) else {
                     self.trouble(
-                        "That session isn't here",
+                        crate::tr("That session isn't here"),
                         Some(format!("{agent} {}", id.0)),
                         None,
                     );
@@ -208,8 +212,8 @@ impl Desk {
         let (prompt, took) = visible(&prompt);
         if took {
             self.trouble(
-                "The link's prompt had characters that don't show",
-                Some("They were taken out. Read it before you send it.".into()),
+                crate::tr("The link's prompt had characters that don't show"),
+                Some(crate::tr("They were taken out. Read it before you send it.").to_string()),
                 None,
             );
         }
@@ -240,7 +244,7 @@ impl Desk {
         let Some(s) = self.session() else { return };
         let link = Link::to_new(&s.meta.project, &s.meta.agent, &self.typed(cx));
         cx.write_to_clipboard(gpui::ClipboardItem::new_string(link));
-        self.done("Copied a link to what you are writing", None);
+        self.done(crate::tr("Copied a link to what you are writing"), None);
         cx.notify();
     }
 }

@@ -118,13 +118,25 @@ pub enum Undone {
 }
 
 impl Undone {
-    fn word(self) -> &'static str {
+    /// What was done to one session, `%{title}`.
+    fn one(self) -> &'static str {
         match self {
-            Self::Unpin => "Unpinned",
-            Self::Settle => "Settled",
-            Self::Snooze => "Snoozed",
-            Self::Archive => "Archived",
-            Self::Delete => "Deleted",
+            Self::Unpin => "Unpinned “%{title}”",
+            Self::Settle => "Settled “%{title}”",
+            Self::Snooze => "Snoozed “%{title}”",
+            Self::Archive => "Archived “%{title}”",
+            Self::Delete => "Deleted “%{title}”",
+        }
+    }
+
+    /// What was done to `%{n}` sessions.
+    fn many(self) -> &'static str {
+        match self {
+            Self::Unpin => "Unpinned %{n} sessions",
+            Self::Settle => "Settled %{n} sessions",
+            Self::Snooze => "Snoozed %{n} sessions",
+            Self::Archive => "Archived %{n} sessions",
+            Self::Delete => "Deleted %{n} sessions",
         }
     }
 }
@@ -272,29 +284,31 @@ impl Desk {
             return;
         }
         let title = match keys.as_slice() {
-            [key] => format!(
-                "{} \u{201c}{}\u{201d}?",
+            [key] => crate::tr_with(
                 match what {
-                    Undone::Unpin => "Unpin",
-                    Undone::Archive => "Archive",
-                    _ => "Delete session",
+                    Undone::Unpin => "Unpin “%{title}”?",
+                    Undone::Archive => "Archive “%{title}”?",
+                    _ => "Delete session “%{title}”?",
                 },
-                self.sessions
-                    .at(*key)
-                    .map(|s| s.meta.title.as_str())
-                    .unwrap_or_default()
+                &[(
+                    "title",
+                    &self
+                        .sessions
+                        .at(*key)
+                        .map(|s| s.meta.title.as_str())
+                        .unwrap_or_default(),
+                )],
             ),
-            _ => format!(
-                "{} {} sessions?",
+            _ => crate::tr_with(
                 match what {
-                    Undone::Unpin => "Unpin",
-                    Undone::Archive => "Archive",
-                    _ => "Delete",
+                    Undone::Unpin => "Unpin %{n} sessions?",
+                    Undone::Archive => "Archive %{n} sessions?",
+                    _ => "Delete %{n} sessions?",
                 },
-                keys.len()
+                &[("n", &keys.len())],
             ),
         };
-        self.confirming = Some((title, what, keys));
+        self.confirming = Some((title.to_string(), what, keys));
         self.popup = super::Popup::Closed;
         cx.notify();
     }
@@ -428,8 +442,8 @@ impl Desk {
             let (desk, keys) = (desk.clone(), keys.clone());
             alert
                 .title(title.clone())
-                .description(about)
-                .ok_text(label)
+                .description(crate::tr(about))
+                .ok_text(crate::tr(label))
                 .show_cancel(true)
                 .on_ok(move |_, _, cx| {
                     desk.update(cx, |d, cx| d.undoable(what, &keys, cx));
@@ -443,9 +457,9 @@ impl Desk {
     fn ask_worktree(key: u64, path: &std::path::Path, window: &mut Window, cx: &mut Context<Self>) {
         use gpui::component::WindowExt as _;
         let desk = cx.entity();
-        let said = format!(
-            "This session is the only one linked to this worktree: {}. Delete the worktree too?",
-            Desk::shown(path)
+        let said = crate::tr_with(
+            "This session is the only one linked to this worktree: %{path}. Delete the worktree too?",
+            &[("path", &Desk::shown(path))],
         );
         window.defer(cx, move |window, cx| {
             window.open_alert_dialog(cx, move |alert, _, _| {
@@ -476,14 +490,16 @@ impl Desk {
     fn say_undo(&mut self) {
         let Some(u) = &self.undo else { return };
         let what = match u.before.as_slice() {
-            [(key, _)] => format!(
-                "{} \u{201c}{}\u{201d}",
-                u.what.word(),
-                (self.sessions.at(*key))
-                    .map(|s| crate::ui::fit(s.shown_title(), 32))
-                    .unwrap_or_default()
+            [(key, _)] => crate::tr_with(
+                u.what.one(),
+                &[(
+                    "title",
+                    &(self.sessions.at(*key))
+                        .map(|s| crate::ui::fit(s.shown_title(), 32))
+                        .unwrap_or_default(),
+                )],
             ),
-            all => format!("{} {} sessions", u.what.word(), all.len()),
+            all => crate::tr_with(u.what.many(), &[("n", &all.len())]),
         };
         self.done(what, Some(super::notices::Way::Undo));
     }
@@ -914,9 +930,9 @@ impl Desk {
                 self.rewinding = None;
                 self.asking_beside = None;
                 self.trouble(
-                    format!(
-                        "Couldn't branch off “{}”",
-                        crate::ui::fit(&origin.meta.title, 40)
+                    crate::tr_with(
+                        "Couldn't branch off “%{title}”",
+                        &[("title", &crate::ui::fit(&origin.meta.title, 40))],
                     ),
                     Some(f.message),
                     None,
@@ -957,10 +973,11 @@ impl Desk {
             self.replace(from, &mut s);
         } else {
             s.meta.title = if side {
-                format!("Beside “{}”", origin.meta.title)
+                crate::tr_with("Beside “%{title}”", &[("title", &origin.meta.title)])
             } else {
-                format!("{} (fork)", origin.meta.title)
-            };
+                crate::tr_with("%{title} (fork)", &[("title", &origin.meta.title)])
+            }
+            .to_string();
             s.meta.renamed = true;
             s.meta.from = origin.meta.id.as_ref().map(|id| id.0.to_string());
             s.beside = side.then_some(from);

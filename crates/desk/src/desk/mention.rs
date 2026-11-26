@@ -207,8 +207,11 @@ impl Desk {
         }
         if text.chars().count() > LIMIT {
             self.trouble(
-                format!("Too long to send: at most {LIMIT} characters"),
-                Some("Cut it, or send it in parts".into()),
+                crate::tr_with(
+                    "Too long to send: at most %{limit} characters",
+                    &[("limit", &LIMIT)],
+                ),
+                Some(crate::tr("Cut it, or send it in parts").into()),
                 None,
             );
             return;
@@ -253,7 +256,10 @@ impl Desk {
         let attached = std::mem::take(&mut self.composer.attached);
         self.composer.stashed.push(Stashed { text, attached });
         self.save_stash();
-        self.done("Put aside: ⌘S on an empty line takes it back", None);
+        self.done(
+            crate::tr("Put aside: ⌘S on an empty line takes it back"),
+            None,
+        );
         cx.notify();
     }
 
@@ -710,7 +716,11 @@ impl Desk {
                 .session()
                 .map(|s| self.name_of(&s.meta.agent))
                 .unwrap_or_default();
-            self.trouble(format!("{name} does not take images"), None, None);
+            self.trouble(
+                crate::tr_with("%{name} does not take images", &[("name", &name)]),
+                None,
+                None,
+            );
         } else if !twice {
             self.composer.attached.push(attached);
         }
@@ -824,7 +834,7 @@ impl Desk {
         cx.write_to_clipboard(gpui::ClipboardItem::new_string_with_json_metadata(
             text, chips,
         ));
-        self.done("Chips copied: paste them in another draft", None);
+        self.done(crate::tr("Chips copied: paste them in another draft"), None);
         cx.notify();
     }
 
@@ -1060,7 +1070,7 @@ impl Desk {
         if let Some(s) = self.sessions.at(key) {
             let text = said(s, &self.name_of(&s.meta.agent)).join("\n\n");
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
-            self.done("The conversation is copied", None);
+            self.done(crate::tr("The conversation is copied"), None);
         }
         cx.notify();
     }

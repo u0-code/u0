@@ -36,7 +36,7 @@ impl Desk {
                 crate::tr("After each turn, in the empty composer: Tab takes it, Esc lets it go."),
                 |d, _, cx| {
                     Switch::new("suggest")
-                        .accessibility_label("Suggest what to say next")
+                        .accessibility_label(crate::tr("Suggest what to say next"))
                         .small()
                         .checked(d.settings.writer.suggest)
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -88,10 +88,10 @@ impl Desk {
     fn writer_pick(&self, faces: &Faces, cx: &mut Context<Self>) -> impl IntoElement {
         let w = &self.settings.writer;
         let shown = match &w.agent {
-            None => "The session's agent".to_owned(),
+            None => crate::tr("The session's agent").to_string(),
             Some(agent) => {
                 let model = w.model.as_ref().map_or_else(
-                    || "its default".to_owned(),
+                    || crate::tr("its default").to_string(),
                     |m| self.model_name(agent, m).unwrap_or_else(|| m.clone()),
                 );
                 format!("{} · {model}", self.name_of(agent))
@@ -154,13 +154,13 @@ impl Desk {
             .checked(on)
         };
         if let Some(own) = own {
-            menu = menu.item(pick(own.into(), chosen.0.is_none(), None, None));
+            menu = menu.item(pick(crate::tr(own).into(), chosen.0.is_none(), None, None));
         }
         for slot in &self.slots {
             let agent = slot.entry.id.clone();
             let on = chosen.0 == Some(agent.as_str());
             menu = menu.label(self.name_of(&agent)).item(pick(
-                "Its default model".into(),
+                crate::tr("Its default model").into(),
                 on && chosen.1.is_none(),
                 Some(agent.clone()),
                 None,

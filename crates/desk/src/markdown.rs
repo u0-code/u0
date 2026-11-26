@@ -114,7 +114,7 @@ fn extensions() -> MarkdownExtensions {
                             .text_color(colour())
                             .font_weight(gpui::FontWeight::MEDIUM)
                             .child(ui::icon(icon, 14.))
-                            .child(title),
+                            .child(crate::tr(title)),
                     )
             })
         },
@@ -255,7 +255,7 @@ impl MarkdownPlugin for Paths {
             })
             .context_menu(move |menu, _, _| {
                 let copy = |label: &str, text: String| {
-                    PopupMenuItem::new(label.to_owned()).on_click(move |_, _, cx| {
+                    PopupMenuItem::new(crate::tr(label)).on_click(move |_, _, cx| {
                         cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
                     })
                 };
@@ -305,7 +305,7 @@ fn code_actions(desk: &WeakEntity<Desk>, lang: &str, code: &str) -> Div {
 /// Under a table: copy it as Markdown or as CSV.
 fn table_actions(table: &TableData) -> Div {
     let copy = |id: &'static str, label: &'static str, text: String| {
-        ui::button(id, label, ui::Weight::Quiet).on_click(move |_, _, cx| {
+        ui::button(id, crate::tr(label), ui::Weight::Quiet).on_click(move |_, _, cx| {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
         })
     };

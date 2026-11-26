@@ -448,9 +448,15 @@ impl Desk {
                         .items_center()
                         .gap(px(8.))
                         .child(
-                            ui::text(&faces, format!("{kind:?}"))
-                                .text_size(px(crate::style::CAPTION))
-                                .text_color(theme::muted()),
+                            ui::text(
+                                &faces,
+                                crate::tr(match kind {
+                                    Shelf::Snoozed => "Snoozed",
+                                    Shelf::Settled => "Settled",
+                                }),
+                            )
+                            .text_size(px(crate::style::CAPTION))
+                            .text_color(theme::muted()),
                         )
                         .child(ui::fine(&faces, count.to_string()))
                         .child(div().flex_1())
@@ -468,9 +474,12 @@ impl Desk {
                 let desk = desk.clone();
                 item.pl(px(36.))
                     .child(
-                        ui::text(&faces, format!("Show {} more", rest.min(SETTLED_MORE)))
-                            .text_size(px(crate::style::LABEL))
-                            .text_color(theme::muted()),
+                        ui::text(
+                            &faces,
+                            crate::tr_with("Show %{n} more", &[("n", &rest.min(SETTLED_MORE))]),
+                        )
+                        .text_size(px(crate::style::LABEL))
+                        .text_color(theme::muted()),
                     )
                     .on_click(move |_, _, cx| {
                         desk.update(cx, |d, cx| {
@@ -521,7 +530,7 @@ impl Desk {
             .items_center()
             .gap(px(6.))
             .child(ui::dot(colour))
-            .children(word.map(|w| ui::fine(faces, w)))
+            .children(word.map(|w| ui::fine(faces, crate::tr(w))))
             .when_some(why, |d, why| d.tooltip(ui::tip(why)));
         item.child(
             div()
@@ -677,11 +686,14 @@ impl Desk {
                             .ghost()
                             .xsmall()
                             .child(ui::icon("square-pen", 14.))
-                            .accessibility_label(format!(
-                                "New session in {}",
-                                self.project_name(folder)
+                            .accessibility_label(crate::tr_with(
+                                "New session in %{name}",
+                                &[("name", &self.project_name(folder))],
                             ))
-                            .tooltip(format!("New session in {}", self.project_name(folder)))
+                            .tooltip(crate::tr_with(
+                                "New session in %{name}",
+                                &[("name", &self.project_name(folder))],
+                            ))
                             .on_click(move |_, window, cx| {
                                 cx.stop_propagation();
                                 desk.update(cx, |d, cx| d.new_in(new.clone(), window, cx));
@@ -740,7 +752,7 @@ impl Desk {
             .filter(|n| self.numbers_shown && *n < 9);
         let end = match (number, status) {
             (Some(n), _) => ui::fine(faces, crate::keys::written(&[crate::keys::numbered(n + 1)])),
-            (None, Some(st)) => ui::text(faces, st.word())
+            (None, Some(st)) => ui::text(faces, crate::tr(st.word()))
                 .text_size(px(crate::style::CAPTION))
                 .text_color(st.color()),
             (None, None) if draft => ui::fine(faces, crate::tr("Draft")),
@@ -754,8 +766,8 @@ impl Desk {
                 .ghost()
                 .xsmall()
                 .child(ui::icon(icon, 14.))
-                .accessibility_label(tip.to_owned())
-                .tooltip(tip.to_owned())
+                .accessibility_label(crate::tr(tip))
+                .tooltip(crate::tr(tip))
         };
         let pinned = s.meta.flags.pinned.is_some();
         let unpin = desk.clone();
@@ -1110,11 +1122,9 @@ impl Desk {
             } else {
                 Vec::new()
             },
-            new_on: s
-                .meta
-                .worktree
-                .is_some()
-                .then(|| s.branch.clone().unwrap_or_else(|| "its worktree".into())),
+            new_on: s.meta.worktree.is_some().then(|| {
+                (s.branch.clone()).unwrap_or_else(|| crate::tr("its worktree").to_string())
+            }),
             folder: s.meta.folder.display().to_string(),
             branch: s.branch.clone(),
             id: s.meta.id.as_ref().map(|id| id.0.to_string()),
@@ -1170,7 +1180,7 @@ fn item(
 
 /// An item that copies `text`.
 fn copy_item(label: &str, text: String) -> PopupMenuItem {
-    item(label.to_owned(), "copy", move |_, cx| {
+    item(crate::tr(label), "copy", move |_, cx| {
         cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
     })
 }
@@ -1190,7 +1200,7 @@ fn session_menu(
     };
     let mut menu = menu
         .item(item(
-            "Rename",
+            crate::tr("Rename"),
             "pencil",
             on(|d, key, window, cx| {
                 d.begin_rename(Renaming::Session { key, here: false }, window, cx);
@@ -1198,28 +1208,32 @@ fn session_menu(
         ))
         .when(f.id.is_some(), |m| {
             m.item(item(
-                "Regenerate title",
+                crate::tr("Regenerate title"),
                 "retry",
                 on(|d, key, _, cx| d.retitle(key, cx)),
             ))
         })
         .item(item(
-            if f.pinned { "Unpin" } else { "Pin" },
+            crate::tr(if f.pinned { "Unpin" } else { "Pin" }),
             "pin",
             on(|d, key, _, cx| d.toggle_pin(key, cx)),
         ))
         .item(item(
-            if f.settled { "Un-settle" } else { "Settle" },
+            crate::tr(if f.settled { "Un-settle" } else { "Settle" }),
             "check",
             on(|d, key, _, cx| d.toggle_settled(key, cx)),
         ));
     menu = if f.snoozed {
-        menu.item(item("Wake", "clock", on(|d, key, _, cx| d.wake(key, cx))))
+        menu.item(item(
+            crate::tr("Wake"),
+            "clock",
+            on(|d, key, _, cx| d.wake(key, cx)),
+        ))
     } else {
         let desk = desk.clone();
         menu.submenu_with_icon(
             Some(ui::menu_glyph("clock")),
-            "Snooze",
+            crate::tr("Snooze"),
             window,
             cx,
             move |menu, _, cx| snooze_items(menu, &desk, &[key], cx),
@@ -1227,14 +1241,14 @@ fn session_menu(
     };
     if !f.unread {
         menu = menu.item(item(
-            "Mark unread",
+            crate::tr("Mark unread"),
             "bell",
             on(|d, key, _, cx| d.mark_unread(key, cx)),
         ));
     }
     menu = menu
         .item(item(
-            "Find in session",
+            crate::tr("Find in session"),
             "search",
             on(|d, key, window, cx| {
                 d.show(key, window, cx);
@@ -1244,7 +1258,7 @@ fn session_menu(
             }),
         ))
         .item(item(
-            "Filter by project",
+            crate::tr("Filter by project"),
             "folder",
             on(|d, key, _, cx| {
                 if let Some(p) = d.sessions.at(key).map(Place::project_of) {
@@ -1254,7 +1268,7 @@ fn session_menu(
             }),
         ))
         .item(item(
-            "Project settings",
+            crate::tr("Project settings"),
             "settings",
             on(|d, key, window, cx| {
                 if let Some(p) = d.sessions.at(key).map(Place::project_of) {
@@ -1264,14 +1278,17 @@ fn session_menu(
         ));
     if let Some(branch) = &f.new_on {
         menu = menu.item(item(
-            format!("New session on {}", ui::fit(branch, 22)),
+            crate::tr_with(
+                "New session on %{branch}",
+                &[("branch", &ui::fit(branch, 22))],
+            ),
             "square-pen",
             on(Desk::new_in_worktree),
         ));
     }
     if f.fork {
         menu = menu.item(item(
-            "Branch off a copy",
+            crate::tr("Branch off a copy"),
             "branch",
             on(|d, key, _, cx| d.fork(key, cx)),
         ));
@@ -1280,7 +1297,7 @@ fn session_menu(
         let (others, hand) = (f.others.clone(), desk.clone());
         menu = menu.submenu_with_icon(
             Some(ui::menu_glyph("corner-up-right")),
-            "Continue with",
+            crate::tr("Continue with"),
             window,
             cx,
             move |mut menu, _, _| {
@@ -1305,13 +1322,13 @@ fn session_menu(
     );
     menu = menu.separator().submenu_with_icon(
         Some(ui::menu_glyph("copy")),
-        "Copy",
+        crate::tr("Copy"),
         window,
         cx,
         move |menu, _, _| {
             let desk = copy_desk.clone();
             let menu = menu
-                .item(item("The conversation", "copy", move |_, cx| {
+                .item(item(crate::tr("The conversation"), "copy", move |_, cx| {
                     desk.update(cx, |d, cx| d.copy_thread(key, cx));
                 }))
                 .item(copy_item("Path", folder.clone()));
@@ -1330,23 +1347,23 @@ fn session_menu(
         },
     );
     menu = menu.separator().item(item(
-        if f.kept {
+        crate::tr(if f.kept {
             "Let it settle on its own"
         } else {
             "Never settle on its own"
-        },
+        }),
         "circle-dot",
         on(|d, key, _, cx| d.mark(key, cx, |f| f.kept = !f.kept)),
     ));
     if !f.busy {
         menu = menu
             .item(item(
-                "Archive",
+                crate::tr("Archive"),
                 "archive",
                 on(|d, key, _, cx| d.archive(key, cx)),
             ))
             .item(item(
-                "Delete",
+                crate::tr("Delete"),
                 "trash",
                 on(|d, key, window, cx| d.ask_delete(vec![key], window, cx)),
             ));
@@ -1365,16 +1382,16 @@ fn chosen_menu(
     let n = keys.len();
     let each = |label: &str, icon: &str, f: fn(&mut Desk, Vec<u64>, &mut Context<Desk>)| {
         let (desk, keys) = (desk.clone(), keys.to_vec());
-        item(format!("{label} ({n})"), icon, move |_, cx| {
+        item(crate::tr_with(label, &[("n", &n)]), icon, move |_, cx| {
             desk.update(cx, |d, cx| f(d, keys.clone(), cx));
         })
     };
     let (snooze, gone, keys) = (desk.clone(), desk.clone(), keys.to_vec());
-    menu.item(each("Unpin", "pin", Desk::unpin))
-        .item(each("Settle", "check", |d, keys, cx| {
+    menu.item(each("Unpin (%{n})", "pin", Desk::unpin))
+        .item(each("Settle (%{n})", "check", |d, keys, cx| {
             d.undoable(lists::Undone::Settle, &keys, cx);
         }))
-        .item(each("Mark unread", "bell", |d, keys, cx| {
+        .item(each("Mark unread (%{n})", "bell", |d, keys, cx| {
             for key in keys {
                 d.mark_unread(key, cx);
             }
@@ -1382,18 +1399,22 @@ fn chosen_menu(
         }))
         .submenu_with_icon(
             Some(ui::menu_glyph("clock")),
-            format!("Snooze ({n})"),
+            crate::tr_with("Snooze (%{n})", &[("n", &n)]),
             window,
             cx,
             move |menu, _, cx| snooze_items(menu, &snooze, &keys, cx),
         )
         .separator()
-        .item(item(format!("Delete ({n})"), "trash", move |window, cx| {
-            gone.update(cx, |d, cx| {
-                let keys = std::mem::take(&mut d.chosen).into_iter().collect();
-                d.ask_delete(keys, window, cx);
-            });
-        }))
+        .item(item(
+            crate::tr_with("Delete (%{n})", &[("n", &n)]),
+            "trash",
+            move |window, cx| {
+                gone.update(cx, |d, cx| {
+                    let keys = std::mem::take(&mut d.chosen).into_iter().collect();
+                    d.ask_delete(keys, window, cx);
+                });
+            },
+        ))
 }
 
 /// What can be done with a project, as t3code's menu has it: begin a
@@ -1404,22 +1425,22 @@ fn project_menu(menu: PopupMenu, folder: &Place, pinned: bool, desk: &Entity<Des
         move |window: &mut Window, cx: &mut App| desk.update(cx, |d, cx| f(d, &folder, window, cx))
     };
     menu.item(item(
-        "New session",
+        crate::tr("New session"),
         "square-pen",
         on(|d, f, window, cx| d.new_in(f.clone(), window, cx)),
     ))
     .item(copy_item("Copy path", folder.folder.display().to_string()))
     .item(item(
-        if pinned {
+        crate::tr(if pinned {
             "Unpin project"
         } else {
             "Pin project"
-        },
+        }),
         "pin",
         on(|d, f, _, cx| d.toggle_project_pin(f, cx)),
     ))
     .item(item(
-        "Project settings",
+        crate::tr("Project settings"),
         "settings",
         on(Desk::project_settings),
     ))
@@ -1429,12 +1450,16 @@ fn project_menu(menu: PopupMenu, folder: &Place, pinned: bool, desk: &Entity<Des
 /// its settings.
 fn server_menu(menu: PopupMenu, host: Host, desk: &Entity<Desk>) -> PopupMenu {
     let (again, settings) = (desk.clone(), desk.clone());
-    menu.item(item("Reach it again", "retry", move |_, cx| {
+    menu.item(item(crate::tr("Reach it again"), "retry", move |_, cx| {
         again.update(cx, |d, cx| d.reach_again(host, cx));
     }))
-    .item(item("Its settings", "settings", move |window, cx| {
-        settings.update(cx, |d, cx| d.settings_of(host, window, cx));
-    }))
+    .item(item(
+        crate::tr("Its settings"),
+        "settings",
+        move |window, cx| {
+            settings.update(cx, |d, cx| d.settings_of(host, window, cx));
+        },
+    ))
 }
 
 /// The ways to snooze the sessions `keys`, as menu items.
@@ -1448,7 +1473,7 @@ fn snooze_items(menu: PopupMenu, desk: &Entity<Desk>, keys: &[u64], cx: &App) ->
     });
     let (desk, keys) = (desk.clone(), keys.to_vec());
     menu.separator()
-        .item(item("Custom…", "clock", move |window, cx| {
+        .item(item(crate::tr("Custom…"), "clock", move |window, cx| {
             desk.update(cx, |d, cx| d.snooze_page(keys.clone(), window, cx));
         }))
 }

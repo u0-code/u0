@@ -28,7 +28,7 @@ impl Desk {
             .when(count > 0, |d| {
                 d.child(ui::text(faces, count.to_string()).text_size(px(crate::style::CAPTION)))
             })
-            .tooltip(tip)
+            .tooltip(crate::tr(tip))
     }
 
     /// What you put aside (⌘S): a mark with how many, and under it each,
@@ -67,7 +67,7 @@ impl Desk {
                 .items_center()
                 .gap(px(10.))
                 .child(
-                    ui::icon_button(id.clone(), "x", "Let it go")
+                    ui::icon_button(id.clone(), "x", crate::tr("Let it go"))
                         .size(px(22.))
                         .on_click(move |_, _, cx| {
                             cx.stop_propagation();
@@ -149,11 +149,11 @@ impl Desk {
     ) -> PopupMenu {
         use crate::desk::Later;
         let written = !self.typed(cx).trim().is_empty();
-        menu = menu.label(if written {
+        menu = menu.label(crate::tr(if written {
             "Say what you wrote"
         } else {
             "Write it first, then say when"
-        });
+        }));
         if written {
             for (label, when) in [
                 ("In 30 minutes", Later::In(30)),
@@ -162,9 +162,13 @@ impl Desk {
                 ("Tomorrow at 9:00", Later::Tomorrow),
                 ("Each day at 9:00", Later::Daily),
             ] {
-                menu = menu.item(Self::menu_item(desk, label, move |this, window, cx| {
-                    this.send_later(when, window, cx);
-                }));
+                menu = menu.item(Self::menu_item(
+                    desk,
+                    crate::tr(label),
+                    move |this, window, cx| {
+                        this.send_later(when, window, cx);
+                    },
+                ));
             }
         }
         let waiting = self

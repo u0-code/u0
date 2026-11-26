@@ -61,7 +61,7 @@ impl Desk {
     pub(crate) fn model_chip(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Popover {
         let model = if self.composer.fanout && Self::is_draft(s) {
             let usable = self.slots_on(s.host).filter(|x| x.usable()).count();
-            Some(format!("All {usable} agents"))
+            Some(crate::tr_with("All %{n} agents", &[("n", &usable)]).to_string())
         } else {
             Self::option_name(s, &Category::Model)
         };
@@ -83,7 +83,11 @@ impl Desk {
                     .text_size(px(crate::style::LABEL))
                     .text_color(if open { theme::text2() } else { theme::faint() })
             }))
-            .tooltip(crate::keys::hint(cx, "Choose the model", "model"));
+            .tooltip(crate::keys::hint(
+                cx,
+                &crate::tr("Choose the model"),
+                "model",
+            ));
         let search = gpui::Focusable::focus_handle(self.menu_search.read(cx), cx);
         let (desk, drawn, faces) = (cx.entity(), cx.entity(), faces.clone());
         over_box(Popover::new("model-picker"), Anchor::BottomRight)
@@ -131,7 +135,7 @@ impl Desk {
         self.picker.at = 0;
         self.menu_search.update(cx, |i, cx| {
             i.set_value("", window, cx);
-            i.set_placeholder("Search models…", window, cx);
+            i.set_placeholder(crate::tr("Search models…"), window, cx);
         });
         self.popup = Popup::Model;
         cx.notify();
@@ -291,17 +295,19 @@ impl Desk {
             let name = self.name_of(&id);
             let bound = !draft && id != s.meta.agent;
             let needs = matches!(slot.auth, Auth::Needed(_));
+            let said = |english: &str| crate::tr_with(english, &[("name", &name)]);
             let tip = if bound {
-                format!("{name} can't take over this session. Start a new session to use it.")
+                said("%{name} can't take over this session. Start a new session to use it.")
             } else {
                 match &slot.stage {
-                    Stage::Starting => format!("{name}: Starting"),
-                    Stage::Failed(why) => format!("{name}: Failed to start. {why}"),
-                    Stage::Missing(_) | Stage::Installing(_) => {
-                        format!("{name}: Not installed yet")
-                    }
-                    _ if needs => format!("{name}: Sign in to use it"),
-                    _ => name,
+                    Stage::Starting => said("%{name}: Starting"),
+                    Stage::Failed(why) => crate::tr_with(
+                        "%{name}: Failed to start. %{why}",
+                        &[("name", &name), ("why", why)],
+                    ),
+                    Stage::Missing(_) | Stage::Installing(_) => said("%{name}: Not installed yet"),
+                    _ if needs => said("%{name}: Sign in to use it"),
+                    _ => name.clone().into(),
                 }
             };
             let chosen = self.picker.rail == Rail::Agent(id.clone());
@@ -358,7 +364,7 @@ impl Desk {
                 (Rail::Agent(_), true) => "It has not said its models yet",
             };
             list = list.child(
-                ui::text(faces, says)
+                ui::text(faces, crate::tr(says))
                     .p(px(12.))
                     .text_size(px(crate::style::LABEL))
                     .text_color(theme::faint()),
@@ -436,11 +442,11 @@ impl Desk {
                                     ui::icon_button(
                                         SharedString::from(format!("star-{n}")),
                                         if star { "star-fill" } else { "star" },
-                                        if star {
+                                        crate::tr(if star {
                                             "Remove from favourites"
                                         } else {
                                             "Add to favourites"
-                                        },
+                                        }),
                                     )
                                     .xsmall()
                                     .text_color(if star { theme::coral() } else { theme::faint() })
@@ -493,7 +499,7 @@ impl Desk {
         let name = self.name_of(agent);
         let (says, button) = match &slot.stage {
             Stage::Missing(_) | Stage::Failed(_) => (
-                format!("{name} cannot start yet"),
+                crate::tr_with("%{name} cannot start yet", &[("name", &name)]),
                 ui::button(
                     "picker-agents",
                     crate::tr("Agent settings"),
@@ -507,7 +513,7 @@ impl Desk {
             _ if matches!(slot.auth, Auth::Needed(_)) => {
                 let agent = agent.to_owned();
                 (
-                    format!("Sign in to {name}"),
+                    crate::tr_with("Sign in to %{name}", &[("name", &name)]),
                     ui::button("picker-sign-in", crate::tr("Sign in"), ui::Weight::Primary)
                         .on_click(
                             cx.listener(move |this, _, _, cx| this.sign_in_agent(host, &agent, cx)),
@@ -553,8 +559,8 @@ impl Desk {
             .collect();
         let head = match (effort, others.is_empty()) {
             (Some(o), _) => o.name.clone(),
-            (None, false) => "Options".to_owned(),
-            (None, true) => "Effort".to_owned(),
+            (None, false) => crate::tr("Options").to_string(),
+            (None, true) => crate::tr("Effort").to_string(),
         };
         let mut column = div()
             .id("picker-options")
@@ -732,9 +738,12 @@ impl Desk {
                         .selected(fanout)
                         .child(ui::icon("plus", 13.))
                         .child(
-                            ui::text(faces, format!("Send to all {usable} agents"))
-                                .text_size(px(crate::style::CAPTION))
-                                .text_color(theme::muted()),
+                            ui::text(
+                                faces,
+                                crate::tr_with("Send to all %{n} agents", &[("n", &usable)]),
+                            )
+                            .text_size(px(crate::style::CAPTION))
+                            .text_color(theme::muted()),
                         )
                         .tooltip(crate::tr("A session each, begun with the same words"))
                         .on_click(cx.listener(|this, _, _, cx| {

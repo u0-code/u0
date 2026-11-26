@@ -49,9 +49,14 @@ impl Desk {
         let processes = &self.pages.processes.1;
         let memory = crate::tidy::shown(processes.memory);
         let held = crate::tidy::shown(processes.procs.iter().map(|p| p.kb * 1024).sum());
-        let mac = format!(
-            "Load {} on {} cores, {memory} of memory; Ghost's processes hold {held}.",
-            processes.load, processes.cores
+        let mac = crate::tr_with(
+            "Load %{load} on %{cores} cores, %{memory} of memory; Ghost's processes hold %{held}.",
+            &[
+                ("load", &processes.load),
+                ("cores", &processes.cores),
+                ("memory", &memory),
+                ("held", &held),
+            ],
         );
         let words = &["processes", "diagnostics", "cpu", "memory"];
         let shown = if processes.procs.is_empty() {
@@ -138,18 +143,21 @@ impl Desk {
                     Some(a) => desk.read(cx).name_of(a),
                     None => entry.item().label.to_string(),
                 };
-                let about = p.map_or_else(String::new, |p| {
-                    format!(
-                        "{pid} · {:.1}% CPU · {}",
-                        p.cpu,
-                        crate::tidy::shown(p.kb * 1024)
+                let about = p.map_or_else(SharedString::default, |p| {
+                    crate::tr_with(
+                        "%{pid} · %{cpu}% CPU · %{memory}",
+                        &[
+                            ("pid", &pid),
+                            ("cpu", &format!("{:.1}", p.cpu)),
+                            ("memory", &crate::tidy::shown(p.kb * 1024)),
+                        ],
                     )
                 });
                 let stop = desk.clone();
                 let control = match agent {
                     Some(id) => ui::button(
                         SharedString::from(format!("let-go-{ix}")),
-                        "Let it go",
+                        crate::tr("Let it go"),
                         Weight::Secondary,
                     )
                     .on_click(move |_, _, cx| {
@@ -161,7 +169,7 @@ impl Desk {
                     }),
                     None => ui::button(
                         SharedString::from(format!("stop-{ix}")),
-                        "Stop",
+                        crate::tr("Stop"),
                         Weight::Secondary,
                     )
                     .danger()

@@ -33,11 +33,14 @@ impl Desk {
         let now = SystemTime::now();
         let twelve = self.settings.twelve;
         let when_next = match task.next {
-            _ if task.paused => "Paused".to_owned(),
-            Some(at) if at <= store::secs(now) => "Due now".to_owned(),
-            Some(at) => format!("Next {}", when::said_at(store::time(at), now, twelve)),
-            None if matches!(task.schedule, Schedule::Hook(_)) => "When called".to_owned(),
-            None => "Not scheduled".to_owned(),
+            _ if task.paused => crate::tr("Paused"),
+            Some(at) if at <= store::secs(now) => crate::tr("Due now"),
+            Some(at) => crate::tr_with(
+                "Next %{when}",
+                &[("when", &when::said_at(store::time(at), now, twelve))],
+            ),
+            None if matches!(task.schedule, Schedule::Hook(_)) => crate::tr("When called"),
+            None => crate::tr("Not scheduled"),
         };
         let status = task.last.as_ref().map(|r| match (&r.error, r.going) {
             (_, true) => Tag::info().small().child(crate::tr("Running")),
@@ -116,7 +119,7 @@ impl Desk {
             )
             .child(
                 Switch::new(SharedString::from(format!("task-on-{id}")))
-                    .accessibility_label("On")
+                    .accessibility_label(crate::tr("On"))
                     .small()
                     .checked(!task.paused)
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -132,7 +135,7 @@ impl Desk {
         let trigger = ui::icon_button(
             SharedString::from(format!("task-menu-{id}")),
             "dots",
-            "More",
+            crate::tr("More"),
         )
         .selected(self.popup == Popup::Task(id));
         self.menu(
@@ -140,20 +143,20 @@ impl Desk {
             trigger,
             move |_, menu, desk, _| {
                 menu.item(
-                    Self::menu_item(desk, "Edit", move |this, window, cx| {
+                    Self::menu_item(desk, crate::tr("Edit"), move |this, window, cx| {
                         this.edit_task(id, window, cx);
                     })
                     .icon(ui::menu_glyph("pencil")),
                 )
                 .item(
-                    Self::menu_item(desk, "Run now", move |this, _, cx| {
+                    Self::menu_item(desk, crate::tr("Run now"), move |this, _, cx| {
                         this.run_task(id);
                         cx.notify();
                     })
                     .icon(ui::menu_glyph("play")),
                 )
                 .item(
-                    Self::menu_item(desk, "Delete", move |this, _, cx| {
+                    Self::menu_item(desk, crate::tr("Delete"), move |this, _, cx| {
                         this.drop_task(id);
                         cx.notify();
                     })
@@ -264,12 +267,12 @@ impl Desk {
                         "task-same",
                         vec![
                             (
-                                "A new session each run",
+                                crate::tr("A new session each run"),
                                 !same,
                                 draft_pick(cx, |d| d.task.same = false),
                             ),
                             (
-                                "One session, continued",
+                                crate::tr("One session, continued"),
                                 same,
                                 draft_pick(cx, |d| d.task.same = true),
                             ),
@@ -286,7 +289,7 @@ impl Desk {
                 crate::tr("Each run's session works on a new branch, away from your checkout."),
                 |d, _, cx| {
                     Switch::new("task-worktree")
-                        .accessibility_label("In a worktree of its own")
+                        .accessibility_label(crate::tr("In a worktree of its own"))
                         .small()
                         .checked(d.tasks.draft.as_ref().is_some_and(|d| d.task.worktree))
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -299,7 +302,10 @@ impl Desk {
                 },
             ));
         }
-        let (save, buttons) = (if task.id == 0 { "Add task" } else { "Save" }, w.clone());
+        let (save, buttons) = (
+            crate::tr(if task.id == 0 { "Add task" } else { "Save" }),
+            w.clone(),
+        );
         Some(
             group(
                 if task.id == 0 {
@@ -327,11 +333,13 @@ impl Desk {
                             },
                         ),
                     )
-                    .child(ui::button("task-save", save, Weight::Primary).on_click(
-                        move |_, _, cx| {
-                            let _ = keep.update(cx, Desk::save_task);
-                        },
-                    ))
+                    .child(
+                        ui::button("task-save", save.clone(), Weight::Primary).on_click(
+                            move |_, _, cx| {
+                                let _ = keep.update(cx, Desk::save_task);
+                            },
+                        ),
+                    )
             }),
         )
     }
@@ -360,22 +368,22 @@ impl Desk {
             "task-kind",
             vec![
                 (
-                    "Every",
+                    crate::tr("Every"),
                     matches!(task.schedule, Schedule::Every(_)),
                     kind(0, cx),
                 ),
                 (
-                    "Daily",
+                    crate::tr("Daily"),
                     matches!(task.schedule, Schedule::Daily { .. }),
                     kind(1, cx),
                 ),
                 (
-                    "Once",
+                    crate::tr("Once"),
                     matches!(task.schedule, Schedule::Once(_)),
                     kind(2, cx),
                 ),
                 (
-                    "On webhook",
+                    crate::tr("On webhook"),
                     matches!(task.schedule, Schedule::Hook(_)),
                     kind(3, cx),
                 ),
@@ -396,7 +404,7 @@ impl Desk {
                     let on = days.contains(&u8::try_from(n).unwrap_or(0));
                     group = group.child(
                         gpui::component::button::Button::new(n)
-                            .label(*name)
+                            .label(crate::tr(name))
                             .selected(on),
                     );
                 }
@@ -446,13 +454,13 @@ impl Desk {
             .expect("a task is being written")
             .task;
         let shown = if task.agent.is_empty() {
-            "Choose an agent".to_owned()
+            crate::tr("Choose an agent")
         } else {
             let model = task.model.as_ref().map_or_else(
-                || "its default".to_owned(),
+                || crate::tr("its default").to_string(),
                 |m| self.model_name(&task.agent, m).unwrap_or_else(|| m.clone()),
             );
-            format!("{} · {model}", self.name_of(&task.agent))
+            format!("{} · {model}", self.name_of(&task.agent)).into()
         };
         let trigger = ui::opener("task-agent")
             .selected(self.popup == Popup::TaskAgent)
@@ -490,7 +498,7 @@ impl Desk {
             .selected(self.popup == Popup::TaskProject)
             .child(ui::icon("folder", 14.))
             .child(if task.project.as_os_str().is_empty() {
-                "Choose a project".to_owned()
+                crate::tr("Choose a project").to_string()
             } else {
                 self.project_name(&crate::desk::Place::new(
                     self.pages.on,
@@ -537,7 +545,10 @@ impl Desk {
         if at.is_empty() {
             out = out.child(ui::fine(
                 faces,
-                format!("/hook/{token}, where Ghost listens: turn listening on in Devices for its address."),
+                crate::tr_with(
+                    "%{path}, where Ghost listens: turn listening on in Devices for its address.",
+                    &[("path", &format!("/hook/{token}"))],
+                ),
             ));
         }
         for a in at {
@@ -545,7 +556,7 @@ impl Desk {
         }
         out.child(ui::fine(
             faces,
-            "A POST to it runs the task; {{body}} in what it says is what was sent, marked as data from outside. A call made while Ghost is not running is not held: the sender has to send it again.",
+            crate::tr("A POST to it runs the task; {{body}} in what it says is what was sent, marked as data from outside. A call made while Ghost is not running is not held: the sender has to send it again."),
         ))
     }
 }

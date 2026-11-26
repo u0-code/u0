@@ -48,7 +48,7 @@ impl Desk {
     /// The language dictation listens for, among those macOS hears: as the
     /// system's (none), or one chosen.
     fn language_item(w: &WeakEntity<Desk>) -> SettingItem {
-        let mut choices = vec![(SharedString::default(), SharedString::from("As the system"))];
+        let mut choices = vec![(SharedString::default(), crate::tr("As the system"))];
         choices.extend(voice::languages().iter().map(|l| {
             (
                 SharedString::from(l.tag().to_string()),
@@ -57,7 +57,7 @@ impl Desk {
         }));
         let (read, write) = (w.clone(), w.clone());
         SettingItem::new(
-            "Language",
+            crate::tr("Language"),
             SettingField::scrollable_dropdown(
                 choices,
                 move |cx| {

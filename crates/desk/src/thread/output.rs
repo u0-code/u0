@@ -250,8 +250,12 @@ pub fn capped<T>(lines: &[T]) -> (&[T], usize) {
 /// drawn. Nothing holds the rest for the desk to open: a call's log keeps
 /// only the head of what came back, and that much is here.
 fn left_out(faces: &Faces, n: usize) -> Div {
-    let lines = if n == 1 { "line" } else { "lines" };
-    meta(faces, format!("… {n} more {lines} not drawn")).px(px(10.))
+    let said = if n == 1 {
+        crate::tr("… 1 more line not drawn")
+    } else {
+        crate::tr_with("… %{n} more lines not drawn", &[("n", &n)])
+    };
+    meta(faces, said).px(px(10.))
 }
 
 /// What a call printed, without the Markdown fence an agent may have
@@ -293,7 +297,7 @@ pub fn printed(faces: &Faces, text: &str, all: bool) -> Div {
             .child(
                 div()
                     .text_color(theme::quiet())
-                    .child(format!("… {gone} lines")),
+                    .child(crate::tr_with("… %{n} lines", &[("n", &gone)])),
             )
             .child(styled(faces, &lines[lines.len() - 1..]));
     }

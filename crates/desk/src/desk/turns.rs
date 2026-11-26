@@ -115,7 +115,7 @@ impl Desk {
         } else {
             if let Some(s) = self.sessions.at_mut(key) {
                 s.ended(
-                    Err("The agent is not running; start a new session with it.".into()),
+                    Err(crate::tr("The agent is not running; start a new session with it.").into()),
                     Vec::new(),
                 );
             }
@@ -187,7 +187,9 @@ impl Desk {
             Err(why) => {
                 s.pending = None;
                 s.since = None;
-                s.state = State::Broken(format!("A worktree could not be made: {why}"));
+                s.state = State::Broken(
+                    crate::tr_with("A worktree could not be made: %{why}", &[("why", &why)]).into(),
+                );
             }
         }
     }
@@ -220,8 +222,14 @@ impl Desk {
                 }
             }
             Err(why) => self.trouble(
-                "This turn can't be undone",
-                Some(format!("Its files could not be checkpointed: {why}")),
+                crate::tr("This turn can't be undone"),
+                Some(
+                    crate::tr_with(
+                        "Its files could not be checkpointed: %{why}",
+                        &[("why", &why)],
+                    )
+                    .into(),
+                ),
                 None,
             ),
         }
@@ -279,21 +287,26 @@ impl Desk {
                 if undo {
                     s.redo = Some((turn, back));
                     s.items.push(Item::Note {
-                        text: format!(
-                            "The files are back as they were before turn {}. {name} still remembers that turn: tell it what changed.",
-                            turn + 1
-                        ),
+                        text: crate::tr_with(
+                            "The files are back as they were before turn %{turn}. %{name} still remembers that turn: tell it what changed.",
+                            &[("turn", &(turn + 1)), ("name", &name)],
+                        )
+                        .into(),
                         trouble: false,
                     });
                 } else {
                     s.redo = None;
                     s.items.push(Item::Note {
-                        text: format!("Turn {} is back in the files.", turn + 1),
+                        text: crate::tr_with(
+                            "Turn %{turn} is back in the files.",
+                            &[("turn", &(turn + 1))],
+                        )
+                        .into(),
                         trouble: false,
                     });
                 }
             }
-            Err(why) => self.trouble("Couldn't put the files back", Some(why), None),
+            Err(why) => self.trouble(crate::tr("Couldn't put the files back"), Some(why), None),
         }
     }
 
@@ -318,7 +331,7 @@ impl Desk {
         let (host, dir) = (s.host, s.git_dir().unwrap_or_else(|| s.meta.folder.clone()));
         let left_out: Vec<String> = s.git.left_out.iter().cloned().collect();
         if let Some(s) = self.sessions.at_mut(key) {
-            s.git.step = Some("Working".into());
+            s.git.step = Some(crate::tr("Working").into());
             s.git.left_out.clear();
         }
         let call = Call::Git {
@@ -397,8 +410,9 @@ impl Desk {
             (removed.then(|| s.meta.id.take()).flatten()).map(|id| (s.meta.agent.clone(), id));
         if removed {
             s.meta.worktree = None;
-            s.state =
-                State::Broken("Its worktree was removed. Start a new session to go on.".into());
+            s.state = State::Broken(
+                crate::tr("Its worktree was removed. Start a new session to go on.").into(),
+            );
         }
         // A repository made here: its project is read again.
         if matches!(action, crate::repo::GitAction::Init) {
@@ -410,10 +424,15 @@ impl Desk {
         }
         match result {
             Ok(text) if text.starts_with("https://") => {
-                self.done("Pull request opened", Some(super::notices::Way::Open(text)));
+                let opened = crate::tr("Pull request opened");
+                self.done(opened, Some(super::notices::Way::Open(text)));
             }
             Ok(text) => self.done(text, None),
-            Err(why) => self.trouble(format!("Couldn't {}", action.doing()), Some(why), None),
+            // Each of `doing`'s is a key of its own.
+            Err(why) => {
+                let what = crate::tr(&format!("Couldn't {}", action.doing()));
+                self.trouble(what, Some(why), None);
+            }
         }
         self.refresh_git(key);
     }

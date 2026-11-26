@@ -59,7 +59,7 @@ impl Desk {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Import".into()),
+            prompt: Some(crate::tr("Import")),
         });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = answer.await
@@ -72,7 +72,11 @@ impl Desk {
                             let dark = !crate::theme::is_light();
                             this.keep_theme(path, text, &name, dark, cx);
                         }
-                        Err(e) => this.trouble("That theme could not be imported", Some(e), None),
+                        Err(e) => this.trouble(
+                            crate::tr("That theme could not be imported"),
+                            Some(e),
+                            None,
+                        ),
                     }
                 });
             }
@@ -104,7 +108,10 @@ impl Desk {
         store::queue(store::Job::Write(path.clone(), text));
         self.choose_theme(dark, Some(name.to_owned()), cx);
         self.done(
-            format!("{name} is a theme of yours now; change it, then read the themes again"),
+            crate::tr_with(
+                "%{name} is a theme of yours now; change it, then read the themes again",
+                &[("name", &name)],
+            ),
             None,
         );
         self.edit(path, None);
@@ -141,7 +148,7 @@ impl Desk {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Choose".into()),
+            prompt: Some(crate::tr("Choose")),
         });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = answer.await

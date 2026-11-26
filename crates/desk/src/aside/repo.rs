@@ -33,12 +33,15 @@ impl Desk {
             _ => last,
         };
         let all = if last.is_some() { "All" } else { "Uncommitted" };
-        let mut tabs = vec![(all.to_owned(), Scope::All)];
-        tabs.extend(turn.map(|n| (format!("Turn {}", n + 1), Scope::Turn(n))));
-        tabs.push(("Branch".to_owned(), Scope::Branch));
+        let mut tabs = vec![(crate::tr(all).to_string(), Scope::All)];
+        tabs.extend(turn.map(|n| {
+            let turn = crate::tr_with("Turn %{n}", &[("n", &(n + 1))]);
+            (turn.to_string(), Scope::Turn(n))
+        }));
+        tabs.push((crate::tr("Branch").to_string(), Scope::Branch));
         match &self.review.scope {
             Scope::Commit(id) => tabs.push((id.clone(), Scope::Commit(id.clone()))),
-            Scope::Call(i) => tabs.push(("Edit".to_owned(), Scope::Call(*i))),
+            Scope::Call(i) => tabs.push((crate::tr("Edit").to_string(), Scope::Call(*i))),
             _ => {}
         }
         let chosen = tabs
@@ -208,21 +211,27 @@ impl Desk {
         let write = ui::led_button(
             "ask-message",
             Some(ui::mark(faces, &self.mark_of(&writer), 12.)),
-            "Write it",
+            crate::tr("Write it"),
             Weight::Quiet,
         )
         .h(px(24.))
         .px(px(7.))
         .loading(s.git.writing_message)
-        .tooltip(format!(
-            "{} writes the message from the changes, in a session of its own",
-            self.name_of(&writer)
+        .tooltip(crate::tr_with(
+            "%{name} writes the message from the changes, in a session of its own",
+            &[("name", &self.name_of(&writer))],
         ))
         .on_click(cx.listener(move |this, _, _, cx| this.ask_message(key, cx)));
-        let what = format!(
-            "Everything in {} on {}, as you, with this message or the session's title",
-            Desk::shown(&s.meta.folder),
-            s.branch.as_deref().unwrap_or("its branch")
+        let branch = s
+            .branch
+            .clone()
+            .map_or_else(|| crate::tr("its branch"), Into::into);
+        let what = crate::tr_with(
+            "Everything in %{folder} on %{branch}, as you, with this message or the session's title",
+            &[
+                ("folder", &Desk::shown(&s.meta.folder)),
+                ("branch", &branch),
+            ],
         );
         div()
             .flex()
@@ -322,25 +331,34 @@ impl Desk {
     pub(super) fn pull_request(faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
         let pr = s.git.pr.as_ref()?;
         let state = if pr.draft {
-            "draft".to_owned()
+            crate::tr("draft").to_string()
         } else {
             pr.state.clone()
         };
         let mut checks = Vec::new();
         if pr.passed > 0 {
-            checks.push((format!("{} passed", pr.passed), theme::ok()));
+            checks.push((
+                crate::tr_with("%{n} passed", &[("n", &pr.passed)]),
+                theme::ok(),
+            ));
         }
         if pr.failed > 0 {
-            checks.push((format!("{} failed", pr.failed), theme::coral()));
+            checks.push((
+                crate::tr_with("%{n} failed", &[("n", &pr.failed)]),
+                theme::coral(),
+            ));
         }
         if pr.going > 0 {
-            checks.push((format!("{} running", pr.going), theme::accent()));
+            checks.push((
+                crate::tr_with("%{n} running", &[("n", &pr.going)]),
+                theme::accent(),
+            ));
         }
         let url = pr.url.clone();
         let key = s.key;
         let open = pr.state == "open" && !pr.draft;
         if pr.conflicts {
-            checks.push(("conflicts with its base".into(), theme::coral()));
+            checks.push((crate::tr("conflicts with its base"), theme::coral()));
         }
         let mut line = div().flex().flex_wrap().gap(px(8.));
         for (text, color) in checks {
@@ -374,7 +392,7 @@ impl Desk {
                             d.child(
                                 ui::button(
                                     "watch-pr",
-                                    if watching { "Watching" } else { "Watch" },
+                                    crate::tr(if watching { "Watching" } else { "Watch" }),
                                     Weight::Quiet,
                                 )
                                 .selected(watching)

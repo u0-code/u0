@@ -44,9 +44,9 @@ impl Desk {
             defs.push(item(
                 w,
                 crate::tr("No workflows yet"),
-                format!(
-                    "Each is a JSON file in {}: its steps say a prompt to an agent, run a command, or ask you.",
-                    Desk::shown(&folder)
+                crate::tr_with(
+                    "Each is a JSON file in %{folder}: its steps say a prompt to an agent, run a command, or ask you.",
+                    &[("folder", &Desk::shown(&folder))],
                 ),
                 |_, _, _| div().into_any_element(),
             ));
@@ -75,7 +75,7 @@ impl Desk {
                         let name = name.clone();
                         ui::button(
                             SharedString::from(format!("flow-start-{n}")),
-                            "Start",
+                            crate::tr("Start"),
                             Weight::Secondary,
                         )
                         .on_click(cx.listener(move |this, _, window, cx| {
@@ -93,9 +93,9 @@ impl Desk {
             |d, _, cx| {
                 let showing = d.flows.showing;
                 let show =
-                    |label: &'static str, which: Showing| -> (&'static str, bool, ui::Pick) {
+                    |label: &'static str, which: Showing| -> (SharedString, bool, ui::Pick) {
                         (
-                            label,
+                            crate::tr(label),
                             showing == which,
                             Box::new(cx.listener(move |this, _, _, cx| {
                                 this.flows.showing = which;
@@ -248,7 +248,7 @@ impl Desk {
                 actions = actions.child(
                     ui::button(
                         SharedString::from(format!("run-{id}-resume")),
-                        "Resume",
+                        crate::tr("Resume"),
                         Weight::Secondary,
                     )
                     .on_click(cx.listener(move |this, _, _, _| this.resume_flow(id))),
@@ -274,7 +274,7 @@ impl Desk {
             actions = actions.child(
                 ui::button(
                     SharedString::from(format!("run-{id}-cancel")),
-                    "Cancel",
+                    crate::tr("Cancel"),
                     Weight::Quiet,
                 )
                 .on_click(cx.listener(move |this, _, _, _| this.cancel_flow(id))),

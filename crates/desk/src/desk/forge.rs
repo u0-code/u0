@@ -241,8 +241,8 @@ impl ListDelegate for Rows {
         use gpui::ParentElement as _;
         use gpui::component::empty::{Empty, EmptyDescription, EmptyHeader};
         let said = match &self.list {
-            Some(Err(e)) => format!("Couldn't list them: {e}"),
-            _ => "None here.".to_owned(),
+            Some(Err(e)) => crate::tr_with("Couldn't list them: %{e}", &[("e", e)]),
+            _ => crate::tr("None here."),
         };
         Empty::new().header(EmptyHeader::new().description(EmptyDescription::new().child(said)))
     }
@@ -286,7 +286,7 @@ impl ListDelegate for Offered {
     ) -> Option<ListItem> {
         let (label, name) = self.all.get(*self.shown.get(ix.row)?)?;
         let word = if *label {
-            format!("Label {name}")
+            crate::tr_with("Label %{name}", &[("name", name)]).into()
         } else {
             format!("@{name}")
         };
@@ -429,7 +429,7 @@ impl Desk {
 
     /// Read what the failed run `run` of the checks printed.
     pub(crate) fn read_log(&mut self, run: String, cx: &mut Context<Self>) {
-        self.forge.log = Some((run.clone(), Ok("Reading…".into())));
+        self.forge.log = Some((run.clone(), Ok(crate::tr("Reading…").into())));
         self.ask_forge(self.forge.kind, Ask::Log(run));
         cx.notify();
     }
@@ -612,13 +612,9 @@ impl Desk {
 
     /// Do `act` to the one numbered `n`.
     pub fn act_on(&mut self, n: u64, act: Act, cx: &mut Context<Self>) {
-        self.forge.doing = Some(
-            format!("{act:?}")
-                .split(['(', ' ', '{'])
-                .next()
-                .unwrap_or("")
-                .to_owned(),
-        );
+        let name = format!("{act:?}");
+        let name = name.split(['(', ' ', '{']).next().unwrap_or("");
+        self.forge.doing = Some(crate::tr(name).into());
         self.ask_forge(self.forge.kind, Ask::Act(n, act));
         cx.notify();
     }
@@ -680,7 +676,7 @@ impl Desk {
         }
         if self.forge.creating {
             self.forge.creating = false;
-            self.forge.doing = Some("Create".into());
+            self.forge.doing = Some(crate::tr("Create").into());
             self.ask_forge(Kind::Issue, Ask::Create { title, body });
         } else {
             self.forge.editing = false;
@@ -856,16 +852,20 @@ impl Desk {
                 let what = self.forge.doing.take().unwrap_or_default();
                 match result {
                     Ok(said) => self.done(
-                        format!(
-                            "{what}: done{}",
-                            said.lines()
-                                .last()
-                                .map(|l| format!(" — {l}"))
-                                .unwrap_or_default()
-                        ),
+                        match said.lines().last() {
+                            Some(l) => crate::tr_with(
+                                "%{what}: done — %{said}",
+                                &[("what", &what), ("said", &l)],
+                            ),
+                            None => crate::tr_with("%{what}: done", &[("what", &what)]),
+                        },
                         None,
                     ),
-                    Err(e) => self.trouble(format!("{what} didn't go through"), Some(e), None),
+                    Err(e) => self.trouble(
+                        crate::tr_with("%{what} didn't go through", &[("what", &what)]),
+                        Some(e),
+                        None,
+                    ),
                 }
                 // Read again what it did.
                 self.list_forge(cx);

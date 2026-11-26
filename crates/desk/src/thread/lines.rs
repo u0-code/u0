@@ -254,7 +254,7 @@ impl Desk {
         })
         .with_list_style(StyleRefinement::default().p_0())
         .with_row_style(StyleRefinement::default().p_0())
-        .with_jump_button_label("To the end")
+        .with_jump_button_label(crate::tr("To the end"))
         .with_jump_button_style(
             StyleRefinement::default()
                 .bg(theme::panel())
@@ -314,7 +314,7 @@ impl Desk {
                                 ui::icon_button(
                                     SharedString::from(format!("family-x-{key}")),
                                     "x",
-                                    "Hide this tab; it goes on",
+                                    crate::tr("Hide this tab; it goes on"),
                                 )
                                 .size(px(18.))
                                 .on_click(cx.listener(
@@ -411,8 +411,14 @@ impl Desk {
                 State::Opening => step()
                     .child(div().mx(px(2.)).child(ui::live_dot()))
                     .child(
-                        verb(&faces, format!("Starting {}", self.name_of(&s.meta.agent)))
-                            .text_color(theme::accent()),
+                        verb(
+                            &faces,
+                            crate::tr_with(
+                                "Starting %{name}",
+                                &[("name", &self.name_of(&s.meta.agent))],
+                            ),
+                        )
+                        .text_color(theme::accent()),
                     )
                     .into_any_element(),
                 State::SignIn => self.sign_in_card(&faces, s, cx).into_any_element(),
@@ -452,13 +458,14 @@ impl Desk {
             } => {
                 let mut words = fold::summary(&s.items[*from..*to]);
                 if words.is_empty() {
-                    "Worked".clone_into(&mut words);
+                    words = crate::tr("Worked").to_string();
                 }
                 let took = (*secs).map(|secs| {
-                    format!(
-                        "The turn took {}",
-                        when::took(std::time::Duration::from_secs(secs))
+                    crate::tr_with(
+                        "The turn took %{took}",
+                        &[("took", &when::took(std::time::Duration::from_secs(secs)))],
                     )
+                    .to_string()
                 });
                 Self::fold_row(faces, fold::turn_key(s.key, *from), &words, took, *open, cx)
             }
@@ -534,9 +541,15 @@ impl Desk {
     fn find_bar(&self, faces: &fonts::Faces, cx: &mut Context<Self>) -> Div {
         let hits = self.find_hits(cx);
         let at = if hits.is_empty() {
-            "No match".to_owned()
+            crate::tr("No match")
         } else {
-            format!("{} of {}", self.find.at.min(hits.len() - 1) + 1, hits.len())
+            crate::tr_with(
+                "%{n} of %{all}",
+                &[
+                    ("n", &(self.find.at.min(hits.len() - 1) + 1)),
+                    ("all", &hits.len()),
+                ],
+            )
         };
         div().flex().justify_center().pt(px(10.)).child(
             div()

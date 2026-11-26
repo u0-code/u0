@@ -60,15 +60,16 @@ impl Desk {
     pub(super) fn devices_tab(&self, w: &WeakEntity<Desk>) -> SettingPage {
         let on = (self.machine(self.pages.on))
             .filter(|_| self.pages.on != Host::HERE)
-            .map_or_else(|| "this Mac".to_owned(), |m| m.name.clone());
+            .map_or_else(|| crate::tr("this Mac").to_string(), |m| m.name.clone());
         // None until the server has said how it is shared.
         let serving = self.pages.shared.as_ref().map(|s| s.serving.clone());
         let about = match &serving {
-            None => format!("Asking {on} how it is shared…"),
-            Some(Some(Ok(port))) => format!(
-                "Listening on 127.0.0.1:{port}, for a tunnel or an ssh -L to reach. Only a device paired with it comes in."
+            None => crate::tr_with("Asking %{on} how it is shared…", &[("on", &on)]),
+            Some(Some(Ok(port))) => crate::tr_with(
+                "Listening on 127.0.0.1:%{port}, for a tunnel or an ssh -L to reach. Only a device paired with it comes in.",
+                &[("port", port)],
             ),
-            Some(Some(Err(_)) | None) => "Off: nothing listens, and no device comes in.".into(),
+            Some(Some(Err(_)) | None) => crate::tr("Off: nothing listens, and no device comes in."),
         };
         // The switch says what runs: on only while it listens. Asked for
         // and failed, it is off, and why stands under it as trouble; a
@@ -82,11 +83,11 @@ impl Desk {
         let asked = matches!(serving, Some(Some(_)));
         let serve = item(
             w,
-            format!("Let other devices control {on}"),
+            crate::tr_with("Let other devices control %{on}", &[("on", &on)]),
             about,
             move |_, _, cx| {
                 Switch::new("serve")
-                    .accessibility_label("Let other devices control this Mac")
+                    .accessibility_label(crate::tr("Let other devices control this Mac"))
                     .small()
                     .checked(listening)
                     .disabled(!known)
@@ -105,7 +106,7 @@ impl Desk {
             },
             move |_, _, cx| {
                 Switch::new("control")
-                    .accessibility_label("Control other Macs")
+                    .accessibility_label(crate::tr("Control other Macs"))
                     .small()
                     .checked(control)
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -181,9 +182,9 @@ impl Desk {
             item(
                 w,
                 link.clone(),
-                format!(
-                    "Works once, for ten minutes (made {}): open it on the other Mac, or scan its code, or paste it under Pair with another Mac there.",
-                    ago(at)
+                crate::tr_with(
+                    "Works once, for ten minutes (made %{ago}): open it on the other Mac, or scan its code, or paste it under Pair with another Mac there.",
+                    &[("ago", &ago(at))],
                 ),
                 move |_, _, cx| {
                     let copy = copy.clone();
@@ -224,10 +225,13 @@ impl Desk {
             return Vec::new();
         };
         let (status, running) = match &shared.tunnel {
-            Tunnel::Off => ("Off".to_owned(), false),
-            Tunnel::Starting => ("Starting".to_owned(), true),
-            Tunnel::Up(host) => (format!("Connected at {host}"), true),
-            Tunnel::Down(why) => (format!("Stopped: {why}"), false),
+            Tunnel::Off => (crate::tr("Off"), false),
+            Tunnel::Starting => (crate::tr("Starting"), true),
+            Tunnel::Up(host) => (
+                crate::tr_with("Connected at %{host}", &[("host", host)]),
+                true,
+            ),
+            Tunnel::Down(why) => (crate::tr_with("Stopped: %{why}", &[("why", why)]), false),
         };
         let tunnel = item(
             w,
@@ -236,7 +240,7 @@ impl Desk {
             move |_, _, cx| {
                 ui::button(
                     "tunnel",
-                    if running { "Stop" } else { "Start" },
+                    crate::tr(if running { "Stop" } else { "Start" }),
                     Weight::Secondary,
                 )
                 .on_click(cx.listener(move |this, _, _, _| this.share(Share::Tunnel(!running))))
@@ -245,7 +249,7 @@ impl Desk {
         );
         let named = shared.named.is_some();
         let address = match &shared.named {
-            Some(host) => format!("A named tunnel of yours, at {host}."),
+            Some(host) => crate::tr_with("A named tunnel of yours, at %{host}.", &[("host", host)]),
             None => {
                 "A quick tunnel: a new address each time it starts, so pair again with a new link."
                     .into()
@@ -290,7 +294,7 @@ impl Desk {
             crate::tr("So that it can be reached with its lid open and no one at it."),
             move |_, _, cx| {
                 Switch::new("serve-awake")
-                    .accessibility_label("Keep the Mac awake while serving")
+                    .accessibility_label(crate::tr("Keep the Mac awake while serving"))
                     .small()
                     .checked(awake)
                     .on_click(cx.listener(move |this, _, _, _| this.share(Share::Awake(!awake))))
@@ -316,16 +320,19 @@ impl Desk {
                     item(
                         w,
                         d.label.clone(),
-                        format!(
-                            "Its key: {print}. Paired {}; last here {}",
-                            ago(d.paired),
-                            ago(d.seen)
+                        crate::tr_with(
+                            "Its key: %{print}. Paired %{paired}; last here %{seen}",
+                            &[
+                                ("print", &print),
+                                ("paired", &ago(d.paired)),
+                                ("seen", &ago(d.seen)),
+                            ],
                         ),
                         move |_, _, cx| {
                             let public = public.clone();
                             ui::button(
                                 SharedString::from(format!("revoke-{print}")),
-                                "Revoke",
+                                crate::tr("Revoke"),
                                 Weight::Secondary,
                             )
                             .on_click(cx.listener(move |this, _, _, _| {
@@ -350,17 +357,24 @@ impl Desk {
                 let name = s.name.clone();
                 let held = (self.machines.iter()).find(|m| m.host != Host::HERE && m.name == name);
                 let here = crate::update::this_build();
+                let (host, print) = (&s.host, key::fingerprint(&s.key));
                 let runs = match held.and_then(|m| m.version.as_ref()) {
-                    Some(v) if *v == here => format!(" It runs {v}, as this Mac does."),
-                    Some(v) => format!(" It runs {v}; this Mac runs {here}."),
-                    None => String::new(),
+                    Some(v) if *v == here => crate::tr_with(
+                        "%{host}. Your key: %{print}. It runs %{v}, as this Mac does.",
+                        &[("host", host), ("print", &print), ("v", v)],
+                    ),
+                    Some(v) => crate::tr_with(
+                        "%{host}. Your key: %{print}. It runs %{v}; this Mac runs %{here}.",
+                        &[("host", host), ("print", &print), ("v", v), ("here", &here)],
+                    ),
+                    None => crate::tr_with(
+                        "%{host}. Your key: %{print}.",
+                        &[("host", host), ("print", &print)],
+                    ),
                 };
-                item(
-                    w,
-                    s.name.clone(),
-                    format!("{}. Your key: {}.{runs}", s.host, key::fingerprint(&s.key)),
-                    move |d, faces, cx| d.server_control(&name, faces, cx),
-                )
+                item(w, s.name.clone(), runs, move |d, faces, cx| {
+                    d.server_control(&name, faces, cx)
+                })
             })
             .collect()
     }
@@ -397,17 +411,17 @@ impl Desk {
     fn server_control(&self, name: &str, faces: &Faces, cx: &mut Context<Self>) -> AnyElement {
         let held = (self.machines.iter()).find(|m| m.host != Host::HERE && m.name == name);
         let said = match held.map(|m| &m.up) {
-            Some(Up::On) => "In this window".to_owned(),
-            Some(Up::Reaching) => "Reaching it".to_owned(),
-            Some(Up::Lost(_)) => "Offline; reaching it again".to_owned(),
-            Some(Up::Refused(why)) => format!("Turned away: {why}"),
-            None => "Not in this window".to_owned(),
+            Some(Up::On) => crate::tr("In this window"),
+            Some(Up::Reaching) => crate::tr("Reaching it"),
+            Some(Up::Lost(_)) => crate::tr("Offline; reaching it again"),
+            Some(Up::Refused(why)) => crate::tr_with("Turned away: %{why}", &[("why", why)]),
+            None => crate::tr("Not in this window"),
         };
         let again = held.filter(|m| m.up != Up::On).map(|m| {
             let host = m.host;
             ui::button(
                 SharedString::from(format!("reach-{name}")),
-                "Reach again",
+                crate::tr("Reach again"),
                 Weight::Secondary,
             )
             .on_click(cx.listener(move |this, _, _, cx| this.reach_again(host, cx)))
@@ -416,7 +430,7 @@ impl Desk {
             let name = name.to_owned();
             ui::button(
                 SharedString::from(format!("forget-{name}")),
-                "Forget",
+                crate::tr("Forget"),
                 Weight::Quiet,
             )
             .on_click(cx.listener(move |this, _, _, cx| {
@@ -499,8 +513,8 @@ impl Desk {
         match link::pairing(&pasted) {
             Some((host, code)) => Self::ask_pair(host, code, window, cx),
             None => self.trouble(
-                "That is not a pairing link",
-                Some("It begins ghost://pair".into()),
+                crate::tr("That is not a pairing link"),
+                Some(crate::tr("It begins ghost://pair").into()),
                 None,
             ),
         }
@@ -529,15 +543,16 @@ impl Desk {
             let faces = crate::fonts::faces(cx).clone();
             let mut about = div().flex().flex_col().gap(px(12.)).child(ui::text(
                 &faces,
-                format!(
-                    "This Mac makes a key for it and sends only its public half, {print}. {host} lists it under the devices that control it."
+                crate::tr_with(
+                    "This Mac makes a key for it and sends only its public half, %{print}. %{host} lists it under the devices that control it.",
+                    &[("print", &print), ("host", &host)],
                 ),
             ));
             if offer {
                 let ticked = ticked.clone();
                 about = about.child(
                     Checkbox::new("pair-both")
-                        .label(format!("Also let {host} control this Mac"))
+                        .label(crate::tr_with("Also let %{host} control this Mac", &[("host", &host)]))
                         .checked(both)
                         .on_click(move |on, window, _| {
                             ticked.set(*on);
@@ -548,14 +563,15 @@ impl Desk {
             if both {
                 about = about.child(ui::fine(
                     &faces,
-                    format!(
-                        "This Mac listens, and {host} pairs back with a key of its own, which this Mac lists under the devices that control it."
+                    crate::tr_with(
+                        "This Mac listens, and %{host} pairs back with a key of its own, which this Mac lists under the devices that control it.",
+                        &[("host", &host)],
                     ),
                 ));
             }
             let (desk, host, code, kept) = (desk.clone(), host.clone(), code.clone(), kept.clone());
             alert
-                .title(format!("Pair with {host}?"))
+                .title(crate::tr_with("Pair with %{host}?", &[("host", &host)]))
                 .description(about)
                 .ok_text(crate::tr("Pair"))
                 .show_cancel(true)
@@ -581,8 +597,14 @@ impl Desk {
                 Ok(back) => Some(back),
                 Err(why) => {
                     self.trouble(
-                        format!("{host} can't be let control this Mac"),
-                        Some(format!("{why} This Mac pairs with it one way only.")),
+                        crate::tr_with("%{host} can't be let control this Mac", &[("host", &host)]),
+                        Some(
+                            crate::tr_with(
+                                "%{why} This Mac pairs with it one way only.",
+                                &[("why", &why)],
+                            )
+                            .into(),
+                        ),
                         None,
                     );
                     None
@@ -609,7 +631,7 @@ impl Desk {
         change: impl FnOnce(&mut Servers) -> Result<(), String>,
     ) {
         if let Err(why) = Servers::change(&self.home, change) {
-            self.trouble("Couldn't keep your servers", Some(why), None);
+            self.trouble(crate::tr("Couldn't keep your servers"), Some(why), None);
         }
         self.read_servers();
     }
@@ -618,7 +640,7 @@ impl Desk {
     pub(crate) fn read_servers(&mut self) {
         match Servers::load(&self.home) {
             Ok(servers) => self.pages.servers = servers,
-            Err(why) => self.trouble("Couldn't read your servers", Some(why), None),
+            Err(why) => self.trouble(crate::tr("Couldn't read your servers"), Some(why), None),
         }
     }
 }

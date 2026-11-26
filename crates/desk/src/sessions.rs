@@ -175,7 +175,7 @@ impl Sessions {
                 let up = parent.key;
                 let title = match &u.title {
                     MaybeUndefined::Value(t) => t.clone(),
-                    _ => "A subagent".into(),
+                    _ => crate::tr("A subagent").into(),
                 };
                 self.add_subagent(up, u.session_id.clone(), title, State::Idle);
             }
@@ -200,7 +200,10 @@ impl Sessions {
             let open = !matches!(s.state, State::Draft | State::Closed);
             if s.meta.id.is_some() && open {
                 // The agent keeps it: opened again, it is loaded.
-                s.note(&format!("The agent stopped: {why}"));
+                s.note(&crate::tr_with(
+                    "The agent stopped: %{why}",
+                    &[("why", &why)],
+                ));
                 closed.push(s.key);
                 s.pending = None;
                 s.since = None;
@@ -208,7 +211,9 @@ impl Sessions {
             } else if s.state == State::Opening {
                 s.pending = None;
                 s.since = None;
-                s.state = State::Broken(format!("The agent stopped: {why}"));
+                s.state = State::Broken(
+                    crate::tr_with("The agent stopped: %{why}", &[("why", &why)]).into(),
+                );
             }
         }
         closed

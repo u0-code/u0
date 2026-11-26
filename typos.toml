@@ -12,6 +12,9 @@ extend-exclude = [
 extend-ignore-re = [
     # Hashes, seals and ids are not words.
     "\\b[0-9a-f]{8,}\\b",
+    # The window's words in other languages (locales/app.yml); their English
+    # keys are checked.
+    "(?m)^  (zh-CN|de|es|fr|ja|ko|pt-BR|ru|sv): .*$",
 ]
 
 [default.extend-words]

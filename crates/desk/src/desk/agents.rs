@@ -42,9 +42,13 @@ impl Desk {
             self.settings = settings;
             self.fill_slots(Host::HERE);
             self.settings_took(cx);
-            self.done("Your settings are read", None);
+            self.done(crate::tr("Your settings are read"), None);
         } else {
-            self.trouble("Your settings still do not read", refused.clone(), None);
+            self.trouble(
+                crate::tr("Your settings still do not read"),
+                refused.clone(),
+                None,
+            );
         }
         self.settings_refused = refused;
         cx.notify();
@@ -439,8 +443,8 @@ impl Desk {
                 self.terminal_on(host, &line, cx);
             }
             None => self.trouble(
-                format!("Sign in to {name} on its server"),
-                Some("Ghost there does not know the program it signs in with.".into()),
+                crate::tr_with("Sign in to %{name} on its server", &[("name", &name)]),
+                Some(crate::tr("Ghost there does not know the program it signs in with.").into()),
                 None,
             ),
         }
@@ -488,7 +492,7 @@ impl Desk {
         }
         if let Some(slot) = self.slot_mut(host, id) {
             slot.stage = Stage::Installing(hub::Install {
-                what: "Starting".into(),
+                what: crate::tr("Starting").into(),
                 share: None,
             });
             let call = Call::Install {
@@ -519,14 +523,18 @@ impl Desk {
             return;
         };
         let name = self.name_of(id);
+        let (yes, no) = (crate::tr("Uninstall"), crate::tr("Cancel"));
         let answer = window.prompt(
             gpui::PromptLevel::Warning,
-            &format!("Uninstall {name}?"),
-            Some(&format!(
-                "Its download in {} is removed. Its sessions and sign-in stay with {name}, and it can be installed again.",
-                Desk::shown(&self.home_on(host).join("agents").join(id))
+            &crate::tr_with("Uninstall %{name}?", &[("name", &name)]),
+            Some(&crate::tr_with(
+                "Its download in %{folder} is removed. Its sessions and sign-in stay with %{name}, and it can be installed again.",
+                &[
+                    ("folder", &Desk::shown(&self.home_on(host).join("agents").join(id))),
+                    ("name", &name),
+                ],
             )),
-            &["Uninstall", "Cancel"],
+            &[yes.as_ref(), no.as_ref()],
             cx,
         );
         let id = id.to_owned();
@@ -591,7 +599,10 @@ impl Desk {
         };
         if self.settings_on(host).enabled.contains(&id) {
             self.trouble(
-                format!("There is an account named “{}” already", typed.trim()),
+                crate::tr_with(
+                    "There is an account named “%{name}” already",
+                    &[("name", &typed.trim())],
+                ),
                 None,
                 None,
             );

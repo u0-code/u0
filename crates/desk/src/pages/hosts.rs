@@ -23,13 +23,17 @@ impl Desk {
             .map(|(n, host)| {
                 let seen = self.pages.forges.iter().find(|s| s.host == host);
                 let cli = match (host.cli(), seen.and_then(|s| s.cli.as_ref())) {
-                    (Some(_), Some(version)) => format!("{version} found"),
-                    (Some(cli), None) if seen.is_some() => format!("{cli} not found on the PATH"),
-                    (None, _) => "Read over its API with a token".to_owned(),
-                    _ => String::new(),
+                    (Some(_), Some(version)) => {
+                        crate::tr_with("%{version} found", &[("version", version)])
+                    }
+                    (Some(cli), None) if seen.is_some() => {
+                        crate::tr_with("%{cli} not found on the PATH", &[("cli", &cli)])
+                    }
+                    (None, _) => crate::tr("Read over its API with a token"),
+                    _ => SharedString::default(),
                 };
                 let about = if seen.is_some_and(|s| s.token) {
-                    format!("{cli} · your token is in the Keychain")
+                    crate::tr_with("%{cli} · your token is in the Keychain", &[("cli", &cli)])
                 } else {
                     cli
                 };
@@ -69,7 +73,7 @@ impl Desk {
         if self.pages.forges.iter().any(|s| s.host == host && s.token) {
             return ui::button(
                 SharedString::from(format!("drop-token-{n}")),
-                "Remove token",
+                crate::tr("Remove token"),
                 Weight::Secondary,
             )
             .on_click(cx.listener(move |this, _, _, cx| this.set_token(host, None, cx)))
@@ -87,7 +91,7 @@ impl Desk {
             .child(
                 ui::button(
                     SharedString::from(format!("keep-token-{n}")),
-                    "Keep",
+                    crate::tr("Keep"),
                     Weight::Secondary,
                 )
                 .on_click(cx.listener(move |this, _, window, cx| {

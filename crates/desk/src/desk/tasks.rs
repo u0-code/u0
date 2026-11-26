@@ -104,7 +104,7 @@ impl Desk {
 
     fn draft_task(&mut self, task: Task, window: &mut Window, cx: &mut Context<Self>) {
         let field = |text: String,
-                     placeholder: &'static str,
+                     placeholder: gpui::SharedString,
                      window: &mut Window,
                      cx: &mut Context<Self>| {
             cx.new(|cx| {
@@ -143,15 +143,15 @@ impl Desk {
             state
         });
         let draft = Draft {
-            title: field(task.title.clone(), "Morning triage", window, cx),
+            title: field(task.title.clone(), crate::tr("Morning triage"), window, cx),
             prompt: cx.new(|cx| {
                 TextareaState::new(window, cx)
                     .auto_grow(3, 10)
                     .placeholder(crate::tr("What to say to the agent each time"))
                     .default_value(task.prompt.clone())
             }),
-            every: field(every, "Minutes, or 2h", window, cx),
-            at: field(at, "tomorrow, 5pm, in 3h", window, cx),
+            every: field(every, crate::tr("Minutes, or 2h"), window, cx),
+            at: field(at, "tomorrow, 5pm, in 3h".into(), window, cx),
             time,
             task,
             wrong: None,
@@ -208,7 +208,7 @@ impl Desk {
             Schedule::Hook(_) => None,
         };
         if let Some(why) = wrong {
-            draft.wrong = Some(why.into());
+            draft.wrong = Some(crate::tr(why).into());
             cx.notify();
             return;
         }

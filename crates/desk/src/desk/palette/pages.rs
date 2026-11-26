@@ -268,7 +268,7 @@ impl Desk {
                     .collect();
                 rows.push(Row::new(
                     "square-dashed",
-                    "No project",
+                    crate::tr("No project"),
                     Act::Key("new_scratch"),
                 ));
                 return narrowed(rows, typed);
@@ -286,7 +286,11 @@ impl Desk {
                 let said = crate::when::said_at(at, now, self.settings.twelve);
                 rows.insert(
                     0,
-                    Row::new("clock", format!("Until {said}"), Act::Snooze(Later::At(at))),
+                    Row::new(
+                        "clock",
+                        crate::tr_with("Until %{said}", &[("said", &said)]),
+                        Act::Snooze(Later::At(at)),
+                    ),
                 );
                 rows
             }
@@ -306,7 +310,7 @@ impl Desk {
                     .map(|t| Row {
                         end: on
                             .contains(&t)
-                            .then(|| ("Tagged".to_owned(), crate::theme::faint())),
+                            .then(|| (crate::tr("Tagged").to_string(), crate::theme::faint())),
                         ..Row::new("list", format!("#{t}"), Act::Tag(t))
                     })
                     .collect();
@@ -315,7 +319,11 @@ impl Desk {
                     if fresh {
                         rows.insert(
                             0,
-                            Row::new("plus", format!("Tag it #{word}"), Act::Tag(word)),
+                            Row::new(
+                                "plus",
+                                crate::tr_with("Tag it #%{word}", &[("word", &word)]),
+                                Act::Tag(word),
+                            ),
                         );
                     }
                 }
@@ -344,7 +352,7 @@ impl Desk {
                         Some(Row {
                             end: linked
                                 .contains(&link)
-                                .then(|| ("Linked".to_owned(), crate::theme::faint())),
+                                .then(|| (crate::tr("Linked").to_string(), crate::theme::faint())),
                             sub: None,
                             act: Act::Link(link),
                             ..row
@@ -362,8 +370,8 @@ impl Desk {
                 .into_iter()
                 .map(|(look, word)| Row {
                     end: (self.settings.look == look)
-                        .then(|| ("Current".to_owned(), crate::theme::faint())),
-                    ..Row::new("sun", word, Act::Look(look))
+                        .then(|| (crate::tr("Current").to_string(), crate::theme::faint())),
+                    ..Row::new("sun", crate::tr(word), Act::Look(look))
                 })
                 .collect();
                 return narrowed(rows, typed);
@@ -390,7 +398,7 @@ impl Desk {
                     keys: Keystroke::parse("cmd-enter").into_iter().collect(),
                     ..Row::new(
                         "folder-plus",
-                        format!("Add {typed}"),
+                        crate::tr_with("Add %{typed}", &[("typed", &typed)]),
                         Act::Adopt(at_on(on, expand(typed, &home))),
                     )
                 });
@@ -399,23 +407,34 @@ impl Desk {
             Sub::Add => {
                 let on = self.palette.on;
                 let mut rows = vec![
-                    Row::new("branch", "Clone a repository", Act::Sub(Sub::Clone)),
-                    Row::new("folder-plus", "New project", Act::Sub(Sub::Make)),
+                    Row::new(
+                        "branch",
+                        crate::tr("Clone a repository"),
+                        Act::Sub(Sub::Clone),
+                    ),
+                    Row::new("folder-plus", crate::tr("New project"), Act::Sub(Sub::Make)),
                 ];
                 // macOS's folder picker shows this Mac's folders.
                 if on == crate::hub::Host::HERE {
-                    rows.insert(0, Row::new("folder", "Choose a folder…", Act::Choose));
+                    rows.insert(
+                        0,
+                        Row::new("folder", crate::tr("Choose a folder…"), Act::Choose),
+                    );
                 }
                 rows.extend(self.servers_rows());
                 // The folders the agents already worked in, a step from
                 // being projects.
                 for (folder, count, _) in self.found_elsewhere(on).into_iter().take(6) {
-                    let s = if count == 1 { "" } else { "s" };
+                    let worked = if count == 1 {
+                        crate::tr("1 session already worked here")
+                    } else {
+                        crate::tr_with(
+                            "%{count} sessions already worked here",
+                            &[("count", &count)],
+                        )
+                    };
                     let shown = Desk::shown(&folder);
-                    rows.push(
-                        Row::new("folder", shown, Act::Adopt(at_on(on, folder)))
-                            .sub(format!("{count} session{s} already worked here")),
-                    );
+                    rows.push(Row::new("folder", shown, Act::Adopt(at_on(on, folder))).sub(worked));
                 }
                 return narrowed(rows, typed);
             }
@@ -423,21 +442,26 @@ impl Desk {
                 let mut rows = Vec::new();
                 if let Some(c) = &self.adding.cloning {
                     let share = c.share.map(|s| format!(" · {:.0}%", s * 100.));
-                    rows.push(Row::new("x", "Stop cloning", Act::CancelClone).sub(format!(
-                        "{}{}",
-                        c.what,
-                        share.unwrap_or_default()
-                    )));
+                    rows.push(
+                        Row::new("x", crate::tr("Stop cloning"), Act::CancelClone).sub(format!(
+                            "{}{}",
+                            c.what,
+                            share.unwrap_or_default()
+                        )),
+                    );
                 } else if let Some(source) = crate::desk::projects::Source::read(typed) {
                     let on = self.palette.on;
                     let dir = source.dir(&self.projects_in(on), self.settings_on(on).host_folders);
                     rows.push(
                         Row::new(
                             "branch",
-                            format!("Clone {}", source.url),
+                            crate::tr_with("Clone %{url}", &[("url", &source.url)]),
                             Act::Clone(typed.to_owned()),
                         )
-                        .sub(format!("into {}", Desk::shown(&dir))),
+                        .sub(crate::tr_with(
+                            "into %{dir}",
+                            &[("dir", &Desk::shown(&dir))],
+                        )),
                     );
                 }
                 rows.push(self.parent_row());
@@ -451,19 +475,28 @@ impl Desk {
                     rows.push(
                         Row::new(
                             "folder-plus",
-                            format!("Make {typed}"),
+                            crate::tr_with("Make %{typed}", &[("typed", &typed)]),
                             Act::Make(typed.to_owned(), false),
                         )
-                        .sub(format!("A repository with a README, in {at}")),
+                        .sub(crate::tr_with(
+                            "A repository with a README, in %{at}",
+                            &[("at", &at)],
+                        )),
                     );
                     if self.on_path.contains(&"gh") {
                         rows.push(
                             Row::new(
                                 "globe",
-                                format!("Make {typed}, and a private repository on GitHub"),
+                                crate::tr_with(
+                                    "Make %{typed}, and a private repository on GitHub",
+                                    &[("typed", &typed)],
+                                ),
                                 Act::Make(typed.to_owned(), true),
                             )
-                            .sub(format!("In {at}, pushed to GitHub by gh")),
+                            .sub(crate::tr_with(
+                                "In %{at}, pushed to GitHub by gh",
+                                &[("at", &at)],
+                            )),
                         );
                     }
                 }
@@ -484,7 +517,8 @@ impl Desk {
         } else {
             Act::On(on)
         };
-        Row::new("folder", "Put new projects in…", choose).sub(Desk::shown(&self.projects_in(on)))
+        Row::new("folder", crate::tr("Put new projects in…"), choose)
+            .sub(Desk::shown(&self.projects_in(on)))
     }
 
     /// Where a project is added, cloned or made: the server chosen, and a
@@ -498,8 +532,13 @@ impl Desk {
             .map(|m| {
                 let chosen = m.host == self.palette.on;
                 Row {
-                    end: chosen.then(|| ("Adding here".to_owned(), crate::theme::faint())),
-                    ..Row::new("server", format!("On {}", m.name), Act::On(m.host))
+                    end: chosen
+                        .then(|| (crate::tr("Adding here").to_string(), crate::theme::faint())),
+                    ..Row::new(
+                        "server",
+                        crate::tr_with("On %{name}", &[("name", &m.name)]),
+                        Act::On(m.host),
+                    )
                 }
             })
             .collect()

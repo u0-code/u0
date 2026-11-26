@@ -324,7 +324,7 @@ impl Desk {
                 d.child(ui::counts(faces, added, gone, crate::style::CAPTION))
             });
         let tool = |id: &'static str, icon: &'static str, tip: &'static str, on: bool| {
-            ui::icon_button(id, icon, tip)
+            ui::icon_button(id, icon, crate::tr(tip))
                 .size(px(26.))
                 .when(on, |b| b.text_color(theme::text()))
         };
@@ -462,8 +462,11 @@ impl Desk {
                 .child(fine(
                     faces,
                     match n {
-                        0 => "none".to_owned(),
-                        n => format!("{} of {n}", self.review.hit + 1),
+                        0 => crate::tr("none"),
+                        n => crate::tr_with(
+                            "%{hit} of %{n}",
+                            &[("hit", &(self.review.hit + 1)), ("n", &n)],
+                        ),
                     },
                 ))
                 .child(
@@ -486,9 +489,9 @@ impl Desk {
             div().flex_1().p(px(16.)).child(empty(
                 faces,
                 if s.git_dir().is_some() {
-                    "Nothing changed here."
+                    crate::tr("Nothing changed here.")
                 } else {
-                    "Files the agent changes show here."
+                    crate::tr("Files the agent changes show here.")
                 },
             ))
         } else {
@@ -650,7 +653,7 @@ impl Desk {
                             ui::icon_button(
                                 SharedString::from(format!("unsay-{line}")),
                                 "x",
-                                "Take it back",
+                                crate::tr("Take it back"),
                             )
                             .size(px(20.))
                             .on_click(move |_, _, cx| {
@@ -681,7 +684,7 @@ impl Desk {
                         ui::icon_button(
                             SharedString::from(format!("copy-{path}")),
                             "copy",
-                            "Copy its path",
+                            crate::tr("Copy its path"),
                         )
                         .size(px(20.))
                         .on_click(move |_, _, cx| {
@@ -694,9 +697,9 @@ impl Desk {
                                 .small()
                                 .checked(goes)
                                 .tooltip(if goes {
-                                    "In the next commit: click to leave it out"
+                                    crate::tr("In the next commit: click to leave it out")
                                 } else {
-                                    "Left out of the next commit"
+                                    crate::tr("Left out of the next commit")
                                 })
                                 .on_click(move |_: &bool, _, cx: &mut App| {
                                     desk.update(cx, |d, cx| {
@@ -741,9 +744,13 @@ impl Desk {
                         d.child(
                             ui::button(
                                 "send-comments",
-                                format!(
-                                    "Put {said} comment{} to {name} in the line",
-                                    if said == 1 { "" } else { "s" }
+                                crate::tr_with(
+                                    if said == 1 {
+                                        "Put %{n} comment to %{name} in the line"
+                                    } else {
+                                        "Put %{n} comments to %{name} in the line"
+                                    },
+                                    &[("n", &said), ("name", &name)],
                                 ),
                                 Weight::Secondary,
                             )
@@ -771,24 +778,27 @@ impl Desk {
                     })
                     .child(div().flex_1())
                     .when(behind > 0, |d| {
-                        d.child(fine(faces, format!("{behind} behind its upstream")))
-                            .child(
-                                ui::button("pull", crate::tr("Pull"), Weight::Quiet)
-                                    .h(px(24.))
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.git_action(crate::repo::GitAction::Pull, cx);
-                                    })),
-                            )
+                        d.child(fine(
+                            faces,
+                            crate::tr_with("%{n} behind its upstream", &[("n", &behind)]),
+                        ))
+                        .child(
+                            ui::button("pull", crate::tr("Pull"), Weight::Quiet)
+                                .h(px(24.))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.git_action(crate::repo::GitAction::Pull, cx);
+                                })),
+                        )
                     })
                     .when(s.git_dir().is_some() && !origin && gh, |d| {
                         d.children([("Publish, private", false), ("Public", true)].map(
                             |(label, public)| {
-                                ui::button(label, label, Weight::Quiet).h(px(24.)).on_click(
-                                    cx.listener(move |this, _, _, cx| {
+                                ui::button(label, crate::tr(label), Weight::Quiet)
+                                    .h(px(24.))
+                                    .on_click(cx.listener(move |this, _, _, cx| {
                                         let publish = crate::repo::GitAction::Publish(public);
                                         this.git_action(publish, cx);
-                                    }),
-                                )
+                                    }))
                             },
                         ))
                     }),

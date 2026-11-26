@@ -141,7 +141,7 @@ impl Desk {
     fn tab_page(&self, tab: Tab, w: &WeakEntity<Desk>, cx: &App) -> SettingPage {
         let paged = |lede: &str, groups: Vec<SettingGroup>| {
             SettingPage::new(tab.title())
-                .description(lede.to_owned())
+                .description(crate::tr(lede))
                 .groups(groups)
         };
         let page = match tab {
@@ -206,7 +206,7 @@ impl Desk {
         for tab in Tab::ALL {
             if tab.group() != heading {
                 heading = tab.group();
-                settings = settings.section(heading);
+                settings = settings.section(crate::tr(heading));
             }
             settings = settings.page(self.tab_page(tab, &w, cx));
         }
@@ -355,17 +355,17 @@ impl Desk {
             })
             .collect();
         let read = self.registry_read.map_or_else(
-            || "Registry not read yet".to_owned(),
+            || crate::tr("Registry not read yet"),
             |t| match when::ago(t, SystemTime::now()).as_str() {
-                "now" => "Registry checked just now".to_owned(),
-                ago => format!("Registry checked {ago} ago"),
+                "now" => crate::tr("Registry checked just now"),
+                ago => crate::tr_with("Registry checked %{ago} ago", &[("ago", &ago)]),
             },
         );
         vec![
             SettingGroup::new().items(head),
-            group(crate::tr("Agents"), rows).description(format!(
-                "Ghost keeps its settings and the agents it installs in {}.",
-                Desk::shown(self.home_on(self.pages.on))
+            group(crate::tr("Agents"), rows).description(crate::tr_with(
+                "Ghost keeps its settings and the agents it installs in %{home}.",
+                &[("home", &Desk::shown(self.home_on(self.pages.on)))],
             )),
             SettingGroup::new().item(item(w, read, "", |_, _, cx| {
                 ui::button(
@@ -391,22 +391,32 @@ impl Desk {
         let installed = self.here_on(host, &e.id).is_some() && here.missing.is_none();
         let name = self.name_of(&e.id);
         let how = match e.way() {
-            Way::Archive => "binary",
-            Way::Runner { runner, .. } => runner,
-            Way::None => "unavailable",
+            Way::Archive => crate::tr("binary"),
+            Way::Runner { runner, .. } => runner.into(),
+            Way::None => crate::tr("unavailable"),
         };
         // Installed, which version, signed in: as far as each is known.
         let version = here.installed.unwrap_or_else(|| e.version.clone());
-        let signed = match self.slot(host, &e.id).map(|s| &s.auth) {
-            Some(crate::hub::Auth::Ready) => " · signed in",
-            Some(crate::hub::Auth::Needed(_)) => " · needs sign-in",
-            _ => "",
-        };
-        let line = match (installed, on, e.way()) {
-            (true, true, _) => format!("{version} · {how}{signed}"),
-            (true, false, Way::Archive) => format!("{version} installed · off"),
-            (true, false, _) => format!("runs with {how} · off"),
-            (false, _, _) => "not installed".to_owned(),
+        let line = match (
+            installed,
+            on,
+            e.way(),
+            self.slot(host, &e.id).map(|s| &s.auth),
+        ) {
+            (true, true, _, Some(crate::hub::Auth::Ready)) => crate::tr_with(
+                "%{version} · %{how} · signed in",
+                &[("version", &version), ("how", &how)],
+            ),
+            (true, true, _, Some(crate::hub::Auth::Needed(_))) => crate::tr_with(
+                "%{version} · %{how} · needs sign-in",
+                &[("version", &version), ("how", &how)],
+            ),
+            (true, true, _, _) => format!("{version} · {how}").into(),
+            (true, false, Way::Archive, _) => {
+                crate::tr_with("%{version} installed · off", &[("version", &version)])
+            }
+            (true, false, _, _) => crate::tr_with("runs with %{how} · off", &[("how", &how)]),
+            (false, _, _, _) => crate::tr("not installed"),
         };
         let (id, page_id) = (e.id.clone(), e.id.clone());
         let control = if installed || on {
@@ -419,7 +429,7 @@ impl Desk {
         } else {
             ui::button(
                 SharedString::from(format!("get-{id}")),
-                "Install",
+                crate::tr("Install"),
                 Weight::Secondary,
             )
             .on_click(cx.listener(move |this, _, window, cx| {
@@ -474,7 +484,7 @@ impl Desk {
                 self.pages.tidied.clone().unwrap_or_default(),
                 |_, _, cx| {
                     let button = |id: &'static str, label: &'static str, what: Tidy| {
-                        ui::button(id, label, Weight::Secondary)
+                        ui::button(id, crate::tr(label), Weight::Secondary)
                             .on_click(cx.listener(move |this, _, _, cx| this.tidy(what, cx)))
                     };
                     div()
@@ -506,9 +516,9 @@ impl Desk {
                 ui::trouble(refused.clone()).into_any_element()
             }));
         }
-        group(crate::tr("What Ghost keeps"), items).description(format!(
-            "In {}. A worktree with changes not committed is left as it is; undo reaches only the turns of this run.",
-            Desk::shown(self.home_on(self.pages.on))
+        group(crate::tr("What Ghost keeps"), items).description(crate::tr_with(
+            "In %{home}. A worktree with changes not committed is left as it is; undo reaches only the turns of this run.",
+            &[("home", &Desk::shown(self.home_on(self.pages.on)))],
         ))
     }
 
@@ -527,7 +537,7 @@ impl Desk {
                         let f = f.clone();
                         ui::button(
                             SharedString::from(format!("restore-p-{n}")),
-                            "Restore",
+                            crate::tr("Restore"),
                             Weight::Secondary,
                         )
                         .on_click(cx.listener(move |this, _, _, cx| this.restore_project(&f, cx)))
@@ -607,7 +617,7 @@ impl Desk {
             .child(
                 ui::button(
                     SharedString::from(format!("restore-{key}")),
-                    "Restore",
+                    crate::tr("Restore"),
                     Weight::Secondary,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| this.restore(key, cx))),
@@ -615,7 +625,7 @@ impl Desk {
             .child(
                 ui::button(
                     SharedString::from(format!("delete-{key}")),
-                    "Delete",
+                    crate::tr("Delete"),
                     Weight::Quiet,
                 )
                 .on_click(cx.listener(move |this, _, window, cx| {

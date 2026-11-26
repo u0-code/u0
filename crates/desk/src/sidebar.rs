@@ -40,7 +40,7 @@ impl Desk {
                 .ghost()
                 .xsmall()
                 .child(ui::icon(icon, 14.))
-                .accessibility_label(tip.to_owned())
+                .accessibility_label(crate::tr(tip))
                 .tooltip(crate::keys::hint(cx, tip, name))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.step_trail(ahead, window, cx);
@@ -90,7 +90,7 @@ impl Desk {
                         .ghost()
                         .small()
                         .child(ui::icon("folder", 16.))
-                        .accessibility_label("Projects")
+                        .accessibility_label(crate::tr("Projects"))
                         .tooltip(crate::tr("Projects"))
                         .selected(!self.filter.is_empty()),
                     move |d, _, cx| d.projects_menu(&projects_faces, cx),
@@ -103,7 +103,7 @@ impl Desk {
                     .ghost()
                     .small()
                     .child(ui::icon("square-pen", 16.))
-                    .accessibility_label("New session")
+                    .accessibility_label(crate::tr("New session"))
                     .tooltip(crate::keys::hint(cx, "New session", "new_session"))
                     .on_click(cx.listener(|this, e: &gpui::ClickEvent, window, cx| {
                         if e.modifiers().shift {
@@ -184,10 +184,17 @@ impl Desk {
                     .outline()
                     .xsmall()
                     .child(ui::mark(faces, &self.mark_of(&id), 12.))
-                    .child(word)
-                    .accessibility_label(format!("{word}: {}", slot.entry.name))
+                    .child(crate::tr(word))
+                    .accessibility_label(crate::tr_with(
+                        "%{word}: %{agent}",
+                        &[("word", &crate::tr(word)), ("agent", &slot.entry.name)],
+                    ))
                     .tooltip(match self.server_chip(host) {
-                        Some(on) => format!("{} on {on}", slot.entry.name),
+                        Some(on) => crate::tr_with(
+                            "%{agent} on %{server}",
+                            &[("agent", &slot.entry.name), ("server", &on)],
+                        )
+                        .to_string(),
                         None => slot.entry.name.clone(),
                     })
                     .on_click(cx.listener(move |this, _, window, cx| {
@@ -200,7 +207,7 @@ impl Desk {
             Button::new(id)
                 .ghost()
                 .child(ui::icon(icon, 16.))
-                .accessibility_label(tip)
+                .accessibility_label(crate::tr(tip))
                 .tooltip(crate::keys::hint(cx, tip, id))
                 .selected(on)
                 .on_click(move |_, window, cx| {

@@ -157,7 +157,11 @@ pub fn in_terminal(
     if let Some((k, _)) = env.iter().find(|(k, _)| !name(k)) {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            format!("the agent asks to set {k:?}, which is not a name a shell takes"),
+            crate::tr_with(
+                "the agent asks to set %{name}, which is not a name a shell takes",
+                &[("name", &format!("{k:?}"))],
+            )
+            .to_string(),
         ));
     }
     let mut parts: Vec<String> = env

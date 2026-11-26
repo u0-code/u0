@@ -97,7 +97,10 @@ impl Desk {
         self.updates.now = match update {
             Update::Checked(Ok(Some(found))) => {
                 if self.updates.now != Updating::Found(found.clone()) && !asked {
-                    self.done(format!("Ghost {} is out", found.name), Some(Way::Update));
+                    self.done(
+                        crate::tr_with("Ghost %{version} is out", &[("version", &found.name)]),
+                        Some(Way::Update),
+                    );
                 }
                 Updating::Found(found)
             }
@@ -106,7 +109,7 @@ impl Desk {
             Update::Doing(what) => Updating::Installing(what),
             Update::Installed(Ok(())) => Updating::Ready,
             Update::Installed(Err(why)) => {
-                self.trouble("Ghost couldn't update", Some(why.clone()), None);
+                self.trouble(crate::tr("Ghost couldn't update"), Some(why.clone()), None);
                 Updating::Failed(why)
             }
         };
@@ -120,14 +123,17 @@ impl Desk {
         };
         let Some(app) = update::running_app() else {
             self.trouble(
-                "Ghost updates itself only as Ghost.app",
-                Some("This Ghost runs outside an app bundle: build it with bundle.sh.".to_owned()),
+                crate::tr("Ghost updates itself only as Ghost.app"),
+                Some(
+                    crate::tr("This Ghost runs outside an app bundle: build it with bundle.sh.")
+                        .into(),
+                ),
                 None,
             );
             return;
         };
         hub::install_update(found.clone(), app, self.home.clone(), self.tx.clone());
-        self.updates.now = Updating::Installing("Downloading".to_owned());
+        self.updates.now = Updating::Installing(crate::tr("Downloading").into());
         cx.notify();
     }
 
@@ -139,7 +145,13 @@ impl Desk {
             Some(app) => ("open \"$1\"", app),
             None => match std::env::current_exe() {
                 Ok(exe) => ("exec \"$1\"", exe),
-                Err(e) => return self.trouble("Ghost couldn't restart", Some(e.to_string()), None),
+                Err(e) => {
+                    return self.trouble(
+                        crate::tr("Ghost couldn't restart"),
+                        Some(e.to_string()),
+                        None,
+                    );
+                }
             },
         };
         let waiting = std::process::Command::new("/bin/sh")
@@ -152,7 +164,11 @@ impl Desk {
             .spawn();
         match waiting {
             Ok(_) => window.dispatch_action(Box::new(crate::keys::Quit), cx),
-            Err(e) => self.trouble("Ghost couldn't restart", Some(e.to_string()), None),
+            Err(e) => self.trouble(
+                crate::tr("Ghost couldn't restart"),
+                Some(e.to_string()),
+                None,
+            ),
         }
     }
 }

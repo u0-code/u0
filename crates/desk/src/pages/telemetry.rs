@@ -66,7 +66,7 @@ fn levels(state: &Entity<SliderState>, faces: &Faces, cx: &gpui::App) -> AnyElem
     let at = level_of(state.read(cx));
     let by = crate::policy::locked("telemetry");
     let names = Level::ALL.map(|l| {
-        let shown = ui::fine(faces, l.name()).text_color(if l == at {
+        let shown = ui::fine(faces, crate::tr(l.name())).text_color(if l == at {
             theme::text()
         } else {
             theme::faint()
@@ -81,13 +81,13 @@ fn levels(state: &Entity<SliderState>, faces: &Faces, cx: &gpui::App) -> AnyElem
         .child(
             div().px(px(40.)).child(
                 Slider::new(state)
-                    .accessibility_label("Telemetry")
+                    .accessibility_label(crate::tr("Telemetry"))
                     .disabled(by.is_some()),
             ),
         )
         .child(div().flex().children(names))
-        .child(ui::fine(faces, at.about()))
-        .children(by.map(|by| ui::fine(faces, crate::tr("Managed by %{by}").replace("%{by}", by))))
+        .child(ui::fine(faces, crate::tr(at.about())))
+        .children(by.map(|by| ui::fine(faces, crate::tr_with("Managed by %{by}", &[("by", &by)]))))
         .into_any_element()
 }
 

@@ -105,7 +105,7 @@ impl Desk {
             let format = match imagesize::image_type(&bytes) {
                 Ok(imagesize::ImageType::Jpeg) => gpui::ImageFormat::Jpeg,
                 Ok(imagesize::ImageType::Png) => gpui::ImageFormat::Png,
-                _ => return Err("it is neither a PNG nor a JPEG".to_owned()),
+                _ => return Err(crate::tr("it is neither a PNG nor a JPEG").to_string()),
             };
             let size = imagesize::blob_size(&bytes).map_err(|e| e.to_string())?;
             let size = (size.width as u32, size.height as u32);
@@ -194,7 +194,7 @@ impl Desk {
             .children(
                 missing
                     .iter()
-                    .map(|m| fine(faces, format!("Not found: {m}"))),
+                    .map(|m| fine(faces, crate::tr_with("Not found: %{m}", &[("m", m)]))),
             )
             .children(
                 self.device()

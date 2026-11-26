@@ -85,7 +85,7 @@ impl Desk {
             rows.push(item(
                 w,
                 name,
-                format!("Yours, in {}", Desk::shown(&folder)),
+                crate::tr_with("Yours, in %{folder}", &[("folder", &Desk::shown(&folder))]),
                 move |_, _, cx| {
                     let (path, gone) = (path.clone(), gone.clone());
                     div()
@@ -94,7 +94,7 @@ impl Desk {
                         .child(
                             ui::button(
                                 SharedString::from(format!("theme-edit-{n}")),
-                                "Edit",
+                                crate::tr("Edit"),
                                 Weight::Secondary,
                             )
                             .on_click(cx.listener(
@@ -108,7 +108,7 @@ impl Desk {
                         .child(
                             ui::button(
                                 SharedString::from(format!("theme-remove-{n}")),
-                                "Remove",
+                                crate::tr("Remove"),
                                 Weight::Quiet,
                             )
                             .on_click(
@@ -123,11 +123,14 @@ impl Desk {
             .settings
             .backdrop
             .as_ref()
-            .map_or_else(|| "None".to_owned(), |p| Desk::shown(p));
+            .map_or_else(|| crate::tr("None").to_string(), |p| Desk::shown(p));
         rows.push(item(
             w,
             crate::tr("Picture under the thread"),
-            format!("Drawn faintly behind the thread and the composer: {backdrop}."),
+            crate::tr_with(
+                "Drawn faintly behind the thread and the composer: %{backdrop}.",
+                &[("backdrop", &backdrop)],
+            ),
             |d, _, cx| {
                 div()
                     .flex()
@@ -154,7 +157,7 @@ impl Desk {
         ));
         // A theme that did not read says why, under them.
         for why in &self.pages.themes_refused {
-            let why = format!("A theme did not read: {why}");
+            let why = crate::tr_with("A theme did not read: %{why}", &[("why", why)]);
             rows.push(whole(w, &[], move |_, _, _| {
                 ui::trouble(why.clone()).into_any_element()
             }));

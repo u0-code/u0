@@ -121,7 +121,7 @@ pub struct Pages {
 impl Pages {
     pub fn new(settings: &Settings, window: &mut Window, cx: &mut Context<Desk>) -> Self {
         let field = |placeholder: &'static str, window: &mut Window, cx: &mut Context<Desk>| {
-            cx.new(|cx| InputState::new(window, cx).placeholder(placeholder))
+            cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr(placeholder)))
         };
         let shown = cx.new(|cx| SettingsState::new(window, cx));
         let agent_search = field("Search the ACP registry", window, cx);
@@ -257,7 +257,7 @@ fn instructions_field(
     let input = cx.new(|cx| {
         TextareaState::new(window, cx)
             .auto_grow(2, 8)
-            .placeholder(placeholder)
+            .placeholder(crate::tr(placeholder))
             .default_value(now.to_owned())
     });
     cx.subscribe(&input, move |this, input, e: &InputEvent, cx| {
@@ -371,11 +371,15 @@ impl Desk {
             .iter()
             .any(|s| s.of(host, id) && s.state == State::SignIn);
 
+        let named = [("name", &name as &dyn std::fmt::Display)];
         let (headline, ready) = match &stage {
-            Stage::Missing(_) => (format!("{name} isn't on this Mac yet"), false),
-            Stage::Installing(_) => (format!("Installing {name}"), false),
-            Stage::Failed(_) => (format!("{name} stopped"), true),
-            _ => (format!("{name} is ready"), true),
+            Stage::Missing(_) => (
+                crate::tr_with("%{name} isn't on this Mac yet", &named),
+                false,
+            ),
+            Stage::Installing(_) => (crate::tr_with("Installing %{name}", &named), false),
+            Stage::Failed(_) => (crate::tr_with("%{name} stopped", &named), true),
+            _ => (crate::tr_with("%{name} is ready", &named), true),
         };
         let one = match &stage {
             Stage::Missing(_) => Step::Todo,
@@ -408,21 +412,36 @@ impl Desk {
             .here_on(host, &entry.id)
             .and_then(|h| h.installed.clone());
         let update = installed.as_ref().filter(|v| **v != entry.version);
+        let available = |v: &String| {
+            crate::tr_with(
+                "%{name} %{v} installed · %{latest} available",
+                &[("name", &name), ("v", v), ("latest", &entry.version)],
+            )
+        };
         let first_step = match entry.way() {
             Way::Archive => match update {
-                Some(v) => format!("{name} {v} installed · {} available", entry.version),
-                None => format!("Download {name} {}", entry.version),
-            },
-            Way::Runner { runner, .. } => match &installed {
-                Some(v) if *v == entry.version => format!("{name} {v} installed in Ghost"),
-                Some(v) => format!("{name} {v} installed · {} available", entry.version),
-                None => format!(
-                    "Install {name} {} with {}",
-                    entry.version,
-                    if runner == "npx" { "npm" } else { "uv" }
+                Some(v) => available(v),
+                None => crate::tr_with(
+                    "Download %{name} %{latest}",
+                    &[("name", &name), ("latest", &entry.version)],
                 ),
             },
-            Way::None => "No build for this Mac".into(),
+            Way::Runner { runner, .. } => match &installed {
+                Some(v) if *v == entry.version => crate::tr_with(
+                    "%{name} %{v} installed in Ghost",
+                    &[("name", &name), ("v", v)],
+                ),
+                Some(v) => available(v),
+                None => crate::tr_with(
+                    "Install %{name} %{latest} with %{runner}",
+                    &[
+                        ("name", &name),
+                        ("latest", &entry.version),
+                        ("runner", &if runner == "npx" { "npm" } else { "uv" }),
+                    ],
+                ),
+            },
+            Way::None => crate::tr("No build for this Mac"),
         };
         let mut download = div().flex().flex_col().flex_1().gap(px(8.)).child(
             div()
@@ -440,7 +459,10 @@ impl Desk {
                 )
                 .child(ui::fine(
                     faces,
-                    format!("{} · from the ACP registry", crate::registry::platform()),
+                    crate::tr_with(
+                        "%{platform} · from the ACP registry",
+                        &[("platform", &crate::registry::platform())],
+                    ),
                 )),
         );
         if let Stage::Installing(install) = &stage {
@@ -472,12 +494,18 @@ impl Desk {
                 .unwrap_or_default();
             download = download.child(ui::fine(
                 faces,
-                format!(
-                    "Runs your {} {version} · {}",
-                    cli.file_name()
-                        .map(|n| n.to_string_lossy())
-                        .unwrap_or_default(),
-                    Desk::shown(&cli)
+                crate::tr_with(
+                    "Runs your %{cli} %{version} · %{path}",
+                    &[
+                        (
+                            "cli",
+                            &cli.file_name()
+                                .map(|n| n.to_string_lossy())
+                                .unwrap_or_default(),
+                        ),
+                        ("version", &version),
+                        ("path", &Desk::shown(&cli)),
+                    ],
                 ),
             ));
         }
@@ -487,7 +515,7 @@ impl Desk {
                 .when(st == Step::Done, |i| i.icon(IconName::Check))
                 .child(body.min_w(px(0.)).pb(px(14.)))
         };
-        let simple = |title: String, text: String, st: Step| {
+        let simple = |title: SharedString, text: SharedString, st: Step| {
             div()
                 .flex()
                 .flex_col()
@@ -516,23 +544,30 @@ impl Desk {
                 .item(step(
                     two,
                     simple(
-                        "Check that it speaks ACP".into(),
-                        format!("Starts {command} once and reads its version and abilities."),
+                        crate::tr("Check that it speaks ACP"),
+                        crate::tr_with(
+                            "Starts %{command} once and reads its version and abilities.",
+                            &[("command", &command)],
+                        ),
                         two,
                     ),
                 ))
                 .item(step(
                     three,
                     simple(
-                        format!("Sign in to {name}"),
+                        crate::tr_with("Sign in to %{name}", &named),
                         match &auth {
-                            crate::hub::Auth::Needed(why) => format!("{name} says: {why}"),
-                            crate::hub::Auth::Ready => format!("Signed in: {name} opens sessions."),
-                            crate::hub::Auth::Unknown => {
-                                format!(
-                                    "{name}'s own sign-in. Skipped if you're already signed in."
-                                )
+                            crate::hub::Auth::Needed(why) => crate::tr_with(
+                                "%{name} says: %{why}",
+                                &[("name", &name), ("why", why)],
+                            ),
+                            crate::hub::Auth::Ready => {
+                                crate::tr_with("Signed in: %{name} opens sessions.", &named)
                             }
+                            crate::hub::Auth::Unknown => crate::tr_with(
+                                "%{name}'s own sign-in. Skipped if you're already signed in.",
+                                &named,
+                            ),
                         },
                         three,
                     ),
@@ -560,7 +595,12 @@ impl Desk {
             }
             Stage::Missing(Missing::Download) => {
                 actions = actions.child(
-                    ui::button("install", format!("Install {name}"), Weight::Primary).on_click(
+                    ui::button(
+                        "install",
+                        crate::tr_with("Install %{name}", &named),
+                        Weight::Primary,
+                    )
+                    .on_click(
                         cx.listener(move |this, _, _, cx| this.install(host, &install_id, cx)),
                     ),
                 );
@@ -607,7 +647,7 @@ impl Desk {
             actions = actions.child(
                 ui::button(
                     "update",
-                    format!("Update to {}", entry.version),
+                    crate::tr_with("Update to %{version}", &[("version", &entry.version)]),
                     Weight::Secondary,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| this.install(host, &update_id, cx))),
@@ -651,7 +691,7 @@ impl Desk {
         actions = actions.child(div().flex_1()).child(
             ui::button(
                 "toggle",
-                if enabled { "Turn off" } else { "Turn on" },
+                crate::tr(if enabled { "Turn off" } else { "Turn on" }),
                 toggle_weight,
             )
             .on_click(cx.listener(move |this, _, _, cx| this.toggle_agent(host, &toggle_id, cx))),
@@ -684,8 +724,9 @@ impl Desk {
                         .child(
                             ui::text(
                                 faces,
-                                format!(
-                                    "Ghost runs {name}'s own agent and shows its work here. Its account, models and billing stay with {name}; Ghost never sees its sign-in."
+                                crate::tr_with(
+                                    "Ghost runs %{name}'s own agent and shows its work here. Its account, models and billing stay with %{name}; Ghost never sees its sign-in.",
+                                    &named,
                                 ),
                             )
                             .text_size(px(crate::style::BODY))
@@ -723,10 +764,10 @@ impl Desk {
                 div()
                     .flex()
                     .items_center()
-                    .child(ui::label(faces, "Ghost's tools").flex_1())
+                    .child(ui::label(faces, &crate::tr("Ghost's tools")).flex_1())
                     .child(
                         gpui::component::switch::Switch::new("agent-tools")
-                            .accessibility_label("Ghost's tools")
+                            .accessibility_label(crate::tr("Ghost's tools"))
                             .small()
                             .checked(tools)
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -744,7 +785,7 @@ impl Desk {
                 faces,
                 crate::tr("Each new session of it is given Ghost's tools, as an MCP server: the sessions Ghost keeps, a diff, a task handed to another session, a pull request, a task scheduled, a question put to you. What acts asks you here first."),
             ))
-            .child(ui::label(faces, "Your own"))
+            .child(ui::label(faces, &crate::tr("Your own")))
             .child(
                 div()
                     .flex()
@@ -759,8 +800,8 @@ impl Desk {
             .child(ui::fine(
                 faces,
                 match self.settings_on(host).commands.get(id) {
-                    Some(c) => format!("Started with `{c}`; clear it to go back to the registry's way."),
-                    None => "A command of yours starts it instead of the registry's way (your own build, a version manager's): it must speak ACP on its standard input and output.".to_owned(),
+                    Some(c) => crate::tr_with("Started with `%{command}`; clear it to go back to the registry's way.", &[("command", c)]),
+                    None => crate::tr("A command of yours starts it instead of the registry's way (your own build, a version manager's): it must speak ACP on its standard input and output."),
                 },
             ))
             .child(
@@ -800,7 +841,7 @@ impl Desk {
                         ui::icon_button(
                             SharedString::from(format!("drop-model-{n}")),
                             "x",
-                            "Take it out",
+                            crate::tr("Take it out"),
                         )
                         .size(px(18.))
                         .on_click(cx.listener(move |this, _, _, cx| {
@@ -820,11 +861,10 @@ impl Desk {
             && let Some(init) = self.slot(host, id).and_then(|s| s.known.as_ref())
             && init.protocol_version != agent_client_protocol::schema::ProtocolVersion::V1
         {
-            own = own.child(ui::trouble(format!(
-                    "It speaks ACP version {:?}; Ghost speaks version 1. Some of what it says may not show.",
-                    init.protocol_version
-                ),
-            ));
+            own = own.child(ui::trouble(crate::tr_with(
+                "It speaks ACP version %{version}; Ghost speaks version 1. Some of what it says may not show.",
+                &[("version", &format!("{:?}", init.protocol_version))],
+            )));
         }
         own
     }
@@ -872,16 +912,16 @@ impl Desk {
                     .child(ui::fine(
                         faces,
                         match self.slot(host, account).map(|s| &s.auth) {
-                            Some(crate::hub::Auth::Ready) => "signed in",
-                            Some(crate::hub::Auth::Needed(_)) => "needs sign-in",
-                            _ => "",
+                            Some(crate::hub::Auth::Ready) => crate::tr("signed in"),
+                            Some(crate::hub::Auth::Needed(_)) => crate::tr("needs sign-in"),
+                            _ => SharedString::default(),
                         },
                     ))
                     .child(
                         ui::icon_button(
                             SharedString::from(format!("drop-account-{n}")),
                             "x",
-                            "Take it away",
+                            crate::tr("Take it away"),
                         )
                         .size(px(22.))
                         .on_click(cx.listener(
@@ -898,7 +938,7 @@ impl Desk {
             .flex_col()
             .gap(px(10.))
             .pt(px(8.))
-            .child(ui::label(faces, "Accounts"))
+            .child(ui::label(faces, &crate::tr("Accounts")))
             .when(!accounts.is_empty(), |d| d.child(list))
             .child(
                 div()
@@ -951,17 +991,17 @@ impl Desk {
                         )
                         .child(ui::fine(
                             faces,
-                            if value.is_some() {
+                            crate::tr(if value.is_some() {
                                 "Plain text"
                             } else {
                                 "In the Keychain"
-                            },
+                            }),
                         ))
                         .child(
                             ui::icon_button(
                                 SharedString::from(format!("drop-var-{n}")),
                                 "x",
-                                "Take it out",
+                                crate::tr("Take it out"),
                             )
                             .size(px(22.))
                             .on_click(cx.listener(
@@ -977,7 +1017,7 @@ impl Desk {
             .flex_col()
             .gap(px(10.))
             .pt(px(8.))
-            .child(ui::label(faces, "Variables"))
+            .child(ui::label(faces, &crate::tr("Variables")))
             .when(self.settings_on(host).env.contains_key(id), |d| d.child(list))
             .child(
                 div()
@@ -992,7 +1032,7 @@ impl Desk {
                     )
                     .child(
                         gpui::component::switch::Switch::new("var-secret")
-                            .accessibility_label("Secret")
+                            .accessibility_label(crate::tr("Secret"))
                             .small()
                             .checked(secret)
                             .label(crate::tr("Secret"))

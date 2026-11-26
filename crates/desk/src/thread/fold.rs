@@ -196,20 +196,20 @@ pub fn summary(items: &[Item]) -> String {
             _ => other += 1,
         }
     }
-    let count = |n: usize, verb: &str, one: &str, many: &str| match n {
+    let count = |n: usize, one: &str, many: &str| match n {
         0 => None,
-        1 => Some((n, format!("{verb} {one}"))),
-        n => Some((n, format!("{verb} {n} {many}"))),
+        1 => Some((n, crate::tr(one).to_string())),
+        n => Some((n, crate::tr_with(many, &[("n", &n)]).to_string())),
     };
     let parts: Vec<(usize, String)> = [
-        count(read, "read", "a file", "files"),
-        count(edited, "edited", "a file", "files"),
-        count(created, "created", "a file", "files"),
-        count(deleted, "deleted", "a file", "files"),
-        count(ran, "ran", "a command", "commands"),
-        count(searched, "searched", "once", "times"),
-        count(fetched, "fetched", "a page", "pages"),
-        count(other, "used", "a tool", "tools"),
+        count(read, "read a file", "read %{n} files"),
+        count(edited, "edited a file", "edited %{n} files"),
+        count(created, "created a file", "created %{n} files"),
+        count(deleted, "deleted a file", "deleted %{n} files"),
+        count(ran, "ran a command", "ran %{n} commands"),
+        count(searched, "searched once", "searched %{n} times"),
+        count(fetched, "fetched a page", "fetched %{n} pages"),
+        count(other, "used a tool", "used %{n} tools"),
     ]
     .into_iter()
     .flatten()
@@ -223,8 +223,8 @@ pub fn summary(items: &[Item]) -> String {
     let rest: usize = parts[named..].iter().map(|(n, _)| n).sum();
     match rest {
         0 => {}
-        1 => words.push("and 1 more step".to_owned()),
-        n => words.push(format!("and {n} more steps")),
+        1 => words.push(crate::tr("and 1 more step").to_string()),
+        n => words.push(crate::tr_with("and %{n} more steps", &[("n", &n)]).to_string()),
     }
     let mut text = words.join(", ");
     if let Some(first) = text.get_mut(..1) {

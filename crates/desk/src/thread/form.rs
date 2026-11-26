@@ -43,7 +43,10 @@ fn listed(p: &ElicitationPropertySchema) -> Vec<(String, String)> {
             _ => Vec::new(),
         },
         ElicitationPropertySchema::Boolean(_) => {
-            vec![("true".into(), "Yes".into()), ("false".into(), "No".into())]
+            vec![
+                ("true".into(), crate::tr("Yes").into()),
+                ("false".into(), crate::tr("No").into()),
+            ]
         }
         ElicitationPropertySchema::Array(p) => match &p.items {
             MultiSelectItems::String(i) => {
@@ -128,13 +131,16 @@ fn questions(
                         ElicitationPropertySchema::Number(_)
                             | ElicitationPropertySchema::Integer(_)
                     );
-                    item.with_input(QuestionnaireInputDefinition::new(input, "Your answer"))
-                        .with_validator(move |c| match c.answer().freeform() {
-                            Some(v) if number && v.parse::<f64>().is_err() => {
-                                Err("A number, please.".into())
-                            }
-                            _ => Ok(()),
-                        })
+                    item.with_input(QuestionnaireInputDefinition::new(
+                        input,
+                        crate::tr("Your answer"),
+                    ))
+                    .with_validator(move |c| match c.answer().freeform() {
+                        Some(v) if number && v.parse::<f64>().is_err() => {
+                            Err(crate::tr("A number, please."))
+                        }
+                        _ => Ok(()),
+                    })
                 }
             }
         })
@@ -196,7 +202,9 @@ fn said(content: &BTreeMap<String, ElicitationContentValue>) -> String {
                 ElicitationContentValue::String(s) => s.clone(),
                 ElicitationContentValue::Integer(n) => n.to_string(),
                 ElicitationContentValue::Number(n) => n.to_string(),
-                ElicitationContentValue::Boolean(b) => (if *b { "yes" } else { "no" }).into(),
+                ElicitationContentValue::Boolean(b) => {
+                    crate::tr(if *b { "yes" } else { "no" }).into()
+                }
                 ElicitationContentValue::StringArray(a) => a.join(", "),
                 _ => String::new(),
             };
@@ -260,7 +268,14 @@ impl Desk {
             ui::button("form-decline", crate::tr("Decline"), ui::Weight::Quiet).on_click(
                 cx.listener(move |this, _, _, cx| {
                     let no = CreateElicitationResponse::new(ElicitationAction::Decline);
-                    this.answer_form(&agent, key, id, Answer::Form(no), "Declined", cx);
+                    this.answer_form(
+                        &agent,
+                        key,
+                        id,
+                        Answer::Form(no),
+                        &crate::tr("Declined"),
+                        cx,
+                    );
                 }),
             )
         };
@@ -281,10 +296,13 @@ impl Desk {
                     .gap(px(8.))
                     .child(ui::icon("user", 15.).text_color(theme::accent()))
                     .child(
-                        ui::text(faces, format!("{} asks", self.name_of(&agent)))
-                            .flex_1()
-                            .text_size(px(crate::style::CAPTION))
-                            .text_color(theme::faint()),
+                        ui::text(
+                            faces,
+                            crate::tr_with("%{name} asks", &[("name", &self.name_of(&agent))]),
+                        )
+                        .flex_1()
+                        .text_size(px(crate::style::CAPTION))
+                        .text_color(theme::faint()),
                     )
                     .child(decline),
             )
@@ -297,7 +315,7 @@ impl Desk {
                         let yes = CreateElicitationResponse::new(ElicitationAction::Accept(
                             ElicitationAcceptAction::new(),
                         ));
-                        let words = format!("Opened {url}");
+                        let words = crate::tr_with("Opened %{url}", &[("url", &url)]);
                         this.answer_form(&agent, key, id, Answer::Form(yes), &words, cx);
                     }),
                 ),

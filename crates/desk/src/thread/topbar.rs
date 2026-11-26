@@ -32,7 +32,7 @@ impl Desk {
                 ui::icon_button(
                     "show-sidebar",
                     "sidebar",
-                    crate::keys::hint(cx, "Show the sidebar", "toggle_sidebar"),
+                    crate::keys::hint(cx, &crate::tr("Show the sidebar"), "toggle_sidebar"),
                 )
                 .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
             );
@@ -115,7 +115,7 @@ impl Desk {
                         ui::icon_button(
                             "toggle-drawer",
                             "terminal",
-                            crate::keys::hint(cx, "Terminal", "drawer"),
+                            crate::keys::hint(cx, &crate::tr("Terminal"), "drawer"),
                         )
                         .selected(self.drawer.open)
                         .on_click(
@@ -126,7 +126,11 @@ impl Desk {
                         ui::icon_button(
                             "toggle-aside",
                             "panel-right",
-                            crate::keys::hint(cx, "Show or hide the right column", "right_column"),
+                            crate::keys::hint(
+                                cx,
+                                &crate::tr("Show or hide the right column"),
+                                "right_column",
+                            ),
                         )
                         .selected(self.panes.right && self.session().is_some())
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_aside(cx))),
@@ -146,15 +150,15 @@ impl Desk {
                 bar = bar
                     .child(ui::mark(faces, &self.mark_of(id), 16.))
                     .child(title(name))
-                    .child(meta(faces, state));
+                    .child(meta(faces, crate::tr(state)));
             }
             Page::Forge(kind) => {
                 bar = bar.child(title(
-                    match kind {
+                    crate::tr(match kind {
                         crate::github::Kind::Pr => "Pull requests",
                         crate::github::Kind::Issue => "Issues",
-                    }
-                    .into(),
+                    })
+                    .to_string(),
                 ));
             }
         }
@@ -178,7 +182,10 @@ impl Desk {
         ] {
             let on = self.settings.view == view;
             menu = menu.item(
-                Self::menu_item(desk, says, move |this, _, cx| this.set_view(view, cx)).checked(on),
+                Self::menu_item(desk, crate::tr(says), move |this, _, cx| {
+                    this.set_view(view, cx);
+                })
+                .checked(on),
             );
         }
         let (key, pr) = (s.key, s.git.pr.is_some());
@@ -195,7 +202,7 @@ impl Desk {
         for (id, name) in others {
             menu = menu.item(Self::menu_item(
                 desk,
-                format!("Continue with {name}"),
+                crate::tr_with("Continue with %{name}", &[("name", &name)]),
                 move |this, window, cx| this.hand_off(key, &id, window, cx),
             ));
         }
@@ -203,7 +210,7 @@ impl Desk {
             .separator()
             .item(Self::menu_item(
                 desk,
-                "Open in your editor",
+                crate::tr("Open in your editor"),
                 |this, _, _| {
                     if let Some(s) = this.session() {
                         this.edit(s.meta.folder.clone(), None);
@@ -212,7 +219,7 @@ impl Desk {
             ))
             .item(Self::menu_item(
                 desk,
-                "Copy the session's id",
+                crate::tr("Copy the session's id"),
                 |this, _, cx| {
                     this.copy_of_session(|s| s.meta.id.as_ref().map(|i| i.0.to_string()), cx);
                 },
@@ -220,15 +227,19 @@ impl Desk {
         if pr {
             menu = menu.item(Self::menu_item(
                 desk,
-                "Copy the pull request's address",
+                crate::tr("Copy the pull request's address"),
                 |this, _, cx| {
                     this.copy_of_session(|s| s.git.pr.as_ref().map(|p| p.url.clone()), cx);
                 },
             ));
         }
-        menu.item(Self::menu_item(desk, "Archive", move |this, _, cx| {
-            this.archive(key, cx);
-        }))
+        menu.item(Self::menu_item(
+            desk,
+            crate::tr("Archive"),
+            move |this, _, cx| {
+                this.archive(key, cx);
+            },
+        ))
     }
 
     /// Show the transcript as `view` says, and keep it so.

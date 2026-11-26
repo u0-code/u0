@@ -132,7 +132,7 @@ impl Desk {
     /// the session on screen; `first` is typed into it: a sign-in there.
     pub(crate) fn terminal_on(&mut self, host: Host, first: &str, cx: &mut Context<Self>) {
         let Some(key) = self.current else {
-            self.trouble("Open a session to sign in beside it", None, None);
+            self.trouble(crate::tr("Open a session to sign in beside it"), None, None);
             return;
         };
         let dir = self.home_on(host).to_path_buf();
@@ -239,8 +239,8 @@ impl Desk {
         if busy {
             self.drawer.closing = Some(id);
             self.trouble(
-                "Something is still running in that terminal",
-                Some("Close it again to stop it.".into()),
+                crate::tr("Something is still running in that terminal"),
+                Some(crate::tr("Close it again to stop it.").into()),
                 None,
             );
         } else {
@@ -567,7 +567,7 @@ impl Desk {
             .as_ref()
             .is_some_and(|s| s.name.is_empty() || s.command.is_empty())
         {
-            self.trouble("A script needs a name and a command", None, None);
+            self.trouble(crate::tr("A script needs a name and a command"), None, None);
             cx.notify();
             return;
         }

@@ -511,9 +511,15 @@ impl Desk {
                     ui::text(
                         faces,
                         if waiting {
-                            format!("Setting up its new worktree: {}", s.setup.join(", "))
+                            crate::tr_with(
+                                "Setting up its new worktree: %{steps}",
+                                &[("steps", &s.setup.join(", "))],
+                            )
                         } else {
-                            format!("Its new worktree is set up: {}", s.setup.join(", "))
+                            crate::tr_with(
+                                "Its new worktree is set up: %{steps}",
+                                &[("steps", &s.setup.join(", "))],
+                            )
                         },
                     )
                     .flex_1()
@@ -575,9 +581,12 @@ impl Desk {
                             .cursor_pointer()
                             .child(ui::icon("branch", 12.).text_color(theme::faint()))
                             .child(
-                                ui::one_line(meta(faces, format!("from “{}”", o.meta.title)))
-                                    .max_w(px(320.))
-                                    .hover(|st| st.text_color(theme::text2())),
+                                ui::one_line(meta(
+                                    faces,
+                                    crate::tr_with("from “%{title}”", &[("title", &o.meta.title)]),
+                                ))
+                                .max_w(px(320.))
+                                .hover(|st| st.text_color(theme::text2())),
                             )
                             .on_click(
                                 cx.listener(move |this, _, window, cx| this.show(back, window, cx)),
@@ -626,7 +635,7 @@ impl Desk {
                     .rounded(px(7.))
                     .border_1()
                     .border_color(theme::tag_line())
-                    .child(meta(faces, "also"))
+                    .child(meta(faces, crate::tr("also")))
                     .child(
                         ui::mono(faces, Desk::shown(folder))
                             .text_size(px(crate::style::CAPTION))
@@ -636,7 +645,7 @@ impl Desk {
                         ui::icon_button(
                             SharedString::from(format!("also-x-{n}")),
                             "x",
-                            "Not this one",
+                            crate::tr("Not this one"),
                         )
                         .size(px(20.))
                         .on_click(cx.listener(move |this, _, _, cx| {
@@ -667,7 +676,7 @@ impl Desk {
             .h(px(26.))
             .px(px(8.))
             .child(icon("branch"))
-            .child(meta(faces, "from"))
+            .child(meta(faces, crate::tr("from")))
             .child(
                 ui::one_line(ui::mono(faces, shown).text_size(px(crate::style::CAPTION)))
                     .max_w(px(240.))
@@ -769,7 +778,7 @@ impl Desk {
                                 &key,
                                 "branch",
                                 "branch",
-                                "Branch off here, to say this again",
+                                crate::tr("Branch off here, to say this again"),
                             )
                             .on_click(cx.listener(move |this, _, _, cx| this.fork_at(at, i, cx))),
                         )
@@ -779,7 +788,12 @@ impl Desk {
                         d.child(
                             self.menu(
                                 crate::desk::Popup::Rewind(at, i),
-                                Self::under(&key, "rewind", "retry", "Roll back to here"),
+                                Self::under(
+                                    &key,
+                                    "rewind",
+                                    "retry",
+                                    crate::tr("Roll back to here"),
+                                ),
                                 move |d, menu, desk, _| d.rewind_menu(&faces, at, i, menu, desk),
                                 cx,
                             )
@@ -787,9 +801,13 @@ impl Desk {
                         )
                     })
                     .child(
-                        Self::under(&key, "copy", "copy", "Copy").on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
-                        }),
+                        Self::under(&key, "copy", "copy", crate::tr("Copy")).on_click(
+                            move |_, _, cx| {
+                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                                    copy.clone(),
+                                ));
+                            },
+                        ),
                     );
                 // A long message shows its first lines, the rest a click away.
                 let full_key = format!("{key}:full");
@@ -837,9 +855,9 @@ impl Desk {
                                     meta(
                                         faces,
                                         if open {
-                                            "Show less"
+                                            crate::tr("Show less")
                                         } else {
-                                            "Show full message"
+                                            crate::tr("Show full message")
                                         },
                                     )
                                     .hover(|st| st.text_color(theme::text2())),
@@ -882,8 +900,9 @@ impl Desk {
                     .time_of(i)
                     .map(|t| when::said_at(t, std::time::SystemTime::now(), self.settings.twelve));
                 let tip = |t: &str| {
+                    let t = crate::tr(t);
                     said.as_ref()
-                        .map_or_else(|| t.to_owned(), |w| format!("{t} · {w}"))
+                        .map_or_else(|| t.to_string(), |w| format!("{t} · {w}"))
                 };
                 div()
                     .flex()
@@ -961,8 +980,8 @@ impl Desk {
                 let open = self.expanded.contains(&key);
                 let toggle = key.clone();
                 let label = match secs {
-                    Some(n) => format!("Thought for {n}s"),
-                    None => "Thinking".into(),
+                    Some(n) => crate::tr_with("Thought for %{n}s", &[("n", &n)]),
+                    None => crate::tr("Thinking"),
                 };
                 div()
                     .flex()
@@ -1011,7 +1030,11 @@ impl Desk {
                     faces,
                     match &e.answered {
                         Some(said) => format!("{} · {said}", e.message),
-                        None => format!("{} · answer it below", e.message),
+                        None => crate::tr_with(
+                            "%{message} · answer it below",
+                            &[("message", &e.message)],
+                        )
+                        .to_string(),
                     },
                 ))
                 .into_any_element(),
@@ -1042,8 +1065,14 @@ impl Desk {
                             .px(px(2.))
                             .min_h(px(22.))
                             .child(icon("list"))
-                            .child(verb(faces, "Plan"))
-                            .child(right(faces, format!("{done} of {} done", steps.len())))
+                            .child(verb(faces, crate::tr("Plan")))
+                            .child(right(
+                                faces,
+                                crate::tr_with(
+                                    "%{done} of %{all} done",
+                                    &[("done", &done), ("all", &steps.len())],
+                                ),
+                            ))
                             .child(
                                 div()
                                     .flex()
@@ -1051,19 +1080,26 @@ impl Desk {
                                     .invisible()
                                     .group_hover(group, Styled::visible)
                                     .child(
-                                        Self::under(&key, "plan-copy", "copy", "Copy the plan")
-                                            .on_click(move |_, _, cx| {
+                                        Self::under(
+                                            &key,
+                                            "plan-copy",
+                                            "copy",
+                                            crate::tr("Copy the plan"),
+                                        )
+                                        .on_click(
+                                            move |_, _, cx| {
                                                 cx.write_to_clipboard(
                                                     gpui::ClipboardItem::new_string(copy.clone()),
                                                 );
-                                            }),
+                                            },
+                                        ),
                                     )
                                     .child(
                                         Self::under(
                                             &key,
                                             "plan-keep",
                                             "file-plus",
-                                            "Keep it as PLAN.md in the folder",
+                                            crate::tr("Keep it as PLAN.md in the folder"),
                                         )
                                         .on_click(
                                             cx.listener(move |this, _, _, _| {
@@ -1147,17 +1183,19 @@ impl Desk {
                     .cursor_pointer()
                     .hover(|st| st.bg(theme::hover()))
                     .child(sub_mark(&sub))
-                    .child(verb(faces, "Subagent"))
+                    .child(verb(faces, crate::tr("Subagent")))
                     .child(
                         ui::one_line(ui::text(faces, title.clone()))
                             .w_auto()
                             .min_w(px(0.)),
                     )
                     .child(match (sub.needs_you, sub.working(), sub.time()) {
-                        (true, _, _) => right_in(faces, "Needs you", theme::coral()),
+                        (true, _, _) => right_in(faces, crate::tr("Needs you"), theme::coral()),
                         (_, true, t) => right_in(faces, t.unwrap_or_default(), theme::accent()),
-                        (_, false, Some(t)) => right(faces, format!("Done · {t}")),
-                        _ => right(faces, "Open"),
+                        (_, false, Some(t)) => {
+                            right(faces, crate::tr_with("Done · %{took}", &[("took", &t)]))
+                        }
+                        _ => right(faces, crate::tr("Open")),
                     })
                     .on_click(cx.listener(move |this, _, window, cx| {
                         if let Some(key) = child {
@@ -1207,7 +1245,7 @@ impl Desk {
         let at = images.iter().position(|n| *n == item)?;
         let size = window.viewport_size();
         let step = |id: &'static str, icon: &str, tip: &'static str, to: Option<usize>| {
-            ui::icon_button(id, icon, tip)
+            ui::icon_button(id, icon, crate::tr(tip))
                 .size(px(36.))
                 .rounded_full()
                 .bg(theme::panel())
@@ -1259,9 +1297,15 @@ impl Desk {
                         .items_center()
                         .gap(px(10.))
                         .child(
-                            ui::text(faces, format!("{} of {}", at + 1, images.len()))
-                                .text_size(px(crate::style::CAPTION))
-                                .text_color(theme::muted()),
+                            ui::text(
+                                faces,
+                                crate::tr_with(
+                                    "%{n} of %{all}",
+                                    &[("n", &(at + 1)), ("all", &images.len())],
+                                ),
+                            )
+                            .text_size(px(crate::style::CAPTION))
+                            .text_color(theme::muted()),
                         )
                         .child(
                             ui::icon_button("zoom-close", "x", crate::tr("Close"))
@@ -1337,8 +1381,11 @@ impl Desk {
                                 .items_center()
                                 .gap(px(6.))
                                 .child(
-                                    meta(faces, "Choose the words, then copy them or quote them")
-                                        .flex_1(),
+                                    meta(
+                                        faces,
+                                        crate::tr("Choose the words, then copy them or quote them"),
+                                    )
+                                    .flex_1(),
                                 )
                                 .child(
                                     ui::button(
@@ -1408,9 +1455,9 @@ impl Desk {
         let row = |label: &'static str, about: &'static str, files: bool| {
             let faces = faces.clone();
             PopupMenuItem::element(move |_, _| {
-                ui::described(&faces, label, Some(about)).w(px(268.))
+                ui::described(&faces, crate::tr(label), Some(crate::tr(about))).w(px(268.))
             })
-            .accessibility_label(label)
+            .accessibility_label(crate::tr(label))
             .on_click(Self::does(desk, move |this, window, cx| {
                 this.rewind(key, item, files, window, cx);
             }))
@@ -1548,7 +1595,7 @@ impl Desk {
             tool.running()
                 .map(|t| right_in(faces, when::took(t), theme::accent()).into_any_element())
         } else if failed {
-            Some(right_in(faces, "failed", theme::coral()).into_any_element())
+            Some(right_in(faces, crate::tr("failed"), theme::coral()).into_any_element())
         } else if call.kind == ToolKind::Execute {
             tool.took_said()
                 .map(|t| right(faces, when::took(t)).into_any_element())
@@ -1559,8 +1606,12 @@ impl Desk {
                         .lines()
                         .filter(|l| !l.trim().is_empty())
                         .count();
-                    let word = if n == 1 { "match" } else { "matches" };
-                    Some(right(faces, format!("{n} {word}")).into_any_element())
+                    let said = if n == 1 {
+                        crate::tr("1 match")
+                    } else {
+                        crate::tr_with("%{n} matches", &[("n", &n)])
+                    };
+                    Some(right(faces, said).into_any_element())
                 }
                 _ => None,
             })
@@ -1576,7 +1627,7 @@ impl Desk {
         let open_diff = diff_of.clone().filter(|_| !running).map(|path| {
             ui::button(
                 SharedString::from(format!("{key}-open-diff")),
-                "Open diff",
+                crate::tr("Open diff"),
                 ui::Weight::Quiet,
             )
             .on_click(cx.listener(move |this, _, _, cx| {
@@ -1597,7 +1648,7 @@ impl Desk {
             let (copy, again) = (tool.command_line(), tool.command_line());
             handy = handy
                 .child(
-                    Self::under(&key, "copy-cmd", "copy", "Copy the command").on_click(
+                    Self::under(&key, "copy-cmd", "copy", crate::tr("Copy the command")).on_click(
                         move |_, _, cx| {
                             cx.stop_propagation();
                             cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
@@ -1605,22 +1656,26 @@ impl Desk {
                     ),
                 )
                 .child(
-                    Self::under(&key, "again", "play", "Run it in a terminal of yours").on_click(
-                        cx.listener(move |this, _, window, cx| {
-                            cx.stop_propagation();
-                            this.open_terminal(Some(&again), window, cx);
-                        }),
-                    ),
+                    Self::under(
+                        &key,
+                        "again",
+                        "play",
+                        crate::tr("Run it in a terminal of yours"),
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        cx.stop_propagation();
+                        this.open_terminal(Some(&again), window, cx);
+                    })),
                 );
         }
         if let Some(path) = diff_of.clone().filter(|_| !running) {
             handy = handy.child(
-                Self::under(&key, "editor", "file", "Open in your editor").on_click(cx.listener(
-                    move |this, _, _, cx| {
+                Self::under(&key, "editor", "file", crate::tr("Open in your editor")).on_click(
+                    cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         this.open_named(&path.display().to_string());
-                    },
-                )),
+                    }),
+                ),
             );
         }
         let toggle = key.clone();
@@ -1629,7 +1684,9 @@ impl Desk {
             .group(group)
             .rounded(px(8.))
             .child(mark)
-            .child(verb(faces, row.verb).when(running, |d| d.text_color(theme::accent())))
+            .child(
+                verb(faces, crate::tr(row.verb)).when(running, |d| d.text_color(theme::accent())),
+            )
             .child(object)
             .when(added + gone > 0 && call.kind != ToolKind::Execute, |d| {
                 d.child(ui::counts(faces, added, gone, crate::style::CAPTION).gap(px(8.)))
@@ -1666,7 +1723,7 @@ impl Desk {
                             div().flex().justify_end().child(
                                 ui::button(
                                     SharedString::from(format!("{key}-{j}-in-diff")),
-                                    "Open in the Diff tab",
+                                    crate::tr("Open in the Diff tab"),
                                     ui::Weight::Quiet,
                                 )
                                 .h(px(22.))

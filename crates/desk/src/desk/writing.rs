@@ -152,15 +152,17 @@ impl Desk {
                     self.cleaned(heard, heard, window, cx);
                 }
                 let what = match ask {
-                    Ask::Title { .. } => "a title",
-                    Ask::Branch { .. } => "the branch's name",
-                    Ask::Commit { .. } => "the commit message",
-                    Ask::Pr { .. } => "the pull request",
-                    Ask::Next { .. } => "what to say next",
-                    Ask::Transcript { .. } => "what you dictated, cleaned up",
-                    Ask::Guide { .. } => "the review guide",
+                    Ask::Title { .. } => "The writer couldn't write a title",
+                    Ask::Branch { .. } => "The writer couldn't write the branch's name",
+                    Ask::Commit { .. } => "The writer couldn't write the commit message",
+                    Ask::Pr { .. } => "The writer couldn't write the pull request",
+                    Ask::Next { .. } => "The writer couldn't write what to say next",
+                    Ask::Transcript { .. } => {
+                        "The writer couldn't write what you dictated, cleaned up"
+                    }
+                    Ask::Guide { .. } => "The writer couldn't write the review guide",
                 };
-                self.trouble(format!("The writer couldn't write {what}"), Some(why), None);
+                self.trouble(crate::tr(what), Some(why), None);
                 return;
             }
             Ok(text) => text,
@@ -171,7 +173,7 @@ impl Desk {
                     return;
                 };
                 if text.is_empty() || s.meta.title == text {
-                    self.done("The title already fits", None);
+                    self.done(crate::tr("The title already fits"), None);
                     return;
                 }
                 s.meta.title = text;

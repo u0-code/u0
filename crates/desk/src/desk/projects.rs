@@ -198,7 +198,7 @@ impl Desk {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Use as icon".into()),
+            prompt: Some(crate::tr("Use as icon")),
         });
         let p = p.clone();
         cx.spawn(async move |this, cx| {
@@ -315,7 +315,7 @@ impl Desk {
             return;
         }
         self.adding.cloning = Some(crate::hub::Install {
-            what: "Starting".into(),
+            what: crate::tr("Starting").into(),
             share: None,
         });
         self.adding.url = Some(url.clone());
@@ -400,7 +400,7 @@ impl Desk {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some(prompt.to_owned().into()),
+            prompt: Some(crate::tr(prompt)),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = answer.await

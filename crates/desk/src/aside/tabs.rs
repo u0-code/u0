@@ -260,7 +260,7 @@ impl Desk {
         let add = ui::icon_button(
             "open-surface",
             "plus",
-            crate::keys::hint(cx, "Open…", "open_surface"),
+            crate::keys::hint(cx, &crate::tr("Open…"), "open_surface"),
         )
         .size(px(24.));
         let (faces2, add) = (faces.clone(), add);
@@ -284,7 +284,7 @@ impl Desk {
             move |n: usize, menu: PopupMenu, _: &mut gpui::Window, _: &mut Context<PopupMenu>| {
                 let close = |label: &str, which: fn(usize, usize) -> bool| {
                     let desk = desk.clone();
-                    PopupMenuItem::new(label.to_owned()).on_click(move |_, _, cx| {
+                    PopupMenuItem::new(crate::tr(label)).on_click(move |_, _, cx| {
                         desk.update(cx, |d, cx| d.close_tabs(|at| which(at, n), cx));
                     })
                 };
@@ -359,13 +359,17 @@ impl Desk {
         let (name, icon) = self.named(s, surface);
         let under = column.hovered == Some(n);
         let mark = if under {
-            ui::icon_button(SharedString::from(format!("close-tab-{n}")), "x", "Close")
-                .size(px(16.))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    cx.stop_propagation();
-                    this.close_tabs(|at| at == n, cx);
-                }))
-                .into_any_element()
+            ui::icon_button(
+                SharedString::from(format!("close-tab-{n}")),
+                "x",
+                crate::tr("Close"),
+            )
+            .size(px(16.))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                cx.stop_propagation();
+                this.close_tabs(|at| at == n, cx);
+            }))
+            .into_any_element()
         } else {
             div()
                 .flex()
@@ -399,9 +403,9 @@ impl Desk {
     /// A tab's name and icon.
     fn named(&self, s: &Session, surface: &Surface) -> (String, &'static str) {
         match surface {
-            Surface::Details => ("Details".into(), "list"),
-            Surface::Diff => ("Diff".into(), "diff"),
-            Surface::Files => ("Files".into(), "folder"),
+            Surface::Details => (crate::tr("Details").into(), "list"),
+            Surface::Diff => (crate::tr("Diff").into(), "diff"),
+            Surface::Files => (crate::tr("Files").into(), "folder"),
             Surface::File(path) => (
                 path.file_name().map_or_else(
                     || path.display().to_string(),
@@ -409,19 +413,19 @@ impl Desk {
                 ),
                 "file",
             ),
-            Surface::Terminal => ("Terminal".into(), "terminal"),
-            Surface::Devices => ("Devices".into(), "laptop"),
+            Surface::Terminal => (crate::tr("Terminal").into(), "terminal"),
+            Surface::Devices => (crate::tr("Devices").into(), "laptop"),
             Surface::PullRequest => (
-                s.git
-                    .pr
-                    .as_ref()
-                    .map_or_else(|| "Pull request".into(), |p| format!("#{}", p.number)),
+                s.git.pr.as_ref().map_or_else(
+                    || crate::tr("Pull request").into(),
+                    |p| format!("#{}", p.number),
+                ),
                 "pull-request",
             ),
             Surface::Side(key) => (
                 self.sessions
                     .at(*key)
-                    .map_or_else(|| "Side chat".into(), |c| c.meta.title.clone()),
+                    .map_or_else(|| crate::tr("Side chat").into(), |c| c.meta.title.clone()),
                 "bulb",
             ),
         }
@@ -449,7 +453,7 @@ impl Desk {
                         .items_center()
                         .w(px(200.))
                         .child(
-                            ui::text(&faces, name)
+                            ui::text(&faces, crate::tr(name))
                                 .flex_1()
                                 .text_size(px(crate::style::LABEL)),
                         )
@@ -480,7 +484,7 @@ impl Desk {
                             .gap(px(10.))
                             .child(ui::icon(icon, 15.))
                             .child(
-                                ui::text(faces, name)
+                                ui::text(faces, crate::tr(name))
                                     .flex_1()
                                     .text_size(px(crate::style::LABEL)),
                             )

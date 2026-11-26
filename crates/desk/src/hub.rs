@@ -138,7 +138,10 @@ impl Machine {
     /// controls others.
     pub fn open(home: &std::path::Path, tx: &Sender) -> Vec<Self> {
         let servers = Servers::load(home).unwrap_or_else(|why| {
-            let _ = tx.send(Msg::Notice(Err(("Couldn't read your servers".into(), why))));
+            let _ = tx.send(Msg::Notice(Err((
+                crate::tr("Couldn't read your servers").into(),
+                why,
+            ))));
             Servers::default()
         });
         let port = Access::new(home).kept().map_or(0, |k| k.port);
@@ -146,7 +149,7 @@ impl Machine {
             Some(service) => Self::linked(Host::HERE, service, tx),
             None => Self::in_process(Host::HERE, home, tx),
         };
-        "This Mac".clone_into(&mut here.name);
+        here.name = crate::tr("This Mac").into();
         here.home = home.to_path_buf();
         let others = (servers.held(port).zip(1..)).map(|(s, n)| Self::linked(Host(n), s, tx));
         std::iter::once(here).chain(others).collect()
@@ -333,7 +336,10 @@ pub fn edit(path: PathBuf, chosen: Option<String>, start: Option<&'static [u8]>,
         let there = path.exists() || start.is_some_and(|s| crate::whole::write(&path, s).is_ok());
         if !there {
             let why = path.display().to_string();
-            let _ = tx.send(Msg::Notice(Err((format!("There is no {shown} here"), why))));
+            let _ = tx.send(Msg::Notice(Err((
+                crate::tr_with("There is no %{shown} here", &[("shown", &shown)]).into(),
+                why,
+            ))));
             return;
         }
         let editor = (chosen.as_deref().and_then(|c| which::which(c).ok()))
@@ -347,7 +353,7 @@ pub fn edit(path: PathBuf, chosen: Option<String>, start: Option<&'static [u8]>,
         };
         if let Err(e) = opened {
             let _ = tx.send(Msg::Notice(Err((
-                format!("Couldn't open {shown}"),
+                crate::tr_with("Couldn't open %{shown}", &[("shown", &shown)]).into(),
                 e.to_string(),
             ))));
         }
@@ -368,8 +374,11 @@ pub fn write(path: PathBuf, text: String, tx: Sender) {
     off(tx, move || {
         let shown = crate::desk::Desk::shown(&path);
         Msg::Notice(match crate::whole::write(&path, text.as_bytes()) {
-            Ok(()) => Ok(format!("It is in {shown}")),
-            Err(e) => Err((format!("Couldn't write {shown}"), e.to_string())),
+            Ok(()) => Ok(crate::tr_with("It is in %{shown}", &[("shown", &shown)]).into()),
+            Err(e) => Err((
+                crate::tr_with("Couldn't write %{shown}", &[("shown", &shown)]).into(),
+                e.to_string(),
+            )),
         })
     });
 }
@@ -391,8 +400,8 @@ pub fn install_command(tx: Sender) {
     off(tx, || {
         let Some(home) = crate::desk::Desk::home_path() else {
             return Msg::Notice(Err((
-                "Couldn't add the ghost command".into(),
-                "HOME is not set".into(),
+                crate::tr("Couldn't add the ghost command").into(),
+                crate::tr("HOME is not set").into(),
             )));
         };
         let path = home.join(".local/bin/ghost");
@@ -403,11 +412,20 @@ pub fn install_command(tx: Sender) {
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
         });
         Msg::Notice(match put {
-            Ok(()) if which::which("ghost").is_ok_and(|p| p == path) => {
-                Ok(format!("ghost <folder> opens it in Ghost: {shown}"))
-            }
-            Ok(()) => Ok(format!("It is in {shown}; add ~/.local/bin to your PATH")),
-            Err(e) => Err(("Couldn't add the ghost command".into(), e.to_string())),
+            Ok(()) if which::which("ghost").is_ok_and(|p| p == path) => Ok(crate::tr_with(
+                "ghost <folder> opens it in Ghost: %{shown}",
+                &[("shown", &shown)],
+            )
+            .into()),
+            Ok(()) => Ok(crate::tr_with(
+                "It is in %{shown}; add ~/.local/bin to your PATH",
+                &[("shown", &shown)],
+            )
+            .into()),
+            Err(e) => Err((
+                crate::tr("Couldn't add the ghost command").into(),
+                e.to_string(),
+            )),
         })
     });
 }

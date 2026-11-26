@@ -187,7 +187,7 @@ impl Desk {
         // record says where Ghost lost sight of it.
         for s in &mut self.sessions.all {
             if matches!(s.state, crate::session::State::Working) {
-                s.note("Ghost closed while this turn was going on; the agent may have gone on with it.");
+                s.note(&crate::tr("Ghost closed while this turn was going on; the agent may have gone on with it."));
             }
         }
         let keys: Vec<u64> = self.sessions.all.iter().map(|s| s.key).collect();

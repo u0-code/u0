@@ -117,11 +117,13 @@ impl Desk {
     fn not_allowed(&mut self) {
         self.dictation = None;
         self.trouble(
-            "Ghost may not use speech recognition",
+            crate::tr("Ghost may not use speech recognition"),
             Some(
-                "Allow it in System Settings › Privacy & Security › Speech Recognition, \
-                 and the microphone under Microphone."
-                    .to_owned(),
+                crate::tr(
+                    "Allow it in System Settings › Privacy & Security › Speech Recognition, \
+                 and the microphone under Microphone.",
+                )
+                .into(),
             ),
             None,
         );
@@ -181,14 +183,16 @@ impl Desk {
             SpeechEvent::Error(_) if !d.heard.is_empty() => d.heard.clone(),
             SpeechEvent::Error(why) => {
                 let why = match why {
-                    SpeechError::Unsupported => "macOS can't hear this language on this Mac \
+                    SpeechError::Unsupported => crate::tr(
+                        "macOS can't hear this language on this Mac \
                         alone: choose another, or add it under System Settings › Keyboard › \
-                        Dictation. Ghost run outside Ghost.app (from cargo) can't listen at all."
-                        .to_owned(),
+                        Dictation. Ghost run outside Ghost.app (from cargo) can't listen at all.",
+                    )
+                    .into(),
                     why => why.to_string(),
                 };
                 self.dictation = None;
-                self.trouble("Ghost couldn't hear that", Some(why), None);
+                self.trouble(crate::tr("Ghost couldn't hear that"), Some(why), None);
                 cx.notify();
                 return;
             }

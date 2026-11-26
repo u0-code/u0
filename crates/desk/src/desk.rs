@@ -853,13 +853,11 @@ impl Desk {
         self.prefs(p).name.unwrap_or_else(|| {
             let folder = &p.folder;
             if *folder == self.scratch_dir(p.host) {
-                return "Scratch".into();
+                return crate::tr("Scratch").into();
             }
             if self.is_scratch(p) {
-                return format!(
-                    "Scratch {}",
-                    folder.file_name().unwrap_or_default().display()
-                );
+                let n = folder.file_name().unwrap_or_default().display();
+                return crate::tr_with("Scratch %{n}", &[("n", &n)]).into();
             }
             folder
                 .file_name()
@@ -1141,7 +1139,7 @@ impl Desk {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("Add project".into()),
+            prompt: Some(crate::tr("Add project")),
         });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = answer.await
@@ -1224,7 +1222,7 @@ impl Desk {
             files: false,
             directories: true,
             multiple: true,
-            prompt: Some("Work here too".into()),
+            prompt: Some(crate::tr("Work here too")),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = answer.await {
@@ -1260,7 +1258,7 @@ impl Desk {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("Work here".into()),
+            prompt: Some(crate::tr("Work here")),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(paths))) = answer.await
@@ -1312,7 +1310,7 @@ impl Desk {
             files: true,
             directories: false,
             multiple: true,
-            prompt: Some("Add".into()),
+            prompt: Some(crate::tr("Add")),
         });
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(paths))) = answer.await {
@@ -1345,12 +1343,14 @@ impl Desk {
         let working = (self.sessions.all.iter()).any(|s| matches!(s.state, State::Working));
         let key = crate::keys::written(&crate::keys::keys_of(cx, "quit"));
         let how = match mode {
-            Quit::Hold => format!("Hold {key}, or press it twice, to quit"),
-            _ => format!("Press {key} twice to quit"),
+            Quit::Hold => {
+                crate::tr_with("Hold %{key}, or press it twice, to quit", &[("key", &key)])
+            }
+            _ => crate::tr_with("Press %{key} twice to quit", &[("key", &key)]),
         };
         self.trouble(
             how,
-            working.then(|| "Agents are at work: quitting stops their turns.".to_owned()),
+            working.then(|| crate::tr("Agents are at work: quitting stops their turns.").into()),
             None,
         );
         false
@@ -1491,9 +1491,9 @@ impl Desk {
         // The menu's line says what it takes there; the picker's mode menu
         // leaves the picker's search as it is.
         let says = match popup {
-            Popup::Branch => Some("A new branch: its name, then Return"),
+            Popup::Branch => Some(crate::tr("A new branch: its name, then Return")),
             Popup::ModelMode => None,
-            _ => Some("Search"),
+            _ => Some(crate::tr("Search")),
         };
         if let Some(says) = says {
             self.menu_search.update(cx, |i, cx| {
@@ -1643,8 +1643,8 @@ impl Desk {
         let key = k.unparse(cx.platform_info().os);
         if let Some(other) = crate::keys::taken(cx, name, k) {
             self.trouble(
-                format!("Those keys were “{other}”'s too"),
-                Some("Yours now win; change that one if you want both.".into()),
+                crate::tr_with("Those keys were “%{other}”'s too", &[("other", &other)]),
+                Some(crate::tr("Yours now win; change that one if you want both.").into()),
                 None,
             );
         }

@@ -111,7 +111,7 @@ impl Desk {
                     .text_size(px(crate::style::LABEL))
                     .text_color(theme::text2()),
             )
-            .tooltip(crate::keys::hint(cx, "Choose the mode", "mode"));
+            .tooltip(crate::keys::hint(cx, &crate::tr("Choose the mode"), "mode"));
         let faces = faces.clone();
         Some(over_box(
             self.menu(

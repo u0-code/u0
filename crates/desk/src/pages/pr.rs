@@ -96,12 +96,12 @@ impl Desk {
                         return div().into_any_element();
                     };
                     let (path, line, desk) = (l.path.clone(), l.line, desk.clone());
-                    said_box(&faces, "You, next review", &l.body, 0)
+                    said_box(&faces, &crate::tr("You, next review"), &l.body, 0)
                         .child(
                             ui::icon_button(
                                 SharedString::from(format!("unsay-{path}-{line}")),
                                 "x",
-                                "Take it back",
+                                crate::tr("Take it back"),
                             )
                             .size(px(20.))
                             .on_click(move |_, _, cx| {
@@ -146,7 +146,9 @@ impl Desk {
             let (id, resolved) = (t.id.clone(), t.resolved);
             let place = match t.line {
                 Some(line) => format!("{}:{line}", t.path),
-                None => format!("{} (its line is gone)", t.path),
+                None => {
+                    crate::tr_with("%{path} (its line is gone)", &[("path", &t.path)]).to_string()
+                }
             };
             let replying = self.forge.pr.replying.as_ref() == Some(&t.id);
             let mut card = div()
@@ -197,7 +199,7 @@ impl Desk {
                     .child(
                         ui::button(
                             SharedString::from(format!("reply-{id}")),
-                            "Reply",
+                            crate::tr("Reply"),
                             Weight::Quiet,
                         )
                         .h(px(24.))
@@ -208,7 +210,7 @@ impl Desk {
                     .child(
                         ui::button(
                             SharedString::from(format!("resolve-{id}")),
-                            if resolved { "Reopen" } else { "Resolve" },
+                            crate::tr(if resolved { "Reopen" } else { "Resolve" }),
                             Weight::Quiet,
                         )
                         .h(px(24.))
@@ -232,7 +234,7 @@ impl Desk {
     pub(super) fn pr_guide(&self, faces: &Faces, d: &Detail, cx: &mut Context<Self>) -> Div {
         let guide = (self.forge.pr.guide.as_ref()).filter(|g| g.0 == d.item.number);
         let ask = |label: &'static str| {
-            ui::button("write-guide", label, Weight::Secondary)
+            ui::button("write-guide", crate::tr(label), Weight::Secondary)
                 .h(px(26.))
                 .on_click(cx.listener(|this, _, _, cx| this.write_guide(cx)))
         };
@@ -253,7 +255,10 @@ impl Desk {
                     .child(ui::fine(faces, crate::tr("The writer is reading the changes…"))),
             ),
             Some((_, _, Some(Err(e)))) => body
-                .child(ui::fine(faces, format!("The writer couldn't write it: {e}")).text_color(theme::coral()))
+                .child(
+                    ui::fine(faces, crate::tr_with("The writer couldn't write it: %{e}", &[("e", e)]))
+                        .text_color(theme::coral()),
+                )
                 .child(div().child(ask("Try again"))),
             Some((_, head, Some(Ok(text)))) => body
                 .when(*head != d.head, |b| {
@@ -306,9 +311,14 @@ pub fn breakdown(files: &[review::File]) -> Div {
             review::breakdown(files)
                 .into_iter()
                 .map(|(part, added, removed)| {
-                    Tag::secondary()
-                        .small()
-                        .child(format!("{} +{added} −{removed}", part.name()))
+                    Tag::secondary().small().child(crate::tr_with(
+                        "%{part} +%{added} −%{removed}",
+                        &[
+                            ("part", &crate::tr(part.name())),
+                            ("added", &added),
+                            ("removed", &removed),
+                        ],
+                    ))
                 }),
         )
 }

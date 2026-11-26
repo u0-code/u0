@@ -26,7 +26,7 @@ impl Desk {
                 &["project", "override", "scope"],
                 |d, faces, cx| {
                     let shown = d.pages.scope.as_ref().map_or_else(
-                        || "All projects".to_owned(),
+                        || crate::tr("All projects").to_string(),
                         |p| d.project_name(&crate::desk::Place::new(d.pages.on, p.clone())),
                     );
                     let trigger = ui::opener("settings-scope")
@@ -45,7 +45,7 @@ impl Desk {
                                 })
                                 .checked(on)
                             };
-                            let all = pick("All projects".into(), None);
+                            let all = pick(crate::tr("All projects").to_string(), None);
                             (d.edited().folders.iter())
                                 .map(|f| {
                                     let p = crate::desk::Place::new(d.pages.on, f.clone());
@@ -62,11 +62,11 @@ impl Desk {
                     .child(menu)
                     .child(ui::fine(
                         faces,
-                        if d.pages.scope.is_some() {
+                        crate::tr(if d.pages.scope.is_some() {
                             "Choices that say “This project” are its own; the rest hold everywhere."
                         } else {
                             "Choose a project to give it choices of its own."
-                        },
+                        }),
                     ))
                     .into_any_element()
                 },
@@ -102,14 +102,14 @@ impl Desk {
                     this.settings_took(cx);
                     cx.notify();
                 }));
-                (label, value == now, pick)
+                (crate::tr(&label.into()), value == now, pick)
             })
             .collect();
         let everywhere = get(self.edited());
         let marker = if held {
             ui::button(
                 SharedString::from(format!("{id}-inherit")),
-                "This project's own · Reset",
+                crate::tr("This project's own · Reset"),
                 Weight::Quiet,
             )
             .on_click(cx.listener(move |this, _, _, cx| {
@@ -122,7 +122,11 @@ impl Desk {
             }))
             .into_any_element()
         } else {
-            ui::fine(crate::fonts::faces(cx), "This project · as everywhere").into_any_element()
+            ui::fine(
+                crate::fonts::faces(cx),
+                crate::tr("This project · as everywhere"),
+            )
+            .into_any_element()
         };
         div()
             .flex()

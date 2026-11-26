@@ -58,7 +58,7 @@ impl Desk {
             Kind::Pr => &["open", "closed", "merged", "all"],
             Kind::Issue => &["open", "closed", "all"],
         };
-        let state_picks: Vec<(&'static str, bool, ui::Pick)> = states
+        let state_picks: Vec<(SharedString, bool, ui::Pick)> = states
             .iter()
             .map(|st| {
                 let desk = cx.entity();
@@ -68,10 +68,10 @@ impl Desk {
                         d.list_forge(cx);
                     });
                 });
-                (state_word(st), f.state == *st, pick)
+                (crate::tr(state_word(st)), f.state == *st, pick)
             })
             .collect();
-        let part_picks: Vec<(&'static str, bool, ui::Pick)> = PARTS
+        let part_picks: Vec<(SharedString, bool, ui::Pick)> = PARTS
             .iter()
             .enumerate()
             .filter(|(n, _)| f.kind == Kind::Pr || *n != 2)
@@ -83,13 +83,13 @@ impl Desk {
                         d.list_forge(cx);
                     });
                 });
-                (*name, f.part == n, pick)
+                (crate::tr(name), f.part == n, pick)
             })
             .collect();
         let project = match &f.folder {
-            _ if f.every.is_some() => "All projects".to_owned(),
+            _ if f.every.is_some() => crate::tr("All projects").to_string(),
             Some(p) => self.project_on(p),
-            None => "No project".to_owned(),
+            None => crate::tr("No project").to_string(),
         };
         let chip = ui::opener("forge-project")
             .h(px(26.))
@@ -173,7 +173,7 @@ impl Desk {
                 d.forge_menu(&item, folder, menu, &desk)
             });
         let side = if f.creating {
-            self.forge_form(faces, "New issue", "Create", cx)
+            self.forge_form(faces, &crate::tr("New issue"), crate::tr("Create"), cx)
         } else {
             self.forge_detail(faces, cx)
         };
@@ -213,7 +213,10 @@ pub fn row(faces: &Faces, item: &Item, under: Option<u64>, project: Option<&str>
         meta.insert(2, item.branch.clone());
     }
     if let Some(under) = under {
-        meta.insert(3, format!("on #{under}"));
+        meta.insert(
+            3,
+            crate::tr_with("on #%{under}", &[("under", &under)]).to_string(),
+        );
     }
     if let Some(project) = project {
         meta.insert(0, project.to_owned());
@@ -261,7 +264,10 @@ pub fn row(faces: &Faces, item: &Item, under: Option<u64>, project: Option<&str>
                             d.child(ui::fine(faces, item.review.clone()))
                         })
                         .when(item.comments > 0, |d| {
-                            d.child(ui::fine(faces, format!("{} said", item.comments)))
+                            d.child(ui::fine(
+                                faces,
+                                crate::tr_with("%{n} said", &[("n", &item.comments)]),
+                            ))
                         }),
                 ),
         )
@@ -277,10 +283,10 @@ impl Desk {
             None if f.chosen.is_none() => {
                 return shell.items_center().justify_center().child(ui::fine(
                     faces,
-                    match f.kind {
+                    crate::tr(match f.kind {
                         Kind::Pr => "Pick a pull request to read it.",
                         Kind::Issue => "Pick an issue to read it.",
-                    },
+                    }),
                 ));
             }
             None => {
@@ -289,14 +295,15 @@ impl Desk {
                     .child(ui::fine(faces, crate::tr("Reading…")));
             }
             Some(Err(e)) => {
-                return shell
-                    .p(px(16.))
-                    .child(ui::fine(faces, format!("Couldn't read it: {e}")));
+                return shell.p(px(16.)).child(ui::fine(
+                    faces,
+                    crate::tr_with("Couldn't read it: %{e}", &[("e", e)]),
+                ));
             }
             Some(Ok(d)) => d,
         };
         if f.editing {
-            return self.forge_form(faces, "Edit", "Save", cx);
+            return self.forge_form(faces, &crate::tr("Edit"), crate::tr("Save"), cx);
         }
         let item = &d.item;
         let url = item.url.clone();
@@ -335,14 +342,17 @@ impl Desk {
                         ui::fine(
                             faces,
                             if item.draft {
-                                "draft".to_owned()
+                                crate::tr("draft").to_string()
                             } else {
                                 item.state.clone()
                             },
                         )
                         .text_color(tint(item)),
                     )
-                    .child(ui::fine(faces, format!("by {}", item.author)))
+                    .child(ui::fine(
+                        faces,
+                        crate::tr_with("by %{author}", &[("author", &item.author)]),
+                    ))
                     .when(!item.branch.is_empty(), |d| {
                         d.child(ui::fine_mono(
                             faces,
@@ -382,7 +392,10 @@ impl Desk {
                     .segmented()
                     .small()
                     .selected_index(chosen)
-                    .children(tabs.iter().map(|(name, _)| KitTab::new().label(*name)))
+                    .children(
+                        tabs.iter()
+                            .map(|(name, _)| KitTab::new().label(crate::tr(name))),
+                    )
                     .on_click(cx.listener(move |this, n: &usize, _, cx| {
                         this.forge.tab = picks[*n];
                         cx.notify();
@@ -393,18 +406,21 @@ impl Desk {
                 let seen = (f.pr.files.iter()).filter(|file| self.viewed(file)).count();
                 el.child(ui::fine(
                     faces,
-                    format!("{seen} of {} viewed", f.pr.files.len()),
+                    crate::tr_with(
+                        "%{seen} of %{total} viewed",
+                        &[("seen", &seen), ("total", &f.pr.files.len())],
+                    ),
                 ))
             })
             .when(f.tab == Tab::Timeline, |d| {
                 d.child(
                     ui::button(
                         "forge-order",
-                        if f.newest {
+                        crate::tr(if f.newest {
                             "Newest first"
                         } else {
                             "Oldest first"
-                        },
+                        }),
                         Weight::Quiet,
                     )
                     .h(px(24.))
@@ -492,7 +508,7 @@ impl Desk {
             div()
                 .flex()
                 .gap(px(10.))
-                .child(ui::fine(faces, label.to_owned()).w(px(80.)).flex_none())
+                .child(ui::fine(faces, crate::tr(label)).w(px(80.)).flex_none())
                 .child(
                     ui::text(faces, value)
                         .text_size(px(crate::style::LABEL))
@@ -501,7 +517,7 @@ impl Desk {
         };
         let none = |v: &[String]| {
             if v.is_empty() {
-                "none".to_owned()
+                crate::tr("none").to_string()
             } else {
                 v.join(", ")
             }
@@ -538,16 +554,18 @@ impl Desk {
                     )
                     .child(ui::fine(faces, c.state.clone()))
                     .children(run.clone().map(|run| {
-                        ui::button(SharedString::from(format!("log-{n}")), "Log", Weight::Quiet)
-                            .h(px(22.))
-                            .on_click(
-                                cx.listener(move |this, _, _, cx| this.read_log(run.clone(), cx)),
-                            )
+                        ui::button(
+                            SharedString::from(format!("log-{n}")),
+                            crate::tr("Log"),
+                            Weight::Quiet,
+                        )
+                        .h(px(22.))
+                        .on_click(cx.listener(move |this, _, _, cx| this.read_log(run.clone(), cx)))
                     }))
                     .children(run.map(|run| {
                         ui::button(
                             SharedString::from(format!("rerun-{n}")),
-                            "Run again",
+                            crate::tr("Run again"),
                             Weight::Quiet,
                         )
                         .h(px(22.))
@@ -559,7 +577,7 @@ impl Desk {
                         d.child(
                             ui::button(
                                 SharedString::from(format!("check-{n}")),
-                                "Open",
+                                crate::tr("Open"),
                                 Weight::Quiet,
                             )
                             .h(px(22.))
@@ -589,10 +607,13 @@ impl Desk {
                     .when(under.is_some() || !over.is_empty(), |el| {
                         let mut said = Vec::new();
                         if let Some(n) = under {
-                            said.push(format!("on #{n}"));
+                            said.push(crate::tr_with("on #%{under}", &[("under", &n)]).to_string());
                         }
                         if !over.is_empty() {
-                            said.push(format!("{} on it", numbers(over)));
+                            said.push(
+                                crate::tr_with("%{numbers} on it", &[("numbers", &numbers(over))])
+                                    .to_string(),
+                            );
                         }
                         el.child(row("Stack", said.join("; ")))
                     })
@@ -628,11 +649,11 @@ impl Desk {
                     .child(
                         ui::button(
                             "add-person",
-                            if kind == Kind::Pr {
+                            crate::tr(if kind == Kind::Pr {
                                 "Ask for review"
                             } else {
                                 "Assign"
-                            },
+                            }),
                             Weight::Quiet,
                         )
                         .h(px(24.))
@@ -642,7 +663,8 @@ impl Desk {
                     ),
             )
             .when(!d.checks.is_empty(), |el| {
-                el.child(ui::label(faces, "Checks")).child(checks)
+                el.child(ui::label(faces, &crate::tr("Checks")))
+                    .child(checks)
             })
             .children(self.forge.log.as_ref().map(|(run, log)| {
                 let (text, bad) = match log {
@@ -655,11 +677,14 @@ impl Desk {
                     .p(px(10.))
                     .rounded(px(8.))
                     .bg(theme::well())
-                    .child(ui::fine(faces, format!("Run {run}, where it failed")))
+                    .child(ui::fine(
+                        faces,
+                        crate::tr_with("Run %{run}, where it failed", &[("run", run)]),
+                    ))
                     .child(ui::fine_mono(faces, text).when(bad, |d| d.text_color(theme::coral())))
                     .overflow_y_scrollbar()
             }))
-            .child(ui::label(faces, "Description"))
+            .child(ui::label(faces, &crate::tr("Description")))
             .child(if d.body.trim().is_empty() {
                 ui::fine(faces, crate::tr("No description.")).into_any_element()
             } else {
@@ -748,9 +773,12 @@ impl Desk {
                         ui::button(
                             "say-comment",
                             if lines > 0 {
-                                format!("Comment with {lines} on lines")
+                                crate::tr_with(
+                                    "Comment with %{lines} on lines",
+                                    &[("lines", &lines)],
+                                )
                             } else {
-                                "Comment".to_owned()
+                                crate::tr("Comment")
                             },
                             Weight::Primary,
                         )
@@ -766,7 +794,7 @@ impl Desk {
         &self,
         faces: &Faces,
         head: &str,
-        done: &'static str,
+        done: SharedString,
         cx: &mut Context<Self>,
     ) -> Div {
         div()

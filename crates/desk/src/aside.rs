@@ -231,12 +231,12 @@ impl Desk {
         if s.meta.links.is_empty() {
             return None;
         }
-        let mut sec = section(faces, Detail::Linked.head(), None);
+        let mut sec = section(faces, crate::tr(Detail::Linked.head()), None);
         for (n, link) in s.meta.links.iter().enumerate() {
             let (kind, number, key) = (link.kind, link.number, s.key);
             let (icon, word) = match kind {
-                crate::github::Kind::Pr => ("pull-request", "Pull request"),
-                crate::github::Kind::Issue => ("circle-dot", "Issue"),
+                crate::github::Kind::Pr => ("pull-request", crate::tr("Pull request")),
+                crate::github::Kind::Issue => ("circle-dot", crate::tr("Issue")),
             };
             let gone = link.clone();
             sec = sec.child(
@@ -260,11 +260,15 @@ impl Desk {
                     )
                     .child(fine(faces, word))
                     .child(
-                        ui::icon_button(SharedString::from(format!("unlink-{n}")), "x", "Unlink")
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.link(key, gone.clone());
-                                cx.notify();
-                            })),
+                        ui::icon_button(
+                            SharedString::from(format!("unlink-{n}")),
+                            "x",
+                            crate::tr("Unlink"),
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.link(key, gone.clone());
+                            cx.notify();
+                        })),
                     ),
             );
         }
@@ -276,17 +280,17 @@ impl Desk {
     /// and the side chats asked of it; each a click away. None with none.
     fn lineage(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
         let id = s.meta.id.as_ref().map(|i| i.0.to_string());
-        let mut kin: Vec<(&str, &Session)> = Vec::new();
+        let mut kin: Vec<(SharedString, &Session)> = Vec::new();
         if let Some(o) = self.origin_of(s).and_then(|k| self.sessions.at(k)) {
-            kin.push(("Branched off", o));
+            kin.push((crate::tr("Branched off"), o));
         }
         for o in &self.sessions.all {
             let word = if o.parent == Some(s.key) {
-                "Subagent"
+                crate::tr("Subagent")
             } else if o.beside == Some(s.key) {
-                "Side chat"
+                crate::tr("Side chat")
             } else if o.meta.agent == s.meta.agent && id.is_some() && o.meta.from == id {
-                "Branch"
+                crate::tr("Branch")
             } else {
                 continue;
             };
@@ -295,7 +299,7 @@ impl Desk {
         if kin.is_empty() {
             return None;
         }
-        let mut sec = section(faces, Detail::Lineage.head(), None);
+        let mut sec = section(faces, crate::tr(Detail::Lineage.head()), None);
         for (word, o) in kin {
             let (key, side) = (o.key, o.beside == Some(s.key));
             let at = s.key;
@@ -341,7 +345,7 @@ impl Desk {
         for d in Detail::ALL {
             let on = !self.settings.hidden_details.contains(&d);
             menu = menu.item(
-                Self::menu_item(desk, d.head(), move |this, _, cx| {
+                Self::menu_item(desk, crate::tr(d.head()), move |this, _, cx| {
                     let hidden = &mut this.settings.hidden_details;
                     if on {
                         hidden.push(d);
@@ -354,12 +358,15 @@ impl Desk {
                 .checked(on),
             );
         }
-        menu.separator()
-            .item(Self::menu_item(desk, "Show them all", |this, _, cx| {
+        menu.separator().item(Self::menu_item(
+            desk,
+            crate::tr("Show them all"),
+            |this, _, cx| {
                 this.settings.hidden_details.clear();
                 this.save_settings();
                 cx.notify();
-            }))
+            },
+        ))
     }
 
     /// What goes on beside the session (or its parent, on a subagent's own
@@ -394,9 +401,11 @@ impl Desk {
         let open = self.expanded.contains(&fold);
         let mut sec = section(
             faces,
-            Detail::Background.head(),
-            (going > 0)
-                .then(|| fine(faces, format!("{going} running")).text_color(theme::accent())),
+            crate::tr(Detail::Background.head()),
+            (going > 0).then(|| {
+                fine(faces, crate::tr_with("%{n} running", &[("n", &going)]))
+                    .text_color(theme::accent())
+            }),
         );
         let row_of = |id: SharedString| {
             frow()
@@ -496,7 +505,10 @@ impl Desk {
                         )
                         .text_color(theme::faint()),
                     )
-                    .child(fine(faces, format!("{over} finished")))
+                    .child(fine(
+                        faces,
+                        crate::tr_with("%{n} finished", &[("n", &over)]),
+                    ))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         if !this.expanded.remove(&toggle) {
                             this.expanded.insert(toggle.clone());
@@ -520,14 +532,14 @@ impl Desk {
     /// Widen the column over the thread, or give the thread back.
     fn whole_button(&self, cx: &mut Context<Self>) -> Button {
         let what = if self.panes.whole {
-            "Back beside the thread"
+            crate::tr("Back beside the thread")
         } else {
-            "Widen over the thread"
+            crate::tr("Widen over the thread")
         };
         ui::icon_button(
             "whole",
             "expand",
-            crate::keys::hint(cx, what, "whole_right"),
+            crate::keys::hint(cx, &what, "whole_right"),
         )
         .when(self.panes.whole, |d| d.text_color(theme::text()))
         .on_click(cx.listener(|this, _, _, cx| this.toggle_whole(cx)))
@@ -582,7 +594,7 @@ impl Desk {
                         ui::icon_button(
                             SharedString::from(format!("branch-copy-{n}")),
                             "copy",
-                            "Copy its name",
+                            crate::tr("Copy its name"),
                         )
                         .size(px(20.))
                         .text_color(theme::faint())
@@ -607,7 +619,7 @@ impl Desk {
 
     fn plan(faces: &Faces, s: &Session) -> Div {
         let Some(plan) = s.plan.as_ref().filter(|p| !p.entries.is_empty()) else {
-            return section(faces, Detail::Plan.head(), None)
+            return section(faces, crate::tr(Detail::Plan.head()), None)
                 .child(empty(faces, crate::tr("Shown when the agent makes one.")));
         };
         let steps = thread::plan_steps(plan);
@@ -615,9 +627,15 @@ impl Desk {
             .iter()
             .filter(|(st, _)| *st == kinds::Status::Done)
             .count();
-        let note = fine(faces, format!("{done} of {}", steps.len()))
-            .when(done == steps.len(), |d| d.text_color(theme::ok()));
-        section(faces, Detail::Plan.head(), Some(note)).child(drawn::plan(faces, &steps))
+        let note = fine(
+            faces,
+            crate::tr_with(
+                "%{done} of %{all}",
+                &[("done", &done), ("all", &steps.len())],
+            ),
+        )
+        .when(done == steps.len(), |d| d.text_color(theme::ok()));
+        section(faces, crate::tr(Detail::Plan.head()), Some(note)).child(drawn::plan(faces, &steps))
     }
 
     /// The servers the session's terminals run (each a local address one
@@ -635,7 +653,7 @@ impl Desk {
         }
         let mut sec = section(
             faces,
-            Detail::Servers.head(),
+            crate::tr(Detail::Servers.head()),
             Some(fine(faces, found.len().to_string())),
         );
         for (n, (id, address)) in found.into_iter().enumerate() {
@@ -647,7 +665,7 @@ impl Desk {
                     .child(
                         ui::button(
                             SharedString::from(format!("serve-open-{n}")),
-                            "Open",
+                            crate::tr("Open"),
                             Weight::Quiet,
                         )
                         .h(px(22.))
@@ -656,7 +674,7 @@ impl Desk {
                     .child(
                         ui::button(
                             SharedString::from(format!("serve-stop-{n}")),
-                            "Stop",
+                            crate::tr("Stop"),
                             Weight::Quiet,
                         )
                         .h(px(22.))
@@ -670,7 +688,7 @@ impl Desk {
     fn commands(faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
         let commands: Vec<_> = s.commands().collect();
         if commands.is_empty() {
-            return section(faces, Detail::Terminals.head(), None)
+            return section(faces, crate::tr(Detail::Terminals.head()), None)
                 .child(empty(faces, crate::tr("Commands the agent runs, live.")));
         }
         let running = commands
@@ -683,11 +701,15 @@ impl Desk {
             })
             .count();
         let note = if running > 0 {
-            format!("{running} running")
+            crate::tr_with("%{n} running", &[("n", &running)])
         } else {
-            format!("{} finished", commands.len())
+            crate::tr_with("%{n} finished", &[("n", &commands.len())])
         };
-        let mut sec = section(faces, Detail::Terminals.head(), Some(fine(faces, note)));
+        let mut sec = section(
+            faces,
+            crate::tr(Detail::Terminals.head()),
+            Some(fine(faces, note)),
+        );
         for t in commands.iter().rev().take(6) {
             let live = matches!(
                 t.call.status,
@@ -744,7 +766,7 @@ impl Desk {
                                                     t.call.tool_call_id.0
                                                 )),
                                                 "play",
-                                                "Run it in a terminal of yours",
+                                                crate::tr("Run it in a terminal of yours"),
                                             )
                                             .size(px(22.))
                                             .on_click(
@@ -779,11 +801,15 @@ impl Desk {
     }
 
     fn context(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
-        let note = s
-            .usage
-            .as_ref()
-            .filter(|u| u.size > 0)
-            .map(|u| fine(faces, format!("{}k of {}k", u.used / 1000, u.size / 1000)));
+        let note = s.usage.as_ref().filter(|u| u.size > 0).map(|u| {
+            fine(
+                faces,
+                crate::tr_with(
+                    "%{used}k of %{size}k",
+                    &[("used", &(u.used / 1000)), ("size", &(u.size / 1000))],
+                ),
+            )
+        });
         let share = s
             .usage
             .as_ref()
@@ -806,7 +832,7 @@ impl Desk {
                 ),
             _ => self.name_of(&s.meta.agent),
         };
-        let mut sec = section(faces, Detail::Context.head(), note)
+        let mut sec = section(faces, crate::tr(Detail::Context.head()), note)
             .border_b_0()
             .children(share.map(|share| {
                 Progress::new("context-share")
@@ -816,7 +842,7 @@ impl Desk {
             }))
             .child(key_value(
                 faces,
-                "Agent",
+                &crate::tr("Agent"),
                 div()
                     .flex()
                     .items_center()
@@ -824,7 +850,7 @@ impl Desk {
                     .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 12.))
                     .child(fine(faces, format!("{agent} · ACP v1"))),
             ))
-            .child(key_value(faces, "Working directory", {
+            .child(key_value(faces, &crate::tr("Working directory"), {
                 // A long one keeps its last folder, which says which it is.
                 let dir = Desk::shown(&s.meta.folder);
                 let name = s.meta.folder.file_name().map(|n| n.to_string_lossy());
@@ -841,7 +867,7 @@ impl Desk {
         for folder in &s.meta.also {
             sec = sec.child(key_value(
                 faces,
-                "And in",
+                &crate::tr("And in"),
                 ui::one_line(ui::fine_mono(faces, Desk::shown(folder))).max_w(px(200.)),
             ));
         }
@@ -850,7 +876,7 @@ impl Desk {
             let wt_for_click = wt.clone();
             sec = sec.child(key_value(
                 faces,
-                "Worktree",
+                &crate::tr("Worktree"),
                 // Its branch is the one named at the column's top.
                 div()
                     .flex()
@@ -885,27 +911,35 @@ impl Desk {
             ));
         }
         if let Some(mode) = Desk::mode_name(s) {
-            sec = sec.child(key_value(faces, "Mode", fine(faces, mode)));
+            sec = sec.child(key_value(faces, &crate::tr("Mode"), fine(faces, mode)));
         }
         if !s.items.is_empty() {
             let since = SystemTime::now()
                 .duration_since(s.meta.begun)
                 .unwrap_or_default();
             let turns = s.turn_count();
-            let words = format!(
-                "{} · {} · {turns} {}",
-                when::clock(s.meta.begun, self.settings.twelve),
-                when::took(since),
-                if turns == 1 { "turn" } else { "turns" }
+            let words = crate::tr_with(
+                if turns == 1 {
+                    "%{clock} · %{took} · %{n} turn"
+                } else {
+                    "%{clock} · %{took} · %{n} turns"
+                },
+                &[
+                    ("clock", &when::clock(s.meta.begun, self.settings.twelve)),
+                    ("took", &when::took(since)),
+                    ("n", &turns),
+                ],
             );
-            sec = sec.child(key_value(faces, "Started", fine(faces, words)));
+            sec = sec.child(key_value(faces, &crate::tr("Started"), fine(faces, words)));
         }
         sec
     }
 
     /// An agent's page's right column: what it is and how Ghost runs it.
     pub(crate) fn about(&self, faces: &Faces, id: &str, cx: &mut Context<Self>) -> Div {
-        let head = top().px(px(16.)).child(ui::label(faces, "About"));
+        let head = top()
+            .px(px(16.))
+            .child(ui::label(faces, &crate::tr("About")));
         let Some(e) = self.entry(id) else {
             return frame(head);
         };
@@ -914,7 +948,11 @@ impl Desk {
             Way::Archive => {
                 let b = &e.distribution.binary[&registry::platform()];
                 (
-                    format!("binary · {}", registry::platform()),
+                    crate::tr_with(
+                        "binary · %{platform}",
+                        &[("platform", &registry::platform())],
+                    )
+                    .to_string(),
                     std::iter::once(b.cmd.trim_start_matches("./").to_owned())
                         .chain(b.args.iter().cloned())
                         .collect::<Vec<_>>()
@@ -922,7 +960,10 @@ impl Desk {
                 )
             }
             Way::Runner { runner, package } => (runner.to_owned(), format!("{runner} {package}")),
-            Way::None => ("none for this machine".into(), String::new()),
+            Way::None => (
+                crate::tr("none for this machine").to_string(),
+                String::new(),
+            ),
         };
         let link = e.website.clone().or_else(|| e.repository.clone());
         let host = link.as_deref().map(|l| {
@@ -936,33 +977,33 @@ impl Desk {
         let mut about_rows = section(faces, crate::tr("Agent"), None)
             .child(key_value(
                 faces,
-                "Source",
+                &crate::tr("Source"),
                 fine(faces, crate::tr("ACP registry")),
             ))
             .child(key_value(
                 faces,
-                "Version",
+                &crate::tr("Version"),
                 fine_mono(faces, e.version.clone()),
             ))
             .child(key_value(
                 faces,
-                "Distribution",
+                &crate::tr("Distribution"),
                 fine_mono(faces, distribution),
             ))
             .child(key_value(
                 faces,
-                "Command",
+                &crate::tr("Command"),
                 ui::one_line(ui::fine_mono(faces, command)).max_w(px(220.)),
             ))
             .child(key_value(
                 faces,
-                "Sign-in",
-                fine(faces, format!("{name}'s own")),
+                &crate::tr("Sign-in"),
+                fine(faces, crate::tr_with("%{name}'s own", &[("name", &name)])),
             ));
         if let (Some(link), Some(host)) = (link, host) {
             about_rows = about_rows.child(key_value(
                 faces,
-                "Homepage",
+                &crate::tr("Homepage"),
                 fine(faces, host)
                     .text_color(theme::link())
                     .id("homepage")
@@ -975,8 +1016,9 @@ impl Desk {
             .child(
                 ui::text(
                     faces,
-                    format!(
-                        "Starts {name} in the session's folder, sends what you say, and draws what it reports. Edits, commands and permissions are {name}'s own; Ghost only asks you when it asks."
+                    crate::tr_with(
+                        "Starts %{name} in the session's folder, sends what you say, and draws what it reports. Edits, commands and permissions are %{name}'s own; Ghost only asks you when it asks.",
+                        &[("name", &name)],
                     ),
                 )
                 .text_size(px(crate::style::LABEL))
@@ -995,7 +1037,7 @@ fn git_button(
     cx: &mut Context<Desk>,
     make: fn(String) -> crate::repo::GitAction,
 ) -> Button {
-    ui::button(id, label, weight).on_click(cx.listener(move |this, _, _, cx| {
+    ui::button(id, crate::tr(label), weight).on_click(cx.listener(move |this, _, _, cx| {
         let message = this.commit_message(cx);
         this.review.committing = false;
         this.git_action(make(message), cx);

@@ -153,7 +153,10 @@ impl Desk {
                 )
                 .h(px(24.))
                 .px(px(8.))
-                .tooltip(format!("{}  ·  right-click to change it", script.command))
+                .tooltip(crate::tr_with(
+                    "%{command}  ·  right-click to change it",
+                    &[("command", &script.command)],
+                ))
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.run_script(&name, window, cx);
                 }))
@@ -220,7 +223,7 @@ impl Desk {
                     ui::icon_button(
                         "hide-drawer",
                         "chevron-down",
-                        crate::keys::hint(cx, "Hide", "drawer"),
+                        crate::keys::hint(cx, &crate::tr("Hide"), "drawer"),
                     )
                     .size(px(26.))
                     .on_click(cx.listener(|this, _, window, cx| this.toggle_drawer(window, cx))),
@@ -275,7 +278,7 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> gpui::component::button::Button {
         let on = self.drawer.layout == layout;
-        ui::icon_button(id, icon, if on { "One terminal" } else { what })
+        ui::icon_button(id, icon, crate::tr(if on { "One terminal" } else { what }))
             .size(px(26.))
             .when(on, |b| b.text_color(theme::text()))
             .on_click(cx.listener(move |this, _, window, cx| {
@@ -320,7 +323,7 @@ impl Desk {
                         },
                     )))
                     .child(
-                        ui::text(faces, label)
+                        ui::text(faces, crate::tr(label))
                             .text_size(px(crate::style::CAPTION))
                             .text_color(theme::text2()),
                     )
@@ -433,7 +436,7 @@ impl Desk {
                             ui::icon_button(
                                 SharedString::from(format!("close-term-{id}")),
                                 "x",
-                                "Close",
+                                crate::tr("Close"),
                             )
                             .size(px(18.))
                             .on_click(cx.listener(
@@ -652,22 +655,22 @@ impl Desk {
                 }
             }))
             .context_menu(move |menu, _, _| {
-                let item = |label: String, act: fn(&mut Desk, u64, &mut gpui::Window, &mut Context<Desk>)| {
+                let item = |label: SharedString, act: fn(&mut Desk, u64, &mut gpui::Window, &mut Context<Desk>)| {
                     let desk = owner.clone();
                     PopupMenuItem::new(label)
                         .on_click(move |_, window, cx| desk.update(cx, |d, cx| act(d, id, window, cx)))
                 };
                 let menu = menu
-                    .item(item("Copy".into(), |d, id, _, cx| d.copy_chosen(id, cx)))
-                    .item(item("Paste".into(), |d, id, _, cx| d.paste_terminal(id, cx)))
-                    .item(item("Select all".into(), |d, id, _, cx| d.with_terminal(id, Terminal::choose_all, cx)))
-                    .item(item("Jump to latest".into(), |d, id, _, cx| d.with_terminal(id, Terminal::latest, cx)))
-                    .item(item("Clear".into(), |d, id, _, cx| {
+                    .item(item(crate::tr("Copy"), |d, id, _, cx| d.copy_chosen(id, cx)))
+                    .item(item(crate::tr("Paste"), |d, id, _, cx| d.paste_terminal(id, cx)))
+                    .item(item(crate::tr("Select all"), |d, id, _, cx| d.with_terminal(id, Terminal::choose_all, cx)))
+                    .item(item(crate::tr("Jump to latest"), |d, id, _, cx| d.with_terminal(id, Terminal::latest, cx)))
+                    .item(item(crate::tr("Clear"), |d, id, _, cx| {
                         d.drawer.on = Some(id);
                         d.clear_terminal(cx);
                     }));
                 match &name {
-                    Some(name) => menu.separator().item(item(format!("Ask {name} about it"), |d, id, window, cx| {
+                    Some(name) => menu.separator().item(item(crate::tr_with("Ask %{name} about it", &[("name", name)]), |d, id, window, cx| {
                         d.ask_about_terminal(id, window, cx);
                     })),
                     None => menu,
@@ -725,7 +728,7 @@ impl Desk {
                     ui::led_button(
                         "ask-chosen",
                         Some(ui::mark(faces, &self.mark_of(&agent), 12.)),
-                        format!("Ask {name} about this"),
+                        crate::tr_with("Ask %{name} about this", &[("name", &name)]),
                         Weight::Quiet,
                     )
                     .h(px(24.))

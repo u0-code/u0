@@ -18,7 +18,7 @@ impl Desk {
     pub(super) fn forge_projects(&self, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
         menu = menu
             .item(
-                Self::menu_item(desk, "All projects", |this, window, cx| {
+                Self::menu_item(desk, crate::tr("All projects"), |this, window, cx| {
                     this.list_projects(true, None, window, cx);
                 })
                 .checked(self.forge.every.is_some()),
@@ -58,13 +58,17 @@ impl Desk {
         if !views.is_empty() {
             menu = menu.separator();
         }
-        menu = menu.item(Self::menu_item(desk, "Save this view", |this, _, cx| {
-            this.save_view(cx);
-        }));
+        menu = menu.item(Self::menu_item(
+            desk,
+            crate::tr("Save this view"),
+            |this, _, cx| {
+                this.save_view(cx);
+            },
+        ));
         for v in views {
             menu = menu.item(Self::menu_item(
                 desk,
-                format!("Remove {}", v.name),
+                crate::tr_with("Remove %{name}", &[("name", &v.name)]),
                 move |this, _, cx| {
                     this.remove_view(&v.name, cx);
                 },
@@ -107,10 +111,14 @@ impl Desk {
         let (open, pr) = (item.state == "open", self.forge.kind == Kind::Pr);
         let n = item.number;
         let mut rows = Vec::new();
-        let mut entry = |label: String, act: Act3| {
-            rows.push(Self::menu_item(desk, label, move |this, window, cx| {
-                act(this, window, cx);
-            }));
+        let mut entry = |label: &str, act: Act3| {
+            rows.push(Self::menu_item(
+                desk,
+                crate::tr(label),
+                move |this, window, cx| {
+                    act(this, window, cx);
+                },
+            ));
         };
         // What is asked of the forge is asked in the row's project, which
         // in the list of every project is not always the one read.
@@ -139,11 +147,11 @@ impl Desk {
             })
         };
         if pr && open {
-            entry("Squash and merge".into(), merge("squash", false));
-            entry("Merge".into(), merge("merge", false));
-            entry("Rebase and merge".into(), merge("rebase", false));
+            entry("Squash and merge", merge("squash", false));
+            entry("Merge", merge("merge", false));
+            entry("Rebase and merge", merge("rebase", false));
             entry(
-                "Merge when its checks pass".into(),
+                "Merge when its checks pass",
                 merge(
                     self.settings_in(self.forge.folder.as_ref()).merge.gh(),
                     true,
@@ -154,32 +162,31 @@ impl Desk {
                     "Ready for review"
                 } else {
                     "Convert to draft"
-                }
-                .into(),
+                },
                 act(if item.draft { Act::Ready } else { Act::Draft }),
             );
         }
         if open {
-            entry("Close".into(), act(Act::Close));
+            entry("Close", act(Act::Close));
         } else if item.state == "closed" {
-            entry("Reopen".into(), act(Act::Reopen));
+            entry("Reopen", act(Act::Reopen));
         }
         if self.forge.chosen == Some(n) && self.forge.folder.as_ref() == Some(&folder) {
             entry(
-                "Edit title and description".into(),
+                "Edit title and description",
                 Box::new(|d, window, cx| d.edit_forge(false, window, cx)),
             );
         }
         let url = item.url.clone();
         entry(
-            "Open on its host".into(),
+            "Open on its host",
             Box::new({
                 let url = url.clone();
                 move |_, _, cx| cx.open_url(&url)
             }),
         );
         entry(
-            "Copy its link".into(),
+            "Copy its link",
             Box::new(move |_, _, cx| {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(url.clone()));
             }),
@@ -188,20 +195,20 @@ impl Desk {
         if pr {
             let (f2, t2) = (folder.clone(), title.clone());
             entry(
-                "A session on it, in a worktree".into(),
+                "A session on it, in a worktree",
                 Box::new(move |d, window, cx| {
                     d.start_from_pr(f2.clone(), n, t2.clone(), false, window, cx);
                 }),
             );
             let (f3, t3) = (folder.clone(), title.clone());
             entry(
-                "A session on it, checked out here".into(),
+                "A session on it, checked out here",
                 Box::new(move |d, window, cx| {
                     d.start_from_pr(f3.clone(), n, t3.clone(), true, window, cx);
                 }),
             );
             entry(
-                "Copy the checkout command".into(),
+                "Copy the checkout command",
                 Box::new(move |_, _, cx| {
                     cx.write_to_clipboard(gpui::ClipboardItem::new_string(format!(
                         "gh pr checkout {n}"
@@ -209,7 +216,7 @@ impl Desk {
                 }),
             );
             entry(
-                "Load new commits".into(),
+                "Load new commits",
                 Box::new({
                     let at = folder.clone();
                     move |d, _, cx| {
@@ -221,13 +228,13 @@ impl Desk {
         } else {
             let (f2, t2) = (folder.clone(), title.clone());
             entry(
-                "A session about it".into(),
+                "A session about it",
                 Box::new(move |d, window, cx| {
                     d.start_from_issue(f2.clone(), n, &t2, false, window, cx);
                 }),
             );
             entry(
-                "Triage it".into(),
+                "Triage it",
                 Box::new(move |d, window, cx| {
                     d.start_from_issue(folder.clone(), n, &title, true, window, cx);
                 }),

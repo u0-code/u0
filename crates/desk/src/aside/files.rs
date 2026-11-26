@@ -275,9 +275,9 @@ impl Desk {
                         "chevron-right"
                     },
                     if self.viewer.open_all {
-                        "Fold every folder"
+                        crate::tr("Fold every folder")
                     } else {
-                        "Open every folder"
+                        crate::tr("Open every folder")
                     },
                 )
                 .size(px(24.))
@@ -299,9 +299,9 @@ impl Desk {
             div().p(px(16.)).child(empty(
                 faces,
                 if s.repo {
-                    "Reading the files…"
+                    crate::tr("Reading the files…")
                 } else {
-                    "The project's files show here in a git repository."
+                    crate::tr("The project's files show here in a git repository.")
                 },
             ))
         } else {
@@ -369,7 +369,7 @@ impl Desk {
             let full = folder.join(named.trim_end_matches('/'));
             let item = |label: &str, act: Act| {
                 let desk = desk.clone();
-                PopupMenuItem::new(label.to_owned())
+                PopupMenuItem::new(crate::tr(label))
                     .on_click(move |_, window, cx| desk.update(cx, |d, cx| act(d, window, cx)))
             };
             let (open, edit, reveal, add) =
@@ -453,7 +453,7 @@ impl Desk {
                 d.child(
                     ui::button(
                         "md-drawn",
-                        if self.viewer.drawn { "Source" } else { "Drawn" },
+                        crate::tr(if self.viewer.drawn { "Source" } else { "Drawn" }),
                         Weight::Quiet,
                     )
                     .h(px(24.))
@@ -573,9 +573,9 @@ impl Desk {
                 if *of > pages.len() {
                     list = list.child(fine(
                         faces,
-                        format!(
-                            "The first {} of {of} pages: open it to read the rest.",
-                            pages.len()
+                        crate::tr_with(
+                            "The first %{shown} of %{of} pages: open it to read the rest.",
+                            &[("shown", &pages.len()), ("of", of)],
                         ),
                     ));
                 }
@@ -592,15 +592,18 @@ impl Desk {
                 .p(px(16.))
                 .child(empty(
                     faces,
-                    format!(
-                        "Not text: {} KB. Open it in your editor or reveal it in Finder.",
-                        size.div_ceil(1024)
+                    crate::tr_with(
+                        "Not text: %{kb} KB. Open it in your editor or reveal it in Finder.",
+                        &[("kb", &size.div_ceil(1024))],
                     ),
                 ))
                 .into_any_element(),
             Some(Shown::Trouble(e)) => div()
                 .p(px(16.))
-                .child(empty(faces, format!("Couldn't read it: {e}")))
+                .child(empty(
+                    faces,
+                    crate::tr_with("Couldn't read it: %{e}", &[("e", e)]),
+                ))
                 .into_any_element(),
         };
         div()
@@ -622,9 +625,9 @@ impl Desk {
                     .child(fine(
                         faces,
                         if from == to {
-                            format!("Line {from}")
+                            crate::tr_with("Line %{from}", &[("from", &from)])
                         } else {
-                            format!("Lines {from}–{to}")
+                            crate::tr_with("Lines %{from}–%{to}", &[("from", &from), ("to", &to)])
                         },
                     ))
                     .child(div().flex_1().child(Input::new(&self.viewer.note).small()))

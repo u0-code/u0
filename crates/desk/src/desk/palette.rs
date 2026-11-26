@@ -178,7 +178,7 @@ impl Desk {
     ) {
         if let Some(text) = self.session().and_then(of) {
             cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
-            self.done("Copied", None);
+            self.done(crate::tr("Copied"), None);
             cx.notify();
         }
     }
@@ -477,77 +477,123 @@ impl Desk {
     fn actions(&self, cx: &gpui::App) -> Vec<Row> {
         let key = |name: &'static str, title: &str| Row {
             keys: crate::keys::keys_of(cx, name),
-            ..Row::new(icon_of(name), title, Act::Key(name))
+            ..Row::new(icon_of(name), crate::tr(title), Act::Key(name))
         };
         let mut rows = Vec::new();
         if let Some(project) = self.chosen_project() {
             let name = self.project_on(&project);
-            let title = format!("New session in {name}");
-            let from = title.chars().count() - name.chars().count();
+            let title = crate::tr_with("New session in %{name}", &[("name", &name)]);
+            let from = title
+                .find(&name)
+                .map_or(0, |at| title[..at].chars().count());
             rows.push(Row {
-                bold: std::iter::once(from..title.chars().count()).collect(),
+                bold: std::iter::once(from..from + name.chars().count()).collect(),
                 keys: crate::keys::keys_of(cx, "new_here"),
                 ..Row::new("square-pen", title, Act::NewIn(project))
             });
         }
         rows.push(Row {
             keys: crate::keys::keys_of(cx, "new_session"),
-            ..Row::new("square-pen", "New session in…", Act::Sub(Sub::NewIn))
+            ..Row::new(
+                "square-pen",
+                crate::tr("New session in…"),
+                Act::Sub(Sub::NewIn),
+            )
         });
         rows.push(key("new_scratch", "New session without a project"));
         let s = self.session();
         if let Some(s) = s {
             rows.push(key("find", "Find in the session"));
-            rows.push(Row::new("copy", "Copy the conversation", Act::CopyThread));
             rows.push(Row::new(
                 "copy",
-                "Copy a link to what you are writing",
+                crate::tr("Copy the conversation"),
+                Act::CopyThread,
+            ));
+            rows.push(Row::new(
+                "copy",
+                crate::tr("Copy a link to what you are writing"),
                 Act::CopyPromptLink,
             ));
             if s.git.pr.is_some() {
                 rows.push(key("copy_pr", "Copy the pull request's address"));
             }
-            rows.push(Row::new("retry", "Restart the session", Act::Restart));
+            rows.push(Row::new(
+                "retry",
+                crate::tr("Restart the session"),
+                Act::Restart,
+            ));
             let pinned = s.meta.flags.pinned.is_some();
             rows.push(key("pin", if pinned { "Unpin" } else { "Pin" }));
             let settled = s.meta.flags.settled.is_some();
             rows.push(key("settle", if settled { "Un-settle" } else { "Settle" }));
             if !s.meta.flags.unread {
-                rows.push(Row::new("bell", "Mark unread", Act::Unread));
+                rows.push(Row::new("bell", crate::tr("Mark unread"), Act::Unread));
             }
-            rows.push(Row::new("bulb", "Ask a side question", Act::Beside));
-            rows.push(Row::new("list", "Tag the session", Act::Sub(Sub::Tag)));
+            rows.push(Row::new(
+                "bulb",
+                crate::tr("Ask a side question"),
+                Act::Beside,
+            ));
+            rows.push(Row::new(
+                "list",
+                crate::tr("Tag the session"),
+                Act::Sub(Sub::Tag),
+            ));
             if s.repo {
                 rows.push(Row::new(
                     "pull-request",
-                    "Link a pull request or issue",
+                    crate::tr("Link a pull request or issue"),
                     Act::Sub(Sub::Link),
                 ));
             }
             if !matches!(s.state, State::Working | State::Opening) {
-                rows.push(Row::new("archive", "Archive the session", Act::Archive));
-                rows.push(Row::new("trash", "Delete the session", Act::Delete));
+                rows.push(Row::new(
+                    "archive",
+                    crate::tr("Archive the session"),
+                    Act::Archive,
+                ));
+                rows.push(Row::new(
+                    "trash",
+                    crate::tr("Delete the session"),
+                    Act::Delete,
+                ));
             }
         }
         rows.push(key("go_to_file", "Go to file"));
         rows.push(key("search_words", "Search project contents"));
-        rows.push(Row::new("folder-plus", "New project", Act::Sub(Sub::Make)));
-        rows.push(Row::new("folder", "Add project", Act::Sub(Sub::Add)));
-        rows.push(Row::new("sun", "Change appearance", Act::Sub(Sub::Look)));
+        rows.push(Row::new(
+            "folder-plus",
+            crate::tr("New project"),
+            Act::Sub(Sub::Make),
+        ));
+        rows.push(Row::new(
+            "folder",
+            crate::tr("Add project"),
+            Act::Sub(Sub::Add),
+        ));
+        rows.push(Row::new(
+            "sun",
+            crate::tr("Change appearance"),
+            Act::Sub(Sub::Look),
+        ));
         rows.push(key("next_area", "Focus next area"));
         rows.push(key("settings", "Open settings"));
-        rows.push(Row::new("copy", "Copy version", Act::CopyVersion));
+        rows.push(Row::new(
+            "copy",
+            crate::tr("Copy version"),
+            Act::CopyVersion,
+        ));
         if let Some(project) = self.chosen_project() {
             let pinned = self.prefs(&project).pinned;
             let name = self.project_name(&project);
             rows.push(
                 Row::new(
                     "pin",
-                    if pinned {
+                    crate::tr(if pinned {
                         "Unpin project"
                     } else {
                         "Pin project"
-                    },
+                    }),
                     Act::PinProject(project.clone()),
                 )
                 .sub(name.clone()),
@@ -555,7 +601,7 @@ impl Desk {
             rows.push(
                 Row::new(
                     "settings",
-                    "Project settings",
+                    crate::tr("Project settings"),
                     Act::ProjectSettings(project),
                 )
                 .sub(name),
@@ -593,10 +639,10 @@ impl Desk {
         under.extend(s.branch.clone());
         under.push(self.name_of(&s.meta.agent));
         let end = if self.current == Some(s.key) {
-            ("Current session".to_owned(), theme::faint())
+            (crate::tr("Current session").to_string(), theme::faint())
         } else {
             match lists::status(s) {
-                Some(st) => (st.word().to_owned(), st.color()),
+                Some(st) => (crate::tr(st.word()).to_string(), st.color()),
                 None => (said_ago(lists::used(s), now), theme::faint()),
             }
         };
@@ -619,7 +665,7 @@ impl Desk {
                 let folder = self.palette_folder();
                 let name = folder
                     .as_ref()
-                    .map_or_else(|| "Files".to_owned(), |f| self.project_on(f));
+                    .map_or_else(|| crate::tr("Files").to_string(), |f| self.project_on(f));
                 let files = folder.as_ref().and_then(|f| self.files.get(f));
                 let typed = typed.trim_start_matches('@').trim_start_matches("./");
                 let rows = super::rank::paths(files.into_iter().flatten(), typed)
@@ -650,7 +696,7 @@ impl Desk {
                         Row::new("file", at.clone(), Act::File(at.clone())).sub(text.trim())
                     })
                     .collect();
-                return vec![("Found".to_owned(), rows)];
+                return vec![(crate::tr("Found").to_string(), rows)];
             }
             Through::Everything => {}
         }
@@ -671,7 +717,7 @@ impl Desk {
             None => (false, typed),
         };
         if typed.is_empty() {
-            let mut groups = vec![("Actions".to_owned(), self.actions(cx))];
+            let mut groups = vec![(crate::tr("Actions").to_string(), self.actions(cx))];
             if !only_actions {
                 let mut recent: Vec<&crate::session::Session> = sessions
                     .filter(|s| Some(s.key) != self.current && s.state != State::Draft)
@@ -682,7 +728,7 @@ impl Desk {
                     .take(RECENT)
                     .map(|s| self.found_row(s, now))
                     .collect();
-                groups.push(("Recent sessions".to_owned(), rows));
+                groups.push((crate::tr("Recent sessions").to_string(), rows));
             }
             return groups;
         }
@@ -693,7 +739,8 @@ impl Desk {
                 .projects()
                 .into_iter()
                 .map(|p| {
-                    let title = format!("New session in {}", self.project_on(&p));
+                    let name = self.project_on(&p);
+                    let title = crate::tr_with("New session in %{name}", &[("name", &name)]);
                     Row::new("square-pen", title, Act::NewIn(p))
                 })
                 .collect();
@@ -704,7 +751,7 @@ impl Desk {
             ] {
                 suggested.push(Row::new(
                     "sun",
-                    format!("Change appearance: {word}"),
+                    crate::tr_with("Change appearance: %{word}", &[("word", &crate::tr(word))]),
                     Act::Look(look),
                 ));
             }
@@ -730,7 +777,9 @@ impl Desk {
                 .collect();
             groups.push(("Projects", projects));
             let settings = crate::pages::Tab::ALL
-                .map(|tab| Row::new(tab.icon(), tab.title(), Act::Tab(tab)).sub("Settings"))
+                .map(|tab| {
+                    Row::new(tab.icon(), tab.title(), Act::Tab(tab)).sub(crate::tr("Settings"))
+                })
                 .into_iter()
                 .map(|r| Row {
                     words: vec!["settings".to_owned()],
@@ -742,7 +791,10 @@ impl Desk {
                     words: vec![typed.clone(), "settings".to_owned(), "keys".to_owned()],
                     ..Row::new(
                         "search",
-                        format!("Search the settings and keys for “{typed}”"),
+                        crate::tr_with(
+                            "Search the settings and keys for “%{typed}”",
+                            &[("typed", &typed)],
+                        ),
                         Act::FindSetting(typed.clone()),
                     )
                 }))
@@ -783,7 +835,7 @@ impl Desk {
                 // The session open sinks to the foot of its group.
                 rows.sort_by_key(|r| r.session.is_some() && r.session == self.current);
                 listed.extend(rows.iter().filter_map(|r| r.session));
-                (group.to_owned(), rows)
+                (crate::tr(group).to_string(), rows)
             })
             .collect();
         // What was said in a session here, last, for those not listed.
@@ -808,7 +860,7 @@ impl Desk {
                 .take(SAID)
                 .collect();
             if !said.is_empty() {
-                out.push(("In messages".to_owned(), said));
+                out.push((crate::tr("In messages").to_string(), said));
             }
         }
         out
@@ -831,7 +883,7 @@ impl Desk {
                     format!("#{n} {title}"),
                     Act::FromPr(project.clone(), n, title),
                 )
-                .sub("A session on its branch")
+                .sub(crate::tr("A session on its branch"))
             })
             .collect();
         let issues = of(&self.issues)
@@ -842,7 +894,7 @@ impl Desk {
                     format!("#{n} {title}"),
                     Act::FromIssue(project.clone(), n, title),
                 )
-                .sub("A session about it")
+                .sub(crate::tr("A session about it"))
             })
             .collect();
         vec![("Pull requests", prs), ("Issues", issues)]
@@ -967,6 +1019,7 @@ impl Desk {
             Through::Files => ("Search files…", "No matching files."),
             Through::Words => ("Search the project's files…", "No matching words."),
         };
+        let (placeholder, empty) = (crate::tr(placeholder), crate::tr(empty));
         // The line you search with as a palette on its own has it: 44
         // high, its text and icon 16.
         let mut command = Command::new(&self.palette.state)
@@ -997,7 +1050,7 @@ impl Desk {
                     .text_center()
                     .text_size(px(crate::style::BODY))
                     .text_color(theme::muted())
-                    .child(empty)
+                    .child(empty.clone())
             })
             .footer({
                 let back = back_from(self.palette.through, self.palette.from).is_some();
@@ -1019,7 +1072,7 @@ impl Desk {
                     .text_color(theme::muted())
                     .cursor_pointer()
                     .child(ui::icon("chevron-left", 12.))
-                    .child(sub.title())
+                    .child(crate::tr(sub.title()))
                     .on_click(move |_, window, cx| {
                         desk.update(cx, |d, cx| d.palette_pop(window, cx));
                     })
@@ -1069,7 +1122,7 @@ fn match_toggles(desk: &Entity<Desk>, how: crate::git::Match) -> gpui::Div {
         )
         .h(px(24.))
         .px(px(6.))
-        .tooltip(tip)
+        .tooltip(crate::tr(tip))
         .on_click(move |_, _, cx| {
             desk.update(cx, |d, cx| {
                 flip(&mut d.palette.how);
@@ -1112,8 +1165,10 @@ fn needs_session(name: &str) -> bool {
 /// "just now", "5m ago", "3h ago", as t3code dates a row.
 fn said_ago(t: SystemTime, now: SystemTime) -> String {
     match when::ago(t, now).as_str() {
-        "now" => "just now".to_owned(),
-        ago if ago.ends_with(['m', 'h']) => format!("{ago} ago"),
+        "now" => crate::tr("just now").to_string(),
+        ago if ago.ends_with(['m', 'h']) => {
+            crate::tr_with("%{ago} ago", &[("ago", &ago)]).to_string()
+        }
         ago => ago.to_owned(),
     }
 }
@@ -1238,7 +1293,7 @@ fn back_from(through: Through, from: Option<Through>) -> Option<Through> {
 /// The palette's foot: the keys that move, choose and leave, as t3code
 /// says them; Escape goes `back`, or closes it.
 fn foot(through: Through, back: bool, page: bool) -> gpui::Div {
-    let hint = |keys: &[&'static str], what: &'static str| {
+    let hint = |keys: &[&'static str], what: &str| {
         div()
             .flex()
             .items_center()
@@ -1248,7 +1303,7 @@ fn foot(through: Through, back: bool, page: bool) -> gpui::Div {
                     .text_size(px(crate::style::CAPTION))
                     .py(px(4.))
             }))
-            .child(div().ml(px(2.)).child(what))
+            .child(div().ml(px(2.)).child(crate::tr(what)))
     };
     let enter = match through {
         Through::Everything => "Select",

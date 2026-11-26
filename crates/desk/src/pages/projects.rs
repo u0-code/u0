@@ -35,9 +35,9 @@ impl Desk {
             item(
                 w,
                 crate::tr("New projects go in"),
-                format!(
-                    "{}: a project made or cloned in the palette.",
-                    Desk::shown(&self.projects_in(self.pages.on))
+                crate::tr_with(
+                    "%{folder}: a project made or cloned in the palette.",
+                    &[("folder", &Desk::shown(&self.projects_in(self.pages.on)))],
                 ),
                 |_, _, cx| {
                     // macOS's folder picker shows this Mac's folders.
@@ -183,7 +183,10 @@ impl Desk {
                     );
                     ui::segmented(
                         "project-worktree",
-                        vec![("Local", !worktree, local), ("New worktree", worktree, own)],
+                        vec![
+                            (crate::tr("Local"), !worktree, local),
+                            (crate::tr("New worktree"), worktree, own),
+                        ],
                     )
                     .into_any_element()
                 },
@@ -310,14 +313,14 @@ impl Desk {
     /// those there are.
     fn project_agent(&self, folder: &Place, cx: &mut Context<Self>) -> AnyElement {
         let prefs = self.prefs(folder);
-        let agent_name = prefs
-            .agent
-            .as_deref()
-            .map_or_else(|| "The one on screen".to_owned(), |a| self.name_of(a));
+        let agent_name = prefs.agent.as_deref().map_or_else(
+            || crate::tr("The one on screen").to_string(),
+            |a| self.name_of(a),
+        );
         let desk = cx.entity();
         let (menu_dir, menu_agent) = (folder.clone(), prefs.agent.clone());
         let agents: Vec<(Option<String>, String)> =
-            std::iter::once((None, "The one on screen".to_owned()))
+            std::iter::once((None, crate::tr("The one on screen").to_string()))
                 .chain(
                     self.slots_on(folder.host)
                         .map(|s| (Some(s.entry.id.clone()), self.name_of(&s.entry.id))),
@@ -366,10 +369,13 @@ impl Desk {
             |_, _, _| div().into_any_element(),
         )];
         for (n, (wt, key, sessions)) in worktrees.into_iter().enumerate() {
-            let about = format!(
-                "{} · {sessions} session{}",
-                wt.branch,
-                if sessions == 1 { "" } else { "s" }
+            let about = crate::tr_with(
+                if sessions == 1 {
+                    "%{branch} · %{sessions} session"
+                } else {
+                    "%{branch} · %{sessions} sessions"
+                },
+                &[("branch", &wt.branch), ("sessions", &sessions)],
             );
             rows.push(item(w, Desk::shown(&wt.path), about, move |_, _, cx| {
                 let wt = wt.clone();
@@ -431,9 +437,11 @@ impl Desk {
                     .separator();
                 for (n, (name, _)) in MARKS.iter().enumerate() {
                     let (desk, dir) = (desk.clone(), dir.clone());
-                    menu = menu.item(PopupMenuItem::new(*name).on_click(move |_, _, cx| {
-                        desk.update(cx, |d, cx| d.mark_colour(&dir, n as u8, cx));
-                    }));
+                    menu = menu.item(PopupMenuItem::new(crate::tr(name)).on_click(
+                        move |_, _, cx| {
+                            desk.update(cx, |d, cx| d.mark_colour(&dir, n as u8, cx));
+                        },
+                    ));
                 }
                 menu
             });
@@ -485,14 +493,17 @@ impl Desk {
             .iter()
             .filter(|s| Place::project_of(s) == *folder && s.parent.is_none())
             .count();
-        let title = format!(
-            "Remove project \u{201c}{}\u{201d} and forget its {n} session{}?",
-            self.project_name(folder),
-            if n == 1 { "" } else { "s" }
+        let title = crate::tr_with(
+            if n == 1 {
+                "Remove project “%{name}” and forget its %{n} session?"
+            } else {
+                "Remove project “%{name}” and forget its %{n} sessions?"
+            },
+            &[("name", &self.project_name(folder)), ("n", &n)],
         );
-        let said = format!(
-            "Path: {}\nGhost forgets these sessions and their records. Each agent keeps its own sessions.\nFiles on disk are not touched.\nThis cannot be undone.",
-            Desk::shown(&folder.folder)
+        let said = crate::tr_with(
+            "Path: %{path}\nGhost forgets these sessions and their records. Each agent keeps its own sessions.\nFiles on disk are not touched.\nThis cannot be undone.",
+            &[("path", &Desk::shown(&folder.folder))],
         );
         let (desk, folder) = (cx.entity(), folder.clone());
         window.open_alert_dialog(cx, move |alert, _, _| {

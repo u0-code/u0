@@ -31,7 +31,7 @@ impl Desk {
     ) -> Div {
         let row = |id: SharedString,
                    icon: &'static str,
-                   says: String,
+                   says: SharedString,
                    aside: Option<&'static str>| {
             ListItem::new(id)
                 .role(gpui::Role::Button)
@@ -50,7 +50,7 @@ impl Desk {
                                 .w_auto(),
                         )
                         .children(aside.map(|a| {
-                            ui::text(faces, a)
+                            ui::text(faces, crate::tr(a))
                                 .flex_none()
                                 .text_size(px(crate::style::BODY))
                                 .text_color(theme::faint())
@@ -65,7 +65,7 @@ impl Desk {
                 row(
                     "step-settings".into(),
                     "alert",
-                    "Your settings did not read: read them again".into(),
+                    crate::tr("Your settings did not read: read them again"),
                     None,
                 )
                 .on_click(cx.listener(|this, _, _, cx| this.read_settings_again(cx))),
@@ -76,7 +76,7 @@ impl Desk {
                 row(
                     "step-folder".into(),
                     "folder",
-                    "Choose a folder to work in".into(),
+                    crate::tr("Choose a folder to work in"),
                     None,
                 )
                 .on_click(cx.listener(|_, _, window, cx| Self::add_project(window, cx))),
@@ -90,7 +90,7 @@ impl Desk {
                 row(
                     "step-new".into(),
                     "plus",
-                    format!("New session in {named}"),
+                    crate::tr_with("New session in %{project}", &[("project", &named)]),
                     None,
                 )
                 .on_click(cx.listener(|this, _, window, cx| this.new_default(window, cx))),
@@ -106,7 +106,7 @@ impl Desk {
                 row(
                     SharedString::from(format!("step-sign-in-{}-{id}", host.0)),
                     "user",
-                    format!("Sign in to {}", self.name_of(&id)),
+                    crate::tr_with("Sign in to %{name}", &[("name", &self.name_of(&id))]),
                     None,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| this.sign_in_agent(host, &id, cx))),
@@ -117,7 +117,7 @@ impl Desk {
                 row(
                     "step-agent".into(),
                     "plug",
-                    "Add an agent from the ACP registry".into(),
+                    crate::tr("Add an agent from the ACP registry"),
                     None,
                 )
                 .on_click(cx.listener(|this, _, window, cx| {
@@ -133,8 +133,11 @@ impl Desk {
                     SharedString::from(format!("step-pick-{key}")),
                     "reply",
                     match self.server_chip(s.host) {
-                        Some(on) => format!("Pick up {title} · {on}"),
-                        None => format!("Pick up {title}"),
+                        Some(on) => crate::tr_with(
+                            "Pick up %{title} · %{on}",
+                            &[("title", &title), ("on", &on)],
+                        ),
+                        None => crate::tr_with("Pick up %{title}", &[("title", &title)]),
                     },
                     asks(s),
                 )

@@ -40,7 +40,10 @@ impl Desk {
                 {
                     let name = self.name_of(agent);
                     self.trouble(
-                        format!("Couldn't open a terminal to sign in to {name}"),
+                        crate::tr_with(
+                            "Couldn't open a terminal to sign in to %{name}",
+                            &[("name", &name)],
+                        ),
                         Some(e.to_string()),
                         None,
                     );
@@ -79,7 +82,7 @@ impl Desk {
             Err(why) => {
                 let name = self.name_of(agent);
                 self.trouble(
-                    format!("Signing in to {name} failed"),
+                    crate::tr_with("Signing in to %{name} failed", &[("name", &name)]),
                     Some(why),
                     Some(super::notices::Way::Agent(host, agent.to_owned())),
                 );
@@ -152,7 +155,9 @@ impl Desk {
                 cx.clear_key_bindings();
                 crate::keys::bind(cx, &yours);
             }
-            Msg::Keys(Err(why)) => self.trouble("Couldn't keep the keys", Some(why), None),
+            Msg::Keys(Err(why)) => {
+                self.trouble(crate::tr("Couldn't keep the keys"), Some(why), None);
+            }
             Msg::Notice(Ok(text)) => self.done(text, None),
             Msg::Notice(Err((text, why))) => self.trouble(text, Some(why), None),
             Msg::Link(host, state) => self.linked(host, state),
@@ -167,24 +172,30 @@ impl Desk {
                             .update(cx, |i, cx| i.set_value("", window, cx));
                         match back {
                             None => self.done(
-                                format!("Paired with {name}: its projects are down the left"),
+                                crate::tr_with(
+                                    "Paired with %{name}: its projects are down the left",
+                                    &[("name", &name)],
+                                ),
                                 None,
                             ),
                             Some(Ok(theirs)) => self.done(
-                                format!(
-                                    "Paired with {name} both ways: it controls this Mac with the key {}",
-                                    crate::key::fingerprint(&theirs)
+                                crate::tr_with(
+                                    "Paired with %{name} both ways: it controls this Mac with the key %{key}",
+                                    &[("name", &name), ("key", &crate::key::fingerprint(&theirs))],
                                 ),
                                 None,
                             ),
                             Some(Err(why)) => self.trouble(
-                                format!("Paired with {name} one way only"),
-                                Some(format!("It could not reach this Mac back: {why}")),
+                                crate::tr_with("Paired with %{name} one way only", &[("name", &name)]),
+                                Some(
+                                    crate::tr_with("It could not reach this Mac back: %{why}", &[("why", &why)])
+                                        .into(),
+                                ),
                                 None,
                             ),
                         }
                     }
-                    Err(why) => self.trouble("Couldn't pair", Some(why), None),
+                    Err(why) => self.trouble(crate::tr("Couldn't pair"), Some(why), None),
                 }
             }
         }
@@ -209,7 +220,7 @@ impl Desk {
                 m.version = Some(welcome.version);
                 if welcome.resumed {
                     if matches!(was, hub::Up::Lost(_)) {
-                        self.done(format!("{name} is back"), None);
+                        self.done(crate::tr_with("%{name} is back", &[("name", &name)]), None);
                     }
                     return;
                 }
@@ -226,12 +237,20 @@ impl Desk {
             State::Lost(why) => {
                 let was = std::mem::replace(&mut m.up, hub::Up::Lost(why.clone()));
                 if was == hub::Up::On {
-                    self.trouble(format!("Lost {name}; reaching it again"), Some(why), None);
+                    self.trouble(
+                        crate::tr_with("Lost %{name}; reaching it again", &[("name", &name)]),
+                        Some(why),
+                        None,
+                    );
                 }
             }
             State::Refused(why) => {
                 m.up = hub::Up::Refused(why.clone());
-                self.trouble(format!("{name} turned this Mac away"), Some(why), None);
+                self.trouble(
+                    crate::tr_with("%{name} turned this Mac away", &[("name", &name)]),
+                    Some(why),
+                    None,
+                );
             }
         }
     }
@@ -329,7 +348,7 @@ impl Desk {
                     }
                     Err(why) if why == crate::registry::CANCELLED => {}
                     Err(why) => self.trouble(
-                        "Couldn't add the project",
+                        crate::tr("Couldn't add the project"),
                         Some(why),
                         url.map(|u| super::notices::Way::Clone(u, at(dir))),
                     ),
@@ -344,7 +363,7 @@ impl Desk {
                         Ok(files) => s.git.scoped = Some((scope, files)),
                         Err(why) => {
                             s.git.scoped = Some((scope, Vec::new()));
-                            self.trouble("Couldn't read the changes", Some(why), None);
+                            self.trouble(crate::tr("Couldn't read the changes"), Some(why), None);
                         }
                     }
                 }
@@ -498,7 +517,7 @@ impl Desk {
                         Err(why) if why != crate::registry::CANCELLED && runs => {
                             slot.stage = Stage::Ready;
                             self.trouble(
-                                format!("{name} was not updated"),
+                                crate::tr_with("%{name} was not updated", &[("name", &name)]),
                                 Some(why),
                                 Some(super::notices::Way::Agent(host, agent.clone())),
                             );
@@ -566,7 +585,11 @@ impl Desk {
                         .at(key)
                         .map(|s| crate::ui::fit(&s.meta.title, 40))
                         .unwrap_or_default();
-                    self.trouble(format!("Couldn't delete “{title}”"), Some(why), None);
+                    self.trouble(
+                        crate::tr_with("Couldn't delete “%{title}”", &[("title", &title)]),
+                        Some(why),
+                        None,
+                    );
                 }
             },
             Event::Ended {
@@ -622,7 +645,7 @@ impl Desk {
             Event::LoggedOut { agent, result } => {
                 if let Some(slot) = self.slot_mut(host, &agent) {
                     match result {
-                        Ok(()) => slot.auth = hub::Auth::Needed("Signed out".into()),
+                        Ok(()) => slot.auth = hub::Auth::Needed(crate::tr("Signed out").into()),
                         Err(why) => tracing::warn!("{agent} could not sign out: {why}"),
                     }
                 }
@@ -662,7 +685,11 @@ impl Desk {
                     .at(key)
                     .map(|s| self.name_of(&s.meta.agent))
                     .unwrap_or_default();
-                self.trouble(format!("{name} kept it as it was"), Some(why), None);
+                self.trouble(
+                    crate::tr_with("%{name} kept it as it was", &[("name", &name)]),
+                    Some(why),
+                    None,
+                );
             }
         }
     }
@@ -691,13 +718,17 @@ impl Desk {
                 self.tell(
                     key,
                     format!("{name} · {title}"),
-                    if ok { "Finished its turn" } else { "Stopped" },
+                    &crate::tr(if ok { "Finished its turn" } else { "Stopped" }),
                 );
             } else if away && s.parent.is_none() {
                 self.done(
-                    format!(
-                        "{name} {} “{title}”",
-                        if ok { "finished" } else { "stopped in" }
+                    crate::tr_with(
+                        if ok {
+                            "%{name} finished “%{title}”"
+                        } else {
+                            "%{name} stopped in “%{title}”"
+                        },
+                        &[("name", &name), ("title", &title)],
                     ),
                     Some(super::notices::Way::Show(key)),
                 );
@@ -965,10 +996,17 @@ impl Desk {
         if !self.settings.notify_on.asks {
             // Not told, as you asked.
         } else if self.behind {
-            self.tell(key, format!("{name} · {title}"), "Asks before it goes on");
+            self.tell(
+                key,
+                format!("{name} · {title}"),
+                &crate::tr("Asks before it goes on"),
+            );
         } else if self.current != Some(key) {
             self.done(
-                format!("{name} asks before it goes on in “{title}”"),
+                crate::tr_with(
+                    "%{name} asks before it goes on in “%{title}”",
+                    &[("name", &name), ("title", &title)],
+                ),
                 Some(super::notices::Way::Show(key)),
             );
         }

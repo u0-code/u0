@@ -49,9 +49,9 @@ impl Desk {
         // What you might say next stands in the empty line, Tab to take.
         let suggested = self.suggestion(s.key, cx);
         let says = match suggested {
-            Some(next) => next,
-            None if s.items.is_empty() => "Describe a task or ask a question",
-            None => "Reply",
+            Some(next) => SharedString::from(next.to_owned()),
+            None if s.items.is_empty() => crate::tr("Describe a task or ask a question"),
+            None => crate::tr("Reply"),
         };
         // Said again only when it changes: setting it draws the line again.
         self.composer.input.update(cx, |i, cx| {
@@ -159,12 +159,13 @@ impl Desk {
         let listening =
             speech.read(cx).status() == gpui::component::speech::SpeechStatus::Recording;
         let (said, end) = match (&d.cleaning, listening) {
-            (Some(_), _) => ("Cleaning up what you said…".to_owned(), "Skip"),
-            (None, true) if d.heard.is_empty() => ("Listening…".to_owned(), "Done"),
+            (Some(_), _) => (crate::tr("Cleaning up what you said…").into(), "Skip"),
+            (None, true) if d.heard.is_empty() => (crate::tr("Listening…").into(), "Done"),
             (None, true) => (d.heard.clone(), "Done"),
-            (None, false) if d.heard.is_empty() => {
-                ("Waiting for speech recognition…".to_owned(), "Cancel")
-            }
+            (None, false) if d.heard.is_empty() => (
+                crate::tr("Waiting for speech recognition…").into(),
+                "Cancel",
+            ),
             (None, false) => (d.heard.clone(), "Cancel"),
         };
         let cleaning = d.cleaning.is_some();
@@ -191,7 +192,7 @@ impl Desk {
                     Button::new("dictation-end")
                         .small()
                         .ghost()
-                        .label(end)
+                        .label(crate::tr(end))
                         .on_click(cx.listener(move |this, _, window, cx| {
                             if end == "Done" {
                                 this.finish_dictation(cx);
@@ -306,7 +307,7 @@ impl Desk {
             let key = s.key;
             (
                 "archive",
-                "Archived. Restore it to write in it again.".to_owned(),
+                crate::tr("Archived. Restore it to write in it again."),
                 ui::button("restore", crate::tr("Restore"), ui::Weight::Secondary)
                     .on_click(cx.listener(move |this, _, _, cx| this.restore(key, cx))),
             )
@@ -319,7 +320,10 @@ impl Desk {
                 .unwrap_or_default();
             (
                 "user",
-                format!("A subagent of “{parent}”: it answers to it."),
+                crate::tr_with(
+                    "A subagent of “%{parent}”: it answers to it.",
+                    &[("parent", &parent)],
+                ),
                 ui::button("to-parent", crate::tr("Back to it"), ui::Weight::Secondary)
                     .on_click(cx.listener(move |this, _, window, cx| this.show(up, window, cx))),
             )
@@ -369,12 +373,12 @@ impl Desk {
                     .h(px(28.))
                     .selected(on)
                     .child(ui::icon("branch", 14.).text_color(theme::faint()))
-                    .child(chip_text(faces, "Worktree"))
-                    .tooltip(if on {
+                    .child(chip_text(faces, crate::tr("Worktree")))
+                    .tooltip(crate::tr(if on {
                         "A worktree of its own on a new branch: your folder is left as it is"
                     } else {
                         "In this folder, on its branch"
-                    })
+                    }))
                     .on_click(cx.listener(move |this, _, _, cx| this.set_worktree(!on, cx))),
             );
         }
@@ -418,9 +422,9 @@ impl Desk {
                             .color(theme::accent())
                             .size(px(16.)),
                     )
-                    .tooltip(ui::tip(format!(
-                        "{}% of the context used",
-                        (share * 100.).round()
+                    .tooltip(ui::tip(crate::tr_with(
+                        "%{share}% of the context used",
+                        &[("share", &(share * 100.).round())],
                     ))),
             );
         }
@@ -488,7 +492,7 @@ impl Desk {
             );
         }
         menu.separator().item(
-            Self::menu_item(desk, "Choose a folder…", |this, _, cx| {
+            Self::menu_item(desk, crate::tr("Choose a folder…"), |this, _, cx| {
                 this.choose_folder(cx);
             })
             .icon(ui::menu_glyph("plus")),
@@ -515,7 +519,7 @@ impl Desk {
                     |icon: &str,
                      says: &'static str,
                      f: fn(&mut Self, &mut Window, &mut Context<Self>)| {
-                        Self::menu_item(desk, says, f).icon(ui::menu_glyph(icon))
+                        Self::menu_item(desk, crate::tr(says), f).icon(ui::menu_glyph(icon))
                     };
                 menu.item(row("file", "Add files or photos", |_, window, cx| {
                     Self::attach_files(window, cx);
@@ -570,7 +574,7 @@ impl Desk {
             round(ui::icon_button(
                 "stop",
                 "square",
-                crate::keys::hint(cx, "Stop the turn", "stop"),
+                crate::keys::hint(cx, &crate::tr("Stop the turn"), "stop"),
             ))
             .on_click(cx.listener(|this, _, _, cx| this.stop(cx)))
         } else if typed.is_empty() || typed.chars().count() > mention::LIMIT {
@@ -579,17 +583,26 @@ impl Desk {
             let (icon, tip) = if !working {
                 (
                     "arrow-up",
-                    format!("Send · {other} to go on in the background"),
+                    crate::tr_with(
+                        "Send · %{keys} to go on in the background",
+                        &[("keys", &other)],
+                    ),
                 )
             } else if self.settings.steer != window.modifiers().platform {
                 (
                     "corner-up-right",
-                    format!("Steer: stop the turn and say it now · ⌘-click or {other} to queue it"),
+                    crate::tr_with(
+                        "Steer: stop the turn and say it now · ⌘-click or %{keys} to queue it",
+                        &[("keys", &other)],
+                    ),
                 )
             } else {
                 (
                     "list-plus",
-                    format!("Queue it for when this turn ends · ⌘-click or {other} to steer"),
+                    crate::tr_with(
+                        "Queue it for when this turn ends · ⌘-click or %{keys} to steer",
+                        &[("keys", &other)],
+                    ),
                 )
             };
             round(ui::icon_button("send", icon, tip).primary()).on_click(cx.listener(
@@ -608,10 +621,13 @@ impl Desk {
             div().px(px(14.)).pb(px(8.)).child(
                 ui::text(
                     faces,
-                    format!(
-                        "{count} characters: {} over the {} a message may hold. Cut it, or send it in parts.",
-                        count - mention::LIMIT,
-                        mention::LIMIT
+                    crate::tr_with(
+                        "%{count} characters: %{over} over the %{limit} a message may hold. Cut it, or send it in parts.",
+                        &[
+                            ("count", &count),
+                            ("over", &(count - mention::LIMIT)),
+                            ("limit", &mention::LIMIT),
+                        ],
                     ),
                 )
                 .text_size(px(crate::style::CAPTION))
@@ -627,20 +643,23 @@ impl Desk {
         let n = self.composer.reading;
         let desk = cx.entity().downgrade();
         Some(
-            gpui::component::alert::Alert::info("held", "Edit, or press Escape, to keep it back")
-                .title(if n == 1 {
-                    "Sending once the picture is ready".to_owned()
-                } else {
-                    format!("Sending once {n} pictures are ready")
-                })
-                .w(px(column))
-                .mb(px(8.))
-                .on_close(move |_, _, cx| {
-                    let _ = desk.update(cx, |this, cx| {
-                        this.composer.held = None;
-                        cx.notify();
-                    });
-                }),
+            gpui::component::alert::Alert::info(
+                "held",
+                crate::tr("Edit, or press Escape, to keep it back"),
+            )
+            .title(if n == 1 {
+                crate::tr("Sending once the picture is ready")
+            } else {
+                crate::tr_with("Sending once %{n} pictures are ready", &[("n", &n)])
+            })
+            .w(px(column))
+            .mb(px(8.))
+            .on_close(move |_, _, cx| {
+                let _ = desk.update(cx, |this, cx| {
+                    this.composer.held = None;
+                    cx.notify();
+                });
+            }),
         )
     }
 
@@ -651,7 +670,10 @@ impl Desk {
         (was != now).then(|| {
             gpui::component::alert::Alert::warning(
                 SharedString::from(format!("branch-{}", s.key)),
-                format!("It last ran on {was}; what you send now goes on on {now}."),
+                crate::tr_with(
+                    "It last ran on %{was}; what you send now goes on on %{now}.",
+                    &[("was", was), ("now", now)],
+                ),
             )
             .title(crate::tr("The branch changed"))
             .w(px(column))
@@ -665,7 +687,7 @@ impl Desk {
     fn goal_row(faces: &Faces, s: &Session, column: f32, cx: &mut Context<Self>) -> Option<Div> {
         let goal = s.goal.as_ref()?;
         let command = |id: &'static str, label: &'static str, said: &'static str| {
-            ui::button(id, label, ui::Weight::Quiet)
+            ui::button(id, crate::tr(label), ui::Weight::Quiet)
                 .on_click(cx.listener(move |this, _, _, cx| this.say(said, cx)))
         };
         Some(
@@ -686,7 +708,11 @@ impl Desk {
                     theme::accent()
                 }))
                 .child(
-                    chip_text(faces, if goal.paused { "Goal, paused" } else { "Goal" }).flex_none(),
+                    chip_text(
+                        faces,
+                        crate::tr(if goal.paused { "Goal, paused" } else { "Goal" }),
+                    )
+                    .flex_none(),
                 )
                 .child(
                     ui::one_line(
@@ -792,8 +818,11 @@ impl Desk {
                         .flex_1()
                         .min_w(px(0.))
                         .child(
-                            ui::text(faces, format!("{name} needs you to sign in"))
-                                .text_size(px(crate::style::LABEL)),
+                            ui::text(
+                                faces,
+                                crate::tr_with("%{name} needs you to sign in", &[("name", &name)]),
+                            )
+                            .text_size(px(crate::style::LABEL)),
                         )
                         .child(ui::one_line(
                             ui::text(faces, why.clone())
@@ -832,19 +861,21 @@ impl Desk {
                     let (icon, name, about) = match offer {
                         Offer::Command { name, about } => ("terminal", format!("/{name}"), about),
                         Offer::Own { name, about } => {
-                            ("ghost", format!("/{name}"), about.to_owned())
+                            ("ghost", format!("/{name}"), crate::tr(about).to_string())
                         }
                         Offer::Model { label, .. } => (
                             "sliders",
                             format!("@{label}"),
-                            "switch to this model".into(),
+                            crate::tr("switch to this model").into(),
                         ),
                         Offer::File(f) => ("file", f, String::new()),
-                        Offer::Session { title, .. } => ("list", title, "session".into()),
+                        Offer::Session { title, .. } => {
+                            ("list", title, crate::tr("session").into())
+                        }
                         Offer::Pr { number, title } => (
                             "branch",
                             format!("#{number} {title}"),
-                            "pull request".into(),
+                            crate::tr("pull request").into(),
                         ),
                     };
                     menu = menu.child(
@@ -900,7 +931,7 @@ impl Desk {
                                 bytes.clone(),
                             ),
                         ))),
-                        format!("Image {}", n + 1),
+                        crate::tr_with("Image %{n}", &[("n", &(n + 1))]).to_string(),
                         crate::tidy::shown(bytes.len() as u64),
                     ),
                     Attached::File(path) => (
@@ -924,9 +955,13 @@ impl Desk {
                             16.,
                         )),
                         if chip.note.is_empty() {
-                            chip.kind.name().to_owned()
+                            crate::tr(chip.kind.name()).to_string()
                         } else {
-                            format!("{}: {}", chip.kind.name(), ui::fit(&chip.note, 24))
+                            format!(
+                                "{}: {}",
+                                crate::tr(chip.kind.name()),
+                                ui::fit(&chip.note, 24)
+                            )
                         },
                         ui::fit(chip.text.lines().next().unwrap_or_default(), 32),
                     ),
@@ -1017,9 +1052,12 @@ impl Desk {
                 .child(ui::icon("reply", 12.).text_color(theme::faint()))
                 .child(ui::one_line(ui::fine(
                     faces,
-                    format!(
-                        "Replying to “{}”",
-                        ui::fit(text.lines().next().unwrap_or_default(), 60)
+                    crate::tr_with(
+                        "Replying to “%{said}”",
+                        &[(
+                            "said",
+                            &ui::fit(text.lines().next().unwrap_or_default(), 60),
+                        )],
                     ),
                 )))
                 .on_click(cx.listener(move |this, _, window, cx| this.go_back(n, window, cx))),
@@ -1045,9 +1083,9 @@ impl Desk {
                 .child(chip_text(
                     faces,
                     if count == 1 {
-                        "1 message queued".to_owned()
+                        crate::tr("1 message queued")
                     } else {
-                        format!("{count} messages queued")
+                        crate::tr_with("%{count} messages queued", &[("count", &count)])
                     },
                 ));
             for (n, text) in s.meta.queued.iter().enumerate() {
@@ -1070,7 +1108,7 @@ impl Desk {
                                 ui::icon_button(
                                     SharedString::from(format!("queue-up-{n}")),
                                     "arrow-up",
-                                    "Earlier",
+                                    crate::tr("Earlier"),
                                 )
                                 .size(px(22.))
                                 .on_click(
@@ -1081,7 +1119,7 @@ impl Desk {
                         .child(
                             ui::button(
                                 SharedString::from(format!("steer-{n}")),
-                                "Send now",
+                                crate::tr("Send now"),
                                 ui::Weight::Quiet,
                             )
                             .on_click(cx.listener(move |this, _, _, cx| this.steer(n, cx))),
@@ -1090,7 +1128,7 @@ impl Desk {
                             ui::icon_button(
                                 SharedString::from(format!("unqueue-{n}")),
                                 "pencil",
-                                "Edit",
+                                crate::tr("Edit"),
                             )
                             .size(px(22.))
                             .on_click(
@@ -1124,7 +1162,10 @@ impl Desk {
                         .child(
                             ui::text(
                                 faces,
-                                format!("Its subagent “{}” asks", ui::fit(&c.meta.title, 40)),
+                                crate::tr_with(
+                                    "Its subagent “%{title}” asks",
+                                    &[("title", &ui::fit(&c.meta.title, 40))],
+                                ),
                             )
                             .pb(px(4.))
                             .text_size(px(crate::style::CAPTION))
@@ -1171,7 +1212,10 @@ impl Desk {
                 .child(
                     ui::text(
                         faces,
-                        format!("A side question of “{title}”: it does not go in it."),
+                        crate::tr_with(
+                            "A side question of “%{title}”: it does not go in it.",
+                            &[("title", &title)],
+                        ),
                     )
                     .flex_1()
                     .text_size(px(crate::style::LABEL))

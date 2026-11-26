@@ -81,7 +81,7 @@ impl Desk {
                                 crate::tr("The display may sleep; a turn going on is not cut short by the Mac sleeping."),
                                 |d, _, cx| {
                                     Switch::new("awake")
-                                        .accessibility_label("Keep the Mac awake")
+                                        .accessibility_label(crate::tr("Keep the Mac awake"))
                                         .small()
                                         .checked(d.settings.awake)
                                         .on_click(cx.listener(|this, _, _, cx| {
@@ -642,32 +642,7 @@ impl Desk {
                                     .into_any_element()
                                 },
                             ),
-                            item(
-                                w,
-                                crate::tr("Language"),
-                                crate::tr("The words of Ghost's window; what agents say stays as they say it."),
-                                |d, _, cx| {
-                                    let now = (crate::i18n::LANGUAGES.iter())
-                                        .position(|(l, _)| d.settings.language.as_deref() == Some(*l))
-                                        .map_or(0, |n| n + 1);
-                                    Self::pick(
-                                        "language",
-                                        [
-                                            (crate::tr("As the system"), 0),
-                                            (crate::i18n::LANGUAGES[0].1.into(), 1),
-                                            (crate::i18n::LANGUAGES[1].1.into(), 2),
-                                        ],
-                                        now,
-                                        |s, v| {
-                                            s.language = v
-                                                .checked_sub(1)
-                                                .map(|n| crate::i18n::LANGUAGES[n].0.to_owned());
-                                        },
-                                        cx,
-                                    )
-                                    .into_any_element()
-                                },
-                            ),
+                            Self::window_language(w),
                             item(
                                 w,
                                 crate::tr("Math"),
@@ -737,9 +712,9 @@ impl Desk {
                             item(
                                 w,
                                 crate::tr("Worktree location"),
-                                format!(
-                                    "New worktrees are made in {}. Those made before stay where they are.",
-                                    Desk::shown(&self.worktree_folders(crate::hub::Host::HERE)[0])
+                                crate::tr_with(
+                                    "New worktrees are made in %{folder}. Those made before stay where they are.",
+                                    &[("folder", &Desk::shown(&self.worktree_folders(crate::hub::Host::HERE)[0]))],
                                 ),
                                 |d, _, cx| d.worktree_location(cx).into_any_element(),
                             ).disabled(scoped),
@@ -803,6 +778,38 @@ impl Desk {
     /// sets it with `set` and keeps the settings. `id` is the setting's
     /// key in settings.json (or begins with it, before a `-`): one the
     /// policy locks cannot be chosen, and says who locked it.
+    /// The language of Ghost's window, of those it speaks: as the
+    /// system's (none), or one chosen.
+    fn window_language(w: &WeakEntity<Desk>) -> SettingItem {
+        let mut choices = vec![(SharedString::default(), crate::tr("As the system"))];
+        choices
+            .extend((crate::i18n::LANGUAGES.iter()).map(|(l, name)| ((*l).into(), (*name).into())));
+        let (read, write) = (w.clone(), w.clone());
+        SettingItem::new(
+            crate::tr("Language"),
+            SettingField::scrollable_dropdown(
+                choices,
+                move |cx| {
+                    let now = read
+                        .upgrade()
+                        .and_then(|d| d.read(cx).settings.language.clone());
+                    now.map(SharedString::from).unwrap_or_default()
+                },
+                move |locale, cx| {
+                    let _ = write.update(cx, |d, cx| {
+                        d.settings.language = (!locale.is_empty()).then(|| locale.to_string());
+                        d.save_settings();
+                        d.settings_took(cx);
+                        cx.notify();
+                    });
+                },
+            ),
+        )
+        .description(crate::tr(
+            "The words of Ghost's window; what agents say stays as they say it.",
+        ))
+    }
+
     pub(super) fn pick<T: Copy + PartialEq + 'static, const N: usize>(
         id: &str,
         choices: [(impl Into<SharedString>, T); N],
@@ -819,7 +826,7 @@ impl Desk {
                     this.settings_took(cx);
                     cx.notify();
                 }));
-                (label, value == now, pick)
+                (crate::tr(&label.into()), value == now, pick)
             })
             .collect();
         let group = ui::segmented(id, choices);
@@ -852,7 +859,11 @@ impl Desk {
             .child(
                 ui::button("worktrees-choose", crate::tr("Choose…"), Weight::Secondary).on_click(
                     cx.listener(move |_, _, _, cx| {
-                        Desk::ask_folder("Make worktrees here", |d, f| keep(d, Some(f)), cx);
+                        Desk::ask_folder(
+                            &crate::tr("Make worktrees here"),
+                            |d, f| keep(d, Some(f)),
+                            cx,
+                        );
                     }),
                 ),
             )
@@ -860,8 +871,8 @@ impl Desk {
 
     /// The editors here to open files in, and macOS's own choice.
     fn editor_pick(&self, cx: &mut Context<Self>) -> ButtonGroup {
-        let mut choices: Vec<(&'static str, bool, Pick)> = vec![(
-            "First found",
+        let mut choices: Vec<(SharedString, bool, Pick)> = vec![(
+            crate::tr("First found"),
             self.settings.editor.is_none(),
             Box::new(cx.listener(|this, _, _, cx| {
                 this.settings.editor = None;
@@ -873,7 +884,7 @@ impl Desk {
         for (command, name) in crate::desk::EDITORS {
             if self.on_path.contains(&command) {
                 choices.push((
-                    name,
+                    name.into(),
                     self.settings.editor.as_deref() == Some(command),
                     Box::new(cx.listener(move |this, _, _, cx| {
                         this.settings.editor = Some(command.to_owned());
@@ -975,7 +986,7 @@ fn told(
     item(w, name, about, move |d, _, cx| {
         let mut on = d.settings.notify_on.clone();
         Switch::new(SharedString::from(name))
-            .accessibility_label(name)
+            .accessibility_label(crate::tr(name))
             .small()
             .checked(*of(&mut on))
             .disabled(d.settings.notify == Notify::Off)
@@ -999,7 +1010,7 @@ fn asks(
     item(w, name, about, move |d, _, cx| {
         let mut confirm = d.settings.confirm.clone();
         Switch::new(SharedString::from(format!("confirm-{name}")))
-            .accessibility_label(name)
+            .accessibility_label(crate::tr(name))
             .small()
             .checked(*of(&mut confirm))
             .on_click(cx.listener(move |this, _, _, cx| {
@@ -1026,7 +1037,7 @@ fn keyboard(w: &WeakEntity<Desk>) -> SettingPage {
         let w = w.clone();
         groups[at].1.push(
             SettingItem::new(
-                does,
+                crate::tr(does),
                 SettingField::render(move |_, _, cx| {
                     w.update(cx, |d, cx| d.keys_of(name, cx).into_any_element())
                         .unwrap_or_else(|_| div().into_any_element())
@@ -1046,7 +1057,7 @@ fn keyboard(w: &WeakEntity<Desk>) -> SettingPage {
                 .gap(px(10.))
                 .child(ui::fine(
                     &faces,
-                    "A rule is { \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }, with \"when\": \"Terminal\" (or \"Composer\", with !, && and ||) for where it holds, \"action\": \"none\" to take a key away, and \"-new_session\" to take it from that action alone; \"script:dev\" runs the script dev. The last rule that holds wins. Ghost reads the file as it starts.",
+                    crate::tr("A rule is { \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }, with \"when\": \"Terminal\" (or \"Composer\", with !, && and ||) for where it holds, \"action\": \"none\" to take a key away, and \"-new_session\" to take it from that action alone; \"script:dev\" runs the script dev. The last rule that holds wins. Ghost reads the file as it starts."),
                 ))
                 .child(div().flex().child(
                     ui::button("open-keys", crate::tr("Open keybindings.json"), Weight::Secondary).on_click(
@@ -1083,7 +1094,7 @@ impl Desk {
             ui::icon_button(
                 SharedString::from(format!("unassign-{name}")),
                 "minus",
-                "Take its keys away",
+                crate::tr("Take its keys away"),
             )
             .size(px(22.))
             .text_color(theme::faint())
@@ -1123,7 +1134,7 @@ impl Desk {
                 ui::icon_button(
                     SharedString::from(format!("unbind-{name}")),
                     "retry",
-                    "Back to Ghost's keys",
+                    crate::tr("Back to Ghost's keys"),
                 )
                 .size(px(22.))
                 .text_color(theme::faint())
@@ -1202,7 +1213,7 @@ pub(super) fn managed(control: impl IntoElement, by: &str) -> AnyElement {
         .child(
             div()
                 .text_color(crate::theme::muted())
-                .child(crate::tr("Managed by %{by}").replace("%{by}", by)),
+                .child(crate::tr_with("Managed by %{by}", &[("by", &by)])),
         )
         .into_any_element()
 }

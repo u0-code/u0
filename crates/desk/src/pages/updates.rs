@@ -22,17 +22,22 @@ impl Desk {
     /// The updates group: where an update stands and what to do, the
     /// channel, and whether Ghost looks by itself.
     pub(super) fn updates_group(&self, w: &WeakEntity<Desk>) -> SettingGroup {
-        let this_build = format!("This is {}.", update::this_build());
+        let build = update::this_build();
         let said = match &self.updates.now {
-            Updating::Idle => this_build,
-            Updating::Checking => "Looking on GitHub…".to_owned(),
-            Updating::Newest => format!("{this_build} It is the newest."),
-            Updating::Found(found) => format!("Ghost {} is out. {this_build}", found.name),
-            Updating::Installing(what) => format!("{what}…"),
-            Updating::Ready => {
-                "The update is in place: Ghost runs it once opened again.".to_owned()
+            Updating::Idle => crate::tr_with("This is %{build}.", &[("build", &build)]),
+            Updating::Checking => crate::tr("Looking on GitHub…"),
+            Updating::Newest => {
+                crate::tr_with("This is %{build}. It is the newest.", &[("build", &build)])
             }
-            Updating::Failed(why) => format!("Couldn't look: {why}"),
+            Updating::Found(found) => crate::tr_with(
+                "Ghost %{version} is out. This is %{build}.",
+                &[("version", &found.name), ("build", &build)],
+            ),
+            Updating::Installing(what) => format!("{what}…").into(),
+            Updating::Ready => {
+                crate::tr("The update is in place: Ghost runs it once opened again.")
+            }
+            Updating::Failed(why) => crate::tr_with("Couldn't look: %{why}", &[("why", why)]),
         };
         let mut items = vec![item(w, crate::tr("Ghost's version"), said, |d, _, cx| {
             d.update_button(cx)
@@ -71,7 +76,7 @@ impl Desk {
                 crate::tr("As Ghost starts and every four hours; an update is installed only when you say."),
                 |d, _, cx| {
                     let switch = Switch::new("check-updates")
-                        .accessibility_label("Look for updates")
+                        .accessibility_label(crate::tr("Look for updates"))
                         .small()
                         .checked(d.settings.check_updates)
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -107,16 +112,16 @@ impl Desk {
                     .on_click(|_, _, cx| Self::copy_version(cx)),
             )
             .children(button.map(|(label, weight)| {
-                ui::button("update", label, weight).on_click(cx.listener(|this, _, window, cx| {
-                    match this.updates.now {
+                ui::button("update", crate::tr(label), weight).on_click(cx.listener(
+                    |this, _, window, cx| match this.updates.now {
                         Updating::Found(_) => this.install_update(cx),
                         Updating::Ready => this.reopen(window, cx),
                         _ => {
                             this.check_update(true);
                             cx.notify();
                         }
-                    }
-                }))
+                    },
+                ))
             }))
             .into_any_element()
     }

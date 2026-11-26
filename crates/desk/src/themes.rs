@@ -211,11 +211,13 @@ const MAP: [(&str, &[&str]); 18] = [
 /// theirs. Its path, its text, and its name.
 pub fn from_vscode(home: &Path, text: &str) -> Result<(PathBuf, Vec<u8>, String), String> {
     let theme: Value =
-        jsonc_parser::parse_to_serde_value(text, &jsonc_parser::ParseOptions::default())
-            .map_err(|e| format!("it is not a theme VS Code reads: {e}"))?;
-    let colors = theme["colors"]
-        .as_object()
-        .ok_or("it has no colours: a VS Code colour theme names them under \"colors\"")?;
+        jsonc_parser::parse_to_serde_value(text, &jsonc_parser::ParseOptions::default()).map_err(
+            |e| crate::tr_with("it is not a theme VS Code reads: %{e}", &[("e", &e)]).to_string(),
+        )?;
+    let colors = theme["colors"].as_object().ok_or_else(|| {
+        crate::tr("it has no colours: a VS Code colour theme names them under \"colors\"")
+            .to_string()
+    })?;
     let name = theme["name"].as_str().unwrap_or("Imported").to_owned();
     let dark = !matches!(theme["type"].as_str(), Some("light" | "hcLight"));
     let mut ours = Map::new();
@@ -225,7 +227,9 @@ pub fn from_vscode(home: &Path, text: &str) -> Result<(PathBuf, Vec<u8>, String)
         }
     }
     if !ours.contains_key("background") {
-        return Err("it does not say editor.background, the colour everything is on".into());
+        return Err(
+            crate::tr("it does not say editor.background, the colour everything is on").into(),
+        );
     }
     let theme =
         json!({ "name": name, "mode": if dark { "dark" } else { "light" }, "colors": ours });

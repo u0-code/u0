@@ -90,7 +90,7 @@ impl Desk {
     fn say_later(&mut self, key: u64, text: String, when: Later, cx: &mut Context<Self>) -> bool {
         let Some(s) = self.sessions.at(key).filter(|s| s.meta.id.is_some()) else {
             self.trouble(
-                "Say something first: a session is kept once its agent has it",
+                crate::tr("Say something first: a session is kept once its agent has it"),
                 None,
                 None,
             );
@@ -126,9 +126,9 @@ impl Desk {
         };
         self.call(host, Call::SetTask(task));
         self.done(
-            format!(
-                "To be said at {}",
-                crate::when::said_at(at, now, self.settings.twelve)
+            crate::tr_with(
+                "To be said at %{when}",
+                &[("when", &crate::when::said_at(at, now, self.settings.twelve))],
             ),
             None,
         );
@@ -300,7 +300,9 @@ impl Desk {
                 }
                 Some(_) => {
                     if let Some(s) = self.sessions.at_mut(key) {
-                        s.state = State::Broken("The agent cannot open a session again".into());
+                        s.state = State::Broken(
+                            crate::tr("The agent cannot open a session again").into(),
+                        );
                     }
                 }
                 None => {
@@ -489,7 +491,7 @@ impl Desk {
         if matches!(s.state, State::Working | State::Opening) {
             s.meta.queued.insert(0, text);
             s.items.push(Item::Note {
-                text: "You stopped the turn to say what follows.".into(),
+                text: crate::tr("You stopped the turn to say what follows.").into(),
                 trouble: false,
             });
             self.stop(cx);

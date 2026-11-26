@@ -87,11 +87,13 @@ impl Took {
             return None;
         }
         let mut out = vec![
-            format!("{} in", count(self.input)),
-            format!("{} out", count(self.output)),
+            crate::tr_with("%{n} in", &[("n", &count(self.input))]).to_string(),
+            crate::tr_with("%{n} out", &[("n", &count(self.output))]).to_string(),
         ];
         if self.read + self.wrote > 0 {
-            out.push(format!("{} cached", count(self.read + self.wrote)));
+            out.push(
+                crate::tr_with("%{n} cached", &[("n", &count(self.read + self.wrote))]).to_string(),
+            );
         }
         Some(out.join(" · "))
     }
@@ -228,11 +230,12 @@ impl Desk {
             let reset = l.resets.map(store::time);
             let past = reset.is_some_and(|t| t <= now);
             let about = match reset {
-                Some(t) if !past => {
-                    format!("Resets {}", when::said_at(t, now, self.settings.twelve))
-                }
-                Some(_) => "Reset since it was said".to_owned(),
-                None => "No reset time said".to_owned(),
+                Some(t) if !past => crate::tr_with(
+                    "Resets %{when}",
+                    &[("when", &when::said_at(t, now, self.settings.twelve))],
+                ),
+                Some(_) => crate::tr("Reset since it was said"),
+                None => crate::tr("No reset time said"),
             };
             let used = l.used.filter(|_| !past);
             #[allow(
@@ -240,9 +243,11 @@ impl Desk {
                 reason = "a share shown as a whole percentage"
             )]
             let end = match (l.reached() && !past, used) {
-                (true, _) => "Reached".to_owned(),
-                (false, Some(u)) => format!("{}% used", (u * 100.).round() as i64),
-                (false, None) => String::new(),
+                (true, _) => crate::tr("Reached"),
+                (false, Some(u)) => {
+                    crate::tr_with("%{n}% used", &[("n", &((u * 100.).round() as i64))])
+                }
+                (false, None) => SharedString::default(),
             };
             let (id, reached) = (format!("limit-{agent}-{}", l.window), l.reached());
             windows.push(item(
@@ -271,7 +276,7 @@ impl Desk {
                         .items_center()
                         .gap(px(10.))
                         .children(bar)
-                        .child(quiet(faces, end.clone()))
+                        .child(quiet(faces, end.to_string()))
                         .into_any_element()
                 },
             ));
@@ -288,7 +293,7 @@ impl Desk {
                             this.pages.period = days;
                             cx.notify();
                         }));
-                        (label, d.pages.period == days, pick)
+                        (crate::tr(label), d.pages.period == days, pick)
                     })
                     .collect();
                 ui::segmented("usage-period", picks).into_any_element()
@@ -297,10 +302,17 @@ impl Desk {
         let mut agents: Vec<SettingItem> = Vec::new();
         for (agent, (cost, took, sessions)) in &by_agent {
             let about = [
-                Some(format!(
-                    "{sessions} session{}",
-                    if *sessions == 1 { "" } else { "s" }
-                )),
+                Some(
+                    crate::tr_with(
+                        if *sessions == 1 {
+                            "%{sessions} session"
+                        } else {
+                            "%{sessions} sessions"
+                        },
+                        &[("sessions", sessions)],
+                    )
+                    .to_string(),
+                ),
                 took.said(),
             ];
             let said = amounts(cost);
@@ -329,11 +341,12 @@ impl Desk {
             .into_iter()
             .map(|(model, took)| {
                 let name = if model.is_empty() {
-                    "Model not said".to_owned()
+                    crate::tr("Model not said").to_string()
                 } else {
                     model.clone()
                 };
-                let total = format!("{} tokens", count(took.total()));
+                let total =
+                    crate::tr_with("%{n} tokens", &[("n", &count(took.total()))]).to_string();
                 item(
                     w,
                     name,
@@ -347,11 +360,13 @@ impl Desk {
             let Some(s) = self.sessions.at(*key) else {
                 continue;
             };
-            let context = s
-                .usage
-                .as_ref()
-                .filter(|u| u.size > 0)
-                .map(|u| format!("{}k of {}k in context", u.used / 1000, u.size / 1000));
+            let context = s.usage.as_ref().filter(|u| u.size > 0).map(|u| {
+                crate::tr_with(
+                    "%{used}k of %{size}k in context",
+                    &[("used", &(u.used / 1000)), ("size", &(u.size / 1000))],
+                )
+                .to_string()
+            });
             let about = [Some(self.name_of(&s.meta.agent)), took.said(), context];
             let (key, said) = (*key, amounts(cost));
             sessions.push(item(
@@ -367,7 +382,7 @@ impl Desk {
                         .child(
                             ui::button(
                                 SharedString::from(format!("usage-open-{key}")),
-                                "Open",
+                                crate::tr("Open"),
                                 Weight::Quiet,
                             )
                             .on_click(cx.listener(

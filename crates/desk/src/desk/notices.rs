@@ -171,7 +171,7 @@ impl Desk {
         note.action(move |_, _, cx| {
             let (way, go) = (way.clone(), go.clone());
             Button::new("way")
-                .label(label)
+                .label(crate::tr(label))
                 .small()
                 .ghost()
                 .on_click(cx.listener(move |note, _, window, cx| {

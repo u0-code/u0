@@ -46,7 +46,7 @@ impl Desk {
                         theme::faint()
                     }),
                 )
-                .child(verb(faces, word))
+                .child(verb(faces, crate::tr(word)))
                 .child(
                     ui::one_line(
                         ui::mono(faces, bare(&asked.title))
@@ -55,7 +55,7 @@ impl Desk {
                     )
                     .w_auto(),
                 )
-                .when(!tail.is_empty(), |d| d.child(right(faces, tail)));
+                .when(!tail.is_empty(), |d| d.child(right(faces, crate::tr(tail))));
         }
         let name = self.name_of(&s.meta.agent);
         let call = s
@@ -78,13 +78,14 @@ impl Desk {
             })
             .filter(|p| !p.trim().is_empty());
         let headline = match (plan.is_some(), call.map(|c| c.kind)) {
-            (true, _) => format!("{name} proposed a plan"),
-            (_, Some(ToolKind::Execute)) => format!("{name} wants to run a command"),
-            (_, Some(ToolKind::Edit)) => format!("{name} wants to edit a file"),
-            (_, Some(ToolKind::Delete)) => format!("{name} wants to delete a file"),
-            (_, Some(ToolKind::Fetch)) => format!("{name} wants to fetch a page"),
-            _ => format!("{name} asks before it goes on"),
+            (true, _) => "%{name} proposed a plan",
+            (_, Some(ToolKind::Execute)) => "%{name} wants to run a command",
+            (_, Some(ToolKind::Edit)) => "%{name} wants to edit a file",
+            (_, Some(ToolKind::Delete)) => "%{name} wants to delete a file",
+            (_, Some(ToolKind::Fetch)) => "%{name} wants to fetch a page",
+            _ => "%{name} asks before it goes on",
         };
+        let headline = crate::tr_with(headline, &[("name", &name)]);
         // The agent's options are the buttons: what turns it down at the
         // left, what lets it go on at the right.
         let mut reject = div().flex().gap(px(6.));
@@ -121,7 +122,7 @@ impl Desk {
             reject = reject.child(
                 ui::button(
                     SharedString::from(format!("{key}-instead")),
-                    "No, and tell it…",
+                    crate::tr("No, and tell it…"),
                     Weight::Quiet,
                 )
                 .tooltip(crate::tr("Reject it, then write what it should do instead"))
@@ -136,7 +137,7 @@ impl Desk {
             reject = reject.child(
                 ui::button(
                     SharedString::from(format!("{key}-revise")),
-                    "Revise…",
+                    crate::tr("Revise…"),
                     Weight::Quiet,
                 )
                 .on_click(cx.listener(move |this, _, window, cx| {
@@ -196,19 +197,19 @@ impl Desk {
         );
         let undone = s.redo.as_ref().is_some_and(|(t, _)| *t == turn);
         let last = s.turns.iter().rposition(|t| t.before.is_some()) == Some(turn);
-        let label = if undone {
+        let label = crate::tr(if undone {
             "Redo"
         } else if last {
             "Undo"
         } else {
             "Restore to before"
-        };
+        });
         let mut tools = div().flex().flex_none().gap(px(2.));
         if marks.diff.as_ref().is_some_and(|d| !d.is_empty()) {
             tools = tools.child(
                 ui::button(
                     SharedString::from(format!("diff-{i}")),
-                    "Diff",
+                    crate::tr("Diff"),
                     Weight::Quiet,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
@@ -223,11 +224,11 @@ impl Desk {
                     label,
                     Weight::Quiet,
                 )
-                .tooltip(if undone {
+                .tooltip(crate::tr(if undone {
                     "Put this turn's changes back in the files"
                 } else {
                     "Put the files back as they were before this turn"
-                })
+                }))
                 .on_click(cx.listener(move |this, _, _, cx| this.undo(turn, cx))),
             );
         }
@@ -270,47 +271,55 @@ impl Desk {
                     .turn_of(i)
                     .and_then(|t| s.turns.get(t))
                     .and_then(|t| t.diff.as_ref());
-                let changed = match git.map_or(paths.len(), Vec::len) {
-                    0 => String::new(),
-                    1 => " · 1 file changed".into(),
-                    n => format!(" · {n} files changed"),
+                let n = git.map_or(paths.len(), Vec::len);
+                let said = match n {
+                    0 => "%{name} · %{took}",
+                    1 => "%{name} · %{took} · 1 file changed",
+                    _ => "%{name} · %{took} · %{n} files changed",
                 };
                 // The last turn, in a mode that only plans, with a plan:
                 // it can be carried out from here.
                 let last = !s.items[i + 1..].iter().any(|x| matches!(x, Item::You(_)));
                 let ready = last && s.plan.is_some() && s.planning();
                 let key = s.key;
-                meta(faces, format!("{name} · {took}{changed}"))
-                    .px(px(10.))
-                    .when(ready, |d| {
-                        d.flex().items_center().gap(px(10.)).child(
-                            ui::button(
-                                "run-plan",
-                                crate::tr("Carry out the plan"),
-                                Weight::Secondary,
-                            )
-                            .on_click(cx.listener(move |this, _, _, cx| this.run_plan(key, cx))),
+                meta(
+                    faces,
+                    crate::tr_with(said, &[("name", &name), ("took", &took), ("n", &n)]),
+                )
+                .px(px(10.))
+                .when(ready, |d| {
+                    d.flex().items_center().gap(px(10.)).child(
+                        ui::button(
+                            "run-plan",
+                            crate::tr("Carry out the plan"),
+                            Weight::Secondary,
                         )
-                    })
+                        .on_click(cx.listener(move |this, _, _, cx| this.run_plan(key, cx))),
+                    )
+                })
             }
             StopReason::Cancelled => step()
                 .child(icon("square"))
-                .child(verb(faces, "You stopped this turn"))
-                .child(right(faces, format!("after {took}"))),
-            StopReason::Refusal => step()
-                .child(icon("alert"))
-                .child(verb(faces, format!("{name} refused to go on."))),
+                .child(verb(faces, crate::tr("You stopped this turn")))
+                .child(right(
+                    faces,
+                    crate::tr_with("after %{took}", &[("took", &took)]),
+                )),
+            StopReason::Refusal => step().child(icon("alert")).child(verb(
+                faces,
+                crate::tr_with("%{name} refused to go on.", &[("name", &name)]),
+            )),
             other => {
-                let words = if other == StopReason::MaxTokens {
+                let words = crate::tr(if other == StopReason::MaxTokens {
                     "Stopped at the output limit."
                 } else {
                     "Stopped at the turn's limit of requests."
-                };
+                });
                 let key = s.key;
                 let mut go = div().flex().flex_1().justify_end().gap(px(2.)).child(
                     ui::button(
                         SharedString::from(format!("continue-{i}")),
-                        "Continue",
+                        crate::tr("Continue"),
                         Weight::Quiet,
                     )
                     .on_click(cx.listener(|this, _, _, cx| this.say("Continue", cx))),
@@ -320,7 +329,7 @@ impl Desk {
                     go = go.child(
                         ui::button(
                             SharedString::from(format!("continue-{i}-{id}")),
-                            format!("Continue with {other}"),
+                            crate::tr_with("Continue with %{name}", &[("name", &other)]),
                             Weight::Quiet,
                         )
                         .on_click(cx.listener(
@@ -374,19 +383,23 @@ impl Desk {
         });
         if let Some(task) = resuming {
             let (id, at) = (task.id, task.next.map(crate::store::time));
-            let clock = at.map_or_else(String::new, |at| {
-                format!(" at {}", when::said_at(at, now, self.settings.twelve))
-            });
+            let goes = at.map_or_else(
+                || crate::tr("Goes on, as the limit resets."),
+                |at| {
+                    let clock = when::said_at(at, now, self.settings.twelve);
+                    crate::tr_with(
+                        "Goes on at %{clock}, as the limit resets.",
+                        &[("clock", &clock)],
+                    )
+                },
+            );
             return note.child(
                 div()
                     .flex()
                     .items_center()
                     .gap(px(8.))
                     .pt(px(6.))
-                    .child(ui::fine(
-                        crate::fonts::faces(cx),
-                        format!("Goes on{clock}, as the limit resets."),
-                    ))
+                    .child(ui::fine(crate::fonts::faces(cx), goes))
                     .child(
                         ui::button("limit-not", crate::tr("Don't go on"), Weight::Quiet)
                             .on_click(cx.listener(move |this, _, _, _| this.drop_task(id))),
@@ -409,7 +422,7 @@ impl Desk {
                 .child(
                     ui::button(
                         "limit-later",
-                        format!("Try again at {clock}"),
+                        crate::tr_with("Try again at %{clock}", &[("clock", &clock)]),
                         Weight::Quiet,
                     )
                     .on_click(cx.listener(move |this, _, _, cx| this.retry_at(key, at, cx))),
@@ -417,7 +430,7 @@ impl Desk {
                 .child(
                     ui::button(
                         "limit-snooze",
-                        format!("Snooze till {clock}"),
+                        crate::tr_with("Snooze till %{clock}", &[("clock", &clock)]),
                         Weight::Quiet,
                     )
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -429,7 +442,7 @@ impl Desk {
             ways = ways.child(
                 ui::button(
                     SharedString::from(format!("limit-{id}")),
-                    format!("Continue with {other}"),
+                    crate::tr_with("Continue with %{name}", &[("name", &other)]),
                     Weight::Quiet,
                 )
                 .on_click(
@@ -465,7 +478,7 @@ impl Desk {
                     .gap(px(8.))
                     .child(ui::dot(theme::coral()))
                     .child(
-                        ui::text(faces, format!("{name} stopped"))
+                        ui::text(faces, crate::tr_with("%{name} stopped", &[("name", &name)]))
                             .text_size(px(crate::style::BODY)),
                     ),
             )
@@ -508,9 +521,12 @@ impl Desk {
         let busy = (self.signing.as_ref()).is_some_and(|(h, a)| s.of(*h, a));
         let mut buttons = div().flex().flex_wrap().gap(px(6.));
         if busy {
-            buttons = buttons.child(step().px(px(0.)).child(ui::live_dot()).child(
-                verb(faces, "Waiting for the sign-in to finish").text_color(theme::accent()),
-            ));
+            buttons = buttons.child(
+                step().px(px(0.)).child(ui::live_dot()).child(
+                    verb(faces, crate::tr("Waiting for the sign-in to finish"))
+                        .text_color(theme::accent()),
+                ),
+            );
         } else {
             let host = s.host;
             for (n, (id, label)) in methods.into_iter().enumerate() {
@@ -544,13 +560,14 @@ impl Desk {
                     .items_center()
                     .gap(px(8.))
                     .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.))
-                    .child(ui::text(faces, format!("Sign in to {name}")).text_size(px(crate::style::BODY))),
+                    .child(ui::text(faces, crate::tr_with("Sign in to %{name}", &[("name", &name)])).text_size(px(crate::style::BODY))),
             )
             .child(
                 ui::text(
                     faces,
-                    format!(
-                        "{name} signs in with its own account; Ghost never sees it. What you said is sent once you are in."
+                    crate::tr_with(
+                        "%{name} signs in with its own account; Ghost never sees it. What you said is sent once you are in.",
+                        &[("name", &name)],
                     ),
                 )
                 .text_size(px(crate::style::LABEL))

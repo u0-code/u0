@@ -365,8 +365,9 @@ pub fn numbered(n: usize) -> Keystroke {
 
 /// `what`, with the keys the action named `name` is bound to now after it.
 pub fn hint(cx: &App, what: &str, name: &str) -> String {
+    let what = crate::tr(what);
     match written(&keys_of(cx, name)) {
-        keys if keys.is_empty() => what.to_owned(),
+        keys if keys.is_empty() => what.to_string(),
         keys => format!("{what} · {keys}"),
     }
 }
