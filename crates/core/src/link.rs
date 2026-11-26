@@ -39,6 +39,7 @@ use tokio_tungstenite::{
 };
 
 use crate::{
+    access::{Access, Turned},
     key::Key,
     proto::{Call, Challenge, Event, Hello, PROTOCOL, Pair, Welcome},
     server::Server,
@@ -248,7 +249,9 @@ pub fn serve_here() -> Result<(), String> {
     let server = Server::new(crate::settings::home(), |_| {});
     server.serve()?;
     server.share_as_kept(true);
-    let link = server.offer().expect("it listens");
+    let link = server
+        .offer(crate::access::Grant::default())
+        .expect("it listens");
     let (host, _) = pairing(&link).expect("a pairing link reads");
     // Light on dark, as a terminal mostly is: a camera reads it as dark
     // on light.
@@ -305,7 +308,15 @@ async fn hook(server: &Arc<Server>, token: &str, body: hyper::body::Incoming) ->
 type Socket<S> = WebSocketStream<S>;
 
 /// Close `ws`, saying `why` to a desk that is not let in.
-async fn refuse<S>(mut ws: Socket<S>, why: &str) -> Result<(), String>
+async fn refuse<S>(ws: Socket<S>, why: &str) -> Result<(), String>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    refuse_as(ws, CloseCode::Policy, why).await
+}
+
+/// Close `ws` with `code`, saying `why`.
+async fn refuse_as<S>(mut ws: Socket<S>, code: CloseCode, why: &str) -> Result<(), String>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
 {
@@ -315,11 +326,20 @@ where
         end -= 1;
     }
     let frame = CloseFrame {
-        code: CloseCode::Policy,
+        code,
         reason: why[..end].to_owned().into(),
     };
     let _ = ws.close(Some(frame)).await;
     Err(why.to_owned())
+}
+
+/// Why a device let in is cut off: its access ended, as it says; else it
+/// was unpaired.
+fn cut(why: Turned) -> String {
+    match why {
+        Turned::Ended(why) => why,
+        _ => "This device was unpaired".into(),
+    }
 }
 
 /// A WebSocket upgraded from a connection to where Ghost listens.
@@ -349,13 +369,26 @@ async fn serve(server: &Arc<Server>, mut ws: Upgraded) -> Result<(), String> {
         );
         return refuse(ws, &why).await;
     }
-    let device = match server.access().admit(&hello, &nonce).await {
-        Ok(admitted) => admitted,
-        Err(why) => return refuse(ws, &why).await,
-    };
-    // Its device is now paired, or last here now: Settings › Devices shows
-    // it so, wherever it is open.
+    let admitted = server.access().admit(&hello, &nonce).await;
+    // Its device is now paired, or last here now, or waits: Settings ›
+    // Devices shows it so, wherever it is open.
     server.share(crate::share::Share::Look);
+    let (device, mut scope) = match admitted {
+        Ok(admitted) => admitted,
+        Err(Turned::Away(why) | Turned::Ended(why)) => return refuse(ws, &why).await,
+        // Told by its close's code, with the server's name, so that a
+        // desk pairing keeps it and comes back until it is let in.
+        Err(Turned::Waiting) => {
+            if let Some(pair) = &hello.pair {
+                server.say(Event::Notice(Ok(format!(
+                    "{} asks to come in: let it in under Settings › Devices",
+                    pair.device
+                ))));
+            }
+            let name = server_name(server.home());
+            return refuse_as(ws, CloseCode::Again, &name).await;
+        }
+    };
     // Asked as it paired, and so by its code: pair back with it.
     let back = match hello.pair.and_then(|p| p.back) {
         Some(back) => Some(server.pair_back(&back).await),
@@ -376,10 +409,14 @@ async fn serve(server: &Arc<Server>, mut ws: Upgraded) -> Result<(), String> {
         said: at,
         settings: server.settings(),
         back,
+        scope,
     };
     let text = serde_json::to_string(&welcome).expect("a welcome serializes");
     let mut ping = tokio::time::interval(PING);
     let mut next = Some(Message::text(text));
+    // A device that may only read is told once, on its link alone, that
+    // what it asked to change was not done.
+    let mut told = false;
     loop {
         if let Some(message) = next.take() {
             ws.send(message).await.map_err(|e| e.to_string())?;
@@ -387,7 +424,18 @@ async fn serve(server: &Arc<Server>, mut ws: Upgraded) -> Result<(), String> {
         tokio::select! {
             heard = ws.next() => match heard {
                 Some(Ok(Message::Text(t))) => match serde_json::from_str::<Call>(&t) {
-                    Ok(call) => server.handle(call),
+                    Ok(call) if Access::allows(scope, &call, server.home()) => server.handle(call),
+                    Ok(_) => {
+                        tracing::info!("a call refused: its device may only read");
+                        if !std::mem::replace(&mut told, true) {
+                            let refused = Event::Notice(Err((
+                                "This Mac may only watch here".into(),
+                                "What it asked to change was not done: its access reads only.".into(),
+                            )));
+                            let frame = serde_json::to_string(&(at, refused)).expect("an event serializes");
+                            next = Some(Message::text(frame));
+                        }
+                    }
                     Err(e) => tracing::warn!("a call that does not read: {e}"),
                 },
                 Some(Ok(Message::Close(_))) | None => return Ok(()),
@@ -404,12 +452,15 @@ async fn serve(server: &Arc<Server>, mut ws: Upgraded) -> Result<(), String> {
                 }
                 ws.flush().await.map_err(|e| e.to_string())?;
             }
-            _ = access.changed() => {
-                if !server.access().paired(&device) {
-                    return refuse(ws, "This device was unpaired").await;
-                }
-            }
-            _ = ping.tick() => next = Some(Message::Ping(Bytes::new())),
+            // Unpaired, its access ended or changed: so it is from now on.
+            _ = access.changed() => match server.access().lets_in(&device) {
+                Ok(now) => scope = now,
+                Err(why) => return refuse(ws, &cut(why)).await,
+            },
+            _ = ping.tick() => match server.access().lets_in(&device) {
+                Ok(_) => next = Some(Message::Ping(Bytes::new())),
+                Err(why) => return refuse(ws, &cut(why)).await,
+            },
         }
     }
 }
@@ -499,6 +550,9 @@ enum Dial {
     Failed(String),
     /// Reached, and refused; not tried again.
     Refused(String),
+    /// Paired, and waiting to be let in by the server of this name; tried
+    /// again.
+    Waiting(String),
 }
 
 type Client = Socket<MaybeTlsStream<TcpStream>>;
@@ -551,6 +605,12 @@ pub fn connect(
                     }
                     lost = true;
                 }
+                Err(Dial::Waiting(name)) => {
+                    if !lost {
+                        state(State::Lost(waiting(&name)));
+                    }
+                    lost = true;
+                }
             }
             tokio::select! {
                 () = tokio::time::sleep(wait) => wait = (wait * 2).min(Duration::from_secs(30)),
@@ -569,17 +629,44 @@ pub async fn pair(
     code: String,
     key: &Key,
     back: Option<String>,
-) -> Result<Welcome, String> {
+) -> Result<Paired, String> {
     let pair = Pair {
         code,
         device: host_name(),
         back,
     };
-    let (mut ws, welcome) = dial(&url_of(host), hello(key, Some(pair), None))
-        .await
-        .map_err(|(Dial::Failed(why) | Dial::Refused(why))| why)?;
-    let _ = ws.close(None).await;
-    Ok(welcome)
+    match dial(&url_of(host), hello(key, Some(pair), None)).await {
+        Ok((mut ws, welcome)) => {
+            let _ = ws.close(None).await;
+            Ok(Paired {
+                name: welcome.name,
+                back: welcome.back,
+                waiting: false,
+            })
+        }
+        // Kept, to come in once it is let in; it pairs back no sooner.
+        Err(Dial::Waiting(name)) => Ok(Paired {
+            name,
+            back: None,
+            waiting: true,
+        }),
+        Err(Dial::Failed(why) | Dial::Refused(why)) => Err(why),
+    }
+}
+
+/// What came of pairing: the server's name; how it paired back, where it
+/// was asked to (the public half of its key for this Mac, or why not);
+/// and whether it waits for you there to let this Mac in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Paired {
+    pub name: String,
+    pub back: Option<Result<String, String>>,
+    pub waiting: bool,
+}
+
+/// What a desk is told while the server `name` has not let it in.
+fn waiting(name: &str) -> String {
+    format!("Waiting for {name} to let this Mac in, under Settings › Devices there")
 }
 
 /// What a desk says to a challenge: it is `key`, pairing with `pair`, and
@@ -629,6 +716,9 @@ async fn answer<T: serde::de::DeserializeOwned>(ws: &mut Client) -> Result<T, Di
         }),
         Ok(Some(Ok(Message::Close(Some(f))))) if f.code == CloseCode::Policy => {
             Err(Dial::Refused(f.reason.to_string()))
+        }
+        Ok(Some(Ok(Message::Close(Some(f))))) if f.code == CloseCode::Again => {
+            Err(Dial::Waiting(f.reason.to_string()))
         }
         Ok(Some(Err(e))) => Err(Dial::Failed(e.to_string())),
         _ => Err(Dial::Failed("It did not answer".into())),
@@ -824,7 +914,7 @@ mod tests {
     fn desk(port: u16, key: Key, server: Option<&Server>) -> Result<Desk, String> {
         if let Some(server) = server {
             let host = format!("127.0.0.1:{port}");
-            let code = server.access().code();
+            let code = server.access().code(crate::access::Grant::default());
             crate::acp::runtime().block_on(super::pair(&host, code, &key, None))?;
         }
         let (events, heard) = std_mpsc::channel();
@@ -852,7 +942,7 @@ mod tests {
 
     fn code(server: &Server) -> Pair {
         Pair {
-            code: server.access().code(),
+            code: server.access().code(crate::access::Grant::default()),
             device: "laptop".into(),
             back: None,
         }
@@ -891,7 +981,7 @@ mod tests {
         let url = format!("ws://127.0.0.1:{port}");
         match crate::acp::runtime().block_on(dial(&url, hello)) {
             Ok((_, welcome)) => Ok(welcome),
-            Err(Dial::Refused(why) | Dial::Failed(why)) => Err(why),
+            Err(Dial::Refused(why) | Dial::Failed(why) | Dial::Waiting(why)) => Err(why),
         }
     }
 
@@ -964,6 +1054,79 @@ mod tests {
         assert_eq!(index.stashed, ["later"]);
     }
 
+    /// Pair `kept`'s key with the server at `port` by a code `server`
+    /// makes for `grant`.
+    fn pair_as(server: &Server, port: u16, kept: &str, grant: crate::access::Grant) -> Paired {
+        let code = server.access().code(grant);
+        let host = format!("127.0.0.1:{port}");
+        crate::acp::runtime()
+            .block_on(pair(&host, code, &key(kept), None))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_device_that_may_only_read_watches_and_what_it_asks_to_change_is_not_done() {
+        use crate::access::{Grant, Scope};
+        let home = tempfile::tempdir().unwrap();
+        let (server, port) = server(home.path());
+        let mine = kept();
+        let read = Grant {
+            scope: Scope::Read,
+            ..Grant::default()
+        };
+        pair_as(&server, port, &mine, read);
+        let (link, welcome, heard, _) = desk(port, key(&mine), None).unwrap();
+        assert_eq!(welcome.scope, Scope::Read);
+        link.send(Call::Stash(vec!["mine".into()]));
+        link.send(Call::Stash(vec!["again".into()]));
+        link.send(Call::Watch);
+        // Told once that it was not done; then the index, unchanged.
+        let Event::Notice(Err((said, _))) = told(&heard) else {
+            panic!("told it may only watch")
+        };
+        assert!(said.contains("only watch"), "{said}");
+        let Event::Index(Ok(index)) = told(&heard) else {
+            panic!("the index, read")
+        };
+        assert!(index.stashed.is_empty(), "nothing it asked was kept");
+    }
+
+    #[test]
+    fn a_device_that_must_be_let_in_waits_until_it_is_and_one_turned_away_is_gone() {
+        use crate::access::Grant;
+        let home = tempfile::tempdir().unwrap();
+        let (server, port) = server(home.path());
+        let ask = Grant {
+            ask: true,
+            ..Grant::default()
+        };
+        let mine = kept();
+        let paired = pair_as(&server, port, &mine, ask);
+        assert!(paired.waiting && paired.name == server_name(home.path()));
+        let why = desk(port, key(&mine), None).err().unwrap();
+        assert!(why.contains("Waiting for"), "{why}");
+        server.access().approve(&key(&mine).public());
+        assert!(desk(port, key(&mine), None).is_ok(), "let in");
+        let theirs = kept();
+        pair_as(&server, port, &theirs, ask);
+        server.access().revoke(&key(&theirs).public());
+        let why = desk(port, key(&theirs), None).err().unwrap();
+        assert!(why.contains("not paired"), "{why}");
+    }
+
+    #[test]
+    fn a_device_whose_access_ended_is_turned_away_and_cut_off() {
+        let home = tempfile::tempdir().unwrap();
+        let (server, port) = server(home.path());
+        let mine = kept();
+        pair_as(&server, port, &mine, crate::access::Grant::default());
+        let (_link, _, _, stood) = desk(port, key(&mine), None).unwrap();
+        server.access().change(|k| k.devices[0].until = Some(1));
+        assert!(matches!(told(&stood), State::Lost(_)));
+        let why = desk(port, key(&mine), None).err().unwrap();
+        assert!(why.contains("access ended"), "{why}");
+    }
+
     #[test]
     fn a_device_unpaired_is_cut_off_and_not_let_back_in() {
         let home = tempfile::tempdir().unwrap();
@@ -989,7 +1152,7 @@ mod tests {
         let listening = rt.spawn(listen(server.clone(), listener));
         let key = Key::generate();
         let kept = key.kept().to_owned();
-        let code = server.access().code();
+        let code = server.access().code(crate::access::Grant::default());
         rt.block_on(pair(&format!("127.0.0.1:{port}"), code, &key, None))
             .unwrap();
         // It stops listening, and the port is free again.
@@ -1035,12 +1198,15 @@ mod tests {
     fn paired_both_ways_each_opens_the_other_by_its_signature_until_revoked() {
         let (home_a, home_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let ((a, port_a), (b, port_b)) = (server(home_a.path()), server(home_b.path()));
-        let back = pairing_link(&format!("127.0.0.1:{port_b}"), &b.access().code());
-        let (name, back) = crate::acp::runtime()
+        let back = pairing_link(
+            &format!("127.0.0.1:{port_b}"),
+            &b.access().code(crate::access::Grant::default()),
+        );
+        let Paired { name, back, .. } = crate::acp::runtime()
             .block_on(crate::servers::pair(
                 home_b.path(),
                 format!("127.0.0.1:{port_a}"),
-                a.access().code(),
+                a.access().code(crate::access::Grant::default()),
                 Key::generate(),
                 Some(back),
             ))
@@ -1078,11 +1244,11 @@ mod tests {
         let (home_a, home_b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
         let (a, port_a) = server(home_a.path());
         let nowhere = pairing_link("127.0.0.1:1", "c0de");
-        let (name, back) = crate::acp::runtime()
+        let Paired { name, back, .. } = crate::acp::runtime()
             .block_on(crate::servers::pair(
                 home_b.path(),
                 format!("127.0.0.1:{port_a}"),
-                a.access().code(),
+                a.access().code(crate::access::Grant::default()),
                 Key::generate(),
                 Some(nowhere),
             ))
@@ -1114,7 +1280,7 @@ mod tests {
         let (server, shared) = sharing(home.path());
         server.share(Share::Serve(true));
         let on = told(&shared);
-        let (Some(Ok(port)), Some((offered, _))) = (on.serving, on.link) else {
+        let (Some(Ok(port)), Some((offered, _, _))) = (on.serving, on.link) else {
             panic!("listening, with a link")
         };
         let (host, code) = pairing(&offered).unwrap();
@@ -1125,7 +1291,7 @@ mod tests {
             .block_on(pair(&host, code, &key, None))
             .unwrap();
         let (_link, _, _heard, stood) = desk(port, Key::read(&kept).unwrap(), None).unwrap();
-        let spare = server.access().code();
+        let spare = server.access().code(crate::access::Grant::default());
         server.share(Share::Serve(false));
         let off = std::iter::from_fn(|| shared.try_recv().ok())
             .last()
@@ -1134,7 +1300,7 @@ mod tests {
         assert!(matches!(told(&stood), State::Lost(_)));
         assert!(desk(port, Key::read(&kept).unwrap(), None).is_err());
         assert!(
-            !server.access().live(&spare),
+            server.access().live(&spare).is_none(),
             "no code made before lets a key in"
         );
     }
@@ -1149,7 +1315,7 @@ mod tests {
         };
         let (host, code) = pairing(&here).unwrap();
         assert_eq!(host, format!("127.0.0.1:{port}"));
-        assert!(server.access().live(&code));
+        assert!(server.access().live(&code).is_some());
         let why = server
             .back_link("calm-river-1.trycloudflare.com")
             .unwrap_err();

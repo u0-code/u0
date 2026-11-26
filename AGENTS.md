@@ -304,9 +304,11 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 - `~/.ghost/devices.json` (on the server) holds the devices paired and
   how Ghost is shared (listening, on which port, the tunnel, a named
   tunnel's token).
-  Each device is `{label, key, paired, seen}`: `key` the public half of
-  its Ed25519 key as `authorized_keys` writes it (`ssh-ed25519 AAAA…`),
-  shown by its `SHA256:` fingerprint. `~/.ghost/servers.json` (on a desk)
+  Each device is `{label, key, scope, until, waiting, paired, seen}`:
+  `key` the public half of its Ed25519 key as `authorized_keys` writes
+  it (`ssh-ed25519 AAAA…`), shown by its `SHA256:` fingerprint; `scope`
+  `full` or `read`; `until` when its access ends; `waiting` until you
+  let it in. `~/.ghost/servers.json` (on a desk)
   holds the servers paired with (`{name, host, key}`, `key` the public
   half this Mac made for it) and whether this Mac controls others
   (`control`: on, the window holds each of them beside this Mac's own;
@@ -320,8 +322,14 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 - A desk comes in by signature, never by a secret: the server's first
   word on each link is a nonce (`Challenge`), and the desk signs
   `ghost link <PROTOCOL>\n<nonce>` with its key for that server. A
-  pairing code (128 bits, ten minutes, once) is what lets a new key in;
-  Revoke removes the key and closes its links; turning listening off
+  pairing code (128 bits, ten minutes, once) is what lets a new key in,
+  as its `Grant` says: its scope, its days, and whether it waits for you
+  (closed with 1013 and the server's name until then). Each `Call` on a
+  link is checked against its device's scope before it is handled
+  (`Access::allows`): a `read` device makes only calls that read
+  (`Call::reads`, which names every call), and only of what lies, by
+  its real path, in a project or a worktree. Revoke removes the key and
+  closes its links, as an access ended does; turning listening off
   closes every link and withdraws the codes made.
 - Pairing both ways is two pairings, each by a code and a signature: the
   desk's `Pair` carries a pairing link of its own server's (`back`), and

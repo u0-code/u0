@@ -474,6 +474,119 @@ pub enum Call {
     CancelFlow(u64),
 }
 
+impl Call {
+    /// Where it only reads, what of the disk it reads (nothing but
+    /// Ghost's own index, records and registry: none); `None` where it
+    /// changes something, runs a program, or acts as you anywhere. Each
+    /// call is named here, so that a new one is placed as it is added: a
+    /// device that may only read is let make those that read
+    /// (`access::Scope::Read`).
+    pub fn reads(&self) -> Option<Vec<&std::path::Path>> {
+        use crate::{github::Ask, share::Share, telemetry::Ask as Count};
+        Some(match self {
+            Self::Fetch
+            | Self::Weigh
+            | Self::Troubles
+            | Self::Here { .. }
+            | Self::Watch
+            | Self::Share(Share::Look)
+            | Self::Read { .. }
+            | Self::Search { .. }
+            | Self::Used { .. }
+            | Self::List { .. }
+            | Self::Forges
+            | Self::Workflows
+            | Self::Devices
+            | Self::Screen { .. }
+            | Self::Telemetry(Count::Opened(_) | Count::Window(_) | Count::Show(_)) => Vec::new(),
+            Self::Look { folder, .. }
+            | Self::ReadProject { folder }
+            | Self::ListPrs { folder }
+            | Self::ListFiles { folder }
+            | Self::Grep { folder, .. }
+            | Self::Forge {
+                folder,
+                ask:
+                    Ask::List { .. }
+                    | Ask::View(_)
+                    | Ask::Diff(_)
+                    | Ask::Candidates
+                    | Ask::Log(_)
+                    | Ask::Templates,
+                ..
+            } => vec![folder.as_path()],
+            Self::Uncommitted { dir, .. }
+            | Self::ScopeDiff { dir, .. }
+            | Self::Commits { dir, .. }
+            | Self::ReadPr { dir, .. }
+            | Self::PrText { dir, .. }
+            | Self::Folders { dir } => vec![dir.as_path()],
+            Self::ReadFile { path } => vec![path.as_path()],
+            Self::Sizes { worktrees } => worktrees.iter().map(PathBuf::as_path).collect(),
+            Self::Place { calls, .. } => (calls.iter())
+                .flat_map(|(_, files)| files.iter().map(|(path, _)| path.as_path()))
+                .collect(),
+            Self::Install { .. }
+            | Self::CancelInstall { .. }
+            | Self::Start { .. }
+            | Self::Secret { .. }
+            | Self::Stop { .. }
+            | Self::Kill { .. }
+            | Self::Open { .. }
+            | Self::Reopen { .. }
+            | Self::Probe { .. }
+            | Self::Fork { .. }
+            | Self::Delete { .. }
+            | Self::Write(_)
+            | Self::Prompt { .. }
+            | Self::StopTask { .. }
+            | Self::Cancel { .. }
+            | Self::Answer { .. }
+            | Self::SetMode { .. }
+            | Self::SetOption { .. }
+            | Self::SignIn { .. }
+            | Self::SignOut { .. }
+            | Self::Telemetry(Count::Forget)
+            | Self::Signal { .. }
+            | Self::Uninstall { .. }
+            | Self::CliVersion { .. }
+            | Self::SaveSettings(_)
+            | Self::Share(_)
+            | Self::Keep(_)
+            | Self::Forget { .. }
+            | Self::Stash(_)
+            | Self::Append { .. }
+            | Self::DropRecord { .. }
+            | Self::CopyRecord { .. }
+            | Self::SaveScript { .. }
+            | Self::MakeFolder { .. }
+            | Self::Forge { .. }
+            | Self::Create { .. }
+            | Self::Clone { .. }
+            | Self::CancelClone
+            | Self::Refresh { .. }
+            | Self::MakeWorktree { .. }
+            | Self::Checkpoint { .. }
+            | Self::Restore { .. }
+            | Self::Git { .. }
+            | Self::DropCheckpoints { .. }
+            | Self::Tidy { .. }
+            | Self::TermOpen { .. }
+            | Self::TermInput { .. }
+            | Self::TermResize { .. }
+            | Self::TermClose { .. }
+            | Self::SetTask(_)
+            | Self::DropTask(_)
+            | Self::RunTask(_)
+            | Self::Device { .. }
+            | Self::StartFlow { .. }
+            | Self::AnswerFlow { .. }
+            | Self::ResumeFlow(_)
+            | Self::CancelFlow(_) => return None,
+        })
+    }
+}
+
 /// What the server sends back.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Event {
@@ -802,7 +915,7 @@ pub enum Event {
 
 /// The version of what is said over a link (`link`): a desk and a server
 /// that speak another are refused, each told to update.
-pub const PROTOCOL: u32 = 4;
+pub const PROTOCOL: u32 = 5;
 
 /// The first thing a server says over a link: a nonce made for it, for
 /// the desk to sign (`key`).
@@ -861,6 +974,8 @@ pub struct Welcome {
     /// As a desk pairs with a link to pair back with: the public half of
     /// the key the server paired back with, or why it could not.
     pub back: Option<Result<String, String>>,
+    /// What this device may do there.
+    pub scope: crate::access::Scope,
 }
 
 /// What a session loaded or resumed starts with.
@@ -1630,10 +1745,17 @@ mod tests {
                 devices: Ok(vec![crate::access::Device {
                     label: "laptop".into(),
                     key: "ssh-ed25519 AAAA".into(),
+                    scope: crate::access::Scope::Read,
+                    until: Some(9),
+                    waiting: true,
                     paired: 1,
                     seen: 2,
                 }]),
-                link: Some(("ghost://pair?host=a#c".into(), 1)),
+                link: Some((
+                    "ghost://pair?host=a#c".into(),
+                    1,
+                    crate::access::Grant::default(),
+                )),
             })),
             Event::Record {
                 key: 1,

@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::AsyncBufReadExt as _;
 
 use crate::{
-    access::{Device, Named},
+    access::{Device, Grant, Named},
     link,
     proto::Event,
     server::Server,
@@ -31,17 +31,23 @@ use crate::{
 pub enum Share {
     /// How it stands: answered, as each change is, with [`Event::Shared`].
     Look,
-    /// Listen, now and each time Ghost starts, with a new pairing link;
-    /// or stop, cutting off each device linked.
+    /// Listen, now and each time Ghost starts, with a new pairing link
+    /// for a device of full scope; or stop, cutting off each device
+    /// linked.
     Serve(bool),
+    /// A new pairing link, for a device as the grant says.
+    Link(Grant),
     /// Run the tunnel, or stop it, now and each time Ghost starts.
     Tunnel(bool),
     /// The named tunnel to run; none, a quick one.
     Named(Option<Named>),
     /// Keep the Mac awake while serving.
     Awake(bool),
-    /// Unpair the device known by this public key.
+    /// Unpair the device known by this public key, or turn it away while
+    /// it waits.
     Revoke(String),
+    /// Let in the device known by this public key, which waits.
+    Approve(String),
 }
 
 /// How sharing stands.
@@ -56,9 +62,9 @@ pub struct Shared {
     pub awake: bool,
     /// The devices paired, or why they do not read.
     pub devices: Result<Vec<Device>, String>,
-    /// The pairing link last made, and when (seconds since 1970): good
-    /// once, for ten minutes.
-    pub link: Option<(String, u64)>,
+    /// The pairing link last made, when (seconds since 1970), and what it
+    /// lets in: good once, for ten minutes.
+    pub link: Option<(String, u64, Grant)>,
 }
 
 /// How the tunnel stands.
@@ -85,7 +91,7 @@ pub struct Sharing {
     /// The task that holds cloudflared, and its process.
     cloudflared: Option<(tokio::task::JoinHandle<()>, Pid)>,
     caffeinate: Option<std::process::Child>,
-    link: Option<(String, u64)>,
+    link: Option<(String, u64, Grant)>,
 }
 
 impl Drop for Sharing {
@@ -138,7 +144,7 @@ impl Server {
                     if self.sharing().port().is_none() {
                         self.share_as_kept(true);
                     }
-                    self.offer();
+                    self.offer(Grant::default());
                 } else {
                     let mut sharing = self.sharing();
                     sharing.stop_tunnel();
@@ -160,22 +166,27 @@ impl Server {
                 self.stay_awake();
             }
             Share::Revoke(key) => access.revoke(&key),
+            Share::Approve(key) => access.approve(&key),
+            Share::Link(grant) => {
+                self.offer(grant);
+            }
         }
         self.say_shared();
     }
 
     /// Offer a new pairing link, at the tunnel's address once it is up,
-    /// else at 127.0.0.1; none where Ghost does not listen.
-    pub fn offer(&self) -> Option<String> {
+    /// else at 127.0.0.1, letting in what `grant` says; none where Ghost
+    /// does not listen.
+    pub fn offer(&self, grant: Grant) -> Option<String> {
         let mut sharing = self.sharing();
         let port = sharing.port()?;
         let host = match &*sharing.tunnel.lock().expect("tunnel") {
             Tunnel::Up(host) => host.clone(),
             _ => format!("127.0.0.1:{port}"),
         };
-        let link = link::pairing_link(&host, &self.access().code());
+        let link = link::pairing_link(&host, &self.access().code(grant));
         let made = crate::store::secs(std::time::SystemTime::now());
-        sharing.link = Some((link.clone(), made));
+        sharing.link = Some((link.clone(), made, grant));
         Some(link)
     }
 
@@ -204,7 +215,10 @@ impl Server {
                 "{toward} can reach this Mac only through a tunnel of this Mac's own, and it is not up. Start it in Settings › Devices, then pair again."
             ));
         };
-        Ok(link::pairing_link(&host, &self.access().code()))
+        Ok(link::pairing_link(
+            &host,
+            &self.access().code(Grant::default()),
+        ))
     }
 
     /// Pair back with the desk that gave `back` as it paired: a key made
@@ -379,8 +393,8 @@ impl Server {
                 devices: kept.map(|k| k.devices),
                 // Only while its code is good: not once used, or past its
                 // ten minutes.
-                link: (sharing.link.clone()).filter(|(l, _)| {
-                    link::pairing(l).is_some_and(|(_, code)| self.access().live(&code))
+                link: (sharing.link.clone()).filter(|(l, _, _)| {
+                    link::pairing(l).is_some_and(|(_, code)| self.access().live(&code).is_some())
                 }),
             }
         };

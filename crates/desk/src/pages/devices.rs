@@ -20,7 +20,7 @@ use gpui::{
 
 use super::prefs::{group, item, whole};
 use crate::{
-    access::Named,
+    access::{Grant, Named, Scope},
     desk::Desk,
     fonts::Faces,
     hub::{Host, Machine, Up},
@@ -53,6 +53,40 @@ fn qr(link: &str) -> gpui::Img {
         svg.into_bytes(),
     )))
     .size(px(side as f32))
+}
+
+/// What a pairing link made for `grant` lets in, said in a phrase.
+fn granted(grant: Grant) -> String {
+    let what = match grant.scope {
+        Scope::Full => "everything",
+        Scope::Read => "read only",
+    };
+    let long = match grant.days {
+        None => "until revoked".to_owned(),
+        Some(1) => "for a day".to_owned(),
+        Some(d) => format!("for {d} days"),
+    };
+    let asked = if grant.ask {
+        ", once you let it in"
+    } else {
+        ""
+    };
+    format!("For a device: {what}, {long}{asked}")
+}
+
+/// What a device paired may do, and until when, said in a phrase.
+fn standing(d: &crate::access::Device) -> String {
+    let what = match d.scope {
+        Scope::Full => "Everything",
+        Scope::Read => "Read only",
+    };
+    let until = d.until.map_or_else(String::new, |u| {
+        format!(
+            ", until {}",
+            when::said_at(crate::store::time(u), std::time::SystemTime::now(), false)
+        )
+    });
+    format!("{what}{until}")
 }
 
 impl Desk {
@@ -158,6 +192,89 @@ impl Desk {
     /// The pairing link offered, its QR code under it; or the way to make
     /// another.
     fn pairing_link(&self, w: &WeakEntity<Desk>) -> Vec<gpui::component::setting::SettingItem> {
+        let grant = self.pages.grant;
+        // What the next link lets in: each choice set, and a link made
+        // for it at once.
+        let choose = |change: fn(&mut Grant), cx: &mut Context<Desk>| -> ui::Pick {
+            Box::new(cx.listener(move |this, _, _, cx| {
+                change(&mut this.pages.grant);
+                this.share(Share::Link(this.pages.grant));
+                cx.notify();
+            }))
+        };
+        let scope = item(
+            w,
+            "What it may do",
+            "Read only: it watches sessions, diffs and your projects' files, and changes nothing. Its calls are checked here, on this Mac.",
+            move |_, _, cx| {
+                ui::segmented(
+                    "grant-scope",
+                    vec![
+                        (
+                            "Everything",
+                            grant.scope == Scope::Full,
+                            choose(|g| g.scope = Scope::Full, cx),
+                        ),
+                        (
+                            "Read only",
+                            grant.scope == Scope::Read,
+                            choose(|g| g.scope = Scope::Read, cx),
+                        ),
+                    ],
+                )
+                .into_any_element()
+            },
+        );
+        let ends = item(
+            w,
+            "For how long",
+            "After that it is turned away, and pairs again with a new link.",
+            move |_, _, cx| {
+                ui::segmented(
+                    "grant-days",
+                    vec![
+                        (
+                            "Until revoked",
+                            grant.days.is_none(),
+                            choose(|g| g.days = None, cx),
+                        ),
+                        (
+                            "A day",
+                            grant.days == Some(1),
+                            choose(|g| g.days = Some(1), cx),
+                        ),
+                        (
+                            "A week",
+                            grant.days == Some(7),
+                            choose(|g| g.days = Some(7), cx),
+                        ),
+                        (
+                            "30 days",
+                            grant.days == Some(30),
+                            choose(|g| g.days = Some(30), cx),
+                        ),
+                    ],
+                )
+                .into_any_element()
+            },
+        );
+        let ask = item(
+            w,
+            "Ask me before letting it in",
+            "The device pairs, then waits under Devices that control this Mac until you let it in: for a link you send someone.",
+            move |_, _, cx| {
+                Switch::new("grant-ask")
+                    .accessibility_label("Ask me before letting it in")
+                    .small()
+                    .checked(grant.ask)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.pages.grant.ask = !grant.ask;
+                        this.share(Share::Link(this.pages.grant));
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            },
+        );
         let renew = |w: &WeakEntity<Desk>, about: &str| {
             item(
                 w,
@@ -165,26 +282,38 @@ impl Desk {
                 about.to_owned(),
                 |_, _, cx| {
                     ui::button("pair", crate::tr("New link"), Weight::Primary)
-                        .on_click(cx.listener(|this, _, _, _| this.share(Share::Serve(true))))
+                        .on_click(
+                            cx.listener(|this, _, _, _| this.share(Share::Link(this.pages.grant))),
+                        )
                         .into_any_element()
                 },
             )
         };
-        let Some((link, at)) = self.pages.shared.as_ref().and_then(|s| s.link.clone()) else {
-            return vec![renew(
-                w,
-                "The last link was used, or is out of date: make another.",
-            )];
+        let Some((link, at, made_for)) = self.pages.shared.as_ref().and_then(|s| s.link.clone())
+        else {
+            return vec![
+                scope,
+                ends,
+                ask,
+                renew(
+                    w,
+                    "The last link was used, or is out of date: make another.",
+                ),
+            ];
         };
+        let lets_in = granted(made_for);
         // The link on a line of its own: it is long, and wraps.
         let copy = link.clone();
         vec![
+            scope,
+            ends,
+            ask,
             item(
                 w,
                 link.clone(),
                 crate::tr_with(
-                    "Works once, for ten minutes (made %{ago}): open it on the other Mac, or scan its code, or paste it under Pair with another Mac there.",
-                    &[("ago", &ago(at))],
+                    "%{lets_in}. Works once, for ten minutes (made %{ago}): open it on the other Mac, or scan its code, or paste it under Pair with another Mac there.",
+                    &[("lets_in", &lets_in), ("ago", &ago(at))],
                 ),
                 move |_, _, cx| {
                     let copy = copy.clone();
@@ -200,7 +329,9 @@ impl Desk {
                         )
                         .child(
                             ui::button("pair", crate::tr("New link"), Weight::Quiet).on_click(
-                                cx.listener(|this, _, _, _| this.share(Share::Serve(true))),
+                                cx.listener(|this, _, _, _| {
+                                    this.share(Share::Link(this.pages.grant));
+                                }),
                             ),
                         )
                         .into_any_element()
@@ -317,30 +448,62 @@ impl Desk {
                 .map(|d| {
                     let print = key::fingerprint(&d.key);
                     let public = d.key.clone();
-                    item(
-                        w,
-                        d.label.clone(),
+                    let waiting = d.waiting;
+                    let about = if waiting {
                         crate::tr_with(
-                            "Its key: %{print}. Paired %{paired}; last here %{seen}",
+                            "Waits to be let in (%{standing}). Its key: %{print}: check it is the one the device shows. Paired %{paired}",
                             &[
+                                ("standing", &standing(d).to_lowercase()),
+                                ("print", &print),
+                                ("paired", &ago(d.paired)),
+                            ],
+                        )
+                    } else {
+                        crate::tr_with(
+                            "%{standing}. Its key: %{print}. Paired %{paired}; last here %{seen}",
+                            &[
+                                ("standing", &standing(d)),
                                 ("print", &print),
                                 ("paired", &ago(d.paired)),
                                 ("seen", &ago(d.seen)),
                             ],
-                        ),
-                        move |_, _, cx| {
-                            let public = public.clone();
-                            ui::button(
-                                SharedString::from(format!("revoke-{print}")),
-                                crate::tr("Revoke"),
-                                Weight::Secondary,
+                        )
+                    };
+                    item(w, d.label.clone(), about, move |_, _, cx| {
+                        let (let_in, away) = (public.clone(), public.clone());
+                        div()
+                            .flex()
+                            .gap(px(6.))
+                            .when(waiting, |d| {
+                                d.child(
+                                    ui::button(
+                                        SharedString::from(format!("approve-{print}")),
+                                        crate::tr("Let in"),
+                                        Weight::Primary,
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _, _, _| {
+                                            this.share(Share::Approve(let_in.clone()));
+                                        },
+                                    )),
+                                )
+                            })
+                            .child(
+                                ui::button(
+                                    SharedString::from(format!("revoke-{print}")),
+                                    if waiting {
+                                        crate::tr("Turn away")
+                                    } else {
+                                        crate::tr("Revoke")
+                                    },
+                                    Weight::Secondary,
+                                )
+                                .on_click(cx.listener(move |this, _, _, _| {
+                                    this.share(Share::Revoke(away.clone()));
+                                })),
                             )
-                            .on_click(cx.listener(move |this, _, _, _| {
-                                this.share(Share::Revoke(public.clone()));
-                            }))
                             .into_any_element()
-                        },
-                    )
+                    })
                 })
                 .collect(),
         }
@@ -371,6 +534,11 @@ impl Desk {
                         "%{host}. Your key: %{print}.",
                         &[("host", host), ("print", &print)],
                     ),
+                };
+                let runs = if held.is_some_and(|m| m.scope == Scope::Read) {
+                    format!("{runs} {}", crate::tr("This Mac may only watch there."))
+                } else {
+                    runs.to_string()
                 };
                 item(w, s.name.clone(), runs, move |d, faces, cx| {
                     d.server_control(&name, faces, cx)

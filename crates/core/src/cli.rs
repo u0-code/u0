@@ -210,6 +210,9 @@ fn pair_window(home: &Path) -> Result<(), String> {
         k.devices.push(access::Device {
             label: "This Mac's window".into(),
             key: key.public(),
+            scope: access::Scope::Full,
+            until: None,
+            waiting: false,
             paired: now,
             seen: now,
         });

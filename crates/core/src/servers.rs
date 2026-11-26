@@ -122,22 +122,22 @@ impl Server {
 
 /// Pair with the server at `host` by its one-time `code`, coming in with
 /// `key`, and keep it in `home`; `back`, a pairing link of this Mac's for
-/// it to pair back with. Its name, and how pairing back went.
+/// it to pair back with. What came of it.
 pub async fn pair(
     home: &Path,
     host: String,
     code: String,
     key: Key,
     back: Option<String>,
-) -> Result<(String, Option<Result<String, String>>), String> {
-    let welcome = link::pair(&host, code, &key, back).await?;
+) -> Result<link::Paired, String> {
+    let paired = link::pair(&host, code, &key, back).await?;
     let server = Server {
-        name: welcome.name.clone(),
+        name: paired.name.clone(),
         host,
         key: key.public(),
     };
     Servers::change(home, |s| s.paired(server, &key))?;
-    Ok((welcome.name, welcome.back))
+    Ok(paired)
 }
 
 #[cfg(test)]

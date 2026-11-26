@@ -28,8 +28,14 @@ A device is let in by a key, never by a password:
    nonce, and the desk signs it with its key. No secret crosses the wire
    or sits on the server.
 
+Each call a device makes is checked here, on the machine controlled,
+against what that device may do. A device that may only read watches
+sessions, diffs and the files of your projects and their worktrees, and
+changes nothing; anything else it asks is refused.
+
 Turning listening off cuts every link at once and withdraws every unused
-pairing code. **Revoke** on a device removes its key and closes its links.
+pairing code. **Revoke** on a device removes its key and closes its links,
+as an access that ends does.
 
 ## Let other devices control this Mac
 
@@ -65,15 +71,29 @@ ghost://pair?host=<host>#<code>
 ```
 
 The host is the tunnel's address while the tunnel is up, otherwise
-`127.0.0.1:<port>`. The link works once, for ten minutes. **Copy** copies
+`127.0.0.1:<port>`. The link works once, for ten minutes.
+
+Above it, choose what the next link lets in; each choice makes a new
+link at once:
+
+- **What it may do**: **Everything**, or **Read only**.
+- **For how long**: **Until revoked**, **A day**, **A week** or
+  **30 days**. After that the device is turned away, and pairs again with
+  a new link.
+- **Ask me before letting it in**: the device pairs, then waits under
+  **Devices that control this Mac** until you let it in. For a link you
+  send someone. **Copy** copies
 it and **New link** makes another. Open it on the other Mac, scan its QR
 code, or paste it there.
 
 ### Devices that control this Mac
 
-Each paired device is listed with the name it gave, its key's
-fingerprint, when it paired and when it was last here. **Revoke** cuts it
-off at once.
+Each paired device is listed with the name it gave, what it may do and
+until when, its key's fingerprint, when it paired and when it was last
+here. **Revoke** cuts it off at once.
+
+A device that waits shows **Let in** and **Turn away**. Check that its
+fingerprint is the one the device shows before you let it in.
 
 ## Control other Macs
 
@@ -142,7 +162,7 @@ followed by the link's QR code. Reach it through a tunnel or
 
 | File | Where | Holds |
 |---|---|---|
-| `devices.json` | on the machine controlled | The devices let in (`label`, `key` as `ssh-ed25519 AAAA…`, `paired`, `seen`), `port`, and whether it listens (`serve`), runs the tunnel (`tunnel`), keeps awake (`awake`), and a named tunnel (`named`: `{token, host}`). |
+| `devices.json` | on the machine controlled | The devices let in (`label`, `key` as `ssh-ed25519 AAAA…`, `scope`: `full` or `read`, `until`: when its access ends, `waiting`: until you let it in, `paired`, `seen`), `port`, and whether it listens (`serve`), runs the tunnel (`tunnel`), keeps awake (`awake`), and a named tunnel (`named`: `{token, host}`). |
 | `servers.json` | on the controlling Mac | The servers paired with (`name`, `host`, `key`: the public half of the key made for it), and `control`. Each private half is in the Keychain under `server/<fingerprint>`. |
 
 Both refuse unknown fields. A file that does not read is left alone, and
@@ -157,8 +177,7 @@ A named tunnel's token is stored in `devices.json` as plain text.
 
 :::note Coming
 
-Scoped access for each paired device (what it may do, and until when),
-listening on the local network and Tailscale, opening a paired Mac's dev
+Listening on the local network and Tailscale, opening a paired Mac's dev
 server here through its link, and `ghost thread`, `ghost workflow` and
 `ghost doctor` acting over a signed link are being finished and are not in
 the current build yet.

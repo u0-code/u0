@@ -166,11 +166,19 @@ impl Desk {
                 self.read_servers();
                 self.hold_servers();
                 match paired {
-                    Ok((name, back)) => {
+                    Ok(crate::link::Paired {
+                        name,
+                        back,
+                        waiting,
+                    }) => {
                         self.pages
                             .pair_link
                             .update(cx, |i, cx| i.set_value("", window, cx));
                         match back {
+                            None if waiting => self.done(
+                                format!("Paired with {name}: it comes into this window once it is let in there, under Settings › Devices"),
+                                None,
+                            ),
                             None => self.done(
                                 crate::tr_with(
                                     "Paired with %{name}: its projects are down the left",
@@ -218,6 +226,7 @@ impl Desk {
                 let was = std::mem::replace(&mut m.up, hub::Up::On);
                 m.home = welcome.home;
                 m.version = Some(welcome.version);
+                m.scope = welcome.scope;
                 if welcome.resumed {
                     if matches!(was, hub::Up::Lost(_)) {
                         self.done(crate::tr_with("%{name} is back", &[("name", &name)]), None);

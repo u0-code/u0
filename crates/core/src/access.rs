@@ -71,9 +71,48 @@ pub struct Device {
     /// The public half of its key, `ssh-ed25519 AAAA…`: what it is known
     /// by.
     pub key: String,
+    /// What it may do here.
+    pub scope: Scope,
+    /// When its access ends (seconds since 1970); none, never.
+    #[serde(default)]
+    pub until: Option<u64>,
+    /// It paired, and waits for you to let it in.
+    #[serde(default)]
+    pub waiting: bool,
     /// When it paired, and when it last came in (seconds since 1970).
     pub paired: u64,
     pub seen: u64,
+}
+
+/// What a device paired may do.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Scope {
+    /// Watch: what is said and done, and the projects' files and git;
+    /// it changes nothing, runs nothing and reads nothing elsewhere.
+    Read,
+    /// All a desk here does: agents, sessions, terminals, settings.
+    #[default]
+    Full,
+}
+
+/// What a pairing code lets in: a device of `scope`, for `days` (none,
+/// until revoked), let in at once or (`ask`) once you say so.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Grant {
+    pub scope: Scope,
+    pub days: Option<u32>,
+    pub ask: bool,
+}
+
+/// Why a device is not let in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Turned {
+    Away(String),
+    /// Its access ended, as said.
+    Ended(String),
+    /// It is paired, and waits for you.
+    Waiting,
 }
 
 /// A named tunnel: its token, from Cloudflare, and the address it serves.
@@ -89,7 +128,7 @@ pub struct Access {
     /// What `devices.json` holds, or why it does not read: then no device
     /// comes in, and nothing is written over it.
     kept: Mutex<Result<Kept, String>>,
-    codes: Mutex<Vec<(String, Instant)>>,
+    codes: Mutex<Vec<(String, Instant, Grant)>>,
     /// Held through each failed attempt's wait.
     failing: tokio::sync::Mutex<()>,
     /// Told each time what is kept changes: a link whose device was
@@ -139,12 +178,12 @@ impl Access {
         self.changed.subscribe()
     }
 
-    /// A new pairing code.
-    pub fn code(&self) -> String {
+    /// A new pairing code, letting in what `grant` says.
+    pub fn code(&self, grant: Grant) -> String {
         let code = random::<16>();
         let mut codes = self.codes.lock().expect("codes");
-        codes.retain(|(_, made)| made.elapsed() < CODE_LIFE);
-        codes.push((code.clone(), Instant::now()));
+        codes.retain(|(_, made, _)| made.elapsed() < CODE_LIFE);
+        codes.push((code.clone(), Instant::now(), grant));
         code
     }
 
@@ -153,15 +192,17 @@ impl Access {
         self.codes.lock().expect("codes").clear();
     }
 
-    /// Whether the pairing code `code` is still good.
-    pub fn live(&self, code: &str) -> bool {
+    /// What the pairing code `code` lets in, while it is still good.
+    pub fn live(&self, code: &str) -> Option<Grant> {
         (self.codes.lock().expect("codes").iter())
-            .any(|(c, made)| c == code && made.elapsed() < CODE_LIFE)
+            .find(|(c, made, _)| c == code && made.elapsed() < CODE_LIFE)
+            .map(|(_, _, grant)| *grant)
     }
 
     /// Let in the desk that says `hello` to the challenge `nonce`: the
-    /// key it is known by; or, a second later, why not.
-    pub async fn admit(&self, hello: &Hello, nonce: &str) -> Result<String, String> {
+    /// key it is known by and what it may do; or, a second later, why
+    /// not.
+    pub async fn admit(&self, hello: &Hello, nonce: &str) -> Result<(String, Scope), Turned> {
         let admitted = self.check(hello, nonce);
         if admitted.is_err() {
             let _one_at_a_time = self.failing.lock().await;
@@ -170,29 +211,33 @@ impl Access {
         admitted
     }
 
-    fn check(&self, hello: &Hello, nonce: &str) -> Result<String, String> {
+    fn check(&self, hello: &Hello, nonce: &str) -> Result<(String, Scope), Turned> {
         if let Err(why) = &*self.kept.lock().expect("access") {
-            return Err(why.clone());
+            return Err(Turned::Away(why.clone()));
         }
         if !key::verify(&hello.key, nonce, &hello.signature) {
-            return Err("This device's signature does not verify".into());
+            return Err(Turned::Away(
+                "This device's signature does not verify".into(),
+            ));
         }
         let now = crate::store::secs(std::time::SystemTime::now());
-        let mut known = false;
         if let Some(pair) = &hello.pair {
             let mut codes = self.codes.lock().expect("codes");
-            let at = codes
-                .iter()
-                .position(|(c, made)| c == &pair.code && made.elapsed() < CODE_LIFE)
-                .ok_or("The pairing link is used up or out of date: make another")?;
-            codes.remove(at);
+            let at = (codes.iter())
+                .position(|(c, made, _)| c == &pair.code && made.elapsed() < CODE_LIFE)
+                .ok_or_else(|| {
+                    Turned::Away("The pairing link is used up or out of date: make another".into())
+                })?;
+            let (_, _, grant) = codes.remove(at);
             drop(codes);
-            known = true;
             self.change(|k| {
                 k.devices.retain(|d| d.key != hello.key);
                 k.devices.push(Device {
                     label: pair.device.clone(),
                     key: hello.key.clone(),
+                    scope: grant.scope,
+                    until: grant.days.map(|d| now + u64::from(d) * 86_400),
+                    waiting: grant.ask,
                     paired: now,
                     seen: now,
                 });
@@ -201,24 +246,71 @@ impl Access {
             self.change(|k| {
                 if let Some(d) = k.devices.iter_mut().find(|d| d.key == hello.key) {
                     d.seen = now;
-                    known = true;
                 }
             });
         }
-        known
-            .then(|| hello.key.clone())
-            .ok_or_else(|| "This device is not paired with this Ghost".into())
+        self.lets_in(&hello.key)
+            .map(|scope| (hello.key.clone(), scope))
     }
 
-    /// Unpair the device known by `key`: its links close.
+    /// Unpair the device known by `key`, or turn it away while it waits:
+    /// its links close.
     pub fn revoke(&self, key: &str) {
         self.change(|k| k.devices.retain(|d| d.key != key));
     }
 
-    /// Whether the device known by `key` is still paired.
-    pub fn paired(&self, key: &str) -> bool {
-        (self.kept.lock().expect("access").as_ref())
-            .is_ok_and(|k| k.devices.iter().any(|d| d.key == key))
+    /// Let in the device known by `key`, which waits for you.
+    pub fn approve(&self, key: &str) {
+        self.change(|k| {
+            for d in k.devices.iter_mut().filter(|d| d.key == key) {
+                d.waiting = false;
+            }
+        });
+    }
+
+    /// What the device known by `key` may do, now: paired, let in, and
+    /// its access not ended; or why it may do nothing.
+    pub fn lets_in(&self, key: &str) -> Result<Scope, Turned> {
+        let kept = self.kept.lock().expect("access");
+        let kept = kept.as_ref().map_err(|why| Turned::Away(why.clone()))?;
+        let d = (kept.devices.iter())
+            .find(|d| d.key == key)
+            .ok_or_else(|| Turned::Away("This device is not paired with this Ghost".into()))?;
+        let now = std::time::SystemTime::now();
+        if let Some(until) = d.until.filter(|u| *u <= crate::store::secs(now)) {
+            let ended = crate::when::said_at(crate::store::time(until), now, false);
+            return Err(Turned::Ended(format!(
+                "This device's access ended {ended}: pair it again"
+            )));
+        }
+        if d.waiting {
+            return Err(Turned::Waiting);
+        }
+        Ok(d.scope)
+    }
+
+    /// Whether a device of `scope` may make `call` here, in Ghost's home
+    /// `home`: one of full scope anything; one that may only read, a call
+    /// that only reads, of what lies in a project of yours or a worktree
+    /// of Ghost's, by their real paths, so that no `..` or link leads out.
+    pub fn allows(scope: Scope, call: &crate::proto::Call, home: &Path) -> bool {
+        if scope == Scope::Full {
+            return true;
+        }
+        let Some(paths) = call.reads() else {
+            return false;
+        };
+        if paths.is_empty() {
+            return true;
+        }
+        let settings = crate::settings::Settings::load(home).0;
+        let roots: Vec<PathBuf> = (settings.folders.iter())
+            .chain(&settings.worktree_folders(home))
+            .filter_map(|r| std::fs::canonicalize(r).ok())
+            .collect();
+        paths
+            .iter()
+            .all(|p| std::fs::canonicalize(p).is_ok_and(|p| roots.iter().any(|r| p.starts_with(r))))
     }
 }
 
@@ -259,6 +351,13 @@ mod tests {
         }
     }
 
+    fn away(t: Turned) -> String {
+        match t {
+            Turned::Away(why) | Turned::Ended(why) => why,
+            Turned::Waiting => "waiting".into(),
+        }
+    }
+
     fn block<F: std::future::Future>(f: F) -> F::Output {
         crate::acp::runtime().block_on(f)
     }
@@ -268,21 +367,24 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let access = Access::new(home.path());
         let (key, other) = (Key::generate(), Key::generate());
-        let code = access.code();
+        let code = access.code(Grant::default());
         assert_eq!(
             block(access.admit(&hello(&key, "n1", Some(code.clone())), "n1")),
-            Ok(key.public())
+            Ok((key.public(), Scope::Full))
         );
-        assert!(!access.live(&code), "a code used is no longer shown");
+        assert!(
+            access.live(&code).is_none(),
+            "a code used is no longer shown"
+        );
         let used = block(access.admit(&hello(&other, "n2", Some(code)), "n2"));
-        assert!(used.unwrap_err().contains("used up"));
+        assert!(used.map_err(away).unwrap_err().contains("used up"));
         let written = std::fs::read_to_string(home.path().join("devices.json")).unwrap();
         assert!(written.contains(&key.public()) && !written.contains(key.kept()));
         // Read again, the device comes in by its signature alone.
         let again = Access::new(home.path());
         assert!(block(again.admit(&hello(&key, "n3", None), "n3")).is_ok());
         let stranger = block(again.admit(&hello(&other, "n4", None), "n4"));
-        assert!(stranger.unwrap_err().contains("not paired"));
+        assert!(stranger.map_err(away).unwrap_err().contains("not paired"));
     }
 
     #[test]
@@ -290,10 +392,15 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let access = Access::new(home.path());
         let key = Key::generate();
-        let code = access.code();
+        let code = access.code(Grant::default());
         let began = Instant::now();
         let replayed = block(access.admit(&hello(&key, "old", Some(code.clone())), "new"));
-        assert!(replayed.unwrap_err().contains("does not verify"));
+        assert!(
+            replayed
+                .map_err(away)
+                .unwrap_err()
+                .contains("does not verify")
+        );
         assert!(began.elapsed() >= Duration::from_secs(1));
         // The code was not spent on it.
         assert!(block(access.admit(&hello(&key, "new", Some(code)), "new")).is_ok());
@@ -303,11 +410,40 @@ mod tests {
     fn an_expired_code_lets_no_key_in() {
         let home = tempfile::tempdir().unwrap();
         let access = Access::new(home.path());
-        let code = access.code();
+        let code = access.code(Grant::default());
         access.codes.lock().unwrap()[0].1 -= CODE_LIFE;
         let key = Key::generate();
         let late = block(access.admit(&hello(&key, "n", Some(code)), "n"));
-        assert!(late.unwrap_err().contains("out of date"));
+        assert!(late.map_err(away).unwrap_err().contains("out of date"));
+    }
+
+    #[test]
+    fn a_device_that_may_only_read_reads_in_your_projects_alone() {
+        use crate::proto::Call;
+        let home = tempfile::tempdir().unwrap();
+        let project = home.path().join("p");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(project.join("a.rs"), "x").unwrap();
+        std::fs::write(home.path().join("mcp.json"), "{}").unwrap();
+        std::os::unix::fs::symlink(home.path().join("mcp.json"), project.join("out")).unwrap();
+        let settings = serde_json::json!({"enabled": [], "folders": [project]});
+        std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
+        let read = |path: PathBuf| Call::ReadFile { path };
+        let may = |call: &Call| Access::allows(Scope::Read, call, home.path());
+        assert!(may(&read(project.join("a.rs"))));
+        assert!(may(&Call::Watch));
+        assert!(!may(&read(home.path().join("mcp.json"))), "outside");
+        assert!(!may(&read(project.join("../mcp.json"))), "led out by ..");
+        assert!(!may(&read(project.join("out"))), "led out by a link");
+        assert!(!may(&Call::Stash(Vec::new())), "it changes something");
+        let act = Call::TermOpen {
+            id: 1,
+            dir: project.clone(),
+            shell: None,
+            first: None,
+            size: (1, 1),
+        };
+        assert!(!may(&act) && Access::allows(Scope::Full, &act, home.path()));
     }
 
     #[test]
@@ -317,8 +453,14 @@ mod tests {
         std::fs::write(home.path().join("devices.json"), old).unwrap();
         let access = Access::new(home.path());
         let key = Key::generate();
-        let refused = block(access.admit(&hello(&key, "n", Some(access.code())), "n"));
-        assert!(refused.unwrap_err().contains("pair each device again"));
+        let refused =
+            block(access.admit(&hello(&key, "n", Some(access.code(Grant::default()))), "n"));
+        assert!(
+            refused
+                .map_err(away)
+                .unwrap_err()
+                .contains("pair each device again")
+        );
         let left = std::fs::read_to_string(home.path().join("devices.json")).unwrap();
         assert_eq!(left, old);
     }

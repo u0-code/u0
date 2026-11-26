@@ -85,6 +85,9 @@ agent variable or token marked secret cannot be used there.
   nonce on each link. The server holds only public keys.
 - Pairing codes are 128 random bits, used once, valid ten minutes, never
   written to disk.
+- Each device may do everything or only read, until revoked or for a
+  number of days, and may have to wait until you let it in. What it may
+  do is checked here, for each call it makes.
 - **Revoke** removes a device's key and closes its links at once; turning
   listening off closes every link and withdraws every code.
 - A [policy](reference/policy.md) can forbid listening, tunnels, webhooks

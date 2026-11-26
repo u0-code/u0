@@ -49,10 +49,8 @@ pub enum Msg {
     Update(crate::desk::updates::Update),
     /// How the link to a server stands.
     Link(Host, link::State),
-    /// The name of a server paired with, and how it paired back, if
-    /// asked to: the public half of its key for this Mac, or why not; or
-    /// why it did not pair.
-    Paired(Result<(String, Option<Result<String, String>>), String>),
+    /// What came of pairing with a server, or why it did not pair.
+    Paired(Result<link::Paired, String>),
 }
 
 pub type Sender = mpsc::UnboundedSender<Msg>;
@@ -108,6 +106,8 @@ pub struct Machine {
     pub elsewhere: std::collections::BTreeMap<String, Vec<(PathBuf, usize)>>,
     /// What each CLI of yours an agent there runs says its version is.
     pub cli_versions: HashMap<PathBuf, String>,
+    /// What this Mac may do there, as its welcome said: all, on its own.
+    pub scope: crate::access::Scope,
     /// The build of Ghost it runs, as its welcome said.
     pub version: Option<String>,
 }
@@ -129,6 +129,7 @@ impl Machine {
             elsewhere: std::collections::BTreeMap::new(),
             cli_versions: HashMap::new(),
             version: None,
+            scope: crate::access::Scope::Full,
         }
     }
 
