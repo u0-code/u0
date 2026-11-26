@@ -231,7 +231,7 @@ impl Entry {
     /// points the adapter at it.
     pub fn your_cli(&self) -> Option<(&'static str, PathBuf)> {
         let (name, var) = known(&self.id)?.1?;
-        which(name).map(|p| (var, p))
+        which::which(name).ok().map(|p| (var, p))
     }
 
     /// The CLI it is signed in through: yours on the PATH where its
@@ -317,7 +317,7 @@ impl Entry {
                         env: p.env.clone().into_iter().collect(),
                         dir: None,
                     }),
-                    None if which(installer(runner)).is_some() => Err(Missing::Download),
+                    None if which::which(installer(runner)).is_ok() => Err(Missing::Download),
                     None => Err(Missing::Runner(runner.to_owned())),
                 }
             }
@@ -340,7 +340,7 @@ pub fn launch_with(entry: &Entry, home: &Path, command: Option<&str>) -> Result<
     let program = if first.contains('/') {
         Some(PathBuf::from(&first)).filter(|p| p.is_file())
     } else {
-        which(&first)
+        which::which(&first).ok()
     }
     .ok_or(Missing::Command(first))?;
     Ok(Launch {
@@ -349,14 +349,6 @@ pub fn launch_with(entry: &Entry, home: &Path, command: Option<&str>) -> Result<
         env: Vec::new(),
         dir: None,
     })
-}
-
-/// A program by name on the PATH.
-pub fn which(name: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|dir| dir.join(name))
-        .find(|p| p.is_file())
 }
 
 /// The copy of the registry kept in `home`, if there is one.
@@ -509,7 +501,8 @@ fn install_package(entry: &Entry, home: &Path, say: Say, stop: &AtomicBool) -> R
     std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
     let mut command = if let Some(p) = &d.npx {
         say(&format!("Installing {} with npm", p.package), None);
-        let npm = which(installer("npx"))
+        let npm = which::which(installer("npx"))
+            .ok()
             .ok_or_else(|| Missing::Runner("npx".into()).say(&entry.name))?;
         let mut c = Command::new(npm);
         c.args([
@@ -524,7 +517,8 @@ fn install_package(entry: &Entry, home: &Path, say: Say, stop: &AtomicBool) -> R
         c
     } else if let Some(p) = &d.uvx {
         say(&format!("Installing {} with uv", p.package), None);
-        let uv = which(installer("uvx"))
+        let uv = which::which(installer("uvx"))
+            .ok()
             .ok_or_else(|| Missing::Runner("uvx".into()).say(&entry.name))?;
         let mut c = Command::new(uv);
         c.args(["tool", "install", "--force", &p.package])

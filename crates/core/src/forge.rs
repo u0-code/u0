@@ -261,7 +261,7 @@ pub fn seen() -> Vec<Seen> {
         .into_iter()
         .map(|host| Seen {
             host,
-            cli: host.cli().and_then(crate::registry::which).map(|path| {
+            cli: host.cli().and_then(|c| which::which(c).ok()).map(|path| {
                 let said = std::process::Command::new(&path).arg("--version").output();
                 said.ok()
                     .and_then(|o| {

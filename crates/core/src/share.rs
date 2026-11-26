@@ -21,7 +21,6 @@ use crate::{
     access::{Device, Named},
     link::{self, PORT},
     proto::Event,
-    registry,
     server::Server,
 };
 
@@ -204,7 +203,7 @@ impl Server {
     fn tunnel(self: &Arc<Self>) {
         let mut sharing = self.sharing();
         sharing.stop_tunnel();
-        let Some(cloudflared) = registry::which("cloudflared") else {
+        let Some(cloudflared) = which::which("cloudflared").ok() else {
             *sharing.tunnel.lock().expect("tunnel") =
                 Tunnel::Down("cloudflared is not installed: brew install cloudflared".into());
             return;
@@ -274,7 +273,7 @@ impl Server {
         let serving = matches!(sharing.listening, Some(Ok(_)));
         match (&sharing.caffeinate, awake && serving) {
             (None, true) => {
-                sharing.caffeinate = registry::which("caffeinate").and_then(|c| {
+                sharing.caffeinate = which::which("caffeinate").ok().and_then(|c| {
                     std::process::Command::new(c)
                         .args(["-i", "-w", &std::process::id().to_string()])
                         .spawn()

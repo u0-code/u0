@@ -198,7 +198,7 @@ assets/         fonts, the desk's own icons and the themes it brings, built into
 | Work off the window's thread | what touches the machine (agents, store, git, files, the home): a `proto::Call`, answered as a `proto::Event`; the window's own (pictures, your editor, key bindings, terminals) a function in `hub.rs` that returns a `Msg` |
 | Atomic file write | `whole::write`, off the window's thread: `store::queue(Job::Write)` for the desk's own files |
 | Where Ghost keeps its files | `settings::home()` |
-| A program on the PATH | `registry::which` |
+| A program on the PATH | `which::which` (the `which` crate) |
 | Anything over HTTP | `http::get`, `http::call`, `http::download` (ureq), off the window's thread |
 | An agent's logo | `Desk::mark_of` and `ui::mark` |
 | Anything git | `git.rs`, in the server: a `proto::Call` handled with `repo.rs` |

@@ -41,7 +41,7 @@ pub fn resolve(value: String) -> Result<String, String> {
     if !value.starts_with("op://") {
         return Ok(value);
     }
-    let op = crate::registry::which("op").ok_or("1Password's op CLI is not installed")?;
+    let op = which::which("op").map_err(|_| "1Password's op CLI is not installed")?;
     crate::git::yours(
         std::path::Path::new("/"),
         &op.to_string_lossy(),

@@ -21,7 +21,6 @@ pub use agent::*;
 use crate::{
     acp, link,
     proto::{Call, Event},
-    registry,
     server::Server,
     settings::Settings,
 };
@@ -278,8 +277,8 @@ pub fn edit(path: PathBuf, chosen: Option<String>, start: Option<&'static [u8]>,
             let _ = tx.send(Msg::Notice(Err((format!("There is no {shown} here"), why))));
             return;
         }
-        let editor = (chosen.as_deref().and_then(registry::which))
-            .or_else(|| (crate::desk::EDITORS.into_iter()).find_map(|(c, _)| registry::which(c)));
+        let editor = (chosen.as_deref().and_then(|c| which::which(c).ok()))
+            .or_else(|| (crate::desk::EDITORS.into_iter()).find_map(|(c, _)| which::which(c).ok()));
         let opened = match editor {
             Some(cmd) => std::process::Command::new(cmd).arg(&path).status(),
             None => std::process::Command::new("open")
@@ -338,7 +337,7 @@ pub fn install_command(tx: Sender) {
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
         });
         Msg::Notice(match put {
-            Ok(()) if registry::which("ghost").is_some_and(|p| p == path) => {
+            Ok(()) if which::which("ghost").is_ok_and(|p| p == path) => {
                 Ok(format!("ghost <folder> opens it in Ghost: {shown}"))
             }
             Ok(()) => Ok(format!("It is in {shown}; add ~/.local/bin to your PATH")),
@@ -378,6 +377,6 @@ pub fn install_update(found: crate::update::Found, app: PathBuf, home: PathBuf, 
 pub fn on_path(tx: Sender) {
     off(tx, || {
         let offered = std::iter::once("gh").chain(crate::desk::EDITORS.map(|(c, _)| c));
-        Msg::OnPath(offered.filter(|c| registry::which(c).is_some()).collect())
+        Msg::OnPath(offered.filter(|c| which::which(c).is_ok()).collect())
     });
 }

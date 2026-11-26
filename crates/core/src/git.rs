@@ -627,7 +627,7 @@ pub fn pull_request(dir: &Path, title: &str, body: &str) -> Result<String, Strin
     // GitHub through gh; GitLab through glab where it is installed; any
     // other host (Bitbucket, GitLab without glab) by its page for a new
     // one, opened in the browser.
-    if host.contains("gitlab") && crate::registry::which("glab").is_some() {
+    if host.contains("gitlab") && which::which("glab").is_ok() {
         let args = [
             "mr",
             "create",

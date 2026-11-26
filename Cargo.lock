@@ -2103,6 +2103,7 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "ureq",
+ "which",
 ]
 
 [[package]]
@@ -2133,6 +2134,7 @@ dependencies = [
  "url",
  "vt100",
  "vte",
+ "which",
 ]
 
 [[package]]

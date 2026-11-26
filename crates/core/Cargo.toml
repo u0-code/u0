@@ -23,6 +23,7 @@ base64.workspace = true
 shell-words.workspace = true
 similar.workspace = true
 percent-encoding.workspace = true
+which.workspace = true
 jiff.workspace = true
 tempfile.workspace = true
 hayro.workspace = true

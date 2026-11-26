@@ -25,6 +25,7 @@ unicode-width.workspace = true
 shell-words.workspace = true
 url.workspace = true
 percent-encoding.workspace = true
+which.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
