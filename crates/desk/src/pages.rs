@@ -21,10 +21,11 @@ mod writing;
 pub use settings::{Tab, height as settings_height};
 
 use gpui::component::{
-    Sizable as _,
+    IconName, Sizable as _,
     input::{Input, InputEvent, InputState, TextareaState},
     progress::Progress,
     scroll::ScrollableElement as _,
+    stepper::{Stepper, StepperItem},
 };
 use gpui::{Context, Div, Entity, SharedString, Window, div, prelude::*, px};
 
@@ -285,30 +286,6 @@ enum Step {
     Done,
 }
 
-fn step_number(faces: &Faces, n: u8, step: Step) -> Div {
-    let (line, color) = match step {
-        Step::Todo => (theme::border2(), theme::muted()),
-        Step::Now => (theme::accent(), theme::accent()),
-        Step::Done => (theme::ok(), theme::ok()),
-    };
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .size(px(22.))
-        .rounded_full()
-        .border_1()
-        .border_color(line)
-        .when(step == Step::Done, |d| d.bg(theme::ok().opacity(0.18)))
-        .child(
-            ui::text(faces, n.to_string())
-                .text_size(px(11.))
-                .weight(gpui::FontWeight::MEDIUM)
-                .text_color(color),
-        )
-}
-
 pub(crate) fn card() -> Div {
     div()
         .flex()
@@ -470,16 +447,11 @@ impl Desk {
                 ),
             ));
         }
-        let step_row = |n: u8, st: Step, body: Div| {
-            div()
-                .flex()
-                .gap(px(14.))
-                .px(px(16.))
-                .py(px(14.))
-                .when(n > 1, |d| d.border_t_1().border_color(theme::border()))
-                .child(step_number(faces, n, st))
-                // Its words wrap inside the card.
-                .child(body.min_w(px(0.)))
+        // A step done is checked; the first not done is where you are.
+        let step = |st: Step, body: Div| {
+            StepperItem::new()
+                .when(st == Step::Done, |i| i.icon(IconName::Check))
+                .child(body.min_w(px(0.)).pb(px(14.)))
         };
         let simple = |title: String, text: String, st: Step| {
             div()
@@ -498,32 +470,40 @@ impl Desk {
                 )
                 .child(ui::fine(faces, text))
         };
-        let steps = card()
-            .child(step_row(1, one, download))
-            .child(step_row(
-                2,
-                two,
-                simple(
-                    "Check that it speaks ACP".into(),
-                    format!("Starts {command} once and reads its version and abilities."),
+        let now = [one, two, three]
+            .iter()
+            .position(|st| *st != Step::Done)
+            .unwrap_or(2);
+        let steps = card().px(px(16.)).pt(px(14.)).child(
+            Stepper::new("agent-steps")
+                .vertical()
+                .selected_index(now)
+                .item(step(one, download))
+                .item(step(
                     two,
-                ),
-            ))
-            .child(step_row(
-                3,
-                three,
-                simple(
-                    format!("Sign in to {name}"),
-                    match &auth {
-                        crate::hub::Auth::Needed(why) => format!("{name} says: {why}"),
-                        crate::hub::Auth::Ready => format!("Signed in: {name} opens sessions."),
-                        crate::hub::Auth::Unknown => {
-                            format!("{name}'s own sign-in. Skipped if you're already signed in.")
-                        }
-                    },
+                    simple(
+                        "Check that it speaks ACP".into(),
+                        format!("Starts {command} once and reads its version and abilities."),
+                        two,
+                    ),
+                ))
+                .item(step(
                     three,
-                ),
-            ));
+                    simple(
+                        format!("Sign in to {name}"),
+                        match &auth {
+                            crate::hub::Auth::Needed(why) => format!("{name} says: {why}"),
+                            crate::hub::Auth::Ready => format!("Signed in: {name} opens sessions."),
+                            crate::hub::Auth::Unknown => {
+                                format!(
+                                    "{name}'s own sign-in. Skipped if you're already signed in."
+                                )
+                            }
+                        },
+                        three,
+                    ),
+                )),
+        );
 
         let (install_id, recheck_id, start_id, toggle_id) =
             (id.to_owned(), id.to_owned(), id.to_owned(), id.to_owned());
