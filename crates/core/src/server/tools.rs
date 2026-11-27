@@ -84,6 +84,10 @@ pub(super) struct Tools {
     key: String,
     /// The tools you allowed always to it.
     always: Arc<Mutex<HashSet<&'static str>>>,
+    /// What happens, as heard since it came in: a subscriber is told of
+    /// all that happened after that, even before its subscription is
+    /// acknowledged and listened to.
+    heard: tokio::sync::watch::Receiver<std::collections::VecDeque<super::happened::Milestone>>,
 }
 
 /// Why a tool that acts, or asks you, is not for an agent outside Ghost.
@@ -126,6 +130,7 @@ impl Tools {
             shared: shared.clone(),
             key: key.to_owned(),
             always,
+            heard: shared.happened.subscribe(),
         })
     }
 

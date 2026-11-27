@@ -76,7 +76,7 @@ impl Tools {
             context.cancelled().await;
             return Ok(());
         }
-        let mut kept = self.shared.happened.subscribe();
+        let mut kept = self.heard.clone();
         loop {
             tokio::select! {
                 () = context.cancelled() => return Ok(()),
