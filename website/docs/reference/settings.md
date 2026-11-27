@@ -168,6 +168,33 @@ Each entry of `prefs`:
 | `proactive_panels` | bool | `true` | Open diff and pull request panels proactively. |
 | `hidden_details` | list of `"context"`, `"plan"`, `"background"`, `"servers"`, `"terminals"`, `"lineage"`, `"linked"` | `[]` | Sections of a thread's details hidden from the right column. |
 
+### Themes
+
+**Settings › Appearance › Themes** lists the themes: Carbon's four that u0
+brings and yours, each a file in `themes/` in gpui-kit's theme format.
+Choosing a card draws its look (dark or light) in it; **Light theme** and
+**Dark theme** above say which one each look uses.
+
+- **Customize** on a card opens the theme in a panel over the settings:
+  its main colours with a colour picker, how well its text reads on its
+  grounds (contrast), a preview, and every colour by its hex. Edits are
+  saved as you make them. A theme u0 brings is customized as a copy of
+  yours. **Duplicate**, a reset, and **Remove theme** are at its foot.
+- **Import a VS Code theme…** and **Import a gpui-kit theme JSON…** make a
+  theme file of another app's yours. When you already have a theme of that
+  name, u0 asks first: replace it, or keep both, the import under the next
+  free name.
+- The search finds your themes, and, from two letters on, colour theme
+  extensions on [Open VSX](https://open-vsx.org); **Add** brings one and
+  imports the themes it holds as above.
+- **Ask an agent** has the writer (one of your agents; see
+  [The writer and dictation](#the-writer-and-dictation)) write a theme
+  from what you describe, for the look drawn now. u0 has no model of its
+  own.
+- **New theme** starts one of yours from the theme drawn now.
+
+**Reduce motion** (`motion`) is under **Motion and effects**.
+
 ## Notifications and background
 
 | Key | Type | Default | Meaning |
