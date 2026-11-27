@@ -22709,3 +22709,13 @@ _version: 2
   pt-BR: "%{name} está abrindo esta thread"
   ru: "%{name} открывает этот тред"
   sv: "%{name} öppnar den här tråden"
+"%{address} is neither a web address nor a file of the thread's: u0 does not open it":
+  zh-CN: "%{address} 既不是网址，也不是此线程的文件：u0 不会打开它"
+  de: "%{address} ist weder eine Webadresse noch eine Datei des Threads: u0 öffnet es nicht"
+  es: "%{address} no es una dirección web ni un archivo del hilo: u0 no lo abre"
+  fr: "%{address} n’est ni une adresse web ni un fichier du fil : u0 ne l’ouvre pas"
+  ja: "%{address} は Web アドレスでもこのスレッドのファイルでもありません。u0 は開きません"
+  ko: "%{address}은(는) 웹 주소도 이 스레드의 파일도 아닙니다. u0는 열지 않습니다"
+  pt-BR: "%{address} não é um endereço web nem um arquivo do tópico: o u0 não o abre"
+  ru: "%{address} — не веб-адрес и не файл этой ветки: u0 его не открывает"
+  sv: "%{address} är varken en webbadress eller en fil i tråden: u0 öppnar den inte"

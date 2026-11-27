@@ -894,7 +894,7 @@ impl Desk {
 
             Some(Shown::Text { total_bytes, .. }) if is_html => {
                 let size_str = format_bytes(*total_bytes);
-                let url = format!("file://{}", full.display());
+                let picked = full.clone();
                 let bar = fv_bar(faces, CarbonIcon::Document, rel_display.clone())
                     .child(
                         ui::one_line(
@@ -916,7 +916,7 @@ impl Desk {
                             .variant(ButtonVariant::Ghost)
                             .size(ButtonSize::Sm)
                             .icon(CarbonIcon::Launch)
-                            .on_click(move |_, _, cx| cx.open_url(&url)),
+                            .on_click(move |_, _, cx| crate::aside::rules::yours(&picked, cx)),
                     );
                 div()
                     .flex()
@@ -1329,7 +1329,7 @@ impl Desk {
 
             Some(Shown::Media { audio, bytes }) => {
                 let is_audio = *audio;
-                let url = format!("file://{}", full.display());
+                let picked = full.clone();
                 let card = fv_frame()
                     .child(
                         div()
@@ -1368,7 +1368,9 @@ impl Desk {
                                     .variant(ButtonVariant::Ghost)
                                     .size(ButtonSize::Sm)
                                     .icon(CarbonIcon::Launch)
-                                    .on_click(move |_, _, cx| cx.open_url(&url)),
+                                    .on_click(move |_, _, cx| {
+                                        crate::aside::rules::yours(&picked, cx);
+                                    }),
                             ),
                     )
                     .child(
@@ -1434,7 +1436,7 @@ impl Desk {
             }
 
             Some(Shown::Binary) => {
-                let url = format!("file://{}", full.display());
+                let picked = full.clone();
                 let d_ask = desk.clone();
                 let agent_name = self.name_of(&s.meta.agent);
                 let mention = format!("@{rel_display} ");
@@ -1452,7 +1454,9 @@ impl Desk {
                                     Button::new("bin-open", crate::tr("Open in default app"))
                                         .variant(ButtonVariant::Secondary)
                                         .size(ButtonSize::Sm)
-                                        .on_click(move |_, _, cx| cx.open_url(&url)),
+                                        .on_click(move |_, _, cx| {
+                                            crate::aside::rules::yours(&picked, cx);
+                                        }),
                                 )
                                 .action(
                                     Button::new(

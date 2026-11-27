@@ -329,8 +329,8 @@ impl Desk {
             .body(e.message.clone())
             .preview(about)
             .on_primary(move |_, cx| {
-                cx.open_url(&url);
                 desk_yes.update(cx, |this, cx| {
+                    this.browse(&url, cx);
                     let yes = CreateElicitationResponse::new(ElicitationAction::Accept(
                         ElicitationAcceptAction::new(),
                     ));

@@ -183,7 +183,7 @@ impl Desk {
             "Open on its host",
             Box::new({
                 let url = url.clone();
-                move |_, _, cx| cx.open_url(&url)
+                move |d, _, cx| d.browse(&url, cx)
             }),
         );
         entry(

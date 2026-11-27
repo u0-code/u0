@@ -738,7 +738,7 @@ impl Desk {
                     .variant(ButtonVariant::Ghost)
                     .size(ButtonSize::Sm)
                     .icon(CarbonIcon::Launch)
-                    .on_click(move |_, _, cx| cx.open_url(&open_url)),
+                    .on_click(cx.listener(move |this, _, _, cx| this.browse(&open_url, cx))),
             )
             .child(
                 Button::new("refresh-pr", crate::tr("Check again"))
@@ -812,6 +812,7 @@ impl Desk {
         });
 
         let checks_list = (!pr.checks.is_empty()).then(|| {
+            let desk = desk.clone();
             let urls: Vec<String> = pr.checks.iter().map(|c| c.url.clone()).collect();
             let items: Vec<Check> = pr
                 .checks
@@ -835,7 +836,7 @@ impl Desk {
                 .details_label(crate::tr("Details"))
                 .on_details(move |ix, _, cx| {
                     if let Some(u) = urls.get(ix).filter(|u| !u.is_empty()) {
-                        cx.open_url(u);
+                        desk.update(cx, |d, cx| d.browse(u, cx));
                     }
                 })
         });

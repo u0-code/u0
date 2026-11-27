@@ -432,8 +432,8 @@ impl Desk {
                 }
             }
             None => {
-                if let Some(site) = &slot.entry.website {
-                    cx.open_url(site);
+                if let Some(site) = slot.entry.website.clone() {
+                    self.browse(&site, cx);
                 }
             }
         }

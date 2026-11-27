@@ -272,15 +272,38 @@ impl Desk {
     }
 
     /// Hand `address` to your browser: a web address only
-    /// (`aside::rules::for_browser`), on every system; anything else, a
+    /// (`aside::rules::to_browser`), on every system; anything else, a
     /// `preview` naming a file or another app's address, is refused and said.
     pub(crate) fn browse(&mut self, address: &str, cx: &mut gpui::App) {
-        match crate::aside::rules::for_browser(address) {
-            Some(url) => cx.open_url(url.as_str()),
-            None => self.trouble(
+        if !crate::aside::rules::to_browser(address, cx) {
+            self.trouble(
                 crate::tr_with(
                     "%{address} is not a web address: only web addresses go to your browser",
                     &[("address", &address)],
+                ),
+                None,
+                None,
+            );
+        }
+    }
+
+    /// A link in what an agent said: a web address to your browser; a
+    /// file within the thread's folder in u0's own viewer, never the
+    /// system's handler of it (`rules::within`); anything else, an app, a
+    /// script, a share, another app's address, refused and said.
+    pub(crate) fn follow_link(&mut self, to: &str, cx: &mut Context<Self>) {
+        if crate::aside::rules::for_browser(to).is_some() {
+            return self.browse(to, cx);
+        }
+        let file = self
+            .session()
+            .and_then(|s| crate::aside::rules::within(&s.meta.folder, to));
+        match file {
+            Some(path) => self.open_surface(crate::aside::Surface::File(path), cx),
+            None => self.trouble(
+                crate::tr_with(
+                    "%{address} is neither a web address nor a file of the thread's: u0 does not open it",
+                    &[("address", &to)],
                 ),
                 None,
                 None,

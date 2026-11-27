@@ -1021,7 +1021,10 @@ impl Desk {
                 |_, _, cx| {
                     ui::button("open-registry", crate::tr("Open"), Weight::Quiet)
                         .on_click(cx.listener(|_, _, _, cx| {
-                            cx.open_url("https://agentclientprotocol.com/registry");
+                            crate::aside::rules::to_browser(
+                                "https://agentclientprotocol.com/registry",
+                                cx,
+                            );
                         }))
                         .into_any_element()
                 },

@@ -1179,11 +1179,16 @@ impl Desk {
                                 AttachmentContent::new().title(AttachmentTitle::new(name.clone())),
                             )
                             .tooltip(uri.clone())
-                            .on_click(move |_, _, cx| {
-                                if uri.starts_with("file:") {
-                                    cx.open_url(&uri);
+                            // Your own file: in u0's viewer, never the
+                            // system's handler of it.
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if let Some(path) = url::Url::parse(&uri)
+                                    .ok()
+                                    .and_then(|u| u.to_file_path().ok())
+                                {
+                                    this.open_surface(crate::aside::Surface::File(path), cx);
                                 }
-                            }),
+                            })),
                     )
                     .into_any_element()
             }
@@ -1855,7 +1860,7 @@ impl Desk {
                         crate::tr("Open in your browser"),
                         ui::Weight::Quiet,
                     )
-                    .on_click(move |_, _, cx| cx.open_url(&url)),
+                    .on_click(cx.listener(move |this, _, _, cx| this.browse(&url, cx))),
                 ),
             );
         }

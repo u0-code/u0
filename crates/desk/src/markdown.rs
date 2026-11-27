@@ -144,9 +144,9 @@ fn bulleted(text: &str) -> SharedString {
 }
 
 /// A link clicked: a commit of the session's repository in its Diff tab,
-/// a pull request on the PRs page (with ⌘, either on its host), an address
-/// in the browser or in mail, a file in your editor; any other link does
-/// nothing.
+/// a pull request on the PRs page (with ⌘, either on its host), else as
+/// any link an agent gives (`Desk::follow_link`): a web address in your
+/// browser, a file of the thread's in u0's viewer, nothing else.
 fn follow(
     desk: &WeakEntity<Desk>,
     to: &str,
@@ -165,11 +165,7 @@ fn follow(
     if here {
         return;
     }
-    if web(to) {
-        cx.open_url(to);
-    } else if path_like(to) {
-        let _ = desk.update(cx, |d, _| d.open_named(to));
-    }
+    let _ = desk.update(cx, |d, cx| d.follow_link(to, cx));
 }
 
 /// The commit a host's commit link names (`…/commit/<sha>`), as its first
@@ -189,12 +185,6 @@ fn pull_of(address: &str) -> Option<u64> {
 /// Whether a link opens in the browser or in mail. No other scheme is
 /// opened: a link's words hide where it goes, and `file:` or an app's own
 /// scheme would launch what it names.
-fn web(address: &str) -> bool {
-    ["http://", "https://", "mailto:"]
-        .iter()
-        .any(|s| address.starts_with(s))
-}
-
 /// Whether code reads as a file's path: `src/a.rs`, `a.rs:12`, `./x/y`.
 pub fn path_like(text: &str) -> bool {
     let name = text.split(':').next().unwrap_or(text);
@@ -419,14 +409,13 @@ mod tests {
     }
 
     #[test]
-    fn a_link_opens_only_the_web_mail_or_a_file_never_an_app() {
-        assert!(web("https://example.com") && web("http://x.y") && web("mailto:a@b.c"));
+    fn a_name_reads_as_a_path_but_an_app_s_address_does_not() {
         for launches in [
             "file:///Applications/X.app",
             "x-app://run",
             "javascript:go()",
         ] {
-            assert!(!web(launches) && !path_like(launches), "{launches}");
+            assert!(!path_like(launches), "{launches}");
         }
         assert!(path_like("src/a.rs:12"));
     }

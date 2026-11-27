@@ -51,7 +51,9 @@ pub(crate) fn banner(
                         .text_color(color(ColorRole::LinkPrimary))
                         .hover(|s| s.text_color(color(ColorRole::LinkPrimaryHover)))
                         .child(format!("{label} ↗"))
-                        .on_click(move |_, _, cx| cx.open_url(&url)),
+                        .on_click(move |_, _, cx| {
+                            crate::aside::rules::to_browser(&url, cx);
+                        }),
                 )
                 .into_any_element()
         }

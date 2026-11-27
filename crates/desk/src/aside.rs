@@ -1277,7 +1277,7 @@ impl Desk {
                     .text_color(theme::role(ColorRole::LinkPrimary))
                     .id("homepage")
                     .cursor_pointer()
-                    .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&link))),
+                    .on_click(cx.listener(move |this, _, _, cx| this.browse(&link, cx))),
             ));
         }
         let what = section(faces, crate::tr("What u0 does with it"), None)

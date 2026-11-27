@@ -23,12 +23,61 @@ pub fn shown(address: &str, yours: bool) -> Option<Url> {
 }
 
 /// `address` as what your browser is given ("Open in your browser", a
-/// window or download a page asks for): a web address, and nothing else,
-/// on every system.
+/// link, a window or download a page asks for): a web address, and
+/// nothing else, on every system.
 pub fn for_browser(address: &str) -> Option<Url> {
     Url::parse(address)
         .ok()
         .filter(|u| matches!(u.scheme(), "http" | "https"))
+}
+
+/// Give `address` to your browser if it is a web address
+/// ([`for_browser`]), and say whether it was: with [`yours`], the only way
+/// u0 hands an address to the system's handlers (`App::open_url`).
+pub fn to_browser(address: &str, cx: &mut gpui::App) -> bool {
+    let Some(url) = for_browser(address) else {
+        return false;
+    };
+    cx.open_url(url.as_str());
+    true
+}
+
+/// Open `path`, a file of yours the Files tab shows, with the app the
+/// system opens it with, by a button that says so: the one other way u0
+/// hands an address to the system, and only for a file you picked there,
+/// never a link from what an agent said.
+pub fn yours(path: &std::path::Path, cx: &mut gpui::App) {
+    if let Ok(url) = Url::from_file_path(path) {
+        cx.open_url(url.as_str());
+    }
+}
+
+/// The file a link names (`src/a.rs`, `a.rs:12`, `/abs/a.rs`,
+/// `file:///abs/a.rs`), as a path within `folder`, the thread's: none for
+/// one outside it, or a link that names no file. Read as written, `..`
+/// and all, never by the file system.
+pub fn within(folder: &std::path::Path, link: &str) -> Option<std::path::PathBuf> {
+    use std::path::{Component, PathBuf};
+    let path = match Url::parse(link) {
+        Ok(url) if url.scheme() == "file" => url.to_file_path().ok()?,
+        // A scheme other than a drive letter's is not a file.
+        Ok(url) if url.scheme().len() > 1 => return None,
+        _ => PathBuf::from(link.split(':').next().unwrap_or(link)),
+    };
+    let mut whole = PathBuf::new();
+    for part in folder.join(path).components() {
+        match part {
+            Component::ParentDir => {
+                whole.pop();
+            }
+            Component::CurDir => {}
+            other => whole.push(other),
+        }
+    }
+    whole
+        .strip_prefix(folder)
+        .ok()
+        .map(std::path::Path::to_path_buf)
 }
 
 /// Whether a page opened at `opened` may go to `to`, in its own frame or
@@ -86,6 +135,32 @@ mod tests {
             "localhost:5173",
         ] {
             assert!(shown(refused, true).is_none(), "{refused}");
+        }
+    }
+
+    #[test]
+    fn a_file_link_names_a_file_of_the_thread_s_folder_and_nothing_else() {
+        use std::path::Path;
+        let folder = Path::new("/Users/me/proj");
+        assert_eq!(within(folder, "src/a.rs:12"), Some("src/a.rs".into()));
+        assert_eq!(within(folder, "./src/../b.rs"), Some("b.rs".into()));
+        assert_eq!(
+            within(folder, "file:///Users/me/proj/x.html"),
+            Some("x.html".into())
+        );
+        assert_eq!(
+            within(folder, "/Users/me/proj/README.md"),
+            Some("README.md".into())
+        );
+        for outside in [
+            "../other/x.command",
+            "/Applications/Calculator.app",
+            "file:///Users/me/Downloads/x.command",
+            "x-app://run",
+            "smb://server/share",
+            "javascript:go()",
+        ] {
+            assert_eq!(within(folder, outside), None, "{outside}");
         }
     }
 

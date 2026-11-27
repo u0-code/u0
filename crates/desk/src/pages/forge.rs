@@ -567,7 +567,7 @@ impl Desk {
                     .child(
                         ui::button("forge-open", crate::tr("Open on its host"), Weight::Quiet)
                             .h(px(26.))
-                            .on_click(move |_, _, cx| cx.open_url(&url)),
+                            .on_click(cx.listener(move |this, _, _, cx| this.browse(&url, cx))),
                     )
                     .child(self.forge_actions(&d.item, cx)),
             )
@@ -812,7 +812,7 @@ impl Desk {
                                 Weight::Quiet,
                             )
                             .h(px(22.))
-                            .on_click(move |_, _, cx| cx.open_url(&url)),
+                            .on_click(cx.listener(move |this, _, _, cx| this.browse(&url, cx))),
                         )
                     }),
             );

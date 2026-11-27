@@ -189,7 +189,7 @@ impl Desk {
         };
         let go = move |way: &Option<Way>, window: &mut Window, cx: &mut gpui::App| {
             let _ = desk.update(cx, |d, cx| match way.clone() {
-                Some(Way::Open(url)) => cx.open_url(&url),
+                Some(Way::Open(url)) => d.browse(&url, cx),
                 Some(Way::Agent(host, agent)) => {
                     d.open_page(super::Page::Agent(host, agent), window, cx);
                 }

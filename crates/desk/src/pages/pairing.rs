@@ -298,7 +298,7 @@ pub(crate) fn install_u0_elsewhere_card(id_prefix: &'static str, faces: &Faces) 
                     .size(ButtonSize::Sm)
                     .icon(CarbonIcon::Download)
                     .on_click(|_, _, cx| {
-                        cx.open_url("https://github.com/u0-code/u0/releases/latest");
+                        crate::aside::rules::to_browser("https://github.com/u0-code/u0/releases/latest", cx);
                     }),
             ),
         )

@@ -692,7 +692,7 @@ impl Desk {
                     )
                     .child(
                         ui::button("get-runner", label, Weight::Quiet)
-                            .on_click(cx.listener(move |_, _, _, cx| cx.open_url(url))),
+                            .on_click(cx.listener(move |this, _, _, cx| this.browse(url, cx))),
                     );
             }
             Stage::Failed(why) => {
