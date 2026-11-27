@@ -1,19 +1,21 @@
-//! The column's tabs, as t3code's right panel has them: each session keeps
-//! its own row of surfaces (its diff, its details, its files, one file, your
-//! terminals, its pull request, a side chat). One is opened from the + after
-//! the tabs (⌘T) or, while that menu is open, by its letter; a tab closes
-//! from the mark that takes its icon's place under the pointer, a middle
-//! click, ⌘W or its right-click menu; the last one closed opens again with
-//! ⇧⌘T.
+//! The column's tabs, as Carbon's `RightPanelTabs` draws them: each thread
+//! keeps its own row of surfaces (its diff, its details, its files, one file,
+//! your terminals, its pull request, devices, preview, a side chat). One is
+//! opened from the + after the tabs (⌘T) or, while that menu is open, by its
+//! letter; a tab closes from its close button, ⌘W or the menu; the last one
+//! closed opens again with ⇧⌘T.
 
 use gpui::component::{
-    Sizable as _,
     kbd::Kbd,
     list::ListItem,
     menu::{PopupMenu, PopupMenuItem},
-    tab::{Tab, TabBar},
 };
-use gpui::{Context, Div, Entity, Keystroke, MouseButton, SharedString, div, prelude::*, px};
+use gpui::{Context, Div, Entity, Keystroke, SharedString, div, prelude::*, px};
+use u0ui::{
+    components::MenuItem,
+    icons::{CarbonIcon, Icon},
+    t3::shell::{RightPanelTabs, SurfaceKind, SurfaceTab},
+};
 
 use crate::{
     desk::{Desk, Popup},
@@ -53,8 +55,6 @@ pub struct Column {
     pub tabs: Vec<Surface>,
     pub on: usize,
     pub closed: Vec<Surface>,
-    /// The tab under the pointer, which shows its close mark.
-    pub hovered: Option<usize>,
 }
 
 impl Default for Column {
@@ -64,7 +64,6 @@ impl Default for Column {
             tabs: vec![Surface::Diff, Surface::Details],
             on: 0,
             closed: Vec::new(),
-            hovered: None,
         }
     }
 }
@@ -99,7 +98,6 @@ impl Column {
         self.on = shown
             .and_then(|s| self.tabs.iter().position(|t| *t == s))
             .unwrap_or_else(|| self.on.min(self.tabs.len().saturating_sub(1)));
-        self.hovered = None;
     }
 
     /// Open the tab closed last again.
@@ -110,17 +108,17 @@ impl Column {
     }
 }
 
-/// What the Open… menu offers, each with the letter that opens it while the
-/// menu is open: t3code's, for those u0 has.
-const OFFERS: [(&str, &str, char); 8] = [
-    ("Terminal", "terminal", 'T'),
-    ("Preview", "globe", 'B'),
-    ("Files", "folder", 'F'),
-    ("Diff", "diff", 'D'),
-    ("Pull request", "pull-request", 'P'),
-    ("Side chat", "bulb", 'S'),
-    ("Devices", "laptop", 'V'),
-    ("Details", "list", 'I'),
+/// What the Open… menu offers, each with its Carbon icon and the letter that
+/// opens it while the menu is open.
+const OFFERS: [(&str, CarbonIcon, char); 8] = [
+    ("Terminal", CarbonIcon::Terminal, 'T'),
+    ("Preview", CarbonIcon::Earth, 'B'),
+    ("Files", CarbonIcon::Folder, 'F'),
+    ("Diff", CarbonIcon::Code, 'D'),
+    ("Pull request", CarbonIcon::PullRequest, 'P'),
+    ("Side chat", CarbonIcon::Chat, 'S'),
+    ("Devices", CarbonIcon::Mobile, 'V'),
+    ("Details", CarbonIcon::Information, 'I'),
 ];
 
 impl Desk {
@@ -257,185 +255,115 @@ impl Desk {
         })
     }
 
-    /// The tab strip: the session's tabs, then + for the Open… menu.
+    /// The tab strip: Carbon's `RightPanelTabs`, with + for the Open… menu
+    /// and the widen button on the trailing edge.
     pub(super) fn strip(
         &self,
         faces: &Faces,
         s: &Session,
         cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    ) -> RightPanelTabs {
         let column = self.column().cloned().unwrap_or_default();
-        let add = ui::icon_button(
-            "open-surface",
-            "plus",
-            crate::keys::hint(cx, &crate::tr("Open…"), "open_surface"),
-        )
-        .size(px(24.));
-        let (faces2, add) = (faces.clone(), add);
-        let menu = self
-            .menu(
-                Popup::Surfaces,
-                add,
-                move |d, menu, desk, _| d.surface_menu(&faces2, menu, desk),
-                cx,
-            )
-            .anchor(gpui::Anchor::TopLeft);
-        let tabs = column
+        let desk = cx.entity();
+        let tabs: Vec<SurfaceTab> = column
             .tabs
             .iter()
             .enumerate()
-            .map(|(n, t)| self.tab_of(s, t, n, &column, cx))
-            .collect::<Vec<_>>();
-        // Right-click a tab: what can be done with it and the others.
-        let (desk, shown) = (cx.entity(), column.tabs.clone());
-        let menu_of =
-            move |n: usize, menu: PopupMenu, _: &mut gpui::Window, _: &mut Context<PopupMenu>| {
-                let close = |label: &str, which: fn(usize, usize) -> bool| {
-                    let desk = desk.clone();
-                    PopupMenuItem::new(crate::tr(label)).on_click(move |_, _, cx| {
-                        desk.update(cx, |d, cx| d.close_tabs(|at| which(at, n), cx));
-                    })
-                };
-                let mut menu = menu;
-                match shown.get(n) {
-                    Some(Surface::File(path)) => {
-                        let copied = path.display().to_string();
-                        menu = menu
-                            .item(PopupMenuItem::new(crate::tr("Copy path")).on_click(
-                                move |_, _, cx| {
-                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(
-                                        copied.clone(),
-                                    ));
-                                },
-                            ))
-                            .separator();
-                    }
-                    Some(Surface::Side(key)) => {
-                        let (desk, key) = (desk.clone(), *key);
-                        menu = menu
-                            .item(PopupMenuItem::new(crate::tr("Open in main view")).on_click(
-                                move |_, window, cx| {
-                                    desk.update(cx, |d, cx| d.show(key, window, cx));
-                                },
-                            ))
-                            .separator();
-                    }
-                    _ => {}
-                }
-                menu.item(close("Close", |at, n| at == n))
-                    .item(close("Close others", |at, n| at != n))
-                    .item(close("Close to the right", |at, n| at > n))
-                    .item(close("Close all", |_, _| true))
-            };
-        div()
-            .id("column-tabs")
-            .flex()
-            .items_center()
-            .gap(px(4.))
-            .flex_1()
-            .min_w(px(0.))
-            .overflow_hidden()
-            .when(!column.tabs.is_empty(), |d| {
-                d.child(
-                    TabBar::new("column-tab-bar")
-                        .segmented()
-                        .small()
-                        .menu(true)
-                        .track_scroll(&self.tab_scroll)
-                        .max_width(px(144.))
-                        .min_w(px(0.))
-                        .flex_shrink(1.)
-                        .selected_index(column.on)
-                        .children(tabs)
-                        .on_click(cx.listener(|this, n: &usize, _, cx| this.show_tab(*n, cx)))
-                        .context_menu(menu_of),
-                )
+            .map(|(n, surface)| {
+                let (label, kind, closable) = self.tab_meta(s, surface);
+                SurfaceTab::new(format!("tab-{n}"), label, kind).closable(closable)
             })
-            .child(menu)
-    }
-
-    /// One tab: its icon, which turns into its close mark under the
-    /// pointer, and its name; a middle click closes it.
-    fn tab_of(
-        &self,
-        s: &Session,
-        surface: &Surface,
-        n: usize,
-        column: &Column,
-        cx: &mut Context<Self>,
-    ) -> Tab {
-        let (name, icon) = self.named(s, surface);
-        let under = column.hovered == Some(n);
-        let mark = if under {
-            ui::icon_button(
-                SharedString::from(format!("close-tab-{n}")),
-                "x",
-                crate::tr("Close"),
+            .collect();
+        let active_id = format!("tab-{}", column.on);
+        let add_items: Vec<MenuItem> = OFFERS
+            .iter()
+            .map(|(name, icon, letter)| {
+                let desk = desk.clone();
+                let letter = *letter;
+                MenuItem::item(crate::tr(name))
+                    .icon(*icon)
+                    .shortcut(letter.to_string())
+                    .disabled(!self.offered(letter))
+                    .on_select(move |_, cx| {
+                        desk.update(cx, |d, cx| d.offer(letter, cx));
+                    })
+            })
+            .collect();
+        let select_desk = desk.clone();
+        let close_desk = desk.clone();
+        let mut strip = RightPanelTabs::new("column-tab-bar", tabs)
+            .value(active_id)
+            .max_visible(if self.panes.whole { 6 } else { 3 })
+            .labels(
+                crate::keys::hint(cx, &crate::tr("Open surface"), "open_surface"),
+                crate::tr("Close {}"),
+                crate::tr("{} more surfaces"),
             )
-            .size(px(16.))
-            .on_click(cx.listener(move |this, _, _, cx| {
-                cx.stop_propagation();
-                this.close_tabs(|at| at == n, cx);
-            }))
-            .into_any_element()
-        } else {
-            div()
-                .flex()
-                .items_center()
-                .justify_center()
-                .size(px(16.))
-                .child(ui::icon(icon, 12.))
-                .into_any_element()
-        };
-        Tab::new()
-            .label(name)
-            .prefix(mark)
-            .on_hover(cx.listener(move |this, over: &bool, _, cx| {
-                let Some(c) = this.column_mut() else { return };
-                let now = if *over {
-                    Some(n)
-                } else {
-                    c.hovered.filter(|h| *h != n)
-                };
-                if now != c.hovered {
-                    c.hovered = now;
-                    cx.notify();
+            .add_menu(add_items)
+            .on_value_change(move |id, _, cx| {
+                if let Some(n) = id
+                    .strip_prefix("tab-")
+                    .and_then(|s| s.parse::<usize>().ok())
+                {
+                    select_desk.update(cx, |d, cx| d.show_tab(n, cx));
                 }
-            }))
-            .on_mouse_down(
-                MouseButton::Middle,
-                cx.listener(move |this, _, _, cx| this.close_tabs(|at| at == n, cx)),
-            )
+            })
+            .on_close(move |id, _, cx| {
+                if let Some(n) = id
+                    .strip_prefix("tab-")
+                    .and_then(|s| s.parse::<usize>().ok())
+                {
+                    close_desk.update(cx, |d, cx| d.close_tabs(|at| at == n, cx));
+                }
+            });
+        // Keyboard-opened Open… menu (⌘T) anchor so letter keys continue to work.
+        if self.popup == Popup::Surfaces {
+            let faces2 = faces.clone();
+            let kbd_menu = self
+                .menu(
+                    Popup::Surfaces,
+                    ui::opener("kbd-surfaces").size(px(1.)),
+                    move |d, menu, desk, _| d.surface_menu(&faces2, menu, desk),
+                    cx,
+                )
+                .anchor(gpui::Anchor::TopLeft);
+            strip = strip.trailing(kbd_menu);
+        }
+        strip.trailing(self.whole_button(cx))
     }
 
-    /// A tab's name and icon.
-    fn named(&self, s: &Session, surface: &Surface) -> (String, &'static str) {
+    /// A tab's display label, `SurfaceKind`, and whether it shows a permanent
+    /// close button.
+    fn tab_meta(&self, s: &Session, surface: &Surface) -> (String, SurfaceKind, bool) {
         match surface {
-            Surface::Details => (crate::tr("Details").into(), "list"),
-            Surface::Diff => (crate::tr("Diff").into(), "diff"),
-            Surface::Files => (crate::tr("Files").into(), "folder"),
+            Surface::Details => (crate::tr("Details").into(), SurfaceKind::Details, false),
+            Surface::Diff => (crate::tr("Diff").into(), SurfaceKind::Diff, false),
+            Surface::Files => (crate::tr("Files").into(), SurfaceKind::Files, false),
             Surface::File(path) => (
                 path.file_name().map_or_else(
                     || path.display().to_string(),
                     |n| n.to_string_lossy().into_owned(),
                 ),
-                "file",
+                SurfaceKind::Other,
+                true,
             ),
-            Surface::Terminal => (crate::tr("Terminal").into(), "terminal"),
-            Surface::Preview => (crate::tr("Preview").into(), "globe"),
-            Surface::Devices => (crate::tr("Devices").into(), "laptop"),
+            Surface::Terminal => (crate::tr("Terminal").into(), SurfaceKind::Terminal, false),
+            Surface::Preview => (crate::tr("Preview").into(), SurfaceKind::Browser, false),
+            Surface::Devices => (crate::tr("Devices").into(), SurfaceKind::Device, false),
             Surface::PullRequest => (
                 s.git.pr.as_ref().map_or_else(
                     || crate::tr("Pull request").into(),
                     |p| format!("#{}", p.number),
                 ),
-                "pull-request",
+                SurfaceKind::Pr,
+                false,
             ),
             Surface::Side(key) => (
                 self.sessions
                     .at(*key)
                     .map_or_else(|| crate::tr("Side chat").into(), |c| c.meta.title.clone()),
-                "bulb",
+                SurfaceKind::Chat,
+                true,
             ),
         }
     }
@@ -450,8 +378,8 @@ impl Desk {
         })
     }
 
-    /// The Open… menu: what can be opened in the column, each with its
-    /// letter.
+    /// The Open… menu (for ⌘T): what can be opened in the column, each with
+    /// its letter.
     fn surface_menu(&self, faces: &Faces, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
         for (name, icon, letter) in OFFERS {
             let faces = faces.clone();
@@ -460,7 +388,9 @@ impl Desk {
                     div()
                         .flex()
                         .items_center()
+                        .gap(px(8.))
                         .w(px(200.))
+                        .child(Icon::carbon(icon).size_length(px(16.)))
                         .child(
                             ui::text(&faces, crate::tr(name))
                                 .flex_1()
@@ -469,7 +399,6 @@ impl Desk {
                         .child(Self::letter_key(letter))
                 })
                 .accessibility_label(name)
-                .icon(ui::menu_glyph(icon))
                 .disabled(!self.offered(letter))
                 .on_click(Self::does(desk, move |this, _, cx| this.offer(letter, cx))),
             );
@@ -491,7 +420,7 @@ impl Desk {
                             .flex()
                             .items_center()
                             .gap(px(10.))
-                            .child(ui::icon(icon, 15.))
+                            .child(Icon::carbon(icon).size_length(px(16.)))
                             .child(
                                 ui::text(faces, crate::tr(name))
                                     .flex_1()

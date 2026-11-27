@@ -2254,6 +2254,7 @@ mod tests {
 pub enum Scope {
     Turn(usize),
     All,
+    Uncommitted,
     Branch,
     Commit(String),
     Call(usize),

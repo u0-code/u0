@@ -136,8 +136,6 @@ pub enum Popup {
     Surfaces,
     /// What a session's details show.
     Details,
-    /// The recent commits, to see one's changes.
-    Commits,
     /// The project the PRs or Issues page is of.
     ForgeProject,
     /// What can be done with the pull request or issue read.

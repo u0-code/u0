@@ -265,7 +265,7 @@ impl Desk {
     /// from git first.
     pub(crate) fn ask_scope(&mut self, scope: &Scope) {
         let Some(key) = self.current else { return };
-        if !matches!(scope, Scope::Branch | Scope::Commit(_)) {
+        if !matches!(scope, Scope::Branch | Scope::Commit(_) | Scope::Uncommitted) {
             return;
         }
         let no_spacing = self.settings.no_spacing;

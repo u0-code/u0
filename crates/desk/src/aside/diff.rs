@@ -1,15 +1,15 @@
-//! The Diff tab, as t3code's diff panel has it: the changes the scope picks,
-//! every file in one list as gpui-kit's diff view reads their patch (folded
-//! or open, one column or side by side, wrapped or not), a tree of the files
-//! beside it, words found and lit across all of them, lines commented on for
-//! the agent, and the commit under it. An edit in the thread is drawn by the
-//! same view.
+//! The Diff tab, as Carbon's right panel has it (`RightColumnStates` Columns 1 & 4):
+//! the changes the scope picks, every file in one list as gpui-kit's diff view
+//! reads their patch (folded or open, one column or side by side, wrapped or
+//! not), a tree of the files beside it, words found and lit across all of them,
+//! lines commented on for the agent, and the contextual git footer cards under
+//! it. An edit in the thread is drawn by the same view.
 
 use std::borrow::Cow;
 use std::path::Path;
 
 use gpui::component::{
-    Disableable as _, Sizable as _,
+    Sizable as _,
     checkbox::Checkbox,
     diff::{
         Diff, DiffAnnotation, DiffChangeIndicator, DiffFile, DiffLinePosition, DiffMode, DiffSide,
@@ -20,6 +20,13 @@ use gpui::component::{
     tree::{TreeItem, tree},
 };
 use gpui::{AnyElement, App, Context, Div, SharedString, div, prelude::*, px};
+use u0ui::{
+    components::{Badge, BadgeSize, BadgeVariant, Button, ButtonSize, ButtonVariant},
+    icons::{CarbonIcon, Icon},
+    t3::review::DiffStat,
+    tokens::{ColorRole, TypeStyle},
+    typography::TypeStyled as _,
+};
 
 use super::{empty, fine};
 use crate::{
@@ -27,8 +34,7 @@ use crate::{
     fonts::Faces,
     git::{self, FileDiff, Scope},
     session::{Item, Session, State},
-    theme,
-    ui::{self, Weight},
+    theme, ui,
 };
 
 /// How tall a line of an edit stands in the thread, and how many show
@@ -83,7 +89,7 @@ fn edits(s: &Session, only: Option<usize>) -> Vec<FileDiff> {
                 .filter(|f| f.path.starts_with(&file.path))
                 .count();
             if again > 0 {
-                let named = format!("{} · edit {}", file.path, again + 1);
+                let named = format!("{} \u{00b7} edit {}", file.path, again + 1);
                 file.patch = file
                     .patch
                     .replace(&format!("b/{}\n", file.path), &format!("b/{named}\n"));
@@ -107,7 +113,7 @@ fn parsed(files: &[&FileDiff]) -> Vec<DiffFile> {
         .flatten()
         .map(|d| {
             let path = d.path().to_string();
-            match path.split_once(" · edit ") {
+            match path.split_once(" \u{00b7} edit ") {
                 Some((real, _)) => {
                     let ext = Path::new(real)
                         .extension()
@@ -144,7 +150,6 @@ fn found(files: &[DiffFile], words: &str) -> Vec<(DiffLinePosition, std::ops::Ra
     let mut hits = Vec::new();
     for (at, text) in files.iter().flat_map(DiffFile::source_lines) {
         let lower = text.to_lowercase();
-        // Only where lowering kept every byte where it was.
         if lower.len() == text.len() {
             for (from, _) in lower.match_indices(&needle) {
                 hits.push((at.clone(), from..from + needle.len()));
@@ -161,8 +166,6 @@ struct Node {
     files: Vec<String>,
 }
 
-/// The tree's items under `node`, whose folder is `prefix`: its folders
-/// first, open, then its files.
 fn items(node: &Node, prefix: &str) -> Vec<TreeItem> {
     let mut out: Vec<TreeItem> = node
         .dirs
@@ -193,6 +196,45 @@ pub fn tree_of<'a>(paths: impl IntoIterator<Item = &'a str>) -> Vec<TreeItem> {
         at.files.push(path.to_owned());
     }
     items(&root, "")
+}
+
+/// One `.ft` contextual git card under the diff (`RightColumnStates` Column 4).
+fn ft_card(
+    faces: &Faces,
+    heading: impl Into<SharedString>,
+    line: Div,
+    actions: Option<Div>,
+    note: impl Into<SharedString>,
+) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .bg(theme::role(ColorRole::Background))
+        .border_1()
+        .border_color(theme::role(ColorRole::BorderSubtle01))
+        .child(
+            div().px(px(16.)).pt(px(12.)).pb(px(4.)).child(
+                ui::text(faces, heading)
+                    .type_style(TypeStyle::Label01)
+                    .text_color(theme::role(ColorRole::TextSecondary)),
+            ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(12.))
+                .px(px(16.))
+                .pt(px(8.))
+                .pb(px(16.))
+                .child(line)
+                .children(actions)
+                .child(
+                    ui::text(faces, note)
+                        .type_style(TypeStyle::Label01)
+                        .text_color(theme::role(ColorRole::TextSecondary)),
+                ),
+        )
 }
 
 impl Desk {
@@ -298,35 +340,22 @@ impl Desk {
     /// The Diff tab.
     pub(super) fn diff_tab(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
         let files = files_of(s, &self.review.scope);
-        let reading =
-            matches!(self.review.scope, Scope::Branch | Scope::Commit(_)) && files.is_none();
+        let reading = matches!(
+            self.review.scope,
+            Scope::Branch | Scope::Commit(_) | Scope::Uncommitted
+        ) && files.is_none();
         let files = files.unwrap_or_default();
         let (added, gone) = files
             .iter()
             .fold((0, 0), |(a, g), f| (a + f.added, g + f.gone));
         let tests = files.iter().filter(|f| is_test(&f.path)).count();
         let shown = files.len() - if self.review.no_tests { tests } else { 0 };
-        let head = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(6.))
-            .h(px(40.))
-            .px(px(12.))
-            .when(!s.git.repos.is_empty(), |d| {
-                d.child(self.repo_chip(faces, s, cx))
-            })
-            .when(s.git_dir().is_some(), |d| {
-                d.child(self.scope_tabs(faces, s, cx))
-            })
-            .child(div().flex_1())
-            .when(!files.is_empty(), |d| {
-                d.child(ui::counts(faces, added, gone, crate::style::CAPTION))
-            });
+        let head = self.diff_bar(faces, s, cx);
+
         let tool = |id: &'static str, icon: &'static str, tip: &'static str, on: bool| {
             ui::icon_button(id, icon, crate::tr(tip))
                 .size(px(26.))
-                .when(on, |b| b.text_color(theme::text()))
+                .when(on, |b| b.text_color(theme::role(ColorRole::TextPrimary)))
         };
         let folded = self
             .review
@@ -344,7 +373,7 @@ impl Desk {
             .h(px(32.))
             .px(px(8.))
             .border_b_1()
-            .border_color(theme::border())
+            .border_color(theme::role(ColorRole::BorderSubtle01))
             .child(
                 tool("diff-tree", "list", "File tree", self.review.tree_open).on_click(
                     cx.listener(|this, _, _, cx| {
@@ -438,6 +467,9 @@ impl Desk {
                 .on_click(cx.listener(|this, _, window, cx| this.toggle_diff_find(window, cx))),
             )
             .child(div().flex_1())
+            .when(!files.is_empty(), |d| {
+                d.child(div().pr(px(4.)).child(DiffStat::new(added, gone)))
+            })
             .child(
                 tool("diff-refresh", "retry", "Read the changes again", false).on_click(
                     cx.listener(move |this, _, _, cx| {
@@ -457,7 +489,7 @@ impl Desk {
                 .px(px(10.))
                 .py(px(6.))
                 .border_b_1()
-                .border_color(theme::border())
+                .border_color(theme::role(ColorRole::BorderSubtle01))
                 .child(div().flex_1().child(Input::new(&self.review.find).small()))
                 .child(fine(
                     faces,
@@ -517,7 +549,7 @@ impl Desk {
             .child(tools)
             .children(find)
             .child(body)
-            .child(self.diff_foot(faces, s, cx))
+            .children(self.diff_foot(faces, s, cx))
     }
 
     /// The tree of the files shown: a click brings one into view.
@@ -529,7 +561,7 @@ impl Desk {
             .w(px(180.))
             .h_full()
             .border_r_1()
-            .border_color(theme::border())
+            .border_color(theme::role(ColorRole::BorderSubtle01))
             .py(px(4.))
             .child(tree(&self.review.tree, move |ix, entry, selected, _, _| {
                 let item = entry.item();
@@ -546,20 +578,18 @@ impl Desk {
                             .items_center()
                             .gap(px(6.))
                             .child(
-                                ui::icon(
-                                    match (folder, entry.is_expanded()) {
-                                        (false, _) => "file",
-                                        (true, true) => "chevron-down",
-                                        (true, false) => "chevron-right",
-                                    },
-                                    12.,
-                                )
-                                .text_color(theme::faint()),
+                                Icon::carbon(match (folder, entry.is_expanded()) {
+                                    (false, _) => CarbonIcon::Document,
+                                    (true, true) => CarbonIcon::ChevronDown,
+                                    (true, false) => CarbonIcon::ChevronRight,
+                                })
+                                .size_length(px(12.))
+                                .color(theme::role(ColorRole::IconSecondary)),
                             )
                             .child(ui::one_line(
                                 ui::mono(&faces, item.label.clone())
                                     .text_size(px(crate::style::CAPTION))
-                                    .text_color(theme::text2()),
+                                    .text_color(theme::role(ColorRole::TextSecondary)),
                             )),
                     )
                     .when(!folder, |d| {
@@ -573,9 +603,7 @@ impl Desk {
             }))
     }
 
-    /// gpui-kit's view of the files: each file's head with whether it goes
-    /// in the next commit and its path to copy; a line's + to say something
-    /// of it to the agent, what was said under it.
+    /// gpui-kit's view of the files.
     fn diff_view(&self, s: &Session, cx: &mut Context<Self>) -> impl IntoElement {
         let desk = cx.entity();
         let commenting = self.review.commenting.clone();
@@ -640,10 +668,9 @@ impl Desk {
                         .my(px(4.))
                         .px(px(10.))
                         .py(px(6.))
-                        .rounded(px(8.))
-                        .bg(theme::panel())
+                        .bg(theme::role(ColorRole::Layer01))
                         .border_1()
-                        .border_color(theme::border2())
+                        .border_color(theme::role(ColorRole::BorderSubtle01))
                         .child(
                             ui::text(&faces, said)
                                 .flex_1()
@@ -716,104 +743,264 @@ impl Desk {
             })
     }
 
-    /// Under the diff: the comments to hand the agent, the commit, the step
-    /// a git action is at, and the branch's way on (pull, publish).
-    fn diff_foot(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
+    /// Under the diff (`RightColumnStates` Column 4): contextual `.ft` cards
+    /// offering what git can do for the repository's current state.
+    fn diff_foot(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
         let said = self.review.comments.len();
-        let (_, behind, origin) = s.git.upstream;
+        let (ahead, behind, origin) = s.git.upstream;
         let gh = self.on_path.contains(&"gh");
         let idle = !matches!(s.state, State::Working | State::Opening);
-        // Nothing uncommitted, as git read it: nothing to commit.
-        let clean = files_of(s, &Scope::All).is_some_and(|f| f.is_empty());
-        div()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .gap(px(8.))
-            .p(px(12.))
-            .border_t_1()
-            .border_color(theme::border())
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .items_center()
-                    .gap(px(6.))
-                    .when(said > 0, |d| {
-                        let name = self.name_of(&s.meta.agent);
-                        d.child(
-                            ui::button(
-                                "send-comments",
-                                crate::tr_with(
-                                    if said == 1 {
-                                        "Put %{n} comment to %{name} in the line"
-                                    } else {
-                                        "Put %{n} comments to %{name} in the line"
-                                    },
-                                    &[("n", &said), ("name", &name)],
-                                ),
-                                Weight::Secondary,
-                            )
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.send_comments(window, cx)),
-                            ),
-                        )
-                    })
-                    .when(s.git_dir().is_some(), |d| {
-                        d.child(
-                            ui::button(
-                                "commit",
-                                crate::tr("Commit…"),
-                                if idle && !clean {
-                                    Weight::Primary
-                                } else {
-                                    Weight::Secondary
-                                },
-                            )
-                            .disabled(clean)
-                            .on_click(
-                                cx.listener(|this, _, window, cx| this.toggle_commit(window, cx)),
-                            ),
-                        )
-                    })
-                    .child(div().flex_1())
-                    .when(behind > 0, |d| {
-                        d.child(fine(
-                            faces,
-                            crate::tr_with("%{n} behind its upstream", &[("n", &behind)]),
-                        ))
-                        .child(
-                            ui::button("pull", crate::tr("Pull"), Weight::Quiet)
-                                .h(px(24.))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.git_action(crate::repo::GitAction::Pull, cx);
-                                })),
-                        )
-                    })
-                    .when(s.git_dir().is_some() && !origin && gh, |d| {
-                        d.children([("Publish, private", false), ("Public", true)].map(
-                            |(label, public)| {
-                                ui::button(label, crate::tr(label), Weight::Quiet)
-                                    .h(px(24.))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        let publish = crate::repo::GitAction::Publish(public);
-                                        this.git_action(publish, cx);
-                                    }))
-                            },
-                        ))
+        let file_count = files_of(s, &Scope::All).map_or(0, |f| f.len());
+        let clean = file_count == 0;
+        let has_repo = s.git_dir().is_some();
+        let desk = cx.entity();
+
+        let mut cards: Vec<Div> = Vec::new();
+
+        if said > 0 {
+            let name = self.name_of(&s.meta.agent);
+            let d_send = desk.clone();
+            let label = crate::tr_with(
+                if said == 1 {
+                    "Put %{n} comment to %{name} in the line"
+                } else {
+                    "Put %{n} comments to %{name} in the line"
+                },
+                &[("n", &said), ("name", &name)],
+            );
+            cards.push(
+                div().flex().child(
+                    Button::new("send-comments", label)
+                        .variant(ButtonVariant::Secondary)
+                        .size(ButtonSize::Sm)
+                        .icon(CarbonIcon::Chat)
+                        .on_click(move |_, window, cx| {
+                            d_send.update(cx, |this, cx| this.send_comments(window, cx));
+                        }),
+                ),
+            );
+        }
+
+        if let Some(pr) = s.git.pr.as_ref().filter(|p| p.state == "merged") {
+            let base = if pr.base.is_empty() {
+                "main"
+            } else {
+                pr.base.as_str()
+            };
+            let line = div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(
+                    Badge::new(crate::tr("Merged"))
+                        .variant(BadgeVariant::Purple)
+                        .size(BadgeSize::Sm),
+                )
+                .child(
+                    ui::text(
+                        faces,
+                        crate::tr_with(
+                            "#%{n} merged into %{base}",
+                            &[("n", &pr.number), ("base", &base)],
+                        ),
+                    )
+                    .type_style(TypeStyle::Body01)
+                    .text_color(theme::role(ColorRole::TextPrimary)),
+                );
+            cards.push(ft_card(
+                faces,
+                crate::tr("Its pull request merged"),
+                line,
+                None,
+                crate::tr(
+                    "The thread settles on its own (Threads \u{203a} Auto-settle merged threads). Its worktree stays until you archive it.",
+                ),
+            ));
+        } else if has_repo && !origin && gh {
+            let project = s.meta.project.file_name().map_or_else(
+                || Desk::shown(&s.meta.project),
+                |n| n.to_string_lossy().into_owned(),
+            );
+            let line = div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(
+                    Icon::carbon(CarbonIcon::Earth)
+                        .size_length(px(16.))
+                        .color(theme::role(ColorRole::IconSecondary)),
+                )
+                .child(
+                    ui::text(faces, crate::tr("Not on any host"))
+                        .type_style(TypeStyle::Body01)
+                        .text_color(theme::role(ColorRole::TextPrimary)),
+                );
+            let (d_priv, d_pub) = (desk.clone(), desk.clone());
+            let acts = div()
+                .flex()
+                .flex_wrap()
+                .gap(px(8.))
+                .child(
+                    Button::new("pub-private", crate::tr("Publish, private"))
+                        .variant(ButtonVariant::Primary)
+                        .size(ButtonSize::Sm)
+                        .on_click(move |_, _, cx| {
+                            d_priv.update(cx, |this, cx| {
+                                this.git_action(crate::repo::GitAction::Publish(false), cx);
+                            });
+                        }),
+                )
+                .child(
+                    Button::new("pub-public", crate::tr("Public"))
+                        .variant(ButtonVariant::Tertiary)
+                        .size(ButtonSize::Sm)
+                        .on_click(move |_, _, cx| {
+                            d_pub.update(cx, |this, cx| {
+                                this.git_action(crate::repo::GitAction::Publish(true), cx);
+                            });
+                        }),
+                );
+            cards.push(ft_card(
+                faces,
+                crate::tr_with("No remote yet \u{00b7} %{project}", &[("project", &project)]),
+                line,
+                Some(acts),
+                crate::tr(
+                    "A new GitHub repository under your gh login, pushed. Offered where gh is installed.",
+                ),
+            ));
+        } else if has_repo && s.git.pr.is_none() && (!clean || ahead > 0) {
+            let branch = s.branch.as_deref().unwrap_or("HEAD");
+            let summary = crate::tr_with(
+                "%{branch} \u{00b7} %{files} files, %{ahead} commits ahead",
+                &[
+                    ("branch", &branch),
+                    ("files", &file_count),
+                    ("ahead", &ahead),
+                ],
+            );
+            let line = div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(
+                    Icon::carbon(CarbonIcon::Branch)
+                        .size_length(px(16.))
+                        .color(theme::role(ColorRole::IconSecondary)),
+                )
+                .child(
+                    ui::mono(faces, summary)
+                        .type_style(TypeStyle::Code01)
+                        .text_color(theme::role(ColorRole::TextPrimary)),
+                );
+            let (d_commit, d_pr, key) = (desk.clone(), desk.clone(), s.key);
+            let acts = div()
+                .flex()
+                .flex_wrap()
+                .gap(px(8.))
+                .child(
+                    Button::new("commit", crate::tr("Commit…"))
+                        .variant(ButtonVariant::Tertiary)
+                        .size(ButtonSize::Sm)
+                        .disabled(clean || !idle)
+                        .on_click(move |_, window, cx| {
+                            d_commit.update(cx, |this, cx| this.toggle_commit(window, cx));
+                        }),
+                )
+                .child(
+                    Button::new("create-pr-ft", crate::tr("Create PR"))
+                        .variant(ButtonVariant::Primary)
+                        .size(ButtonSize::Sm)
+                        .icon(CarbonIcon::PullRequest)
+                        .disabled(!idle)
+                        .on_click(move |_, _, cx| {
+                            d_pr.update(cx, |this, cx| this.ask_pr(key, cx));
+                        }),
+                );
+            cards.push(ft_card(
+                faces,
+                crate::tr("On its own branch, no pull request yet"),
+                line,
+                Some(acts),
+                crate::tr(
+                    "Create PR has the writer write the title and description, then commits, pushes and opens it with gh pr create.",
+                ),
+            ));
+        }
+
+        if behind > 0 {
+            let base = s.git.compare_to.as_deref().unwrap_or("main");
+            let line = div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(
+                    Icon::carbon(CarbonIcon::ArrowDown)
+                        .size_length(px(16.))
+                        .color(theme::role(ColorRole::IconSecondary)),
+                )
+                .child(
+                    ui::text(
+                        faces,
+                        crate::tr_with(
+                            "%{n} behind origin/%{base}",
+                            &[("n", &behind), ("base", &base)],
+                        ),
+                    )
+                    .type_style(TypeStyle::Body01)
+                    .text_color(theme::role(ColorRole::TextPrimary)),
+                );
+            let d_pull = desk.clone();
+            let acts = div().flex().gap(px(8.)).child(
+                Button::new("pull", crate::tr("Pull"))
+                    .variant(ButtonVariant::Tertiary)
+                    .size(ButtonSize::Sm)
+                    .on_click(move |_, _, cx| {
+                        d_pull.update(cx, |this, cx| {
+                            this.git_action(crate::repo::GitAction::Pull, cx);
+                        });
                     }),
-            )
-            .when(self.review.committing && s.git_dir().is_some(), |d| {
-                d.child(self.commit_form(faces, s, cx))
-            })
-            .children(s.git.step.as_ref().map(|step| {
+            );
+            cards.push(ft_card(
+                faces,
+                crate::tr("Behind its upstream"),
+                line,
+                Some(acts),
+                crate::tr("Fast-forward only: nothing of yours is rewritten."),
+            ));
+        }
+
+        if self.review.committing && has_repo {
+            cards.push(self.commit_form(faces, s, cx));
+        }
+        if let Some(step) = &s.git.step {
+            cards.push(
                 div()
                     .flex()
                     .items_center()
                     .gap(px(8.))
                     .child(ui::live_dot())
-                    .child(fine(faces, format!("{step}…")).text_color(theme::accent()))
-            }))
+                    .child(
+                        fine(faces, format!("{step}…"))
+                            .text_color(theme::role(ColorRole::LinkPrimary)),
+                    ),
+            );
+        }
+
+        if cards.is_empty() {
+            return None;
+        }
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .flex_none()
+                .gap(px(12.))
+                .p(px(8.))
+                .border_t_1()
+                .border_color(theme::role(ColorRole::BorderSubtle01))
+                .children(cards),
+        )
     }
 
     /// Open or close the line to find words in the diff with.

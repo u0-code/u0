@@ -202,6 +202,7 @@ pub fn scope_diff(
 ) -> Event {
     let result = match &scope {
         git::Scope::Commit(id) => git::commit_diff(dir, id, no_spacing),
+        git::Scope::Uncommitted => git::uncommitted(dir, None, no_spacing),
         _ => git::against_base(dir, base, no_spacing),
     };
     Event::Diffed { key, scope, result }
