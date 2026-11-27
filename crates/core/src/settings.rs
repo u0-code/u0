@@ -118,6 +118,9 @@ pub struct Settings {
     /// The window's grounds let the desktop show through, blurred.
     #[serde(default)]
     pub glass: bool,
+    /// Motion in the window: as the system says, cut down, or in full.
+    #[serde(default)]
+    pub motion: Motion,
     /// How large the whole window is drawn, in percent of its natural size:
     /// one of `SCALES`.
     #[serde(default = "natural")]
@@ -1051,6 +1054,17 @@ pub enum Look {
     System,
 }
 
+/// Whether the window moves: as the system's Reduce motion says, always
+/// cut down (panels and the thread fade rather than slide), or in full.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Motion {
+    #[default]
+    System,
+    Reduce,
+    Full,
+}
+
 /// How wide the thread reads.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -1276,6 +1290,7 @@ impl Default for Settings {
             blue_orange: false,
             contrast: false,
             glass: false,
+            motion: Motion::System,
             scale: natural(),
             mono: CodeFont::default(),
             side_by_side: false,
@@ -1616,6 +1631,22 @@ mod tests {
         // What a project cannot hold is not held.
         s.hold(p, |s| s.twelve = true);
         assert!(s.prefs[p].over.is_empty() && !s.twelve);
+    }
+
+    #[test]
+    fn reduce_motion_is_kept_in_the_file_and_follows_the_system_when_left_out() {
+        let home = tempfile::tempdir().unwrap();
+        assert_eq!(Settings::load(home.path()).0.motion, Motion::System);
+        let s = Settings {
+            motion: Motion::Reduce,
+            ..Settings::default()
+        };
+        std::fs::write(
+            home.path().join("settings.json"),
+            serde_json::to_vec(&s).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(Settings::load(home.path()).0.motion, Motion::Reduce);
     }
 
     #[test]

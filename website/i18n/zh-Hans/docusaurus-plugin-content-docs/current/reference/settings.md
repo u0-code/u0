@@ -136,6 +136,7 @@ u0 把设置保存在其主目录（`~/.u0`，或 `U0_HOME`）中的 `settings.j
 | `scale` | `80`、`90`、`100`、`110`、`125`、`150`、`175`、`200` | `100` | 窗口绘制的大小，以百分比表示。⌘+ 和 ⌘− 在这些值之间切换。 |
 | `contrast` | bool | `false` | 把次要文字和边框画得更明显。 |
 | `glass` | bool | `false` | 让桌面以模糊效果透过窗口显示。 |
+| `motion` | `"system"`、`"reduce"`、`"full"` | `"system"` | 窗口里的动效：跟随 macOS 的“减弱动态效果”，始终减弱（面板淡入而不滑动），或完整显示。 |
 | `mono` | `"plex_mono"`、`"jet_brains"`、`"sf_mono"`、`"menlo"` | `"plex_mono"` | 代码和数字使用的字体。 |
 | `width` | `"comfortable"`、`"wide"`、`"full"` | `"comfortable"` | 对话和输入框的显示宽度（720 pt、880 pt，或整个面板）。 |
 | `blue_orange` | bool | `false` | 新增和删除的行用蓝色和橙色显示，而不是绿色和红色。 |

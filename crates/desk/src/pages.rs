@@ -119,8 +119,6 @@ pub struct Pages {
     pub editing_role: u0ui::tokens::ColorRole,
     /// Hex inputs for the 12 `themes::EDITOR_ROLES` in the drawer's `Tokens` grid.
     pub theme_hexes: [Entity<InputState>; 12],
-    /// Reduced-motion preference chosen in `Settings › Appearance`.
-    pub reduce_motion: u0ui::motion::ReducedMotion,
     /// What u0 runs (the agents among it, by id and process id), and
     /// the warnings and errors in its log: Settings › Diagnostics.
     pub processes: (Vec<(String, u32)>, crate::diagnostics::Processes),
@@ -253,7 +251,6 @@ impl Pages {
             editing_theme: None,
             editing_role: u0ui::tokens::ColorRole::Interactive,
             theme_hexes,
-            reduce_motion: u0ui::motion::ReducedMotion::System,
             processes: Default::default(),
             process_tree: cx.new(|cx| gpui::component::tree::TreeState::new(cx)),
             troubles: Vec::new(),

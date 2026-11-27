@@ -2455,6 +2455,14 @@ fn mirror(settings: &settings::Settings, cx: &mut gpui::App) {
     crate::i18n::set(settings.language.as_deref());
     theme::set_contrast(settings.contrast);
     theme::set_glass(settings.glass);
+    u0ui::motion::set_reduced_motion(
+        cx,
+        match settings.motion {
+            settings::Motion::System => u0ui::motion::ReducedMotion::System,
+            settings::Motion::Reduce => u0ui::motion::ReducedMotion::Reduce,
+            settings::Motion::Full => u0ui::motion::ReducedMotion::Allow,
+        },
+    );
     theme::set_themes(settings.theme_dark.clone(), settings.theme_light.clone());
     fonts::set_mono(cx, settings.mono);
     theme::kit(cx);

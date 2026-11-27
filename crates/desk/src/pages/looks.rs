@@ -17,7 +17,6 @@ use u0ui::{
     },
     density::{self, Density},
     icons::{CarbonIcon, Icon as CarbonGlyph},
-    motion::{self, ReducedMotion},
     t3::workspace::ThemeCard,
     tokens::{CarbonTheme, ColorRole},
     u0::{
@@ -34,7 +33,7 @@ use super::{
 use crate::{
     desk::Desk,
     fonts::{Faces, Weighted as _},
-    settings::{CodeFont, Look, SCALES, Settings, Shell, Sort, TermSize, Width},
+    settings::{CodeFont, Look, Motion, SCALES, Settings, Shell, Sort, TermSize, Width},
     theme,
     themes::{self, Themes},
     ui,
@@ -491,34 +490,21 @@ impl Desk {
     }
 
     fn motion_sgroup(&self, defaults: &Settings, cx: &mut Context<Self>) -> SGroup {
-        let rm_now = self.pages.reduce_motion;
-        let desk_rm = cx.entity();
-        let desk_rm_reset = cx.entity();
-        let reduce_row = SRow::new("reduce_motion", crate::tr("Reduce motion"))
-            .description(crate::tr("On turns off panel and thread animations."))
-            .unreadable(self.edited_unreadable())
-            .modified(rm_now != ReducedMotion::System, move |_, cx| {
-                motion::set_reduced_motion(cx, ReducedMotion::System);
-                desk_rm_reset.update(cx, |this, cx| {
-                    this.pages.reduce_motion = ReducedMotion::System;
-                    cx.notify();
-                });
-            })
-            .segmented(
-                [
-                    (crate::tr("System"), ReducedMotion::System),
-                    (crate::tr("On"), ReducedMotion::Reduce),
-                    (crate::tr("Off"), ReducedMotion::Allow),
-                ],
-                rm_now,
-                move |picked, _, cx| {
-                    motion::set_reduced_motion(cx, picked);
-                    desk_rm.update(cx, |this, cx| {
-                        this.pages.reduce_motion = picked;
-                        cx.notify();
-                    });
-                },
-            );
+        let reduce_row = self.global_segmented_srow(
+            "motion",
+            "Reduce motion",
+            "On turns off panel and thread animations.",
+            [
+                ("System", Motion::System),
+                ("On", Motion::Reduce),
+                ("Off", Motion::Full),
+            ],
+            self.settings.motion,
+            defaults.motion,
+            |s, v| s.motion = v,
+            false,
+            cx,
+        );
 
         let current_glass = self.settings.glass;
         let glass_def = defaults.glass;
