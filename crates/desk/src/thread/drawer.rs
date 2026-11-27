@@ -182,7 +182,7 @@ impl Desk {
                     .on_click(move |_, _, cx| {
                         let target = url.clone();
                         d_prev.update(cx, |this, cx| {
-                            let to = this.current.map_or(To::Browser, To::Preview);
+                            let to = this.pages_to();
                             this.open_address(host, target, to, cx);
                         });
                     }),

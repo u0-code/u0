@@ -22659,3 +22659,13 @@ _version: 2
   pt-BR: "Abrir no navegador"
   ru: "Открыть в браузере"
   sv: "Öppna i webbläsare"
+"A page asked to open %{address}: a page may open only web addresses":
+  zh-CN: "网页请求打开 %{address}：网页只能打开网址"
+  de: "Eine Seite wollte %{address} öffnen: Eine Seite darf nur Webadressen öffnen"
+  es: "Una página pidió abrir %{address}: una página solo puede abrir direcciones web"
+  fr: "Une page a demandé d’ouvrir %{address} : une page ne peut ouvrir que des adresses web"
+  ja: "ページが %{address} を開こうとしました。ページが開けるのは Web アドレスだけです"
+  ko: "페이지가 %{address}을(를) 열려고 했습니다. 페이지는 웹 주소만 열 수 있습니다"
+  pt-BR: "Uma página pediu para abrir %{address}: uma página só pode abrir endereços web"
+  ru: "Страница попросила открыть %{address}: страница может открывать только веб-адреса"
+  sv: "En sida bad att öppna %{address}: en sida får bara öppna webbadresser"

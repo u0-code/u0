@@ -6,7 +6,7 @@
 use gpui::{Context, Div, div, prelude::*};
 use u0ui::t3::workspace::{LocalServer, PreviewEmptyState, PreviewEmptyTexts};
 
-use crate::desk::{Desk, runs::To};
+use crate::desk::Desk;
 
 impl Desk {
     /// The Preview tab: the page opened in it, or the dev servers to open.
@@ -23,7 +23,7 @@ impl Desk {
     /// here where u0 can show a page, else in your browser.
     pub(super) fn no_page(&self, cx: &mut Context<Self>) -> PreviewEmptyState {
         let desk = cx.entity();
-        let to = self.current.map_or(To::Browser, To::Preview);
+        let to = self.pages_to();
         let servers = self.dev_servers();
         let cards: Vec<LocalServer> = servers
             .iter()

@@ -3,9 +3,11 @@
 //! first shows it, hidden while another tab or session is shown, and gone
 //! with its tab. Nothing but your own choice opens one: a dev server's
 //! card or the drawer's **Open preview**, an address you type, one you
-//! opened lately.
+//! opened lately. What a page may reach of its own is in `rules`.
 
-use std::collections::HashMap;
+mod rules;
+
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use gpui::component::menu::{PopupMenu, PopupMenuItem};
 use gpui::{
@@ -55,6 +57,9 @@ pub struct Web {
 pub struct Page {
     /// What the address bar shows: where it was opened, or last went.
     pub address: String,
+    /// Where you opened it, which its webview's rules read
+    /// (`rules::may_go`): a file page goes to no other file.
+    opened: Rc<RefCell<String>>,
     pub view: Option<Entity<WebView>>,
 }
 
@@ -62,9 +67,10 @@ pub struct Page {
 pub enum Went {
     /// It is now at this address.
     At(String),
-    /// It asked for a window of its own at this address: that opens in
-    /// your browser.
-    Elsewhere(String),
+    /// It asked for this address elsewhere: a window of its own, or a
+    /// download. Your browser is given it if it is a web address
+    /// (`rules::for_browser`); nothing is saved.
+    Asked(String),
 }
 
 /// `typed` as a page to open here: a web address (`http` when it names no
@@ -84,7 +90,7 @@ pub fn openable(typed: &str) -> Option<url::Url> {
         // does name one (`javascript:`, `data:`) is no host's, and fails.
         url::Url::parse(&format!("http://{typed}")).ok()?
     };
-    matches!(url.scheme(), "http" | "https" | "file").then_some(url)
+    rules::shown(url.as_str())
 }
 
 /// Whether a session's page is kept: while its Preview tab is open.
@@ -119,11 +125,28 @@ fn remember(lately: &mut Vec<String>, address: &str) {
 
 impl Desk {
     /// Show `address` in the Preview tab of the session `key`, opening the
-    /// tab: the page already there goes to it.
-    pub(crate) fn show_page(&mut self, key: u64, address: String, cx: &mut Context<Self>) {
+    /// tab: the page already there goes to it. Every way a page is opened
+    /// comes here, and only a web address or a file is shown
+    /// (`rules::shown`): a `preview` in a repository's `u0.json` is what
+    /// anyone, an agent too, may have written there.
+    pub(crate) fn show_page(&mut self, key: u64, address: &str, cx: &mut Context<Self>) {
+        if self.sessions.at(key).is_none() {
+            return;
+        }
+        let Some(address) = rules::shown(address).map(String::from) else {
+            return self.trouble(
+                crate::tr_with(
+                    "%{address} is not a web address or a file of yours",
+                    &[("address", &address)],
+                ),
+                None,
+                None,
+            );
+        };
         remember(&mut self.web.lately, &address);
         match self.web.pages.get_mut(&key) {
             Some(page) => {
+                page.opened.replace(address.clone());
                 if let Some(view) = &page.view {
                     view.update(cx, |v, _| v.load_url(&address));
                 }
@@ -133,6 +156,7 @@ impl Desk {
                 self.web.pages.insert(
                     key,
                     Page {
+                        opened: Rc::new(RefCell::new(address.clone())),
                         address,
                         view: None,
                     },
@@ -154,15 +178,34 @@ impl Desk {
                     page.address = address;
                 }
             }
-            Went::Elsewhere(address) => cx.open_url(&address),
+            Went::Asked(address) => match rules::for_browser(&address) {
+                Some(url) => cx.open_url(url.as_str()),
+                None => self.trouble(
+                    crate::tr_with(
+                        "A page asked to open %{address}: a page may open only web addresses",
+                        &[("address", &address)],
+                    ),
+                    None,
+                    None,
+                ),
+            },
         }
         cx.notify();
     }
 
+    /// The pages go before the window does: a webview must not outlive
+    /// the window it is in.
+    pub(crate) fn close_pages(&mut self) {
+        self.web.pages.clear();
+    }
+
     /// Before the window is drawn: each page whose tab closed goes, the
-    /// one the column shows (when it is `drawn`) is made and shown, every
-    /// other hidden. A webview is a view of macOS's over the window: one
-    /// left showing would cover what is drawn in its place.
+    /// one the column shows (when it is `drawn`) is shown, and made once
+    /// this frame is drawn if it has no webview yet; every other is hidden,
+    /// and one of a session not on screen lets its webview go (it loads
+    /// again when shown), so no page runs unseen but behind another tab.
+    /// A webview is a view of macOS's over the window: one left showing
+    /// would cover what is drawn in its place.
     pub(crate) fn sync_web(&mut self, drawn: bool, window: &mut Window, cx: &mut Context<Self>) {
         let (columns, sessions) = (&self.columns, &self.sessions);
         self.web
@@ -171,8 +214,11 @@ impl Desk {
         let shown = self
             .current
             .filter(|_| drawn && self.surface() == Some(Surface::Preview));
-        let mut failed = None;
+        let mut unmade = None;
         for (key, page) in &mut self.web.pages {
+            if Some(*key) != self.current {
+                page.view = None;
+            }
             let on = shown == Some(*key);
             match &page.view {
                 Some(view) => {
@@ -180,24 +226,45 @@ impl Desk {
                         let _ = view.read(cx).set_visible(on);
                     }
                 }
-                None if on => match make_view(*key, &page.address, self.tx.clone(), window, cx) {
-                    Ok(view) => page.view = Some(view),
-                    Err(why) => failed = Some((*key, page.address.clone(), why)),
-                },
+                None if on => unmade = Some(*key),
                 None => {}
             }
         }
-        // Where the system makes no webview, the page opens in your
-        // browser, and you are told why.
-        if let Some((key, address, why)) = failed {
-            self.web.pages.remove(&key);
-            cx.open_url(&address);
-            self.trouble(
-                crate::tr("Couldn't show the page here: it opens in your browser"),
-                Some(why.to_string()),
-                None,
-            );
+        if let Some(key) = unmade {
+            let desk = cx.entity();
+            window.defer(cx, move |window, cx| {
+                desk.update(cx, |d, cx| d.make_view(key, window, cx));
+            });
         }
+    }
+
+    /// The webview of the session `key`'s page, once a frame is drawn; or,
+    /// where the system makes none, the page in your browser and why.
+    fn make_view(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(page) = self.web.pages.get_mut(&key).filter(|p| p.view.is_none()) else {
+            return;
+        };
+        match build(
+            key,
+            &page.address,
+            page.opened.clone(),
+            self.tx.clone(),
+            window,
+            cx,
+        ) {
+            Ok(view) => page.view = Some(view),
+            Err(why) => {
+                let address = page.address.clone();
+                self.web.pages.remove(&key);
+                cx.open_url(&address);
+                self.trouble(
+                    crate::tr("Couldn't show the page here: it opens in your browser"),
+                    Some(why.to_string()),
+                    None,
+                );
+            }
+        }
+        cx.notify();
     }
 
     /// The Preview tab on macOS: the address bar, and under it the page
@@ -205,13 +272,16 @@ impl Desk {
     pub(super) fn page_tab(&self, tab: Div, key: u64, cx: &mut Context<Self>) -> Div {
         let page = self.web.pages.get(&key);
         let tab = tab.child(self.address_bar(key, page, cx));
-        if let Some((address, view)) =
-            page.and_then(|p| p.view.clone().map(|v| (p.address.clone(), v)))
-        {
-            return tab
+        if let Some(page) = page {
+            let address = page.address.clone();
+            let tab = tab
                 .child(self.page_strip(key, &address, cx))
-                .children(self.forwarded_note(&address, cx))
-                .child(self.page_view(view));
+                .children(self.forwarded_note(&address, cx));
+            // Its webview is made once this frame is drawn.
+            return match page.view.clone() {
+                Some(view) => tab.child(self.page_view(view)),
+                None => tab.child(div().flex_1()),
+            };
         }
         let desk = cx.entity();
         let lately = self.web.lately.clone();
@@ -220,7 +290,7 @@ impl Desk {
                 .recent(lately.clone())
                 .on_recent(move |n, _, cx| {
                     if let Some(address) = lately.get(n).cloned() {
-                        desk.update(cx, |d, cx| d.show_page(key, address, cx));
+                        desk.update(cx, |d, cx| d.show_page(key, &address, cx));
                     }
                 }),
         )
@@ -285,8 +355,18 @@ impl Desk {
         if let Some(view) = view {
             let (back, forward, reload, stop) = (view.clone(), view.clone(), view.clone(), view);
             chrome = chrome
-                .on_back(move |_, cx| back.update(cx, |v, _| drop(v.back())))
-                .on_forward(move |_, cx| forward.update(cx, |v, _| drop(v.forward())))
+                // WebKit's own history, not the page's `history`, which
+                // the page may have redefined.
+                .on_back(move |_, cx| {
+                    use wry::WebViewExtMacOS as _;
+                    // SAFETY: on the main thread WebKit's view lives on.
+                    drop(unsafe { back.read(cx).raw().webview().goBack() });
+                })
+                .on_forward(move |_, cx| {
+                    use wry::WebViewExtMacOS as _;
+                    // SAFETY: on the main thread WebKit's view lives on.
+                    drop(unsafe { forward.read(cx).raw().webview().goForward() });
+                })
                 .on_reload(move |_, cx| drop(reload.read(cx).raw().reload()))
                 .on_stop(move |_, cx| {
                     use wry::WebViewExtMacOS as _;
@@ -548,7 +628,7 @@ impl Desk {
     /// An address typed in the bar: opened here when it is a page's.
     fn navigate(&mut self, key: u64, typed: &str, cx: &mut Context<Self>) {
         match openable(typed) {
-            Some(url) => self.show_page(key, url.into(), cx),
+            Some(url) => self.show_page(key, url.as_str(), cx),
             None => self.trouble(
                 crate::tr_with(
                     "%{address} is not a web address or a file of yours",
@@ -561,24 +641,32 @@ impl Desk {
     }
 }
 
-/// The webview of the session `key`'s page, at `address`; what the page
-/// does comes back as [`Msg::Page`].
-fn make_view(
+/// The webview of the session `key`'s page, at `address`, held to
+/// `rules`: where it goes, by `may_go` from where you `opened` it; what it
+/// asks for elsewhere (a window, a download), back as [`Went::Asked`] and
+/// never saved here. What the page does comes back as [`Msg::Page`].
+fn build(
     key: u64,
     address: &str,
+    opened: Rc<RefCell<String>>,
     tx: Sender,
     window: &mut Window,
     cx: &mut Context<Desk>,
 ) -> wry::Result<Entity<WebView>> {
-    let asked = tx.clone();
+    let (window_asked, download_asked) = (tx.clone(), tx.clone());
     let builder = wry::WebViewBuilder::new()
         .with_url(address)
+        .with_navigation_handler(move |to| rules::may_go(&opened.borrow(), &to))
         .with_on_page_load_handler(move |_, at| {
             let _ = tx.send(Msg::Page(key, Went::At(at)));
         })
         .with_new_window_req_handler(move |at, _| {
-            let _ = asked.send(Msg::Page(key, Went::Elsewhere(at)));
+            let _ = window_asked.send(Msg::Page(key, Went::Asked(at)));
             wry::NewWindowResponse::Deny
+        })
+        .with_download_started_handler(move |at, _| {
+            let _ = download_asked.send(Msg::Page(key, Went::Asked(at)));
+            false
         });
     let view = WebView::build(builder, window, cx)?;
     Ok(cx.new(|_| view))

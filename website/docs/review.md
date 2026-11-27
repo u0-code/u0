@@ -132,8 +132,10 @@ the address, **Viewport** (**Responsive**, **iPhone 16**, **iPad**,
 in your browser** and **More actions** (**Reload**, **Copy address**,
 **Open in your browser**, **Close the page**). Under it, a strip names the
 dev server the page is of (its menu switches to another), the machine it
-runs on, and **Open in your browser**. A page that asks for a window of
-its own opens it in your browser.
+runs on, and **Open in your browser**. A window a page asks for, or a
+download it starts, goes to your browser if it is a web address, and
+nowhere else: nothing is saved by u0. A page goes on only to web
+addresses; one opened as a file stays on that file.
 
 A page opens only when you open it, never from what an agent says. It is
 hidden while another tab or thread is shown, and closed with its tab. On

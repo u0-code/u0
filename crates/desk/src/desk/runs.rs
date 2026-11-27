@@ -123,25 +123,33 @@ pub struct Writing {
 }
 
 /// Where an address is opened: in your browser, or in the Preview tab of
-/// a session, by its key (on a system u0 shows no page on, your browser).
+/// a session, by its key, where u0 shows pages (macOS).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum To {
     Browser,
+    #[cfg(target_os = "macos")]
     Preview(u64),
 }
 
-/// A running dev server printed by a terminal, local or forwarded.
+/// A running dev server printed by a terminal, local or forwarded. What
+/// the Preview tab's page tells of it (its command, machine, the address
+/// this Mac reaches it at, its port brought here) is read where u0 shows
+/// pages (macOS).
 pub struct DevServer {
     pub title: String,
-    pub command: Option<String>,
-    pub machine: String,
     pub host: Host,
-    /// Where it is reached from this Mac: as printed, or at the port it
-    /// is forwarded to.
-    pub url: String,
     /// As its terminal printed it, on its own machine: what is opened.
     pub printed: String,
+    #[cfg(target_os = "macos")]
+    pub command: Option<String>,
+    #[cfg(target_os = "macos")]
+    pub machine: String,
+    /// Where it is reached from this Mac: as printed, or at the port it
+    /// is forwarded to.
+    #[cfg(target_os = "macos")]
+    pub url: String,
     /// `(remote_port, local_port)` when forwarded from a paired machine.
+    #[cfg(target_os = "macos")]
     pub forwarded: Option<(u16, u16)>,
 }
 
@@ -156,6 +164,7 @@ impl DevServer {
 
 impl Desk {
     /// Stop forwarding remote port `there` on `host`.
+    #[cfg(target_os = "macos")]
     pub fn stop_forward(&mut self, host: Host, there: u16, cx: &mut Context<Self>) {
         if let Some(m) = self.machine_mut(host) {
             m.forwards.retain(|f| f.there != there);
@@ -181,30 +190,34 @@ impl Desk {
             else {
                 continue;
             };
-            let port = url::Url::parse(&raw_url)
-                .ok()
-                .and_then(|u| u.port_or_known_default());
-            let machine = self
-                .machine(t.host)
-                .map_or_else(|| crate::tr("This Mac").to_string(), |m| m.name.clone());
+            #[cfg(target_os = "macos")]
             let forwarded = self
                 .machine(t.host)
                 .filter(|_| t.host != Host::HERE)
-                .zip(port)
+                .zip(
+                    url::Url::parse(&raw_url)
+                        .ok()
+                        .and_then(|u| u.port_or_known_default()),
+                )
                 .and_then(|(m, p)| m.forwards.iter().find(|f| f.there == p))
                 .map(|f| (f.there, f.port));
-            let url = match forwarded {
-                Some((_, local)) => here_at(&raw_url, local),
-                None => raw_url.clone(),
-            };
             out.push(DevServer {
                 title: t.script.clone().unwrap_or_else(|| t.title.clone()),
-                command: script.map(|s| s.command.clone()),
-                machine,
                 host: t.host,
-                url,
-                printed: raw_url,
+                #[cfg(target_os = "macos")]
+                command: script.map(|s| s.command.clone()),
+                #[cfg(target_os = "macos")]
+                machine: self
+                    .machine(t.host)
+                    .map_or_else(|| crate::tr("This Mac").to_string(), |m| m.name.clone()),
+                #[cfg(target_os = "macos")]
+                url: match forwarded {
+                    Some((_, local)) => here_at(&raw_url, local),
+                    None => raw_url.clone(),
+                },
+                #[cfg(target_os = "macos")]
                 forwarded,
+                printed: raw_url,
             });
         }
         out
@@ -230,12 +243,12 @@ impl Desk {
             .and_then(|u| u.port_or_known_default());
         let (Some(server), Some(there), false) = (m.paired.clone(), there, host == Host::HERE)
         else {
-            return self.open_at(to, address, cx);
+            return self.open_at(to, &address, cx);
         };
         match m.forwards.iter().find(|f| f.there == there) {
             Some(f) => {
                 let here = here_at(&address, f.port);
-                self.open_at(to, here, cx);
+                self.open_at(to, &here, cx);
             }
             None => crate::hub::forward(
                 host,
@@ -250,12 +263,22 @@ impl Desk {
     }
 
     /// Open `address`, reachable from this Mac, where `to` says.
-    fn open_at(&mut self, to: To, address: String, cx: &mut Context<Self>) {
+    fn open_at(&mut self, to: To, address: &str, cx: &mut Context<Self>) {
         match to {
             #[cfg(target_os = "macos")]
             To::Preview(key) => self.show_page(key, address, cx),
-            _ => cx.open_url(&address),
+            To::Browser => cx.open_url(address),
         }
+    }
+
+    /// Where a page you open from the session on screen goes: its Preview
+    /// tab, where u0 shows pages; else your browser.
+    pub(crate) fn pages_to(&self) -> To {
+        #[cfg(target_os = "macos")]
+        if let Some(key) = self.current {
+            return To::Preview(key);
+        }
+        To::Browser
     }
 
     /// A port brought here, to open `address` on; or why not.
@@ -273,7 +296,7 @@ impl Desk {
                 if let Some(m) = self.machine_mut(host) {
                     m.forwards.push(forward);
                 }
-                self.open_at(to, here, cx);
+                self.open_at(to, &here, cx);
             }
             Err(why) => self.trouble(
                 crate::tr_with("Couldn't open %{address} here", &[("address", &address)]),
