@@ -196,6 +196,7 @@ crates/desk/src/
   keys.rs       the window's actions and keys; ~/.u0/keybindings.json
   desk.rs       the window's state, actions and layout
   desk/         by subject: kept, lists, projects, mention, gitview, runs,
+                banners (unreadable files, policy and offline servers),
                 palette (its pages: a new session in, the look, adding a
                 project), rank (what is typed, found), agents, send, turns,
                 replies, notices, writing, dictation, updates, forge (the
@@ -213,9 +214,9 @@ crates/desk/src/
                 drawing helpers: plans (drawn), command output
   aside/        the column's tabs (tabs), the Diff tab as gpui-kit's diff view
                 reads the patches (diff), the Files tab and a file read
-                (files), git's scopes, commits and pull request (repo), a
-                side chat in it (side), the Devices tab: simulators and
-                emulators (sims)
+                (files), full tool output (output), git's scopes, commits and
+                pull request (repo), a side chat in it (side), the Devices
+                tab: simulators and emulators (sims)
   pages/        the settings dialog, gpui-kit's Settings, a page a tab (settings, prefs, projects, writing,
                 usage, voice: dictation's settings, updates: on About, hosts:
                 Source control, looks: Appearance's themes, diagnostics,

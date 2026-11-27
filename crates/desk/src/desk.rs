@@ -205,8 +205,10 @@ pub struct Desk {
     /// The session asked to stop, and when: past a while, it can be
     /// stopped by force.
     pub stopping: Option<(u64, std::time::Instant)>,
-    /// Whether the window was last set blurred behind, for glass.
+    /// Whether the window was last set blurred behind, for glass, and the
+    /// title last given macOS for the Window menu (`MacChrome`).
     glassed: bool,
+    window_title: String,
     /// What you dictate, while you do.
     pub dictation: Option<dictation::Dictation>,
     /// The speech recognition it goes through, as your settings say.
@@ -636,6 +638,7 @@ impl Desk {
             trailing: false,
             stopping: None,
             glassed: false,
+            window_title: String::from("u0"),
             dictation: None,
             speech: None,
             updates: updates::Updates::default(),
@@ -1455,10 +1458,9 @@ impl Desk {
             }
             _ => crate::tr_with("Press %{key} twice to quit", &[("key", &key)]),
         };
-        self.trouble(
+        self.info(
             how,
             working.then(|| crate::tr("Agents are at work: quitting stops their turns.").into()),
-            None,
         );
         false
     }
@@ -2104,6 +2106,16 @@ impl Render for Desk {
             } else {
                 gpui::WindowBackgroundAppearance::Opaque
             });
+        }
+        let wanted_title = match (&self.page, self.session()) {
+            (Page::Thread, Some(s)) if !s.items.is_empty() || s.meta.renamed => {
+                format!("u0 — {}", s.shown_title())
+            }
+            _ => String::from("u0"),
+        };
+        if self.window_title != wanted_title {
+            self.window_title.clone_from(&wanted_title);
+            window.set_window_title(&wanted_title);
         }
         self.sync_lines(cx);
         self.sync_diff(cx);

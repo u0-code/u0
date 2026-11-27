@@ -13,18 +13,27 @@
 use gpui::component::{
     Sizable as _, WindowExt as _,
     button::{Button, ButtonVariants as _},
+    kbd::Kbd,
     notification::{Notification, NotificationDelivery, NotificationType},
 };
-use gpui::{ClipboardItem, Context, Window, prelude::FluentBuilder as _};
+use gpui::{ClipboardItem, Context, ParentElement as _, Window, prelude::FluentBuilder as _};
 
 use super::Desk;
 use crate::settings::Notify;
+
+/// Visual kind of an in-app notice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kind {
+    Info,
+    Success,
+    Error,
+}
 
 /// A notice: what happened, why, and the way on; told by macOS when
 /// `system`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Notice {
-    pub trouble: bool,
+    pub kind: Kind,
     pub text: String,
     pub why: Option<String>,
     pub way: Option<Way>,
@@ -64,12 +73,18 @@ impl Desk {
         way: Option<Way>,
     ) {
         let why = why.map(|w| w.trim().to_owned()).filter(|w| !w.is_empty());
-        self.notice(true, text.into(), why, way, false);
+        self.notice(Kind::Error, text.into(), why, way, false);
+    }
+
+    /// Say an informational notice (`MacChrome`: ⌘Q hold/press-twice).
+    pub(crate) fn info(&mut self, text: impl Into<String>, why: Option<String>) {
+        let why = why.map(|w| w.trim().to_owned()).filter(|w| !w.is_empty());
+        self.notice(Kind::Info, text.into(), why, None, false);
     }
 
     /// Say that something was done, with the way on from it.
     pub(crate) fn done(&mut self, text: impl Into<String>, way: Option<Way>) {
-        self.notice(false, text.into(), None, way, false);
+        self.notice(Kind::Success, text.into(), None, way, false);
     }
 
     /// Say through macOS what the session `key` did, as you asked it to:
@@ -82,7 +97,7 @@ impl Desk {
             crate::macos::chime();
         }
         self.notice(
-            false,
+            Kind::Success,
             title,
             Some(body.to_owned()),
             Some(Way::Show(key)),
@@ -92,14 +107,14 @@ impl Desk {
 
     fn notice(
         &mut self,
-        trouble: bool,
+        kind: Kind,
         text: String,
         why: Option<String>,
         way: Option<Way>,
         system: bool,
     ) {
         self.notices.push(Notice {
-            trouble,
+            kind,
             text,
             why,
             way,
@@ -131,13 +146,13 @@ impl Desk {
 
     fn notification(n: &Notice, cx: &mut Context<Self>) -> Notification {
         let desk = cx.entity().downgrade();
-        let mut note = Notification::new()
-            .title(n.text.clone())
-            .with_type(if n.trouble {
-                NotificationType::Error
-            } else {
-                NotificationType::Success
-            });
+        let trouble = n.kind == Kind::Error;
+        let kind = match n.kind {
+            Kind::Info => NotificationType::Info,
+            Kind::Success => NotificationType::Success,
+            Kind::Error => NotificationType::Error,
+        };
+        let mut note = Notification::new().title(n.text.clone()).with_type(kind);
         if let Some(why) = &n.why {
             note = note.message(crate::ui::fit(why, 160));
         }
@@ -160,8 +175,13 @@ impl Desk {
             Some(Way::Update) => "See",
             Some(Way::Clone(..)) => "Retry",
 
-            None if n.trouble => "Copy details",
-            None => return note,
+            None if trouble => "Copy details",
+            None => return note.autohide(true),
+        };
+        let undo_keys = if n.way == Some(Way::Undo) {
+            crate::keys::keys_of(cx, "take_back")
+        } else {
+            Vec::new()
         };
         let details = match &n.why {
             Some(why) => format!("{}\n{why}", n.text),
@@ -190,13 +210,13 @@ impl Desk {
         // A way on keeps a notice up, but what went wrong still goes by
         // itself: it waits while the pointer is on it, and its close button
         // shows there.
-        let trouble = n.trouble;
         note.action(move |_, _, cx| {
-            let (way, go) = (way.clone(), go.clone());
+            let (way, go, keys) = (way.clone(), go.clone(), undo_keys.clone());
             Button::new("way")
                 .label(crate::tr(label))
                 .small()
                 .ghost()
+                .children(keys.into_iter().map(Kbd::new))
                 .on_click(cx.listener(move |note, _, window, cx| {
                     go(&way, window, cx);
                     note.dismiss(window, cx);
