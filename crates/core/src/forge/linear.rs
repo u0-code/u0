@@ -8,7 +8,7 @@ use super::{Host, api, int, items, list, said, text, words};
 use crate::github::{Act, Answer, Ask, Detail, Item};
 
 /// The fields of an issue the list shows.
-const FIELDS: &str = "number title url updatedAt state { type } creator { name } labels { nodes { name } } comments { nodes { id } }";
+const FIELDS: &str = "identifier number priority title url updatedAt team { name } assignee { name } state { name type } creator { name } labels { nodes { name color } } comments { nodes { id } }";
 
 /// Ask Linear `query` with `variables`; its `data`.
 fn ask(query: &str, variables: &Value) -> Result<Value, String> {
@@ -111,16 +111,42 @@ fn state_of(team: &str, kind: &str) -> Result<String, String> {
 
 /// One listed, as Linear says it.
 fn item(v: &Value) -> Item {
+    let state_type = text(v, "/state/type");
+    let issue_state = match state_type.as_str() {
+        "backlog" => Some("backlog".into()),
+        "started" => Some("progress".into()),
+        "completed" => Some("done".into()),
+        "canceled" => Some("cancelled".into()),
+        _ => Some("open".into()),
+    };
+    let priority = u8::try_from(int(v, "/priority"))
+        .ok()
+        .filter(|&p| (1..=4).contains(&p));
+    let label_colors = v
+        .pointer("/labels/nodes")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|l| {
+            let name = text(l, "/name");
+            let color = text(l, "/color");
+            (!name.is_empty() && !color.is_empty()).then_some((name, color))
+        })
+        .collect();
+    let identifier = text(v, "/identifier");
+    let assignee = Some(text(v, "/assignee/name")).filter(|s| !s.is_empty());
     Item {
         number: int(v, "/number"),
+        key: (!identifier.is_empty()).then_some(identifier),
         title: text(v, "/title"),
-        state: match text(v, "/state/type").as_str() {
+        state: match state_type.as_str() {
             "completed" | "canceled" => "closed".into(),
             _ => "open".into(),
         },
         draft: false,
         author: text(v, "/creator/name"),
         labels: list(v, "/labels/nodes", "/name"),
+        label_colors,
         updated: text(v, "/updatedAt"),
         url: text(v, "/url"),
         branch: String::new(),
@@ -131,11 +157,16 @@ fn item(v: &Value) -> Item {
             .pointer("/comments/nodes")
             .and_then(Value::as_array)
             .map_or(0, Vec::len),
+        issue_state,
+        priority,
+        assignee,
+        ..Item::default()
     }
 }
 
 /// One read whole.
 fn detail(v: &Value) -> Detail {
+    let team_name = Some(text(v, "/team/name")).filter(|s| !s.is_empty());
     Detail {
         item: item(v),
         body: text(v, "/description"),
@@ -146,15 +177,12 @@ fn detail(v: &Value) -> Detail {
             .flatten()
             .map(|c| said(c, "/user/name", "/createdAt", "commented", "/body"))
             .collect(),
-        checks: Vec::new(),
         assignees: [text(v, "/assignee/name")]
             .into_iter()
             .filter(|a| !a.is_empty())
             .collect(),
-        reviewers: Vec::new(),
-        conflicts: false,
-        head: String::new(),
-        threads: Vec::new(),
+        team_name,
+        ..Detail::default()
     }
 }
 
@@ -164,13 +192,22 @@ mod tests {
 
     #[test]
     fn a_linear_issue_reads_as_an_issue_does() {
-        let v = json!({"number": 12, "title": "Crash", "url": "u", "updatedAt": "t",
+        let v = json!({"identifier": "ENG-12", "number": 12, "priority": 2, "title": "Crash",
+            "url": "u", "updatedAt": "t", "team": {"name": "Carbon UI"},
             "state": {"type": "canceled"}, "creator": {"name": "Ann"},
-            "labels": {"nodes": [{"name": "bug"}]}, "description": "why",
+            "labels": {"nodes": [{"name": "bug", "color": "#da1e28"}]}, "description": "why",
             "assignee": {"name": "Bo"},
             "comments": {"nodes": [{"body": "seen", "createdAt": "t", "user": {"name": "Cy"}}]}});
         let d = detail(&v);
         assert_eq!((d.item.number, d.item.state.as_str()), (12, "closed"));
+        assert_eq!(d.item.key.as_deref(), Some("ENG-12"));
+        assert_eq!(d.item.priority, Some(2));
+        assert_eq!(d.item.issue_state.as_deref(), Some("cancelled"));
+        assert_eq!(d.team_name.as_deref(), Some("Carbon UI"));
+        assert_eq!(
+            d.item.label_colors,
+            vec![("bug".to_owned(), "#da1e28".to_owned())]
+        );
         assert_eq!(
             (d.item.labels.clone(), d.item.comments),
             (vec!["bug".to_owned()], 1)

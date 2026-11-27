@@ -1033,16 +1033,7 @@ mod tests {
             number,
             title: format!("#{number}"),
             state: "open".into(),
-            draft: false,
-            author: String::new(),
-            labels: Vec::new(),
-            updated: String::new(),
-            url: String::new(),
-            branch: String::new(),
-            base: String::new(),
-            review: String::new(),
-            checks: (0, 0, 0),
-            comments: 0,
+            ..Item::default()
         }
     }
 

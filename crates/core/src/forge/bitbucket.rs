@@ -166,6 +166,7 @@ fn item(v: &Value) -> Item {
         },
         checks: (0, 0, 0),
         comments: int(v, "/comment_count") as usize,
+        ..Item::default()
     }
 }
 
@@ -229,6 +230,7 @@ fn detail(v: &Value, comments: &Value) -> Detail {
         reviewers: list(v, "/reviewers", "/display_name"),
         conflicts: false,
         head: text(v, "/source/commit/hash"),
+        ..Detail::default()
     }
 }
 

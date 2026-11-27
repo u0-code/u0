@@ -280,8 +280,10 @@ impl Desk {
                         .text_color(theme::coral()),
                 )
                 .child(div().child(ask("Try again"))),
-            Some((_, head, Some(Ok(text)))) => body
-                .when(*head != d.head, |b| {
+            Some((_, head, Some(Ok(text)))) => {
+                let stops = crate::desk::pr::parse_guide_stops(text);
+                let active_stop = self.forge.pr.stop.min(stops.len().saturating_sub(1));
+                body.when(*head != d.head, |b| {
                     b.child(
                         div()
                             .flex()
@@ -291,7 +293,14 @@ impl Desk {
                             .child(ask("Write it again")),
                     )
                 })
-                .child(markdown::render(faces, "pr-guide", text, cx)),
+                .when(!stops.is_empty(), |b| {
+                    b.child(ui::fine(
+                        faces,
+                        format!("Stop {} of {}", active_stop + 1, stops.len()),
+                    ))
+                })
+                .child(markdown::render(faces, "pr-guide", text, cx))
+            }
         }
     }
 }

@@ -250,6 +250,7 @@ fn item(v: &Value) -> Item {
         },
         checks: (0, 0, 0),
         comments: 0,
+        ..Item::default()
     }
 }
 
@@ -304,6 +305,7 @@ fn detail(v: &Value, threads: &Value) -> Detail {
         conflicts: text(v, "/mergeStatus") == "conflicts",
         head: text(v, "/lastMergeSourceCommit/commitId"),
         threads,
+        ..Detail::default()
     }
 }
 

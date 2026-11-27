@@ -27,15 +27,19 @@ impl Kind {
 }
 
 /// One listed: a pull request or an issue.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Item {
     pub number: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
     pub title: String,
     /// open, closed, merged.
     pub state: String,
     pub draft: bool,
     pub author: String,
     pub labels: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub label_colors: Vec<(String, String)>,
     pub updated: String,
     pub url: String,
     /// A pull request's branch and the one it goes into.
@@ -46,16 +50,32 @@ pub struct Item {
     /// Its checks: passed, failed, still going.
     pub checks: (usize, usize, usize),
     pub comments: usize,
+    #[serde(default)]
+    pub added: usize,
+    #[serde(default)]
+    pub removed: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub issue_state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assignee: Option<String>,
+    #[serde(default)]
+    pub viewer_authored: bool,
+    #[serde(default)]
+    pub viewer_requested: bool,
 }
 
 /// Something said on it: by whom, when, how (a comment, a review's
 /// verdict), and the words.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Said {
     pub who: String,
     pub when: String,
     pub how: String,
     pub body: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reactions: Vec<(String, usize)>,
 }
 
 /// A check of a pull request: its name, how it stands, where it ran, and
@@ -87,7 +107,7 @@ impl Check {
 }
 
 /// One read whole.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Detail {
     pub item: Item,
     pub body: String,
@@ -95,6 +115,14 @@ pub struct Detail {
     pub checks: Vec<Check>,
     pub assignees: Vec<String>,
     pub reviewers: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviewer_states: Vec<(String, String)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub commits: Vec<(String, String)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub linked_issue: Option<(u64, String)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team_name: Option<String>,
     /// It conflicts with its base.
     pub conflicts: bool,
     /// The commit its branch is at, to tell when it moved.
@@ -222,12 +250,12 @@ pub enum Answer {
 fn fields(kind: Kind, whole: bool) -> &'static str {
     match (kind, whole) {
         (Kind::Pr, false) => {
-            "number,title,state,isDraft,author,labels,updatedAt,url,headRefName,baseRefName,reviewDecision,statusCheckRollup,comments,isCrossRepository,headRepositoryOwner"
+            "number,title,state,isDraft,author,labels,updatedAt,url,headRefName,baseRefName,reviewDecision,statusCheckRollup,comments,isCrossRepository,headRepositoryOwner,additions,deletions,assignees,reviewRequests"
         }
         (Kind::Pr, true) => {
-            "number,title,state,isDraft,author,labels,updatedAt,url,headRefName,baseRefName,reviewDecision,statusCheckRollup,comments,isCrossRepository,headRepositoryOwner,body,reviews,assignees,reviewRequests,mergeable,headRefOid"
+            "number,title,state,isDraft,author,labels,updatedAt,url,headRefName,baseRefName,reviewDecision,statusCheckRollup,comments,isCrossRepository,headRepositoryOwner,additions,deletions,body,reviews,latestReviews,assignees,reviewRequests,mergeable,headRefOid,commits,closingIssuesReferences"
         }
-        (Kind::Issue, false) => "number,title,state,author,labels,updatedAt,url,comments",
+        (Kind::Issue, false) => "number,title,state,author,labels,updatedAt,url,comments,assignees",
         (Kind::Issue, true) => {
             "number,title,state,author,labels,updatedAt,url,comments,body,assignees"
         }
@@ -555,12 +583,18 @@ struct Raw {
     comments: Vec<RawSaid>,
     body: String,
     reviews: Vec<RawSaid>,
+    latest_reviews: Vec<RawSaid>,
     assignees: Vec<Who>,
     review_requests: Vec<Who>,
     mergeable: String,
     head_ref_oid: String,
     is_cross_repository: bool,
     head_repository_owner: Who,
+    additions: usize,
+    deletions: usize,
+    commits: Vec<RawCommit>,
+    closing_issues_references: Vec<RawIssueRef>,
+    viewer_did_author: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -568,12 +602,41 @@ struct Raw {
 struct Who {
     login: String,
     name: String,
+    is_me: bool,
 }
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct Named {
     name: String,
+    color: String,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct RawCommit {
+    oid: String,
+    message_headline: String,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawIssueRef {
+    number: u64,
+    title: String,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RawReactionGroup {
+    content: String,
+    users: RawUsersCount,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct RawUsersCount {
+    total_count: usize,
 }
 
 #[derive(Deserialize, Default)]
@@ -598,6 +661,7 @@ struct RawSaid {
     created_at: String,
     submitted_at: String,
     state: String,
+    reaction_groups: Vec<RawReactionGroup>,
 }
 
 impl RawCheck {
@@ -631,6 +695,20 @@ pub(crate) fn standing(word: &str) -> usize {
     }
 }
 
+fn reaction_emoji(content: &str) -> &'static str {
+    match content {
+        "THUMBS_UP" => "👍",
+        "THUMBS_DOWN" => "👎",
+        "LAUGH" => "😄",
+        "HOORAY" => "🎉",
+        "CONFUSED" => "😕",
+        "HEART" => "❤️",
+        "ROCKET" => "🚀",
+        "EYES" => "👀",
+        _ => "👍",
+    }
+}
+
 impl Raw {
     fn item(self) -> Item {
         let mut checks = (0, 0, 0);
@@ -641,13 +719,44 @@ impl Raw {
                 _ => checks.2 += 1,
             }
         }
+        let label_colors: Vec<(String, String)> = self
+            .labels
+            .iter()
+            .filter(|l| !l.color.is_empty())
+            .map(|l| {
+                let c = l.color.trim_start_matches('#');
+                (l.name.clone(), format!("#{c}"))
+            })
+            .collect();
+        let labels = self.labels.into_iter().map(|l| l.name).collect();
+        let assignee = self
+            .assignees
+            .first()
+            .map(|w| {
+                if w.login.is_empty() {
+                    w.name.clone()
+                } else {
+                    w.login.clone()
+                }
+            })
+            .filter(|s| !s.is_empty());
+        let viewer_authored = self.viewer_did_author || self.author.is_me;
+        let viewer_requested = self.review_requests.iter().any(|w| w.is_me);
+        let state_lower = self.state.to_lowercase();
         Item {
             number: self.number,
+            key: None,
             title: self.title,
-            state: self.state.to_lowercase(),
+            issue_state: Some(if state_lower == "closed" {
+                "done".into()
+            } else {
+                "open".into()
+            }),
+            state: state_lower,
             draft: self.is_draft,
             author: self.author.login,
-            labels: self.labels.into_iter().map(|l| l.name).collect(),
+            labels,
+            label_colors,
             updated: self.updated_at,
             url: self.url,
             // A fork's branch, by its owner, as GitHub writes it.
@@ -663,28 +772,54 @@ impl Raw {
             review: self.review_decision.to_lowercase().replace('_', " "),
             checks,
             comments: self.comments.len(),
+            added: self.additions,
+            removed: self.deletions,
+            priority: None,
+            assignee,
+            viewer_authored,
+            viewer_requested,
         }
     }
 
     fn detail(mut self) -> Detail {
-        let said = |s: RawSaid, how: &str| Said {
-            who: if s.author.login.is_empty() {
-                s.author.name
-            } else {
-                s.author.login
-            },
-            when: if s.created_at.is_empty() {
-                s.submitted_at
-            } else {
-                s.created_at
-            },
-            how: if s.state.is_empty() {
-                how.to_owned()
-            } else {
-                s.state.to_lowercase().replace('_', " ")
-            },
-            body: s.body,
+        let said = |s: RawSaid, how: &str| {
+            let reactions = s
+                .reaction_groups
+                .into_iter()
+                .filter(|g| g.users.total_count > 0)
+                .map(|g| (reaction_emoji(&g.content).to_owned(), g.users.total_count))
+                .collect();
+            Said {
+                who: if s.author.login.is_empty() {
+                    s.author.name
+                } else {
+                    s.author.login
+                },
+                when: if s.created_at.is_empty() {
+                    s.submitted_at
+                } else {
+                    s.created_at
+                },
+                how: if s.state.is_empty() {
+                    how.to_owned()
+                } else {
+                    s.state.to_lowercase().replace('_', " ")
+                },
+                body: s.body,
+                reactions,
+            }
         };
+        let mut reviewer_states: Vec<(String, String)> = Vec::new();
+        for r in std::mem::take(&mut self.latest_reviews) {
+            let login = if r.author.login.is_empty() {
+                r.author.name
+            } else {
+                r.author.login
+            };
+            if !login.is_empty() {
+                reviewer_states.push((login, r.state.to_lowercase().replace('_', " ")));
+            }
+        }
         let mut all: Vec<Said> = std::mem::take(&mut self.comments)
             .into_iter()
             .map(|s| said(s, "commented"))
@@ -714,14 +849,35 @@ impl Raw {
             })
             .collect();
         let body = std::mem::take(&mut self.body);
-        let assignees = std::mem::take(&mut self.assignees)
-            .into_iter()
-            .map(|w| w.login)
+        let assignees: Vec<String> = self
+            .assignees
+            .iter()
+            .map(|w| w.login.clone())
+            .filter(|l| !l.is_empty())
             .collect();
-        let reviewers = std::mem::take(&mut self.review_requests)
-            .into_iter()
-            .map(|w| w.login)
+        let reviewers: Vec<String> = self
+            .review_requests
+            .iter()
+            .map(|w| w.login.clone())
+            .filter(|l| !l.is_empty())
             .collect();
+        for req in &reviewers {
+            if !reviewer_states.iter().any(|(l, _)| l == req) {
+                reviewer_states.push((req.clone(), "awaiting".into()));
+            }
+        }
+        let commits = std::mem::take(&mut self.commits)
+            .into_iter()
+            .map(|c| {
+                let short = c.oid.chars().take(7).collect::<String>();
+                (short, c.message_headline)
+            })
+            .collect();
+        let linked_issue = self
+            .closing_issues_references
+            .first()
+            .filter(|i| i.number > 0)
+            .map(|i| (i.number, i.title.clone()));
         let conflicts = self.mergeable == "CONFLICTING";
         let head = std::mem::take(&mut self.head_ref_oid);
         Detail {
@@ -731,6 +887,10 @@ impl Raw {
             checks,
             assignees,
             reviewers,
+            reviewer_states,
+            commits,
+            linked_issue,
+            team_name: None,
             conflicts,
             head,
             threads: Vec::new(),

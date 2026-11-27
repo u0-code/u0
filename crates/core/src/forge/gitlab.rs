@@ -203,6 +203,8 @@ fn item(v: &Value) -> Item {
         },
         checks,
         comments: int(v, "/user_notes_count") as usize,
+        assignee: list(v, "/assignees", "/username").into_iter().next(),
+        ..Item::default()
     }
 }
 
@@ -251,6 +253,7 @@ fn detail(v: &Value, discussions: &Value) -> Detail {
         reviewers: list(v, "/reviewers", "/username"),
         conflicts: v["has_conflicts"].as_bool().unwrap_or(false),
         head: text(v, "/sha"),
+        ..Detail::default()
     }
 }
 

@@ -233,6 +233,7 @@ pub(crate) fn said(v: &Value, who: &str, when: &str, how: &str, body: &str) -> S
         when: text(v, when),
         how: how.to_owned(),
         body: text(v, body),
+        reactions: Vec::new(),
     }
 }
 

@@ -40,6 +40,60 @@ pub struct Review {
     /// The guide to it: for which pull request, at which commit, and what
     /// the writer wrote (none while it writes).
     pub guide: Option<(u64, String, Option<Written>)>,
+    /// Current stop index inside the parsed review guide.
+    pub stop: usize,
+}
+
+/// One structured stop parsed from a writer's Markdown review guide.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GuideStopData {
+    pub title: String,
+    pub file: Option<String>,
+    pub note: String,
+}
+
+/// Parse headings or numbered list items in `markdown` into structured review stops.
+pub fn parse_guide_stops(markdown: &str) -> Vec<GuideStopData> {
+    let mut stops: Vec<GuideStopData> = Vec::new();
+    for line in markdown.lines() {
+        let trimmed = line.trim();
+        let heading = trimmed
+            .strip_prefix("### ")
+            .or_else(|| trimmed.strip_prefix("## "))
+            .or_else(|| {
+                let (num, rest) = trimmed.split_once(". ")?;
+                (!num.is_empty() && num.chars().all(|c| c.is_ascii_digit())).then_some(rest)
+            });
+        if let Some(raw) = heading {
+            let title = raw.trim().trim_matches('*').to_owned();
+            let file = title
+                .split('`')
+                .nth(1)
+                .filter(|s| s.contains('/') || s.contains('.'))
+                .map(str::to_owned);
+            stops.push(GuideStopData {
+                title,
+                file,
+                note: String::new(),
+            });
+        } else if let Some(last) = stops.last_mut()
+            && !trimmed.is_empty()
+            && last.note.is_empty()
+        {
+            let file = trimmed
+                .split('`')
+                .nth(1)
+                .filter(|s| s.contains('/') || s.contains('.'))
+                .map(str::to_owned);
+            if last.file.is_none() {
+                last.file = file;
+            }
+            trimmed
+                .trim_start_matches(['-', '*', ' '])
+                .clone_into(&mut last.note);
+        }
+    }
+    stops
 }
 
 /// What the writer wrote, or why it did not.
@@ -80,6 +134,7 @@ impl Review {
             reply,
             all_threads: false,
             guide: None,
+            stop: 0,
         }
     }
 }
@@ -155,6 +210,7 @@ impl Desk {
         r.lines.clear();
         r.commenting = None;
         r.replying = None;
+        r.stop = 0;
     }
 
     /// Begin a comment on line `line` of `path`.
@@ -237,5 +293,25 @@ impl Desk {
     /// The guide written to the pull request `n` at `head`, or why not.
     pub(super) fn guide_written(&mut self, n: u64, head: String, text: Result<String, String>) {
         self.forge.pr.guide = Some((n, head, Some(text)));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn guide_headings_and_numbered_stops_extract_titles_files_and_notes() {
+        let md = "## 1. Range state\n- `src/date-picker/state.ts` anchors the end date.\n2. **Inputs & labels**\nAria labels on both inputs.";
+        let stops = parse_guide_stops(md);
+        assert_eq!(stops.len(), 2);
+        assert_eq!(stops[0].title, "1. Range state");
+        assert_eq!(stops[0].file.as_deref(), Some("src/date-picker/state.ts"));
+        assert_eq!(
+            stops[0].note,
+            "`src/date-picker/state.ts` anchors the end date."
+        );
+        assert_eq!(stops[1].title, "Inputs & labels");
+        assert_eq!(stops[1].note, "Aria labels on both inputs.");
     }
 }
