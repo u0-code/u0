@@ -4,12 +4,10 @@
 .claude/
 # Design documents and write-ups stay on the machine they were written on.
 /docs/
-# Left on this machine from before u0 was an agent manager: a character's
-# journal and its runs. Not part of the app; move them away when done.
-/ghosts/
+# Left on this machine from before u0 was an agent manager: its runs
+# and benches. Not part of the app; move them away when done.
 /run
 /bench/
-/ghostd.toml
 # The telemetry Worker's tools and what they build.
 /telemetry/node_modules/
 /telemetry/.cloudflare/
