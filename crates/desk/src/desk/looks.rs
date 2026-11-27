@@ -5,7 +5,7 @@
 
 use std::{path::PathBuf, rc::Rc};
 
-use gpui::{App, Context, Focusable as _, Hsla, PathPromptOptions, Window};
+use gpui::{App, AppContext as _, Context, Focusable as _, Hsla, PathPromptOptions, Window};
 use u0ui::tokens::{CarbonTheme, ColorRole};
 
 use super::Desk;
@@ -448,5 +448,130 @@ impl Desk {
             }
         })
         .detach();
+    }
+
+    /// Ask Open VSX for themes matching the search, once typing pauses and
+    /// it is two letters or more.
+    pub(crate) fn search_vsx(&mut self, cx: &mut Context<Self>) {
+        let query = self.pages.theme_search.read(cx).value().trim().to_owned();
+        if query.chars().count() < 2 {
+            self.pages.vsx = None;
+            return;
+        }
+        if self.pages.vsx.as_ref().is_some_and(|(q, _)| *q == query) {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_millis(400))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.pages.theme_search.read(cx).value().trim() == query {
+                    crate::hub::vsx_search(query, this.tx.clone());
+                }
+            });
+        })
+        .detach();
+    }
+
+    /// Bring the extension `listed` from Open VSX and make its colour
+    /// themes yours.
+    pub(crate) fn add_vsx(&mut self, listed: themes::Listed, cx: &mut Context<Self>) {
+        self.pages.vsx_adding = Some(listed.title.clone());
+        crate::hub::vsx_get(listed, self.tx.clone());
+        cx.notify();
+    }
+
+    /// What Open VSX found, kept while it is for the search as it is; or
+    /// what it brought, imported.
+    pub(crate) fn vsx_took(
+        &mut self,
+        vsx: themes::Vsx,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match vsx {
+            themes::Vsx::Found(query, found) => {
+                if *self.pages.theme_search.read(cx).value().trim() == *query {
+                    self.pages.vsx = Some((query, found));
+                }
+            }
+            themes::Vsx::Got(title, got) => {
+                self.pages.vsx_adding = None;
+                let read = got.and_then(|texts| {
+                    if texts.is_empty() {
+                        return Err(crate::tr("it brings no colour theme").into());
+                    }
+                    texts
+                        .iter()
+                        .map(|t| themes::from_vscode(t))
+                        .collect::<Result<Vec<_>, _>>()
+                });
+                match read {
+                    Ok(all) => {
+                        for imported in all {
+                            self.import(imported, window, cx);
+                        }
+                    }
+                    Err(why) => self.trouble(
+                        crate::tr_with("%{name} could not be added", &[("name", &title)]),
+                        Some(why),
+                        None,
+                    ),
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// Open the line you ask the writer for a theme on, or close it.
+    pub(crate) fn toggle_theme_ask(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.pages.theme_ask.take().is_some() {
+            cx.notify();
+            return;
+        }
+        let input = cx.new(|cx| {
+            gpui::component::input::InputState::new(window, cx)
+                .placeholder(crate::tr("Describe it: warm paper, dark ink, amber links"))
+        });
+        cx.subscribe_in(
+            &input,
+            window,
+            |this, _, e: &gpui::component::input::InputEvent, window, cx| {
+                if matches!(e, gpui::component::input::InputEvent::PressEnter { .. }) {
+                    this.ask_for_theme(window, cx);
+                }
+            },
+        )
+        .detach();
+        window.focus(&input.focus_handle(cx), cx);
+        self.pages.theme_ask = Some(input);
+        cx.notify();
+    }
+
+    /// Have the writer, one of your agents, write the theme described, for
+    /// the look drawn now; it is imported as it comes.
+    pub(crate) fn ask_for_theme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(input) = self.pages.theme_ask.clone() else {
+            return;
+        };
+        let described = input.read(cx).value().trim().to_owned();
+        if described.is_empty() {
+            return;
+        }
+        if self.settings.enabled.is_empty() {
+            self.trouble(
+                crate::tr("No agent is on to write it"),
+                Some(crate::tr("Turn one on in Settings › Agents.").into()),
+                None,
+            );
+            return;
+        }
+        input.update(cx, |i, cx| i.set_value("", window, cx));
+        self.pages.theme_ask = None;
+        self.pages.theme_asked = true;
+        let dark = !crate::theme::is_light();
+        self.ask_writer(0, crate::writer::Ask::Theme { described, dark });
+        cx.notify();
     }
 }

@@ -33,6 +33,9 @@ pub enum Ask {
     /// A guide to reviewing the pull request `n` of the project in `dir`,
     /// whose branch is at `head`.
     Guide { dir: PathBuf, n: u64, head: String },
+    /// A colour theme for u0, as gpui-kit's theme file holds one, from what
+    /// you `described`; for the dark look, or the light.
+    Theme { described: String, dark: bool },
 }
 
 /// What a writer is asked to write for the session `key`: by `agent`,
@@ -88,6 +91,16 @@ changed and why, the files it touches as `path:line` in a list, and, where there
 line beginning **Look at:** naming the tradeoff, contract, risk or product question to judge. \
 End with `## Questions`, the questions to ask the author, if any. Say nothing the changes do \
 not show.";
+
+const THEME: &str = "Write a colour theme for a desktop app, as the user describes it \
+below, in gpui-kit's theme file format: a JSON object {\"name\": <the theme's name, two or \
+three words>, \"themes\": [{\"name\": <the same name>, \"mode\": <MODE>, \"colors\": \
+{...}}]}. Give each of these keys a colour as \"#rrggbb\": background, foreground, border, \
+sidebar.background, popover.background, muted.background, muted.foreground, \
+secondary.background, secondary.hover.background, input.border, primary.background, link, \
+success.background, danger.background, warning.background, base.blue, base.green, \
+base.yellow. foreground on background, and muted.foreground on sidebar.background, must read \
+at a contrast of at least 4.5:1. Reply with the JSON alone.";
 
 /// How much of a patch a writer is shown.
 const PATCH: usize = 40_000;
@@ -170,6 +183,10 @@ impl Ask {
                     ),
                 )
             }
+            Self::Theme { described, dark } => (
+                THEME.replace("<MODE>", if *dark { "\"dark\"" } else { "\"light\"" }),
+                format!("What the user asks for:\n{}", cut(described)),
+            ),
             Self::Next { said, answer } => (
                 NEXT.to_owned(),
                 format!(
@@ -272,5 +289,18 @@ mod tests {
         };
         assert_eq!(semantic.take("Fix/Login error"), "fix/login-error");
         assert_eq!(semantic.take("login error"), "login-error");
+    }
+
+    #[test]
+    fn a_theme_is_asked_for_in_the_look_it_is_for_and_kept_as_written() {
+        let dark = Ask::Theme {
+            described: "warm paper, dark ink".into(),
+            dark: true,
+        };
+        let prompt = dark.prompt("").unwrap();
+        assert!(prompt.contains(r#""mode": "dark""#), "{prompt}");
+        assert!(prompt.ends_with("What the user asks for:\nwarm paper, dark ink"));
+        let json = r#"{"name": "Paper", "themes": []}"#;
+        assert_eq!(dark.take(&format!("```json\n{json}\n```")), json);
     }
 }

@@ -47,6 +47,8 @@ pub enum Msg {
     Attached(Option<crate::desk::mention::Attached>),
     /// Where an update of u0's own stands.
     Update(crate::desk::updates::Update),
+    /// What Open VSX found, or brought.
+    Vsx(crate::themes::Vsx),
     /// How the link to a server stands.
     Link(Host, link::State),
     /// What came of pairing with a server, or why it did not pair.
@@ -505,6 +507,42 @@ pub fn install_command(tx: Sender) {
                 e.to_string(),
             )),
         })
+    });
+}
+
+/// Ask Open VSX for the theme extensions matching `query`.
+pub fn vsx_search(query: String, tx: Sender) {
+    off(tx, move || {
+        let found = crate::http::get(&crate::themes::vsx_search(&query), &[])
+            .and_then(|answer| crate::themes::vsx_listed(&answer));
+        Msg::Vsx(crate::themes::Vsx::Found(query, found))
+    });
+}
+
+/// Download the extension `listed` from Open VSX and read the colour
+/// themes in it, with `unzip` (a `.vsix` is a zip), as the registry's
+/// archives are read.
+pub fn vsx_get(listed: crate::themes::Listed, tx: Sender) {
+    off(tx, move || {
+        let got = (|| {
+            let vsix = crate::http::get(&listed.vsix, &[])?;
+            let file = std::env::temp_dir().join(format!("u0-{}.vsix", std::process::id()));
+            std::fs::write(&file, vsix).map_err(|e| e.to_string())?;
+            let read = |path: &str| -> Result<String, String> {
+                let out = std::process::Command::new("unzip")
+                    .arg("-p")
+                    .arg(&file)
+                    .arg(path)
+                    .output()
+                    .map_err(|e| e.to_string())?;
+                String::from_utf8(out.stdout).map_err(|e| e.to_string())
+            };
+            let themes = read("extension/package.json").map(|p| crate::themes::vsix_themes(&p));
+            let texts = themes.and_then(|t| t.iter().map(|p| read(p)).collect());
+            let _ = std::fs::remove_file(&file);
+            texts
+        })();
+        Msg::Vsx(crate::themes::Vsx::Got(listed.title, got))
     });
 }
 

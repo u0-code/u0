@@ -40,9 +40,9 @@ use keys::{
     Quit, ShowAll, Stop, ToggleSidebar, ZoomWindow,
 };
 use u0_core::{
-    access, acp, devices, diagnostics, forge, git, github, key, link, path, policy, proto, reach,
-    registry, repo, review, scripts, secrets, server, servers, session, settings, share, store,
-    tasks, telemetry, tidy, update, usage, when, whole, workflows, writer,
+    access, acp, devices, diagnostics, forge, git, github, http, key, link, path, policy, proto,
+    reach, registry, repo, review, scripts, secrets, server, servers, session, settings, share,
+    store, tasks, telemetry, tidy, update, usage, when, whole, workflows, writer,
 };
 
 use gpui::{

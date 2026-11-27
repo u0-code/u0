@@ -391,6 +391,68 @@ pub fn from_kit_json(text: &str) -> Result<Imported, String> {
     Ok(Imported { name, dark, theme })
 }
 
+/// A colour theme extension Open VSX lists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Listed {
+    pub title: String,
+    /// Its publisher, as Open VSX names it.
+    pub by: String,
+    /// Where its `.vsix` is downloaded from.
+    pub vsix: String,
+}
+
+/// What Open VSX said, or brought.
+#[derive(Debug)]
+pub enum Vsx {
+    /// The theme extensions found for `query`, or why none were.
+    Found(String, Result<Vec<Listed>, String>),
+    /// The colour themes in the extension `title`, as VS Code reads them.
+    Got(String, Result<Vec<String>, String>),
+}
+
+/// Where Open VSX is asked for the theme extensions matching `query`.
+pub fn vsx_search(query: &str) -> String {
+    url::Url::parse_with_params(
+        "https://open-vsx.org/api/-/search",
+        &[("query", query), ("category", "Themes"), ("size", "9")],
+    )
+    .map(String::from)
+    .expect("the address parses")
+}
+
+/// The extensions in Open VSX's answer to a search.
+pub fn vsx_listed(answer: &[u8]) -> Result<Vec<Listed>, String> {
+    let answer: Value = serde_json::from_slice(answer).map_err(|e| e.to_string())?;
+    let found = answer["extensions"]
+        .as_array()
+        .ok_or_else(|| crate::tr("Open VSX answered with no extensions").to_string())?;
+    Ok(found
+        .iter()
+        .filter_map(|e| {
+            let name = e["name"].as_str()?;
+            Some(Listed {
+                title: e["displayName"].as_str().unwrap_or(name).to_owned(),
+                by: e["namespace"].as_str()?.to_owned(),
+                vsix: e["files"]["download"].as_str()?.to_owned(),
+            })
+        })
+        .collect())
+}
+
+/// Where in a `.vsix` the colour themes its `package.json` brings are.
+pub fn vsix_themes(package: &str) -> Vec<String> {
+    let Ok(package) = serde_json::from_str::<Value>(package) else {
+        return Vec::new();
+    };
+    package["contributes"]["themes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| t["path"].as_str())
+        .map(|p| format!("extension/{}", p.trim_start_matches("./")))
+        .collect()
+}
+
 // VS Code theme colour keys mapped onto our Carbon-bridged ThemeSet keys.
 const VSCODE_MAP: [(&str, &[&str]); 19] = [
     ("background", &["editor.background"]),
@@ -579,5 +641,32 @@ mod tests {
         let is_taken = |n: &str| taken.contains(&n);
         assert_eq!(free_name("Night Owl", is_taken), "Night Owl 3");
         assert_eq!(free_name("Paper", is_taken), "Paper");
+    }
+
+    #[test]
+    fn open_vsx_lists_theme_extensions_and_a_vsix_says_where_its_themes_are() {
+        let answer = br#"{"extensions": [
+            {"namespace": "sainnhe", "name": "everforest", "displayName": "Everforest",
+             "files": {"download": "https://open-vsx.org/x/everforest.vsix"}},
+            {"namespace": "nobody", "name": "no-file", "files": {}}
+        ]}"#;
+        assert_eq!(
+            vsx_listed(answer).unwrap(),
+            [Listed {
+                title: "Everforest".into(),
+                by: "sainnhe".into(),
+                vsix: "https://open-vsx.org/x/everforest.vsix".into(),
+            }]
+        );
+        assert!(vsx_listed(b"{}").is_err());
+        assert!(vsx_search("a b").ends_with("query=a+b&category=Themes&size=9"));
+        let package = r#"{"contributes": {"themes": [
+            {"label": "Dark", "uiTheme": "vs-dark", "path": "./themes/dark.json"},
+            {"label": "Light", "path": "themes/light.json"}
+        ]}}"#;
+        assert_eq!(
+            vsix_themes(package),
+            ["extension/themes/dark.json", "extension/themes/light.json"]
+        );
     }
 }

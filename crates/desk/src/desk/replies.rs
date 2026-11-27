@@ -151,6 +151,7 @@ impl Desk {
             }
             Msg::OnPath(found) => self.on_path = found,
             Msg::Update(update) => self.updated(update, cx),
+            Msg::Vsx(vsx) => self.vsx_took(vsx, window, cx),
             Msg::Keys(Ok(yours)) => {
                 self.keys_refused = None;
                 cx.clear_key_bindings();

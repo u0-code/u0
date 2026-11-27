@@ -30,6 +30,13 @@ impl Desk {
                 };
                 (p.host, agent)
             }
+            // A theme is the window's own, written by the writer here.
+            (Ask::Theme { .. }, _) => {
+                let Some(agent) = self.settings.enabled.first().cloned() else {
+                    return;
+                };
+                (crate::hub::Host::HERE, agent)
+            }
             (_, Some(s)) => (s.host, s.meta.agent.clone()),
             (_, None) => return,
         };
@@ -42,7 +49,7 @@ impl Desk {
             Ask::Title { .. } => w.titles.clone(),
             Ask::Branch { .. } => w.branches.clone(),
             Ask::Commit { .. } | Ask::Pr { .. } | Ask::Guide { .. } => w.changes.clone(),
-            Ask::Next { .. } => String::new(),
+            Ask::Next { .. } | Ask::Theme { .. } => String::new(),
             Ask::Transcript { .. } => w.transcripts.clone(),
         };
         let Some((dir, delete, close)) = self.aside_place(host, &agent) else {
@@ -138,6 +145,9 @@ impl Desk {
                 s.git.step = None;
             }
         }
+        if matches!(ask, Ask::Theme { .. }) {
+            self.pages.theme_asked = false;
+        }
         if let Ask::Guide { n, head, .. } = ask {
             self.guide_written(n, head, result);
             cx.notify();
@@ -161,6 +171,7 @@ impl Desk {
                         "The writer couldn't write what you dictated, cleaned up"
                     }
                     Ask::Guide { .. } => "The writer couldn't write the review guide",
+                    Ask::Theme { .. } => "The writer couldn't write the theme",
                 };
                 self.trouble(crate::tr(what), Some(why), None);
                 return;
@@ -226,6 +237,14 @@ impl Desk {
             }
             Ask::Transcript { heard } => self.cleaned(&heard, &text, window, cx),
             Ask::Guide { .. } => {}
+            Ask::Theme { .. } => match crate::themes::from_kit_json(&text) {
+                Ok(theme) => self.import(theme, window, cx),
+                Err(why) => self.trouble(
+                    crate::tr("The writer couldn't write the theme"),
+                    Some(why),
+                    None,
+                ),
+            },
         }
         cx.notify();
     }

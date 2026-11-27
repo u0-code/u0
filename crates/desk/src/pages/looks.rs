@@ -730,7 +730,7 @@ impl Desk {
             let other_name = self.active_theme_title(!now_dark);
             let other_mode = crate::tr(if now_dark { "light" } else { "dark" });
             crate::tr_with(
-                "Built-in, imported from VS Code or gpui-kit, or your own. %{active} is in use now; %{other} takes over when the system turns %{mode}.",
+                "Built-in, imported from VS Code or Open VSX, or your own. %{active} is in use now; %{other} takes over when the system turns %{mode}.",
                 &[
                     ("active", &active_name),
                     ("other", &other_name),
@@ -739,11 +739,12 @@ impl Desk {
             )
         } else {
             crate::tr_with(
-                "Built-in, imported from VS Code or gpui-kit, or your own. %{active} is in use now.",
+                "Built-in, imported from VS Code or Open VSX, or your own. %{active} is in use now.",
                 &[("active", &active_name)],
             )
         };
 
+        let desk_ask = cx.entity();
         let desk_vscode = cx.entity();
         let desk_kit = cx.entity();
         let desk_new = cx.entity();
@@ -779,8 +780,16 @@ impl Desk {
                     ),
             )
             .child(
-                CarbonButton::new("theme-import-vscode", crate::tr("Import a VS Code theme…"))
+                CarbonButton::new("theme-ask", crate::tr("Ask an agent"))
                     .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Sm)
+                    .on_click(move |_, window, cx| {
+                        desk_ask.update(cx, |this, cx| this.toggle_theme_ask(window, cx));
+                    }),
+            )
+            .child(
+                CarbonButton::new("theme-import-vscode", crate::tr("Import a VS Code theme…"))
+                    .variant(ButtonVariant::Tertiary)
                     .size(ButtonSize::Sm)
                     .on_click(move |_, window, cx| {
                         desk_vscode.update(cx, |_, cx| Desk::import_theme(window, cx));
@@ -902,10 +911,135 @@ impl Desk {
                         ),
                 )
                 .child(toolbar)
+                .children(self.theme_ask_row(faces, cx))
                 .child(div().flex().flex_col().gap(px(16.)).children(grid_rows))
+                .children(self.vsx_found(faces, &theme_query, cx))
                 .children(footer)
                 .children(refused)
                 .into_any_element(),
+        )
+    }
+
+    /// Under the tools: the line you describe a theme for the writer on,
+    /// or, while it writes one, that it does.
+    fn theme_ask_row(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<Div> {
+        if self.pages.theme_asked {
+            return Some(
+                div().child(
+                    ui::text(faces, crate::tr("The writer is writing a theme…"))
+                        .text_size(px(crate::style::CAPTION))
+                        .text_color(theme::text2()),
+                ),
+            );
+        }
+        let input = self.pages.theme_ask.as_ref()?;
+        let (desk_ask, desk_cancel) = (cx.entity(), cx.entity());
+        Some(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.))
+                        .child(Input::new(input).small()),
+                )
+                .child(
+                    CarbonButton::new("theme-ask-send", crate::tr("Ask"))
+                        .variant(ButtonVariant::Primary)
+                        .size(ButtonSize::Sm)
+                        .on_click(move |_, window, cx| {
+                            desk_ask.update(cx, |this, cx| this.ask_for_theme(window, cx));
+                        }),
+                )
+                .child(
+                    CarbonButton::new("theme-ask-cancel", crate::tr("Cancel"))
+                        .variant(ButtonVariant::Ghost)
+                        .size(ButtonSize::Sm)
+                        .on_click(move |_, window, cx| {
+                            desk_cancel.update(cx, |this, cx| this.toggle_theme_ask(window, cx));
+                        }),
+                ),
+        )
+    }
+
+    /// The theme extensions Open VSX has for the search, each to add.
+    fn vsx_found(&self, faces: &Faces, query: &str, cx: &mut Context<Self>) -> Option<Div> {
+        let (asked, found) = self.pages.vsx.as_ref()?;
+        if asked.to_lowercase() != query {
+            return None;
+        }
+        let head = ui::text(faces, crate::tr("On Open VSX"))
+            .text_size(px(crate::style::BODY))
+            .weight(FontWeight::SEMIBOLD)
+            .text_color(theme::text());
+        let said = |text: SharedString| {
+            ui::text(faces, text)
+                .text_size(px(crate::style::CAPTION))
+                .text_color(theme::text2())
+        };
+        let rows: Vec<AnyElement> = match found {
+            Err(why) => vec![
+                said(crate::tr_with(
+                    "Open VSX could not be searched: %{why}",
+                    &[("why", why)],
+                ))
+                .into_any_element(),
+            ],
+            Ok(list) if list.is_empty() => vec![
+                said(crate::tr_with(
+                    "Nothing on Open VSX for “%{query}”",
+                    &[("query", asked)],
+                ))
+                .into_any_element(),
+            ],
+            Ok(list) => list
+                .iter()
+                .enumerate()
+                .map(|(n, listed)| {
+                    let adding = self.pages.vsx_adding.as_deref() == Some(listed.title.as_str());
+                    let (desk, listed_add) = (cx.entity(), listed.clone());
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(12.))
+                        .min_h(px(40.))
+                        .border_b_1()
+                        .border_color(theme::role(ColorRole::BorderSubtle01))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .flex_1()
+                                .min_w(px(0.))
+                                .child(ui::text(faces, listed.title.clone()))
+                                .child(said(crate::tr_with("by %{who}", &[("who", &listed.by)]))),
+                        )
+                        .child(
+                            CarbonButton::new(
+                                SharedString::from(format!("vsx-add-{n}")),
+                                crate::tr(if adding { "Adding…" } else { "Add" }),
+                            )
+                            .variant(ButtonVariant::Tertiary)
+                            .size(ButtonSize::Sm)
+                            .disabled(self.pages.vsx_adding.is_some())
+                            .on_click(move |_, _, cx| {
+                                let listed = listed_add.clone();
+                                desk.update(cx, |this, cx| this.add_vsx(listed, cx));
+                            }),
+                        )
+                        .into_any_element()
+                })
+                .collect(),
+        };
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .child(head)
+                .children(rows),
         )
     }
 

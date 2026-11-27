@@ -109,8 +109,17 @@ pub struct Pages {
     pub tokens: [Entity<InputState>; 5],
     /// Themes of yours that did not read, each said.
     pub themes_refused: Vec<String>,
-    /// Search query in `Settings › Appearance › Themes`.
+    /// Search query in `Settings › Appearance › Themes`: your themes, and
+    /// Open VSX's.
     pub theme_search: Entity<InputState>,
+    /// What Open VSX found for the search, by the query it was asked.
+    pub vsx: Option<(String, Result<Vec<crate::themes::Listed>, String>)>,
+    /// The extension being brought from Open VSX, by its title.
+    pub vsx_adding: Option<String>,
+    /// What you ask the writer for a theme with, while it is open; and
+    /// whether a theme is being written.
+    pub theme_ask: Option<Entity<InputState>>,
+    pub theme_asked: bool,
     /// Whether `Settings › Appearance › Themes` expands beyond the first 6 cards.
     pub show_all_themes: bool,
     /// Custom theme currently open in the `600px` `Customize <Theme>` drawer.
@@ -167,9 +176,12 @@ impl Pages {
         let agent_search = field("Search the ACP registry", window, cx);
         cx.subscribe(&agent_search, |_, _, _: &InputEvent, cx| cx.notify())
             .detach();
-        let theme_search = field("Search themes", window, cx);
-        cx.subscribe(&theme_search, |_, _, _: &InputEvent, cx| cx.notify())
-            .detach();
+        let theme_search = field("Search themes and Open VSX", window, cx);
+        cx.subscribe(&theme_search, |this, _, _: &InputEvent, cx| {
+            this.search_vsx(cx);
+            cx.notify();
+        })
+        .detach();
         let theme_hexes: [Entity<InputState>; 12] = std::array::from_fn(|idx| {
             let input = cx.new(|cx| InputState::new(window, cx).placeholder("#000000"));
             cx.subscribe_in(
@@ -247,6 +259,10 @@ impl Pages {
             forges: Vec::new(),
             themes_refused: Vec::new(),
             theme_search,
+            vsx: None,
+            vsx_adding: None,
+            theme_ask: None,
+            theme_asked: false,
             show_all_themes: false,
             editing_theme: None,
             editing_role: u0ui::tokens::ColorRole::Interactive,
