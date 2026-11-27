@@ -1870,6 +1870,9 @@ impl Desk {
         });
         self.tab_shown(tab, window, cx);
         if !self.pages.open {
+            // One dialog at a time: Escape closes the pairing dialog by
+            // closing the topmost, which the settings would be.
+            self.close_pairing_dialog(window, cx);
             self.pages.open = true;
             let desk = cx.entity();
             let shown = cx.new(|cx| {
