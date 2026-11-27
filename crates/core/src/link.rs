@@ -1911,39 +1911,57 @@ esac; done"#;
         use std::io::{Read as _, Write as _};
         let home = tempfile::tempdir().unwrap();
         let (server, port) = server(home.path());
-        // A dev server there that holds each connection open.
+        // A dev server there that greets each connection and holds it open.
         let dev = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let there = dev.local_addr().unwrap().port();
         std::thread::spawn(move || {
             let mut held = Vec::new();
-            while let Ok((c, _)) = dev.accept() {
+            while let Ok((mut c, _)) = dev.accept() {
+                let _ = c.write_all(b"hi");
                 held.push(c);
             }
         });
-        let mine = kept();
-        pair_as(&server, port, &mine, crate::access::Grant::default());
-        let public = key(&mine).public();
-        let forwarded = forward(here(port), mine.clone(), there, 0).unwrap();
+        // Each link stands, let in as full, before its device is changed:
+        // one let in after would be let in as the device now may.
+        let porter = kept();
+        pair_as(&server, port, &porter, crate::access::Grant::default());
+        let forwarded = forward(here(port), porter.clone(), there, 0).unwrap();
         let mut c = std::net::TcpStream::connect(("127.0.0.1", forwarded.port)).unwrap();
         c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
-        c.write_all(b"hello").unwrap();
-        // The tools, over a link of their own.
+        let mut greeting = [0; 2];
+        c.read_exact(&mut greeting).unwrap();
+        assert_eq!(&greeting, b"hi", "the port is carried");
+        let agent = kept();
+        pair_as(&server, port, &agent, crate::access::Grant::default());
         let (mcp, theirs) = tokio::io::duplex(1 << 16);
-        let way = here(port);
-        let tools_key = key(&mine);
+        let (way, tools_key) = (here(port), key(&agent));
         let tools =
             crate::acp::runtime().spawn(async move { tools(&way, &tools_key, theirs).await });
-        std::thread::sleep(Duration::from_millis(300));
-        assert!(!tools.is_finished(), "the tools link stands");
+        let mcp = crate::acp::runtime().block_on(async move {
+            use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
+            let mut mcp = tokio::io::BufReader::new(mcp);
+            let hello = serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                    "clientInfo": {"name": "stand-in", "version": "1"}}});
+            let hello = format!("{hello}\n");
+            mcp.get_mut().write_all(hello.as_bytes()).await.unwrap();
+            let mut answer = String::new();
+            mcp.read_line(&mut answer).await.unwrap();
+            assert!(answer.contains("\"id\":1"), "the tools answer: {answer}");
+            mcp
+        });
         // Narrowed to read only: the tools link it opened as full ends.
-        server
-            .access()
-            .change(|k| k.devices[0].scope = crate::access::Scope::Read);
+        let narrowed = key(&agent).public();
+        server.access().change(|k| {
+            for d in k.devices.iter_mut().filter(|d| d.key == narrowed) {
+                d.scope = crate::access::Scope::Read;
+            }
+        });
         let ended = crate::acp::runtime()
             .block_on(async { tokio::time::timeout(Duration::from_secs(10), tools).await });
         assert!(ended.is_ok(), "the tools link was cut");
         // Revoked: the connection carried is closed.
-        server.access().revoke(&public);
+        server.access().revoke(&key(&porter).public());
         let mut rest = Vec::new();
         let read = c.read_to_end(&mut rest);
         assert!(
