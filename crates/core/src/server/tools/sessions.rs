@@ -122,7 +122,12 @@ impl Tools {
         let agent = (self.shared.running(&ask.agent))
             .filter(|a| a.waits(ask.request))
             .ok_or("It no longer waits for an answer")?;
-        let title = format!("Answer “{asks}” with “{}”", option.name);
+        // Its kind as well as its words: "Yes" may be a yes for always.
+        let kind = serde_json::to_value(option.kind)
+            .ok()
+            .and_then(|k| k.as_str().map(|k| k.replace('_', " ")))
+            .unwrap_or_default();
+        let title = format!("Answer “{asks}” with “{}” ({kind})", option.name);
         (self.allowed_on("answer_request", title, &ask, &ask.agent, &id)).await?;
         let chosen = SelectedPermissionOutcome::new(option.option_id.clone());
         agent.respond(
@@ -242,7 +247,7 @@ esac; done"#;
         // Asked in s1, each time: no "always" for it.
         client.call("answer_request", &answer);
         let title = answer_card(&server, &said, "always");
-        assert_eq!(title, "Answer “Delete it” with “Yes”");
+        assert_eq!(title, "Answer “Delete it” with “Yes” (allow once)");
         assert_eq!(client.result(), ("You did not allow it".to_owned(), true));
         client.call("answer_request", &answer);
         answer_card(&server, &said, "once");
