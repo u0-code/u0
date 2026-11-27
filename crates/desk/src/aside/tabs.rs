@@ -42,6 +42,8 @@ pub enum Surface {
     Side(u64),
     /// The simulators and emulators of its server.
     Devices,
+    /// Dev servers printed by its terminals, opened in your browser.
+    Preview,
 }
 
 /// A session's tabs in order, the one shown, and those closed, the last
@@ -110,8 +112,9 @@ impl Column {
 
 /// What the Open… menu offers, each with the letter that opens it while the
 /// menu is open: t3code's, for those u0 has.
-const OFFERS: [(&str, &str, char); 7] = [
+const OFFERS: [(&str, &str, char); 8] = [
     ("Terminal", "terminal", 'T'),
+    ("Preview", "globe", 'B'),
     ("Files", "folder", 'F'),
     ("Diff", "diff", 'D'),
     ("Pull request", "pull-request", 'P'),
@@ -227,6 +230,7 @@ impl Desk {
         self.popup = Popup::Closed;
         let surface = match letter {
             'T' => Surface::Terminal,
+            'B' => Surface::Preview,
             'F' => Surface::Files,
             'D' => Surface::Diff,
             'P' => Surface::PullRequest,
@@ -418,6 +422,7 @@ impl Desk {
                 "file",
             ),
             Surface::Terminal => (crate::tr("Terminal").into(), "terminal"),
+            Surface::Preview => (crate::tr("Preview").into(), "globe"),
             Surface::Devices => (crate::tr("Devices").into(), "laptop"),
             Surface::PullRequest => (
                 s.git.pr.as_ref().map_or_else(

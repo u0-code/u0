@@ -506,35 +506,38 @@ impl TermSize {
 #[serde(rename_all = "snake_case")]
 pub enum Detail {
     Context,
+    Checkpoints,
+    Linked,
     Plan,
     Background,
     Servers,
     Terminals,
     Lineage,
-    Linked,
 }
 
 impl Detail {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Context,
+        Self::Checkpoints,
+        Self::Linked,
         Self::Plan,
         Self::Background,
         Self::Servers,
         Self::Terminals,
         Self::Lineage,
-        Self::Linked,
     ];
 
     /// The head its section goes under.
     pub fn head(self) -> &'static str {
         match self {
             Self::Context => "Context",
+            Self::Checkpoints => "Checkpoints",
+            Self::Linked => "Linked",
             Self::Plan => "Plan",
             Self::Background => "Background tasks",
             Self::Servers => "Servers",
             Self::Terminals => "Terminals",
             Self::Lineage => "Lineage",
-            Self::Linked => "Linked",
         }
     }
 }

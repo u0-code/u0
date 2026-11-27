@@ -842,6 +842,8 @@ pub enum Event {
         id: String,
         picture: Result<Vec<u8>, String>,
     },
+    /// How `Call::InstallAxe` ended.
+    AxeInstalled(Result<(), String>),
     /// Something done, to be said: what was done, or what was not and why.
     Notice(Result<String, (String, String)>),
     /// What is not committed where a session works, as git reads it.
@@ -1338,6 +1340,7 @@ mod tests {
                 device: crate::devices::Device {
                     id: "Pixel_9".into(),
                     name: "Pixel 9".into(),
+                    os: "Android 15".into(),
                     android: true,
                     serial: Some("emulator-5554".into()),
                     running: true,
@@ -1348,6 +1351,7 @@ mod tests {
                 device: crate::devices::Device {
                     id: "A".into(),
                     name: "iPhone".into(),
+                    os: "iOS 18.2".into(),
                     android: false,
                     serial: None,
                     running: true,
@@ -1967,6 +1971,7 @@ mod tests {
                 id: "A".into(),
                 picture: Err("it is not running".into()),
             },
+            Event::AxeInstalled(Err("brew failed".into())),
             Event::Found {
                 query: "go".into(),
                 keys: vec![1],

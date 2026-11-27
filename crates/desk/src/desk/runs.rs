@@ -124,7 +124,71 @@ pub struct Writing {
     pub stop: bool,
 }
 
+/// A running dev server printed by a terminal, local or forwarded.
+pub struct DevServer {
+    pub title: String,
+    pub command: Option<String>,
+    pub machine: String,
+    pub host: Host,
+    pub url: String,
+    /// `(remote_port, local_port)` when forwarded from a paired machine.
+    pub forwarded: Option<(u16, u16)>,
+}
+
 impl Desk {
+    /// Stop forwarding remote port `there` on `host`.
+    pub fn stop_forward(&mut self, host: Host, there: u16, cx: &mut Context<Self>) {
+        if let Some(m) = self.machine_mut(host) {
+            m.forwards.retain(|f| f.there != there);
+        }
+        cx.notify();
+    }
+
+    /// Running dev servers detected across the current session's terminals.
+    pub(crate) fn dev_servers(&self) -> Vec<DevServer> {
+        let scripts = self
+            .session()
+            .map(|s| s.scripts.clone())
+            .unwrap_or_default();
+        let mut out = Vec::new();
+        for t in self.session_terminals() {
+            if t.ended.is_some() {
+                continue;
+            }
+            let script = scripts.iter().find(|x| t.script.as_ref() == Some(&x.name));
+            let Some(raw_url) = script
+                .and_then(|x| x.preview.clone())
+                .or_else(|| address(&t.text()))
+            else {
+                continue;
+            };
+            let port = url::Url::parse(&raw_url)
+                .ok()
+                .and_then(|u| u.port_or_known_default());
+            let machine = self
+                .machine(t.host)
+                .map_or_else(|| crate::tr("This Mac").to_string(), |m| m.name.clone());
+            let forwarded = self
+                .machine(t.host)
+                .filter(|_| t.host != Host::HERE)
+                .zip(port)
+                .and_then(|(m, p)| m.forwards.iter().find(|f| f.there == p))
+                .map(|f| (f.there, f.port));
+            let url = match forwarded {
+                Some((_, local)) => here_at(&raw_url, local),
+                None => raw_url,
+            };
+            out.push(DevServer {
+                title: t.title.clone(),
+                command: script.map(|s| s.command.clone()),
+                machine,
+                host: t.host,
+                url,
+                forwarded,
+            });
+        }
+        out
+    }
     /// Open `address`, a local one printed on the server `host` (a dev
     /// server's): as it is on this Mac's own; on another, once its port is
     /// brought here over a link of its own (`link::forward`), kept while

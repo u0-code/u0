@@ -210,6 +210,7 @@ impl Desk {
             }
             Some(Surface::Side(key)) => self.side_chat(faces, key, cx).into_any_element(),
             Some(Surface::Devices) => scrolled(self.sims_tab(faces, cx)).into_any_element(),
+            Some(Surface::Preview) => scrolled(self.preview_tab(faces, cx)).into_any_element(),
         };
         // Its edge: dragged, its width; double-clicked, as it was at first.
         frame(head).child(body).child(
@@ -234,6 +235,12 @@ impl Desk {
             .when(shown(Detail::Context), |d| {
                 d.child(self.context(faces, s, cx))
             })
+            .when(shown(Detail::Checkpoints), |d| {
+                d.children(Self::checkpoints_section(faces, s))
+            })
+            .when(shown(Detail::Linked), |d| {
+                d.children(Self::linked_items(faces, s, cx))
+            })
             .when(shown(Detail::Plan), |d| d.child(Self::plan(faces, s)))
             .when(shown(Detail::Background), |d| {
                 d.children(self.background(faces, s, cx))
@@ -247,9 +254,107 @@ impl Desk {
             .when(shown(Detail::Lineage), |d| {
                 d.children(self.lineage(faces, s, cx))
             })
-            .when(shown(Detail::Linked), |d| {
-                d.children(Self::linked_items(faces, s, cx))
-            })
+    }
+
+    fn checkpoints_section(faces: &Faces, s: &Session) -> Option<Div> {
+        if s.turns.is_empty() {
+            return None;
+        }
+        let mut sec = section(
+            faces,
+            crate::tr(Detail::Checkpoints.head()),
+            Some(fine(faces, s.turns.len().to_string())),
+        );
+        for (i, turn) in s.turns.iter().enumerate().rev() {
+            let count = turn.diff.as_ref().map_or(0, Vec::len);
+            let files = if count == 0 {
+                crate::tr("no change").to_string()
+            } else {
+                crate::tr_with("%{n} files", &[("n", &count)]).to_string()
+            };
+            sec = sec.child(
+                frow()
+                    .child(fine_mono(faces, format!("Turn {}", i + 1)))
+                    .child(div().flex_1())
+                    .child(fine(faces, files)),
+            );
+        }
+        Some(sec)
+    }
+
+    fn preview_tab(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+        let servers = self.dev_servers();
+        let mut sec = section(faces, crate::tr("Preview"), None).border_b_0();
+        if servers.is_empty() {
+            return sec.child(empty(
+                faces,
+                crate::tr("Dev servers your terminals print show here and open in your browser."),
+            ));
+        }
+        for (i, srv) in servers.into_iter().enumerate() {
+            let (host, url, copy_url) = (srv.host, srv.url.clone(), srv.url.clone());
+            sec = sec.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .child(
+                        ui::text(
+                            faces,
+                            format!(
+                                "{} · {}",
+                                srv.title,
+                                srv.command.as_deref().unwrap_or(&srv.machine)
+                            ),
+                        )
+                        .text_size(px(crate::style::LABEL)),
+                    )
+                    .child(fine_mono(faces, srv.url))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(6.))
+                            .child(
+                                ui::button(
+                                    SharedString::from(format!("pv-open-{i}")),
+                                    crate::tr("Open in browser"),
+                                    Weight::Primary,
+                                )
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.open_address(host, url.clone(), cx);
+                                    },
+                                )),
+                            )
+                            .child(
+                                ui::button(
+                                    SharedString::from(format!("pv-copy-{i}")),
+                                    crate::tr("Copy address"),
+                                    Weight::Quiet,
+                                )
+                                .on_click(move |_, _, cx| {
+                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                                        copy_url.clone(),
+                                    ));
+                                }),
+                            )
+                            .children(srv.forwarded.map(|(there, _)| {
+                                ui::button(
+                                    SharedString::from(format!("pv-stop-{i}")),
+                                    crate::tr("Stop forwarding"),
+                                    Weight::Quiet,
+                                )
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| {
+                                        this.stop_forward(host, there, cx);
+                                    },
+                                ))
+                            })),
+                    ),
+            );
+        }
+        sec
     }
 
     /// The pull requests and issues `s` is linked to, as t3code's Linked

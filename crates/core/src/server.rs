@@ -740,6 +740,7 @@ impl Server {
                     let done = which::which("brew")
                         .map_err(|_| "Homebrew is not installed: see brew.sh".to_owned())
                         .and_then(|brew| crate::devices::install_axe(&brew));
+                    send(Event::AxeInstalled(done.clone()));
                     send(Event::Notice(match done {
                         Ok(()) => Ok("AXe is installed".into()),
                         Err(why) => Err(("AXe was not installed".into(), why)),

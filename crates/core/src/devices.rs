@@ -27,6 +27,8 @@ pub struct Device {
     /// device's adb serial.
     pub id: String,
     pub name: String,
+    #[serde(default)]
+    pub os: String,
     pub android: bool,
     /// adb's serial for an Android one running.
     pub serial: Option<String>,
@@ -104,6 +106,9 @@ impl Toward {
 /// as `list` says it; the Devices tab offers to install it.
 pub const AXE: &str = "AXe, for live video and touch on iOS simulators";
 
+/// Reported in `missing` when `AXe` is absent and the active Xcode has no `Simulator.app`.
+pub const NO_SIMULATOR: &str = "Simulator.app in the active Xcode";
+
 /// What installs `AXe`: its Homebrew tap, the one way its page gives.
 pub const AXE_FORMULA: &str = "cameroncooke/axe/axe";
 
@@ -177,6 +182,21 @@ fn sdk(dir: &str, tool: &str) -> Option<PathBuf> {
     })
 }
 
+/// Active Xcode developer directory (`DEVELOPER_DIR` or `xcode-select -p`).
+pub fn active_developer_dir() -> Option<PathBuf> {
+    std::env::var_os("DEVELOPER_DIR")
+        .map(PathBuf::from)
+        .or_else(|| {
+            text(&PathBuf::from("/usr/bin/xcode-select"), &["-p"])
+                .ok()
+                .map(|p| PathBuf::from(p.trim()))
+        })
+}
+
+fn has_simulator_app() -> bool {
+    active_developer_dir().is_some_and(|d| d.join("Applications/Simulator.app").exists())
+}
+
 /// The devices here, and what is missing to have any; the iOS ones first.
 pub fn list() -> (Vec<Device>, Vec<String>) {
     let (mut found, mut missing) = (Vec::new(), Vec::new());
@@ -185,6 +205,9 @@ pub fn list() -> (Vec<Device>, Vec<String>) {
             found.extend(simulators(&json));
             if axe().is_none() {
                 missing.push(AXE.into());
+                if !has_simulator_app() {
+                    missing.push(NO_SIMULATOR.into());
+                }
             }
         }
         Some(Err(why)) => missing.push(format!("Xcode's simulators: {why}")),
@@ -214,6 +237,50 @@ pub fn listed() -> crate::proto::Event {
     crate::proto::Event::Devices { found, missing }
 }
 
+fn sim_os(runtime: &str, name: &str) -> String {
+    let tail = runtime.rsplit('.').next().unwrap_or(runtime);
+    let mut parts = tail.split('-');
+    let family = parts.next().unwrap_or("iOS");
+    let family = if family == "iOS" && name.starts_with("iPad") {
+        "iPadOS"
+    } else {
+        family
+    };
+    let ver: Vec<&str> = parts.collect();
+    if ver.is_empty() {
+        family.to_owned()
+    } else {
+        format!("{family} {}", ver.join("."))
+    }
+}
+
+fn avd_os(avd: &str) -> String {
+    let dir = std::env::var_os("ANDROID_AVD_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".android/avd")));
+    let Some(ini) =
+        dir.and_then(|d| std::fs::read_to_string(d.join(format!("{avd}.avd/config.ini"))).ok())
+    else {
+        return "Android".into();
+    };
+    for line in ini.lines() {
+        if let Some(at) = line.find("android-") {
+            let digits: String = line[at + 8..]
+                .chars()
+                .take_while(char::is_ascii_digit)
+                .collect();
+            if let Ok(api) = digits.parse::<u32>() {
+                return if api >= 30 {
+                    format!("Android {}", api - 20)
+                } else {
+                    format!("Android API {api}")
+                };
+            }
+        }
+    }
+    "Android".into()
+}
+
 /// The simulators `simctl list devices --json` names.
 fn simulators(json: &str) -> Vec<Device> {
     #[derive(Deserialize)]
@@ -231,13 +298,18 @@ fn simulators(json: &str) -> Vec<Device> {
     };
     let mut found: Vec<Device> = (listed.devices.into_iter())
         .filter(|(runtime, _)| runtime.contains("iOS"))
-        .flat_map(|(_, sims)| sims)
-        .map(|s| Device {
-            id: s.udid,
-            name: s.name,
-            android: false,
-            serial: None,
-            running: s.state == "Booted",
+        .flat_map(|(runtime, sims)| {
+            sims.into_iter().map(move |s| {
+                let os = sim_os(&runtime, &s.name);
+                Device {
+                    id: s.udid,
+                    name: s.name,
+                    os,
+                    android: false,
+                    serial: None,
+                    running: s.state == "Booted",
+                }
+            })
         })
         .collect();
     found.sort_by(|a, b| b.running.cmp(&a.running).then(a.name.cmp(&b.name)));
@@ -257,6 +329,7 @@ fn androids(avds: &str, running: &str, name_of: impl Fn(&str) -> Option<String>)
         .map(|avd| Device {
             id: avd.to_owned(),
             name: avd.replace('_', " "),
+            os: avd_os(avd),
             android: true,
             serial: None,
             running: false,
@@ -272,6 +345,7 @@ fn androids(avds: &str, running: &str, name_of: impl Fn(&str) -> Option<String>)
             None => found.push(Device {
                 id: serial.to_owned(),
                 name: serial.to_owned(),
+                os: "Android".into(),
                 android: true,
                 serial: Some(serial.to_owned()),
                 running: true,
@@ -293,14 +367,7 @@ pub fn act(device: &Device, act: &Act) -> Result<(), String> {
                 if axe().is_some() {
                     return Ok(Vec::new());
                 }
-                let xcode = std::env::var_os("DEVELOPER_DIR")
-                    .map(PathBuf::from)
-                    .or_else(|| {
-                        text(&PathBuf::from("/usr/bin/xcode-select"), &["-p"])
-                            .ok()
-                            .map(|p| PathBuf::from(p.trim()))
-                    });
-                open_simulator(xcode.as_deref()).map(|()| Vec::new())
+                open_simulator(active_developer_dir().as_deref()).map(|()| Vec::new())
             }),
             Act::Stop => run(&x, &["simctl", "shutdown", id]),
             Act::Dark { dark } => run(
@@ -815,9 +882,9 @@ mod tests {
         assert_eq!(
             found
                 .iter()
-                .map(|d| (d.id.as_str(), d.running))
+                .map(|d| (d.id.as_str(), d.os.as_str(), d.running))
                 .collect::<Vec<_>>(),
-            [("B", true), ("A", false)]
+            [("B", "iPadOS 27.2", true), ("A", "iOS 27.2", false)]
         );
     }
 

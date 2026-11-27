@@ -43,9 +43,15 @@ const WHEELED: Duration = Duration::from_millis(400);
 /// it was asked), and
 /// what is missing to have any; the one chosen, its screen last read with
 /// its size in pixels, whether one is being read; what is to be typed.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "device polling, stream-reading, and AXe-installation flags are independent"
+)]
 pub struct Sims {
     pub listed: Option<(Vec<Device>, Vec<String>)>,
     pub asked: bool,
+    pub axe_installing: bool,
+    pub axe_outcome: Option<Result<(), String>>,
     pub on: Option<String>,
     pub screen: Option<(String, Arc<gpui::Image>, (u32, u32))>,
     pub reading: bool,
@@ -63,6 +69,8 @@ impl Sims {
         Self {
             listed: None,
             asked: false,
+            axe_installing: false,
+            axe_outcome: None,
             on: None,
             screen: None,
             reading: false,
@@ -121,6 +129,11 @@ impl Desk {
         self.sims.listed = Some((found, missing));
     }
 
+    pub(crate) fn axe_installed(&mut self, result: Result<(), String>) {
+        self.sims.axe_installing = false;
+        self.sims.axe_outcome = Some(result);
+    }
+
     /// What the device `id` shows; the next frame asked for.
     pub(crate) fn device_screen(&mut self, id: String, picture: Result<Vec<u8>, String>) {
         self.sims.reading = false;
@@ -176,7 +189,11 @@ impl Desk {
                 .child(div().flex_1().child(format!(
                     "{} · {}",
                     d.name,
-                    if d.android { "Android" } else { "iOS" }
+                    if d.os.is_empty() {
+                        if d.android { "Android" } else { "iOS" }
+                    } else {
+                        d.os.as_str()
+                    }
                 )))
                 .child(if d.running {
                     ui::button(
@@ -228,13 +245,20 @@ impl Desk {
                         crate::tr_with("Install AXe (%{what})", &[("what", &what)]),
                         Weight::Secondary,
                     )
+                    .loading(self.sims.axe_installing)
                     .on_click(cx.listener(|this, _, _, cx| {
+                        this.sims.axe_installing = true;
+                        this.sims.axe_outcome = None;
                         this.call(this.device_host(), Call::InstallAxe);
                         this.sims.asked = true;
                         cx.notify();
                     })),
                 )
             })
+            .children(self.sims.axe_outcome.as_ref().map(|outcome| match outcome {
+                Ok(()) => fine(faces, crate::tr("AXe is installed.")),
+                Err(why) => fine(faces, why.clone()),
+            }))
             .children(
                 self.device()
                     .filter(|d| d.running)
