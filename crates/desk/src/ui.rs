@@ -645,10 +645,10 @@ mod tests {
         let home = Path::new("/Users/fox");
         let short = |p: &str| short_path(Path::new(p), Some(home));
         assert_eq!(
-            short("/Users/fox/code/ghosts/solver/home"),
+            short("/Users/fox/code/acme/solver/home"),
             "~/code/…/solver/home"
         );
-        assert_eq!(short("/Users/fox/ghosts/solver"), "~/ghosts/solver");
+        assert_eq!(short("/Users/fox/acme/solver"), "~/acme/solver");
         assert_eq!(
             short_path(Path::new("/srv/a/b/c/d"), Some(home)),
             "/srv/…/c/d"
