@@ -104,7 +104,7 @@ impl Desk {
             .pb(px(16.))
             .when(self.current.is_none(), |d| {
                 d.capture_any_mouse_down(cx.listener(|this, _, window, cx| {
-                    this.begin_unbegun(false, window, cx);
+                    this.begin_unbegun(window, cx);
                 }))
             })
             .children(self.children_asking(faces, s, column, cx))

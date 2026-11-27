@@ -1288,67 +1288,67 @@ impl Desk {
             .map(|s| s.entry.id.clone())
     }
 
-    /// With no session on screen, the one the composer writes in: a new
-    /// session in the chosen project with its agent, drawn but not begun,
-    /// as Claude's home offers its composer. None where one cannot begin
-    /// here (no project, no agent that can run).
+    /// With no session on screen and no draft in the chosen project, the
+    /// one the composer writes in: a new session there with its agent,
+    /// drawn but not begun, as Claude's home offers its composer. None
+    /// where one cannot begin here (no project, no agent that can run),
+    /// and where the project has a draft: that is the composer then
+    /// (`onto_draft`).
     pub(crate) fn unbegun(&self) -> Option<Session> {
         if self.page != Page::Thread || self.current.is_some() {
             return None;
         }
         let p = self.chosen_project()?;
+        if self.draft_in(&p).is_some() {
+            return None;
+        }
         let agent = self.agent_for(&p)?;
         self.slot(p.host, &agent).filter(|s| s.usable())?;
         Some(self.fresh(0, &agent, &p))
     }
 
+    /// The chosen project's draft, where there is no thread on screen:
+    /// the start page's composer is that draft, never a second text beside
+    /// it.
+    fn draft_due(&self) -> Option<u64> {
+        if self.page != Page::Thread || self.current.is_some() {
+            return None;
+        }
+        self.draft_in(&self.chosen_project()?)
+    }
+
+    /// Put the draft `draft_due` names on screen, as the start page.
+    fn onto_draft(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(key) = self.draft_due() else { return };
+        let unsent = (self.sessions.at(key)).map_or_else(String::new, |s| s.meta.unsent.clone());
+        self.put_line(&unsent, window, cx);
+        self.swap_drafts(None, key);
+        self.current = Some(key);
+        cx.notify();
+    }
+
     /// Begin the session the composer was drawn for with none on screen,
-    /// what was typed in it kept (`sending`: as it is sent). The
-    /// project's draft, which no row shows, is never written over nor
-    /// hidden behind another: it is what the composer becomes, as
-    /// `mention::Start` says.
-    pub(crate) fn begin_unbegun(
-        &mut self,
-        sending: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    /// as it is first written in, clicked or sent: what was typed and
+    /// attached in it goes with it. It is then the project's draft.
+    pub(crate) fn begin_unbegun(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(drawn) = self.unbegun() else { return };
-        let (agent, mut p) = (drawn.meta.agent.clone(), Place::project_of(&drawn));
+        let mut p = Place::project_of(&drawn);
+        if p.folder == self.scratch_dir(p.host) {
+            let Some(folder) = self.scratch(p.host) else {
+                return;
+            };
+            p = folder;
+        }
         let typed = self.typed(cx);
-        let draft = self.draft_in(&p);
-        let holds = draft.is_some_and(|key| self.draft_holds(key, cx));
-        let key = match mention::Start::of(draft, holds, !typed.is_empty(), sending) {
-            mention::Start::Stay => return,
-            mention::Start::Back(key) => return self.show(key, window, cx),
-            mention::Start::Into(key) => {
-                self.show(key, window, cx);
-                if self.sessions.at(key).is_some_and(|s| s.meta.agent != agent) {
-                    self.switch_agent(&agent, cx);
-                }
-                key
-            }
-            mention::Start::Apart | mention::Start::New => {
-                if p.folder == self.scratch_dir(p.host) {
-                    let Some(folder) = self.scratch(p.host) else {
-                        return;
-                    };
-                    p = folder;
-                }
-                let key = self.sessions.take_key();
-                let s = self.begun_in(key, &agent, p);
-                self.sessions.all.push(s);
-                self.show(key, window, cx);
-                key
-            }
-        };
+        let key = self.sessions.take_key();
+        let s = self.begun_in(key, &drawn.meta.agent, p);
+        self.sessions.all.push(s);
+        self.show(key, window, cx);
         if !typed.is_empty() {
             self.put_line(&typed, window, cx);
         }
-        // What went with it is the session's now: it was kept as session 0.
-        if let Some(draft) = self.composer.drafts.remove(&0)
-            && self.current == Some(key)
-        {
+        // What went with it is the new session's: it was kept as session 0.
+        if let Some(draft) = self.composer.drafts.remove(&0) {
             self.composer.draft = draft;
         }
     }
@@ -2204,6 +2204,12 @@ impl Render for Desk {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Speech recognition ready for the composer's speech button.
         self.speech(window, cx);
+        if self.draft_due().is_some() {
+            let desk = cx.entity();
+            window.defer(cx, move |window, cx| {
+                desk.update(cx, |d, cx| d.onto_draft(window, cx));
+            });
+        }
         let want_light = match self.settings.look {
             settings::Look::Dark => false,
             settings::Look::Light => true,
