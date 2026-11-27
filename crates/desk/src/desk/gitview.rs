@@ -149,12 +149,8 @@ impl Desk {
             return;
         };
         s.branch = branch;
-        s.repo = repo;
         s.scripts = scripts;
-        if !s.git.repo.as_ref().is_some_and(|r| repos.contains(r)) {
-            s.git.repo = repos.first().cloned();
-        }
-        s.git.repos = repos;
+        s.holds(repo, repos);
         let git = s.git_dir().is_some();
         if s.state == State::Draft {
             if repo {

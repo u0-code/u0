@@ -650,6 +650,17 @@ impl Session {
         self.git_dir().is_some() && self.wants_worktree && self.meta.worktree.is_none()
     }
 
+    /// Take what its folder holds, as git said it: whether it is in a
+    /// repository, else the repositories in it, the one chosen of them
+    /// kept where it is still there.
+    pub fn holds(&mut self, repo: bool, repos: Vec<std::path::PathBuf>) {
+        self.repo = repo;
+        if !self.git.repo.as_ref().is_some_and(|r| repos.contains(r)) {
+            self.git.repo = repos.first().cloned();
+        }
+        self.git.repos = repos;
+    }
+
     /// Where git is asked about it: its folder, in a repository; else the
     /// repository chosen of those its folder holds.
     pub fn git_dir(&self) -> Option<std::path::PathBuf> {
@@ -1803,6 +1814,20 @@ mod tests {
         assert!(!s.needs_worktree());
         s.repo = true;
         assert!(s.needs_worktree());
+    }
+
+    #[test]
+    fn a_draft_in_a_folder_of_repositories_wants_a_worktree_of_the_one_chosen() {
+        let mut s = Session::new(1, "x", "/w".into());
+        s.wants_worktree = true;
+        s.holds(false, vec!["/w/a".into(), "/w/b".into()]);
+        assert_eq!(s.git_dir(), Some(PathBuf::from("/w/a")));
+        assert!(s.needs_worktree());
+        s.git.repo = Some("/w/b".into());
+        s.holds(false, vec!["/w/a".into(), "/w/b".into()]);
+        assert_eq!(s.git_dir(), Some(PathBuf::from("/w/b")), "the choice stays");
+        s.holds(false, Vec::new());
+        assert!(!s.needs_worktree());
     }
 
     #[test]

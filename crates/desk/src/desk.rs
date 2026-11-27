@@ -914,20 +914,33 @@ impl Desk {
         self.show(key, window, cx);
     }
 
-    /// A new session of `agent` in the project `p`.
+    /// A new session of `agent` in the project `p`, its folder looked at.
     fn begun_in(&self, key: u64, agent: &str, p: Place) -> Session {
-        let worktree = (self.prefs(&p).worktree).unwrap_or(self.settings_on(p.host).worktree);
-        let last = self.prefs(&p).last.get(agent).cloned();
-        let mut s = Session::new(key, agent, p.folder);
-        s.host = p.host;
-        s.wants_worktree = worktree;
+        let s = self.fresh(key, agent, &p);
         self.call(
             p.host,
             Call::Look {
-                folder: s.meta.folder.clone(),
+                folder: p.folder,
                 key,
             },
         );
+        s
+    }
+
+    /// A new session of `agent` in the project `p`, as the start's
+    /// composer draws it and as it is begun: its worktree as the project
+    /// or the settings say, the repositories its folder was found to hold
+    /// (till its own look answers, which may come after it is sent), and
+    /// what was last chosen.
+    fn fresh(&self, key: u64, agent: &str, p: &Place) -> Session {
+        let worktree = (self.prefs(p).worktree).unwrap_or(self.settings_on(p.host).worktree);
+        let last = self.prefs(p).last.get(agent).cloned();
+        let mut s = Session::new(key, agent, p.folder.clone());
+        s.host = p.host;
+        s.wants_worktree = worktree;
+        if let Some(held) = self.held.get(p) {
+            s.holds(held.repo, held.repos.clone());
+        }
         if let Some(slot) = self.slot(p.host, agent) {
             slot.seed(&mut s);
         }
@@ -1087,11 +1100,8 @@ impl Desk {
         }
         let p = self.chosen_project()?;
         let agent = self.agent_for(&p)?;
-        let slot = self.slot(p.host, &agent).filter(|s| s.usable())?;
-        let mut s = Session::new(0, &agent, p.folder);
-        s.host = p.host;
-        slot.seed(&mut s);
-        Some(s)
+        self.slot(p.host, &agent).filter(|s| s.usable())?;
+        Some(self.fresh(0, &agent, &p))
     }
 
     /// Begin the session the composer was drawn for with none on screen,
