@@ -26,7 +26,9 @@
 //! }
 //! ```
 //!
-//! Each key of `settings` is a top-level key of `settings.json`. A policy
+//! Each key of `settings` is a top-level key of `settings.json`, or a field
+//! of one of its nested objects (`confirm.delete`, `confirm.quit`,
+//! `writer.suggest`, `voice.clean`). A policy
 //! that does not read, or names a key there is not, or a value of the
 //! wrong kind, keeps the settings from loading at all: nothing runs half
 //! governed. `limits` are what no setting undoes, each enforced by the
@@ -115,7 +117,7 @@ fn read() -> Result<Option<Policy>, String> {
 /// The organisation that locks the setting `key`, if one does.
 pub fn locked(key: &str) -> Option<&'static str> {
     let policy = current().as_ref().ok()?.as_ref()?;
-    (policy.settings.get(key)?.locked).then_some(policy.organization.as_str())
+    policy.locks(key).then_some(policy.organization.as_str())
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -154,6 +156,15 @@ impl Policy {
         }
     }
 
+    fn locks(&self, key: &str) -> bool {
+        if self.settings.get(key).is_some_and(|m| m.locked) {
+            return true;
+        }
+        key.split_once('.')
+            .and_then(|(outer, _)| self.settings.get(outer))
+            .is_some_and(|m| m.locked)
+    }
+
     /// `settings` (settings.json as read) as the policy has them: its
     /// defaults where they hold nothing, its locked values whatever they
     /// hold. A key settings.json has no place for is refused.
@@ -163,6 +174,40 @@ impl Policy {
         known: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<(), String> {
         for (key, managed) in &self.settings {
+            if let Some((outer, inner)) = key.split_once('.') {
+                let Some(serde_json::Value::Object(known_inner)) = known.get(outer) else {
+                    return Err(format!(
+                        "{}'s policy sets \"{key}\", which is not a setting",
+                        self.organization
+                    ));
+                };
+                if !known_inner.contains_key(inner) {
+                    return Err(format!(
+                        "{}'s policy sets \"{key}\", which is not a setting",
+                        self.organization
+                    ));
+                }
+                let had_inner = settings
+                    .get(outer)
+                    .and_then(serde_json::Value::as_object)
+                    .is_some_and(|m| m.contains_key(inner));
+                let entry = settings
+                    .entry(outer.to_owned())
+                    .or_insert_with(|| serde_json::Value::Object(known_inner.clone()));
+                let Some(map) = entry.as_object_mut() else {
+                    return Err(format!(
+                        "{}'s policy sets \"{key}\", while \"{outer}\" is not an object",
+                        self.organization
+                    ));
+                };
+                for (k, v) in known_inner {
+                    map.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+                if managed.locked || !had_inner {
+                    map.insert(inner.to_owned(), managed.value.clone());
+                }
+                continue;
+            }
             if !known.contains_key(key) {
                 return Err(format!(
                     "{}'s policy sets \"{key}\", which is not a setting",
@@ -211,6 +256,29 @@ mod tests {
         let p = policy(r#"{"organization": "Corp", "settings": {"nope": {"value": 1}}}"#);
         let why = p.apply(&mut map("{}"), &map("{}")).unwrap_err();
         assert!(why.contains("\"nope\""));
+        let nested_bad =
+            policy(r#"{"organization": "Corp", "settings": {"confirm.nope": {"value": true}}}"#);
+        let known = map(r#"{"confirm": {"delete": true, "quit": "hold"}}"#);
+        assert!(nested_bad.apply(&mut map("{}"), &known).is_err());
+    }
+
+    #[test]
+    fn a_nested_setting_can_be_locked_on_its_own_without_locking_its_siblings() {
+        let p = policy(
+            r#"{"organization": "Corp", "settings": {
+                "confirm.delete": {"value": true, "locked": true},
+                "confirm.quit": {"value": "hold"}}}"#,
+        );
+        let known = map(r#"{"confirm": {"unpin": false, "delete": true, "quit": "direct"}}"#);
+        let mut mine = map(r#"{"confirm": {"unpin": true, "delete": false, "quit": "double"}}"#);
+        p.apply(&mut mine, &known).unwrap();
+        assert_eq!(mine["confirm"]["delete"], true);
+        assert_eq!(mine["confirm"]["unpin"], true);
+        assert_eq!(mine["confirm"]["quit"], "double");
+        let mut empty = map("{}");
+        p.apply(&mut empty, &known).unwrap();
+        assert_eq!(empty["confirm"]["quit"], "hold");
+        assert!(p.locks("confirm.delete") && !p.locks("confirm.unpin") && !p.locks("confirm.quit"));
     }
 
     #[test]

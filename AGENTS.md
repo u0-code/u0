@@ -289,7 +289,7 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   `CFPreferencesCopyAppValue`, counted only where
   `CFPreferencesAppValueIsForced`), elsewhere `/etc/u0/policy.json`.
   `policy/u0.mobileconfig` is the example profile, read back by a test.
-  It sets top-level keys of `settings.json` as defaults or locked, applied in `Settings::load`; a
+  It sets top-level or nested (`confirm.delete`, `confirm.quit`) keys of `settings.json` as defaults or locked, applied in `Settings::load`; a
   locked control is disabled and says who manages it. One that does not
   read keeps the settings from loading, as a settings file that does not.
   Its `limits` (agents allowed, remote, tunnel, webhooks) are checked

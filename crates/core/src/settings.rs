@@ -284,6 +284,207 @@ pub struct Settings {
     /// The PRs and Issues pages' views you saved, as t3code's saved views.
     #[serde(default)]
     pub views: Vec<SavedView>,
+    /// How threads are grouped in the sidebar.
+    #[serde(default)]
+    pub project_grouping: ProjectGrouping,
+    /// How projects are ordered in the sidebar.
+    #[serde(default)]
+    pub project_order: ProjectOrder,
+    /// Keep threads that are running or need you at the top of the sidebar.
+    #[serde(default = "yes")]
+    pub working_section: bool,
+    /// Show in-app toast notifications for threads you are not looking at.
+    #[serde(default = "yes")]
+    pub in_app_notify: bool,
+    /// Show the checked-out branch under each project name in the sidebar.
+    #[serde(default)]
+    pub two_line_projects: bool,
+    /// How threads on another machine identify their machine in the title bar.
+    #[serde(default)]
+    pub machine_id: MachineId,
+    /// Paired server names hidden from this window's sidebar without forgetting their keys.
+    #[serde(default)]
+    pub hidden_servers: Vec<String>,
+    /// Formatting, code blocks and inline chips in the composer while you type.
+    #[serde(default = "yes")]
+    pub rich_composer: bool,
+    /// Ask whether to queue or steer each time you send while a turn is running.
+    #[serde(default)]
+    pub ask_follow_up: bool,
+    /// List provider and repository skills after built-in slash commands.
+    #[serde(default = "yes")]
+    pub slash_skills: bool,
+    /// Where subagents and side chats open.
+    #[serde(default)]
+    pub open_subagents: SubagentPlace,
+    /// What a screen reader hears in threads.
+    #[serde(default)]
+    pub announcements: Announcements,
+    /// Put the active thread's status in the window title.
+    #[serde(default)]
+    pub title_status: bool,
+    /// Use theme colors instead of green/red or blue/orange in diffs.
+    #[serde(default)]
+    pub diff_theme_colors: bool,
+    /// Choose unified vs split diff layout automatically from pane width.
+    #[serde(default = "yes")]
+    pub diff_auto_layout: bool,
+    /// Unchanged lines shown around each change in a diff.
+    #[serde(default = "three")]
+    pub diff_context: u32,
+    /// Highlight changed words inside modified diff lines.
+    #[serde(default = "yes")]
+    pub highlight_words: bool,
+    /// Collapse diff files over 400 changed lines automatically.
+    #[serde(default = "yes")]
+    pub collapse_large_diffs: bool,
+    /// Collapse test files under one summary row in diffs.
+    #[serde(default)]
+    pub hide_test_files: bool,
+    /// Open links to pull requests in u0's pull request view instead of the browser.
+    #[serde(default = "yes")]
+    pub open_prs_here: bool,
+    /// Open changes and pull request panels proactively when files change or a PR is linked.
+    #[serde(default = "yes")]
+    pub proactive_panels: bool,
+    /// The external browser `.app` u0 opens links and dev servers in; none, the system default.
+    #[serde(default)]
+    pub browser: Option<PathBuf>,
+    /// Ask which browser to open each link in rather than using `browser`.
+    #[serde(default)]
+    pub ask_browser: bool,
+    /// `⌘`-clicking a URL printed in a terminal opens it in the browser.
+    #[serde(default = "yes")]
+    pub cmd_click_urls: bool,
+    /// What u0 does when a terminal or agent starts a dev server.
+    #[serde(default)]
+    pub dev_server: DevServerOpen,
+    /// First local port tried when forwarding a dev server from another Mac.
+    #[serde(default = "first_forward_port")]
+    pub forward_port: u16,
+    /// Desktop window snapshot settings.
+    #[serde(default)]
+    pub snapshots: Snapshots,
+    /// Ask whether a new thread works locally or in a new worktree each time.
+    #[serde(default)]
+    pub ask_worktree: bool,
+    /// Explicit default agent for new threads; none, the first enabled agent.
+    #[serde(default)]
+    pub default_agent: Option<String>,
+    /// Global default model id for new threads; none, the agent's default.
+    #[serde(default)]
+    pub default_model: Option<String>,
+    /// Global default mode id per agent for new threads.
+    #[serde(default)]
+    pub default_modes: std::collections::BTreeMap<String, String>,
+    /// Ask before `git push` runs in a thread, whatever mode the agent is in.
+    #[serde(default = "yes")]
+    pub ask_before_push: bool,
+    /// Stream replies as they arrive.
+    #[serde(default = "yes")]
+    pub streaming: bool,
+    /// Days after settling before a thread is automatically archived; none, never.
+    #[serde(default = "thirty")]
+    pub archive_after: Option<u32>,
+    /// Offer snoozing until usage limits reset when a limit stops a thread.
+    #[serde(default = "yes")]
+    pub snooze_until_reset: bool,
+    /// What a new worktree checks out from by default.
+    #[serde(default)]
+    pub worktree_from: WorktreeBase,
+    /// Branch naming template for new worktrees (`{type}`, `{thread}`, `{user}`, `{date}`).
+    #[serde(default = "branch_template")]
+    pub branch_template: String,
+    /// Comma-separated untracked files copied from the checkout into each new worktree.
+    #[serde(default = "copied_untracked")]
+    pub copy_untracked: String,
+    /// When finished worktrees are cleaned up.
+    #[serde(default)]
+    pub worktree_cleanup: WorktreeCleanup,
+    /// Skip worktrees that still have uncommitted local changes during cleanup.
+    #[serde(default = "yes")]
+    pub keep_dirty_worktrees: bool,
+    /// Agent-listed models hidden from the model picker, by agent id.
+    #[serde(default)]
+    pub hidden_models: std::collections::BTreeMap<String, Vec<String>>,
+    /// Standalone custom ACP agents added outside the ACP registry, by id.
+    #[serde(default)]
+    pub custom_agents: std::collections::BTreeMap<String, CustomAgent>,
+    /// Minutes between background agent health checks.
+    #[serde(default = "five_u32")]
+    pub health_check_mins: u32,
+    /// Compact idle threads in the background.
+    #[serde(default = "yes")]
+    pub compact_idle: bool,
+    /// Automatically pull clean default branches on startup and fetch.
+    #[serde(default)]
+    pub auto_pull: bool,
+    /// Sign commits made from u0 with git's configured signing key.
+    #[serde(default)]
+    pub sign_commits: bool,
+    /// Run repository git hooks on commits and pushes made from u0.
+    #[serde(default = "yes")]
+    pub run_git_hooks: bool,
+    /// Open new pull requests as drafts by default.
+    #[serde(default)]
+    pub pr_drafts: bool,
+    /// Populate pull request descriptions from repository pull request templates.
+    #[serde(default = "yes")]
+    pub pr_templates: bool,
+    /// Default commit message style when writing commits.
+    #[serde(default)]
+    pub commit_style: CommitStyle,
+    /// Enable guided pull request review tours written by the Writer.
+    #[serde(default = "yes")]
+    pub review_guides: bool,
+    /// Show the Simulators & devices surface in the right column.
+    #[serde(default = "yes")]
+    pub use_devices: bool,
+    /// Whether agents may drive simulators and devices through MCP.
+    #[serde(default)]
+    pub agent_devices: DeviceAccess,
+    /// Allow booting local simulators when a thread asks for one.
+    #[serde(default = "yes")]
+    pub local_simulators: bool,
+    /// Maximum simulators running at once on this machine.
+    #[serde(default = "two_u32")]
+    pub max_simulators: u32,
+    /// How aggressively background polling runs while the window is hidden.
+    #[serde(default)]
+    pub background_activity: BackgroundActivity,
+    /// Resume working threads automatically after an update or restart.
+    #[serde(default = "yes")]
+    pub continue_after_restart: bool,
+    /// Optional OpenTelemetry OTLP HTTP endpoint for traces and metrics.
+    #[serde(default)]
+    pub otlp_endpoint: Option<String>,
+    /// Allow agents to file feedback about u0 itself.
+    #[serde(default)]
+    pub agent_feedback: bool,
+    /// Enable multi-stage workflows.
+    #[serde(default = "yes")]
+    pub workflows_enabled: bool,
+    /// Days concurrency-skipped workflow or task runs remain in history.
+    #[serde(default = "seven_u32")]
+    pub skipped_runs_days: u32,
+    /// Use copy-on-write (`clonefile`) when seeding new worktrees where supported.
+    #[serde(default = "yes")]
+    pub fast_worktree: bool,
+    /// Allow leasing simulators from shared Simlock device pools.
+    #[serde(default)]
+    pub simlock_pools: bool,
+    /// Share pull request state with read-only paired Macs.
+    #[serde(default)]
+    pub pr_sharing: bool,
+    /// Preview: confirm permission answers on a paired phone.
+    #[serde(default)]
+    pub phone_confirm: bool,
+    /// Preview: show Live Activities on a paired phone.
+    #[serde(default)]
+    pub phone_live_activities: bool,
+    /// Preview: open forwarded dev servers on a paired phone.
+    #[serde(default)]
+    pub phone_dev_server: bool,
 }
 
 /// A view of the PRs or Issues page you saved: its name, which page, the
@@ -407,6 +608,9 @@ pub struct Writer {
     /// Your instructions for cleaning up what you dictated.
     #[serde(default)]
     pub transcripts: String,
+    /// Your instructions for pull request review guides.
+    #[serde(default)]
+    pub guides: String,
 }
 
 /// Dictation: what you say heard by Apple's speech recognition on this
@@ -431,6 +635,18 @@ pub struct Voice {
     /// The writer cleans up what was heard before it goes in.
     #[serde(default)]
     pub clean: bool,
+    /// Chosen input device name; none, the system default microphone.
+    #[serde(default)]
+    pub microphone: Option<String>,
+    /// Stream partial recognized words into the composer while speaking.
+    #[serde(default = "yes")]
+    pub live_words: bool,
+    /// Comma-separated filler words stripped locally when `no_fillers` is on.
+    #[serde(default = "default_fillers")]
+    pub fillers: String,
+    /// Spoken phrase that discards what was just dictated.
+    #[serde(default = "default_correction_cue")]
+    pub correction_cue: String,
 }
 
 impl Default for Voice {
@@ -441,8 +657,173 @@ impl Default for Voice {
             dictionary: Vec::new(),
             no_fillers: true,
             clean: false,
+            microphone: None,
+            live_words: true,
+            fillers: default_fillers(),
+            correction_cue: default_correction_cue(),
         }
     }
+}
+
+fn default_fillers() -> String {
+    "um, uh, like, you know".into()
+}
+
+fn default_correction_cue() -> String {
+    "scratch that".into()
+}
+
+/// How threads are grouped in the sidebar.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectGrouping {
+    #[default]
+    ByProject,
+    ByMachine,
+    Flat,
+}
+
+/// How projects are ordered in the sidebar.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectOrder {
+    #[default]
+    Manual,
+    Activity,
+    Name,
+}
+
+/// How another machine is marked in the title bar.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MachineId {
+    #[default]
+    ColorAndName,
+    NameOnly,
+    Off,
+}
+
+/// Where subagents and side chats open.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentPlace {
+    #[default]
+    RightPanel,
+    Split,
+    NewWindow,
+}
+
+/// What a screen reader announces in threads.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Announcements {
+    #[default]
+    RepliesAndAlerts,
+    AlertsOnly,
+    Off,
+}
+
+/// What u0 does when a dev server starts.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DevServerOpen {
+    #[default]
+    Show,
+    Open,
+    Ignore,
+}
+
+/// Desktop window snapshot capture settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each toggles one independent capture or feedback behavior"
+)]
+pub struct Snapshots {
+    #[serde(default = "yes")]
+    pub shortcut: bool,
+    #[serde(default)]
+    pub include_text: bool,
+    #[serde(default)]
+    pub never_capture: Vec<String>,
+    #[serde(default)]
+    pub sound: bool,
+    #[serde(default = "yes")]
+    pub flash: bool,
+    #[serde(default = "yes")]
+    pub animations: bool,
+}
+
+impl Default for Snapshots {
+    fn default() -> Self {
+        Self {
+            shortcut: true,
+            include_text: false,
+            never_capture: Vec::new(),
+            sound: false,
+            flash: true,
+            animations: true,
+        }
+    }
+}
+
+/// What a new worktree checks out from by default.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorktreeBase {
+    #[default]
+    OriginDefault,
+    LocalMain,
+    CurrentBranch,
+}
+
+/// When finished worktrees are removed.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorktreeCleanup {
+    #[default]
+    WhenArchived,
+    WhenMerged,
+    Never,
+}
+
+/// A standalone ACP agent configured by command line outside the ACP registry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CustomAgent {
+    pub name: String,
+    pub command: String,
+}
+
+/// Commit message convention used when writing commits.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommitStyle {
+    #[default]
+    MatchHistory,
+    Conventional,
+    Plain,
+}
+
+/// Whether agents may drive simulators and devices over MCP.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceAccess {
+    #[default]
+    Ask,
+    Allowed,
+    Off,
+}
+
+/// How hard background tasks work while the window is hidden.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundActivity {
+    BatterySaver,
+    #[default]
+    Balanced,
+    FullSpeed,
 }
 
 /// How the dictation key (⇧⌘D) listens.
@@ -713,6 +1094,42 @@ fn week() -> Option<u32> {
     Some(7)
 }
 
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "serde's default for an Option field"
+)]
+fn thirty() -> Option<u32> {
+    Some(30)
+}
+
+fn two_u32() -> u32 {
+    2
+}
+
+fn three() -> u32 {
+    3
+}
+
+fn five_u32() -> u32 {
+    5
+}
+
+fn seven_u32() -> u32 {
+    7
+}
+
+fn first_forward_port() -> u16 {
+    41873
+}
+
+fn branch_template() -> String {
+    "{type}/{thread}".into()
+}
+
+fn copied_untracked() -> String {
+    ".env, .env.local".into()
+}
+
 /// How wide the sidebar stands until you drag it: t3code's.
 pub const LEFT: u32 = 256;
 
@@ -792,6 +1209,18 @@ pub struct Prefs {
     /// what was last chosen in one.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub last: std::collections::BTreeMap<String, Chosen>,
+    /// Project-specific dictation words.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dictionary: Vec<String>,
+    /// External folders linked into this project.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub external_folders: Vec<PathBuf>,
+    /// Submodule paths excluded when creating worktrees for this project.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub excluded_submodules: Vec<PathBuf>,
+    /// Environment variables and `secret:<NAME>` references given to agents and actions in this project.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub env: std::collections::BTreeMap<String, String>,
 }
 
 /// The options and mode last chosen in a session of one agent.
@@ -893,6 +1322,73 @@ impl Default for Settings {
             telemetry: None,
             welcomed: false,
             views: Vec::new(),
+            project_grouping: ProjectGrouping::default(),
+            project_order: ProjectOrder::default(),
+            working_section: true,
+            in_app_notify: true,
+            two_line_projects: false,
+            machine_id: MachineId::default(),
+            hidden_servers: Vec::new(),
+            rich_composer: true,
+            ask_follow_up: false,
+            slash_skills: true,
+            open_subagents: SubagentPlace::default(),
+            announcements: Announcements::default(),
+            title_status: false,
+            diff_theme_colors: false,
+            diff_auto_layout: true,
+            diff_context: three(),
+            highlight_words: true,
+            collapse_large_diffs: true,
+            hide_test_files: false,
+            open_prs_here: true,
+            proactive_panels: true,
+            browser: None,
+            ask_browser: false,
+            cmd_click_urls: true,
+            dev_server: DevServerOpen::default(),
+            forward_port: first_forward_port(),
+            snapshots: Snapshots::default(),
+            ask_worktree: false,
+            default_agent: None,
+            default_model: None,
+            default_modes: std::collections::BTreeMap::new(),
+            ask_before_push: true,
+            streaming: true,
+            archive_after: thirty(),
+            snooze_until_reset: true,
+            worktree_from: WorktreeBase::default(),
+            branch_template: branch_template(),
+            copy_untracked: copied_untracked(),
+            worktree_cleanup: WorktreeCleanup::default(),
+            keep_dirty_worktrees: true,
+            hidden_models: std::collections::BTreeMap::new(),
+            custom_agents: std::collections::BTreeMap::new(),
+            health_check_mins: five_u32(),
+            compact_idle: true,
+            auto_pull: false,
+            sign_commits: false,
+            run_git_hooks: true,
+            pr_drafts: false,
+            pr_templates: true,
+            commit_style: CommitStyle::default(),
+            review_guides: true,
+            use_devices: true,
+            agent_devices: DeviceAccess::default(),
+            local_simulators: true,
+            max_simulators: two_u32(),
+            background_activity: BackgroundActivity::default(),
+            continue_after_restart: true,
+            otlp_endpoint: None,
+            agent_feedback: false,
+            workflows_enabled: true,
+            skipped_runs_days: seven_u32(),
+            fast_worktree: true,
+            simlock_pools: false,
+            pr_sharing: false,
+            phone_confirm: false,
+            phone_live_activities: false,
+            phone_dev_server: false,
         }
     }
 }
@@ -913,6 +1409,8 @@ impl Settings {
         let mut told = self.clone();
         (told.env.values_mut().flat_map(|vars| vars.values_mut())).for_each(|v| *v = None);
         told.commands.clear();
+        (told.custom_agents.values_mut()).for_each(|a| a.command.clear());
+        (told.prefs.values_mut()).for_each(|p| p.env.clear());
         told
     }
 
@@ -953,13 +1451,33 @@ impl Settings {
     }
 
     /// The settings a project may hold otherwise than everywhere else.
-    pub const PROJECT: [&'static str; 6] = [
+    pub const PROJECT: [&'static str; 26] = [
         "merge",
         "uncredit",
+        "auto_pull",
+        "sign_commits",
+        "run_git_hooks",
+        "pr_drafts",
+        "pr_templates",
+        "commit_style",
+        "review_guides",
         "submodules",
+        "branch_prefix",
         "branch_kind",
-        "resume_at_reset",
+        "branch_template",
+        "worktree_from",
+        "copy_untracked",
+        "worktree_cleanup",
+        "keep_dirty_worktrees",
         "tidy_after",
+        "worktree",
+        "ask_worktree",
+        "default_agent",
+        "default_model",
+        "ask_before_push",
+        "streaming",
+        "settle_days",
+        "resume_at_reset",
     ];
 
     /// These settings as they hold in `project`: its own where it has them,
@@ -1137,6 +1655,40 @@ mod tests {
         )
         .unwrap();
         assert!(Settings::read(&path, Some(&wrong)).is_err());
+
+        let nested: crate::policy::Policy = serde_json::from_str(
+            r#"{"organization": "Corp", "settings": {
+                "confirm.delete": {"value": false, "locked": true},
+                "confirm.quit": {"value": "double"}}}"#,
+        )
+        .unwrap();
+        let s = Settings::read(&path, Some(&nested)).unwrap();
+        assert!(!s.confirm.delete);
+        assert_eq!(s.confirm.quit, Quit::Double);
+    }
+
+    #[test]
+    fn every_project_overridable_key_exists_on_settings_and_reader_scrubs_project_secrets() {
+        let map = serde_json::to_value(Settings::default()).unwrap();
+        for key in Settings::PROJECT {
+            assert!(map.get(key).is_some(), "missing Settings key: {key}");
+        }
+        let mut s = Settings::default();
+        s.custom_agents.insert(
+            "my-acp".into(),
+            CustomAgent {
+                name: "My ACP".into(),
+                command: "my-acp --token sk-secret".into(),
+            },
+        );
+        s.prefs
+            .entry("/p".into())
+            .or_default()
+            .env
+            .insert("FIGMA_TOKEN".into(), "figd_secret".into());
+        let reader = s.for_reader();
+        assert!(reader.custom_agents["my-acp"].command.is_empty());
+        assert!(reader.prefs[Path::new("/p")].env.is_empty());
     }
 
     #[test]

@@ -69,8 +69,10 @@ u0 reads them with CFPreferences, and counts only values a profile
 
 ### Settings
 
-Each key of `settings` must be a top-level key of `settings.json`, and its
-`value` must be of that setting's type.
+Each key of `settings` must be a top-level key of `settings.json` or a nested
+field of one of its object settings (such as `confirm.delete`, `confirm.quit`,
+`writer.suggest`, or `voice.clean`), and its `value` must be of that setting's
+type.
 
 - **Not locked** (`"locked": false`, the default): the value is a default.
   It applies where the person has not chosen anything; their own choice

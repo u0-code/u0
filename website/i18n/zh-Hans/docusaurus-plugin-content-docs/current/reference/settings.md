@@ -25,7 +25,11 @@ u0 把设置保存在其主目录（`~/.u0`，或 `U0_HOME`）中的 `settings.j
 | `favourites` | `{agent, model}` 列表 | `[]` | 在模型选择器中加星标的模型，在那里排在最前。 |
 | `outside_acts` | 布尔值 | `false` | u0 之外的智能体是否可以通过 [u0 的工具](../tools-for-agents.md#access-levels)在线程中发言或停止其一轮，每次都在那里询问你。**设置 › 智能体 › u0 之外的智能体可以执行操作**。 |
 | `no_tools` | 智能体 ID 列表 | `[]` | 其线程不提供 [u0 的工具](../tools-for-agents.md)的智能体。开关在该智能体的页面中。 |
-| `check_agents` | bool | `true` | 每小时重新读取 ACP 注册表，查找更新的智能体版本。**通用 › 在后台**。 |
+| `check_agents` | bool | `true` | 每小时重新读取 ACP 注册表，查找更新的智能体版本。**关于**。 |
+| `hidden_models` | 映射：智能体 ID → 模型 ID 列表 | `{}` | 在模型选择器中隐藏的模型。 |
+| `custom_agents` | 映射：ID → `{name, command}` | `{}` | 在 ACP 注册表之外添加的独立自定义 ACP 智能体。 |
+| `health_check_mins` | 数字 | `5` | 后台智能体健康检查的分钟间隔。 |
+| `compact_idle` | bool | `true` | 在后台压缩空闲线程。 |
 
 ## 项目 {#projects}
 
@@ -49,8 +53,12 @@ u0 把设置保存在其主目录（`~/.u0`，或 `U0_HOME`）中的 `settings.j
 | `pull` | bool | `false` | 当默认分支已检出且没有任何改动时，在 u0 启动时以及每次获取时拉取（pull）它。 |
 | `icon` | `{"picture": path}` 或 `{"mark": {"text", "colour"}}` 或 `null` | `null` | 它的图标。`null`：如果它有自己的图标文件，就用该文件。 |
 | `linear` | Linear 团队标识或 `null` | `null` | 从这个 Linear 团队读取它的议题，而不是从它的仓库托管平台读取。 |
-| `over` | 对象 | `{}` | 该项目中与其他地方不同的设置。这里只能出现 `merge`、`uncredit`、`submodules`、`branch_kind`、`resume_at_reset` 和 `tidy_after`；其他任何键都是错误。 |
+| `over` | 对象 | `{}` | 该项目中与其他地方不同的设置（`merge`、`uncredit`、`auto_pull`、`sign_commits`、`run_git_hooks`、`pr_drafts`、`pr_templates`、`commit_style`、`review_guides`、`submodules`、`branch_prefix`、`branch_kind`、`branch_template`、`worktree_from`、`copy_untracked`、`worktree_cleanup`、`keep_dirty_worktrees`、`tidy_after`、`worktree`、`ask_worktree`、`default_agent`、`default_model`、`ask_before_push`、`streaming`、`settle_days`、`resume_at_reset`）。其他任何键都是错误。 |
 | `last` | 映射：智能体 ID → `{options, mode}` | `{}` | 在此处每个智能体的新线程中最后选择的选项（模型、思考强度等）和模式。 |
+| `dictionary` | 字符串列表 | `[]` | 项目专属听写词条。 |
+| `external_folders` | 路径列表 | `[]` | 关联到该项目的外部文件夹。 |
+| `excluded_submodules` | 路径列表 | `[]` | 创建工作树时排除的子模块路径。 |
+| `env` | 映射：名称 → 值 | `{}` | 提供给该项目中智能体与动作的环境变量及 `secret:<NAME>` 引用。 |
 
 ## 线程 {#threads}
 
@@ -62,6 +70,18 @@ u0 把设置保存在其主目录（`~/.u0`，或 `U0_HOME`）中的 `settings.j
 | `snoozes` | 字符串列表 | `["1h", "tomorrow", "next week"]` | 优先提供的稍后提醒选项，每项的写法与你在 **自定义…** 中输入的一样。 |
 | `resume_at_reset` | bool | `true` | 因智能体用量限制而中止的一轮，会在限制重置时自动继续（前提是智能体说明了重置时间）。**通用 › 在后台**。 |
 | `sort` | `"used"`、`"updated"`、`"begun"`、`"name"` | `"used"` | 侧边栏如何排列线程和项目：按你的最后一条消息、按任何活动、按开始时间，或按名称。 |
+| `project_grouping` | `"by_project"`、`"by_machine"`、`"flat"` | `"by_project"` | 侧边栏如何对线程分组。 |
+| `project_order` | `"manual"`、`"activity"`、`"name"` | `"manual"` | 侧边栏如何排列项目。 |
+| `working_section` | bool | `true` | 将运行中或等待你的线程置顶显示。 |
+| `two_line_projects` | bool | `false` | 在侧边栏项目名下显示当前分支。 |
+| `ask_worktree` | bool | `false` | 每次新建线程时询问是在本地检出还是新工作树中工作。 |
+| `default_agent` | 智能体 ID 或 `null` | `null` | 新线程的默认智能体（`null`：首个已开启的智能体）。 |
+| `default_model` | 模型 ID 或 `null` | `null` | 新线程的默认模型（`null`：智能体的默认模型）。 |
+| `default_modes` | 映射：智能体 ID → 模式 ID | `{}` | 各智能体新线程的默认模式。 |
+| `ask_before_push` | bool | `true` | 在线程中执行 `git push` 前询问确认。 |
+| `streaming` | bool | `true` | 流式显示智能体回复。 |
+| `archive_after` | 天数或 `null` | `30` | 线程标为完成后多少天自动归档（`null`：从不）。 |
+| `snooze_until_reset` | bool | `true` | 遇到用量限制时提供“稍后提醒至限制重置”。 |
 | `views` | `{name, kind, state, part, search}` 列表 | `[]` | 拉取请求和议题页面中保存的视图。`kind` 为 `"Pr"` 或 `"Issue"`。 |
 
 ## 工作树与 git {#worktrees-and-git}
@@ -74,8 +94,20 @@ u0 把设置保存在其主目录（`~/.u0`，或 `U0_HOME`）中的 `settings.j
 | `worktrees` | 路径或 `null` | `null`（`<home>/worktrees`） | 新工作树创建在哪里。之前创建的工作树留在原处。 |
 | `submodules` | `"recursive"`、`"top"`、`"skip"` | `"recursive"` | 新工作树的子模块检出到什么程度。 |
 | `tidy_after` | 天数或 `null` | `null` | 已归档线程的工作树保留多少天后被移除。有未提交改动的工作树会保留，其分支始终保留。`null`：一直保留。 |
-| `merge` | `"squash"`、`"merge"`、`"rebase"` | `"squash"` | 从右侧栏合并拉取请求时使用的方式。**通用 › 拉取请求**。 |
-| `uncredit` | bool | `false` | 从压缩（squash）后的提交信息中去掉智能体的 `Co-authored-by` 行和署名脚注。**源代码管理 › 合并**。 |
+| `merge` | `"squash"`、`"merge"`、`"rebase"` | `"squash"` | 从右侧栏合并拉取请求时使用的方式。**源代码管理与议题**。 |
+| `uncredit` | bool | `false` | 从压缩（squash）后的提交信息中去掉智能体的 `Co-authored-by` 行和署名脚注。**源代码管理与议题**。 |
+| `worktree_from` | `"origin_default"`、`"local_main"`、`"current_branch"` | `"origin_default"` | 新工作树默认从何处检出。 |
+| `branch_template` | 字符串 | `"{type}/{thread}"` | 新工作树的分支命名模板。 |
+| `copy_untracked` | 字符串 | `".env, .env.local"` | 复制到新工作树中的未跟踪文件列表。 |
+| `worktree_cleanup` | `"when_archived"`、`"when_merged"`、`"never"` | `"when_archived"` | 已完成工作树的清理时机。 |
+| `keep_dirty_worktrees` | bool | `true` | 清理工作树时跳过仍有未提交改动的工作树。 |
+| `auto_pull` | bool | `false` | 启动和获取时自动拉取干净的默认分支。 |
+| `sign_commits` | bool | `false` | 对 u0 发起的提交进行签名。 |
+| `run_git_hooks` | bool | `true` | 在提交和推送时运行仓库的 git 钩子。 |
+| `pr_drafts` | bool | `false` | 默认以草稿形式创建拉取请求。 |
+| `pr_templates` | bool | `true` | 遵循仓库的拉取请求模板。 |
+| `commit_style` | `"match_history"`、`"conventional"`、`"plain"` | `"match_history"` | 默认提交信息风格。 |
+| `review_guides` | bool | `true` | 启用拉取请求评审导览。 |
 
 ## 对话与输入框 {#chat-and-composer}
 
@@ -87,6 +119,12 @@ u0 把设置保存在其主目录（`~/.u0`，或 `U0_HOME`）中的 `settings.j
 | `view` | `"zen"`、`"quiet"`、`"normal"`、`"thinking"`、`"verbose"` | `"normal"` | 智能体的工作在对话中如何显示。⌃O 依次切换。 |
 | `paragraphs` | bool | `false` | 回答以段落为单位流式显示，而不是逐词显示。 |
 | `math` | bool | `false` | 将智能体所说内容中的 TeX（`$…$`、`$$…$$`）排版为公式。 |
+| `rich_composer` | bool | `true` | 输入框内富文本格式、代码块和内联芯片。 |
+| `ask_follow_up` | bool | `false` | 一轮进行中发送消息时每次询问排队或引导。 |
+| `slash_skills` | bool | `true` | 在 `/` 菜单中列出智能体和仓库技能。 |
+| `open_subagents` | `"right_panel"`、`"split"`、`"new_window"` | `"right_panel"` | 子智能体和侧聊的打开位置。 |
+| `announcements` | `"replies_and_alerts"`、`"alerts_only"`、`"off"` | `"replies_and_alerts"` | 屏幕阅读器在线程中的播报内容。 |
+| `title_status` | bool | `false` | 在窗口标题中放入当前线程状态。 |
 
 ## 外观 {#appearance}
 
@@ -109,6 +147,14 @@ u0 把设置保存在其主目录（`~/.u0`，或 `U0_HOME`）中的 `settings.j
 | `no_spacing` | bool | `false` | diff 中不显示仅涉及空白的改动。 |
 | `side_by_side` | bool | `false` | 以并排方式打开文件的 diff，并加宽右侧栏。 |
 | `diff_folded` | bool | `false` | diff 中的文件默认折叠显示，按需逐个展开。 |
+| `diff_theme_colors` | bool | `false` | 在 diff 中使用主题配色。 |
+| `diff_auto_layout` | bool | `true` | 按面板宽度自动选择统一或并排 diff 布局。 |
+| `diff_context` | 数字 | `3` | diff 中每处改动周围显示的未改动行数。 |
+| `highlight_words` | bool | `true` | 高亮改动行内部变更的词与字符。 |
+| `collapse_large_diffs` | bool | `true` | 自动折叠超过 400 行改动的 diff 文件。 |
+| `hide_test_files` | bool | `false` | 在 diff 中将测试文件折叠为单行汇总。 |
+| `open_prs_here` | bool | `true` | 在 u0 内置拉取请求视图中打开 PR 链接。 |
+| `proactive_panels` | bool | `true` | 编辑文件或关联 PR 时主动展开右侧面板。 |
 | `hidden_details` | `"context"`、`"plan"`、`"background"`、`"servers"`、`"terminals"`、`"lineage"`、`"linked"` 的列表 | `[]` | 在右侧栏中隐藏的线程详情部分。 |
 
 ## 通知与后台 {#notifications-and-background}
@@ -117,7 +163,10 @@ u0 把设置保存在其主目录（`~/.u0`，或 `U0_HOME`）中的 `settings.j
 |---|---|---|---|
 | `notify` | `"off"`、`"banner"`、`"banner_and_sound"` | `"banner"` | 当 u0 不在前台时，某个线程结束一轮或需要你时，macOS 显示什么。**通用 › 你离开时**。 |
 | `notify_on` | `{finished, failed, asks}`，每项为 bool | 全部为 `true` | 哪些事件发出通知：一轮结束、一轮失败、提出了问题。 |
+| `in_app_notify` | bool | `true` | 对未聚焦线程显示应用内通知提示。 |
 | `awake` | bool | `true` | 智能体工作时阻止 Mac 进入睡眠。 |
+| `background_activity` | `"battery_saver"`、`"balanced"`、`"full_speed"` | `"balanced"` | 窗口隐藏时后台任务的活跃程度。 |
+| `continue_after_restart` | bool | `true` | 更新或重启后自动恢复工作中的线程。 |
 | `confirm` | 对象 | 见下文 | u0 在执行哪些操作前先询问。**通用 › 确认**。 |
 
 `confirm` 包含 `unpin`（默认 `false`）、`archive`（`false`）、`delete`（`true`）、`terminal`（`true`：在关闭有程序正在运行的终端之前）和 `quit`：⌘Q 的触发方式，`"hold"`（按住片刻，或快速按两次；默认值）、`"direct"`（按一次）或 `"double"`（快速按两次）。菜单中的“退出”总是立即退出。
@@ -134,6 +183,7 @@ u0 把设置保存在其主目录（`~/.u0`，或 `U0_HOME`）中的 `settings.j
 | `writer.titles` | 字符串 | `""` | 你对线程标题的指示。 |
 | `writer.branches` | 字符串 | `""` | 你对工作树分支名的指示。 |
 | `writer.transcripts` | 字符串 | `""` | 你对整理听写内容的指示。 |
+| `writer.guides` | 字符串 | `""` | 你对拉取请求评审导览的指示。 |
 | `writer.suggest` | bool | `false` | 每轮结束后，写出你接下来可能要说的话，按 Tab 采用。 |
 
 `voice` 包含听写的设置（见[对话](../thread.md#dictation)）：
@@ -144,7 +194,36 @@ u0 把设置保存在其主目录（`~/.u0`，或 `U0_HOME`）中的 `settings.j
 | `voice.language` | 语言区域或 `null` | `null` | 要识别的语言（`"en-US"`）。`null`：系统的语言。 |
 | `voice.dictionary` | 字符串列表 | `[]` | 要识别的词语，每项一个。`"heard = written"` 会把听到的内容以另一种写法写出。 |
 | `voice.no_fillers` | bool | `true` | 省略“um”、“uh”之类的填充词。 |
+| `voice.fillers` | 字符串 | `"um, uh, like, you know"` | 开启 `voice.no_fillers` 时在本地移除的填充词。 |
 | `voice.clean` | bool | `false` | 让写作者在插入之前先整理听到的内容。 |
+| `voice.microphone` | 字符串或 `null` | `null` | 选定的麦克风输入设备（`null`：系统默认）。 |
+| `voice.live_words` | bool | `true` | 说话过程中实时显示识别出的词。 |
+| `voice.correction_cue` | 字符串 | `"scratch that"` | 说出后用于替换刚才语句的口令。 |
+
+## 浏览器、快照、设备与实验室 {#browser-snapshots-devices-and-labs}
+
+| 键 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `browser` | 路径或 `null` | `null` | u0 用于打开链接和开发服务器的外部浏览器 `.app`（`null`：系统默认）。 |
+| `ask_browser` | bool | `false` | 打开每个链接时询问使用哪个浏览器。 |
+| `cmd_click_urls` | bool | `true` | 按住 `⌘` 点击终端打印的地址时在浏览器中打开。 |
+| `dev_server` | `"show"`、`"open"`、`"ignore"` | `"show"` | 开发服务器启动时的处理方式。 |
+| `forward_port` | 数字 | `41873` | 转发远程开发服务器端口时的起始本地端口。 |
+| `snapshots` | `{shortcut, include_text, never_capture, sound, flash, animations}` | 见默认值 | 桌面窗口快照捕获与反馈设置。 |
+| `use_devices` | bool | `true` | 在右侧栏显示模拟器与设备面板。 |
+| `agent_devices` | `"ask"`、`"allowed"`、`"off"` | `"ask"` | 智能体是否可通过 MCP 操控模拟器与设备。 |
+| `local_simulators` | bool | `true` | 线程请求时允许启动本机模拟器。 |
+| `max_simulators` | 数字 | `2` | 本机同时运行的模拟器上限。 |
+| `machine_id` | `"color_and_name"`、`"name_only"`、`"off"` | `"color_and_name"` | 标题栏如何标识其他机器。 |
+| `hidden_servers` | 字符串列表 | `[]` | 在当前窗口侧边栏中暂时隐藏的已配对服务器名称。 |
+| `pr_sharing` | bool | `false` | 向只读配对的 Mac 共享拉取请求状态。 |
+| `phone_confirm`, `phone_live_activities`, `phone_dev_server` | bool | `false` | 已配对手机功能的预览开关。 |
+| `otlp_endpoint` | 字符串或 `null` | `null` | OpenTelemetry OTLP 收集器端点。 |
+| `agent_feedback` | bool | `false` | 允许智能体提交关于 u0 本身的反馈。 |
+| `workflows_enabled` | bool | `true` | 启用多阶段工作流。 |
+| `skipped_runs_days` | 数字 | `7` | 因并发限制跳过的运行在历史中保留的天数。 |
+| `fast_worktree` | bool | `true` | 在文件系统支持时使用写时复制克隆工作树。 |
+| `simlock_pools` | bool | `false` | 从共享 Simlock 池租用模拟器。 |
 
 ## 更新、日志、遥测 {#updates-logs-telemetry}
 

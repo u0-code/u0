@@ -58,7 +58,7 @@ u0 通过 CFPreferences 读取这些值，并且只认描述文件**强制**设�
 
 ### 设置 {#settings}
 
-`settings` 的每个键都必须是 `settings.json` 的顶层键，且其 `value` 必须符合该设置的类型。
+`settings` 的每个键都必须是 `settings.json` 的顶层键，或其对象类型设置中的嵌套字段（例如 `confirm.delete`、`confirm.quit`、`writer.suggest` 或 `voice.clean`），且其 `value` 必须符合该设置的类型。
 
 - **未锁定**（`"locked": false`，默认）：该值是一个默认值。它在用户没有做出任何选择的地方生效；用户自己的选择优先。
 - **已锁定**（`"locked": true`）：无论 `settings.json` 怎么写，都使用该值。对应控件显示为禁用，并注明组织的名称。
