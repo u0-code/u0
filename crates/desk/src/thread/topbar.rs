@@ -14,9 +14,17 @@ use crate::{
     theme, ui,
 };
 
+/// The command box's widest (`flex: 0 1 400px`).
+const COMMAND_BOX_MOST: f32 = 400.;
+/// The command box's least: its magnifier alone.
+const COMMAND_BOX_LEAST: f32 = 32.;
+
 impl Desk {
     /// The bar over the middle (`TitleBar` + thread/page header).
     pub(crate) fn topbar(&self, faces: &Faces, left_shown: bool, cx: &mut Context<Self>) -> Div {
+        // Where the command box is, once it is drawn; nowhere on a page
+        // without it.
+        self.palette.under.set(None);
         let mut bar = ui::title_bar(!left_shown);
         if !left_shown {
             bar = bar.child(
@@ -44,6 +52,21 @@ impl Desk {
                 ),
             );
         }
+        // The title side and the buttons' side, each as wide as the other,
+        // the command box between them (`CommandBox`).
+        let mut left = div()
+            .flex()
+            .flex_1()
+            .flex_basis(px(0.))
+            .items_center()
+            .gap(px(8.));
+        let mut right = div()
+            .flex()
+            .flex_1()
+            .flex_basis(px(0.))
+            .justify_end()
+            .items_center()
+            .gap(px(8.));
         match &self.page {
             Page::Thread => {
                 if let Some(m) = self.guest_machine() {
@@ -116,10 +139,13 @@ impl Desk {
                             .child(Input::new(&self.rename).small())
                             .into_any_element()
                     } else {
+                        // Its whole width, up to half the column: the
+                        // command box beside it narrows first.
                         div()
                             .id("title")
-                            .flex_shrink_1()
-                            .min_w(px(0.))
+                            .flex()
+                            .flex_none()
+                            .max_w(px(f32::from(self.column.size.width) / 2.))
                             .child(ui::one_line(
                                 ui::text(faces, shown)
                                     .text_size(px(crate::style::BODY))
@@ -146,14 +172,14 @@ impl Desk {
                         ui::icon_button("title-menu", "chevron-down", crate::tr("This thread"))
                             .size(px(22.))
                             .text_color(theme::faint());
-                    bar = bar
-                        .child(named)
-                        .child(self.menu(Popup::Title, caret, Self::title_menu, cx))
-                        .child(div().flex_1());
-                } else {
-                    bar = bar.child(div().flex_1());
+                    left = left.child(named).child(self.menu(
+                        Popup::Title,
+                        caret,
+                        Self::title_menu,
+                        cx,
+                    ));
                 }
-                bar = bar
+                right = right
                     .child(
                         ui::icon_button(
                             "toggle-drawer",
@@ -190,13 +216,13 @@ impl Desk {
                     Some(Stage::Failed(_)) => "Stopped",
                     Some(_) => "Installed",
                 };
-                bar = bar
+                return bar
                     .child(ui::mark(faces, &self.mark_of(id), 16.))
                     .child(title(name))
                     .child(meta(faces, crate::tr(state)));
             }
             Page::Forge(kind) => {
-                bar = bar.child(title(
+                left = left.child(title(
                     crate::tr(match kind {
                         crate::github::Kind::Pr => "Pull requests",
                         crate::github::Kind::Issue => "Issues",
@@ -204,14 +230,54 @@ impl Desk {
                     .to_string(),
                 ));
             }
-            Page::Workflows => {
-                bar = self.workflows_topbar(bar, cx);
-            }
-            Page::Usage => {
-                bar = self.usage_topbar(bar, cx);
-            }
+            Page::Workflows => (left, right) = self.workflows_topbar(left, right, cx),
+            Page::Usage => (left, right) = self.usage_topbar(left, right, cx),
         }
-        bar
+        // Centred while there is room, else narrowed, at last to its
+        // magnifier.
+        bar.child(left)
+            .child(
+                div()
+                    .flex()
+                    .flex_shrink_1()
+                    .flex_basis(px(COMMAND_BOX_MOST))
+                    .min_w(px(COMMAND_BOX_LEAST))
+                    .child(self.command_box(cx)),
+            )
+            .child(right)
+    }
+
+    /// The command box: what the palette (⌘K) looks through, and its key;
+    /// a press opens the palette under it. Where it is drawn is kept, for
+    /// the palette to hang from.
+    fn command_box(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let desk = cx.entity();
+        let at = self.palette.under.clone();
+        div()
+            .relative()
+            .flex()
+            .w_full()
+            // Not the bar's: a press here opens the palette, it does not
+            // move the window.
+            .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .child(
+                gpui::canvas(move |bounds, _, _| at.set(Some(bounds)), |_, (), _, _| {})
+                    .absolute()
+                    .size_full(),
+            )
+            .child(
+                u0ui::u0::shell::CommandBox::new(
+                    "command-box",
+                    crate::tr(crate::desk::palette::SEARCHES),
+                )
+                .shortcut(crate::keys::written(&crate::keys::keys_of(cx, "palette")))
+                .open(self.palette.open)
+                .on_click(move |window, cx| {
+                    desk.update(cx, |d, cx| {
+                        d.open_palette(crate::desk::palette::Through::Everything, window, cx);
+                    });
+                }),
+            )
     }
 
     /// Thread menu under the title's caret (`Dialogs` board): Rename, Pin,

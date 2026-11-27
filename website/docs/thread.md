@@ -65,8 +65,12 @@ Click the title to rename the thread. Its menu has **Rename**, **Pin**,
 press ⇧Return on a thread in ⌘K), **Branch a new thread from here**, **New
 side chat**, **Copy thread link**, **Share read only with a device…**, **Link
 a pull request…**, **Tags…**, the transcript views, **Continue with** another
-agent, **Open in your editor**, **Archive** and **Delete…**. The buttons
-beside it open the terminal drawer (⌘J) and show or hide the right column
+agent, **Open in your editor**, **Archive** and **Delete…**.
+
+In the middle of the bar, the box that reads **Search threads, projects,
+commands and settings** opens the palette under it, as ⌘K does; when the
+bar is short of room, only its magnifier is left. The buttons at the right
+open the terminal drawer (⌘J) and show or hide the right column
 (⌥⌘B).
 
 ### Find

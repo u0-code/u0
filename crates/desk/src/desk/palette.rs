@@ -26,6 +26,10 @@ use crate::{fonts::Faces, session::State, theme, ui, when};
 mod pages;
 use pages::Sub;
 
+/// What the palette looks through with nothing else open, as its line and
+/// the command box in the bar over the thread say.
+pub(crate) const SEARCHES: &str = "Search threads, projects, commands and settings";
+
 /// What a row of the palette does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Act {
@@ -129,6 +133,9 @@ pub struct Palette {
     /// What it looked through before it was turned to this, while open:
     /// where Escape goes back to.
     pub from: Option<Through>,
+    /// Where the command box in the bar over the thread was drawn last,
+    /// for the palette to hang from; none on a page without it.
+    pub under: std::rc::Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
 }
 
 impl Palette {
@@ -146,6 +153,7 @@ impl Palette {
             snoozing: Vec::new(),
             back_to: None,
             from: None,
+            under: std::rc::Rc::default(),
         }
     }
 }
@@ -440,11 +448,13 @@ impl Desk {
             self.close_settings(window, cx);
             let desk = cx.entity();
             let shown = cx.new(|cx| super::Over::new(desk.clone(), Self::palette_view, cx));
-            window.open_dialog(cx, move |dialog, window, _| {
+            let (top, shift) = hung(self.palette.under.get(), window.viewport_size().width);
+            window.open_dialog(cx, move |dialog, _, _| {
                 let desk = desk.clone();
                 dialog
-                    .w(px(640.))
-                    .margin_top((window.viewport_size().height - px(520.)).clamp(px(24.), px(96.)))
+                    .w(WIDTH)
+                    .margin_top(top)
+                    .ml(shift)
                     .p_0()
                     .rounded_none()
                     .bg(theme::role(u0ui::tokens::ColorRole::Layer01))
@@ -1195,10 +1205,7 @@ impl Desk {
         let page = self.palette.pages.last().map(|p| p.0);
         let (placeholder, empty) = match self.palette.through {
             Through::Everything if let Some(sub) = page => (sub.placeholder(), "Nothing here."),
-            Through::Everything => (
-                "Search threads, projects, commands and settings",
-                "No matching commands, projects, or threads.",
-            ),
+            Through::Everything => (SEARCHES, "No matching commands, projects, or threads."),
             Through::Files => ("Search files…", "No matching files."),
             Through::Words => ("Search the project's files…", "No matching words."),
         };
@@ -1283,6 +1290,24 @@ impl Desk {
         }
         command.into_any_element()
     }
+}
+
+/// The palette's width.
+const WIDTH: gpui::Pixels = px(640.);
+
+/// Where the palette hangs in a window `view` wide: 4px under the command
+/// box, centred on it as far as the window lets it (the dialog is centred
+/// in the window, so the shift from there); with no box, under the bar.
+fn hung(
+    under: Option<gpui::Bounds<gpui::Pixels>>,
+    view: gpui::Pixels,
+) -> (gpui::Pixels, gpui::Pixels) {
+    let Some(at) = under else {
+        return (px(super::TOPBAR + 4.), px(0.));
+    };
+    let most = ((view - WIDTH) / 2. - px(8.)).max(px(0.));
+    let shift = (at.center().x - view / 2.).clamp(-most, most);
+    (at.bottom() + px(4.), shift)
 }
 
 /// How words are looked for (⇧⌘F): in their case, whole, as a pattern;
@@ -1531,6 +1556,25 @@ fn once(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_palette_hangs_under_the_command_box_centred_on_it_within_the_window() {
+        let at = |x: f32, w: f32| {
+            Some(gpui::Bounds::new(
+                gpui::point(px(x), px(5.)),
+                gpui::size(px(w), px(28.)),
+            ))
+        };
+        // A box centred at 848 in a 1440 window: 128 right, 4 under it.
+        assert_eq!(hung(at(648., 400.), px(1440.)), (px(37.), px(128.)));
+        // Near the edge, as far as the window lets it.
+        assert_eq!(hung(at(900., 100.), px(1000.)), (px(37.), px(172.)));
+        // No box: under the bar, in the middle.
+        assert_eq!(
+            hung(None, px(1440.)),
+            (px(super::super::TOPBAR + 4.), px(0.))
+        );
+    }
 
     #[test]
     fn escape_goes_back_to_the_palette_only_when_it_was_turned_from_there() {
