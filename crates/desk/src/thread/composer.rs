@@ -1401,7 +1401,11 @@ impl Desk {
                         .flex()
                         .items_center()
                         .gap(px(8.))
-                        .when(editing, |d| d.px(px(6.)).py(px(2.)).bg(theme::role(u0ui::tokens::ColorRole::StateCurrentBackground)))
+                        .when(editing, |d| {
+                            d.px(px(6.))
+                                .py(px(2.))
+                                .bg(theme::role(u0ui::tokens::ColorRole::StateCurrentBackground))
+                        })
                         .child(ui::icon("clock", 12.).text_color(theme::faint()))
                         .child(
                             ui::one_line(

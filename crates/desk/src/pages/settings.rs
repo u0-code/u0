@@ -304,11 +304,12 @@ impl Desk {
                 (n > 0).then_some((n, SettingsBadgeTone::Warning))
             }
             Tab::Tasks => {
-                let n = (self.tasks_on(Host::HERE).and_then(|t| t.as_ref().ok())).map_or(0, |list| {
-                    list.iter()
-                        .filter(|t| t.last.as_ref().is_some_and(|r| r.error.is_some()))
-                        .count()
-                });
+                let n =
+                    (self.tasks_on(Host::HERE).and_then(|t| t.as_ref().ok())).map_or(0, |list| {
+                        list.iter()
+                            .filter(|t| t.last.as_ref().is_some_and(|r| r.error.is_some()))
+                            .count()
+                    });
                 (n > 0).then_some((n, SettingsBadgeTone::Error))
             }
             Tab::Devices => {
