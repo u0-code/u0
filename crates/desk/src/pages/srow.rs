@@ -268,28 +268,8 @@ impl SRow {
     /// `240px` `field-02` text input (`mono: true` for paths, prefixes and
     /// commands).
     pub fn text_input(mut self, state: &Entity<InputState>, faces: &Faces, mono: bool) -> Self {
-        let locked = self.is_locked();
-        let box_el = div()
-            .w(px(240.))
-            .h(px(32.))
-            .px(px(10.))
-            .flex()
-            .items_center()
-            .bg(theme::role(ColorRole::Field02))
-            .border_b_1()
-            .border_color(if locked {
-                theme::role(ColorRole::BorderSubtle01)
-            } else {
-                theme::role(ColorRole::BorderStrong01)
-            })
-            .when(mono, |d| d.font_family(faces.mono.clone()))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(0.))
-                    .child(Input::new(state).appearance(false).small().disabled(locked)),
-            );
-        self.control = Some(box_el.into_any_element());
+        let field = field(Input::new(state), faces, mono, self.is_locked()).w(px(240.));
+        self.control = Some(field.into_any_element());
         self
     }
 
@@ -519,6 +499,31 @@ impl RenderOnce for SRow {
             )
             .child(right_ctl)
     }
+}
+
+/// A Carbon `sm` text field on `field-02` (32px, a `border-strong-01` rule
+/// under it): gpui-kit's `input` drawn bare inside it, as wide as its
+/// caller sets; `mono` for paths, commands and names.
+pub fn field(input: Input, faces: &Faces, mono: bool, locked: bool) -> gpui::Div {
+    div()
+        .h(px(32.))
+        .px(px(10.))
+        .flex()
+        .items_center()
+        .bg(theme::role(ColorRole::Field02))
+        .border_b_1()
+        .border_color(if locked {
+            theme::role(ColorRole::BorderSubtle01)
+        } else {
+            theme::role(ColorRole::BorderStrong01)
+        })
+        .when(mono, |d| d.font_family(faces.mono.clone()))
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .child(input.appearance(false).small().disabled(locked)),
+        )
 }
 
 /// A titled Carbon settings section holding `SRow`s on `layer-01`.

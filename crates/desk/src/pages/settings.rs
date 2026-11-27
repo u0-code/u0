@@ -35,7 +35,7 @@ use u0ui::{
 use super::prefs::{group, item, whole};
 use crate::fonts::Weighted as _;
 use crate::{
-    desk::{Desk, Page},
+    desk::Desk,
     fonts::Faces,
     hub::{Auth, Host, Stage, Up},
     registry::Way,
@@ -290,8 +290,9 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.pages.tab != tab {
+        if self.pages.tab != tab || self.pages.agent.is_some() {
             self.pages.tab = tab;
+            self.pages.agent = None;
             let page_ix = tab.index();
             self.pages.settings.update(cx, |s, cx| {
                 s.set_selected_index(
@@ -394,6 +395,45 @@ impl Desk {
             crate::tr("This app · ⌘, opens settings, Esc closes them")
         };
         let desk_close = cx.entity();
+        let crumb = self.pages.agent.clone().map(|id| {
+            let machine = self
+                .machine(self.pages.on)
+                .map_or_else(|| crate::tr("This Mac").to_string(), |m| m.name.clone());
+            let caption = |t: SharedString| {
+                ui::text(&faces, t)
+                    .flex_none()
+                    .text_size(px(crate::style::CAPTION))
+                    .line_height(px(16.))
+                    .text_color(theme::text2())
+            };
+            div()
+                .flex()
+                .flex_1()
+                .min_w(px(0.))
+                .items_center()
+                .gap(px(4.))
+                .child(
+                    caption(format!("{} ›", Tab::Agents.title()).into())
+                        .id("crumb-agents")
+                        .cursor_pointer()
+                        .hover(gpui::Styled::underline)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.pick_settings_tab(Tab::Agents, window, cx);
+                        })),
+                )
+                .child(
+                    caption(self.name_of(&id).into())
+                        .weight(gpui::FontWeight::SEMIBOLD)
+                        .text_color(theme::text()),
+                )
+                .child(caption(
+                    format!(
+                        "· {}",
+                        crate::tr_with("on %{machine}", &[("machine", &machine)])
+                    )
+                    .into(),
+                ))
+        });
         let top_bar = div()
             .flex()
             .flex_none()
@@ -405,15 +445,17 @@ impl Desk {
             .border_b_1()
             .border_color(theme::border())
             .bg(theme::bg())
-            .child(
-                ui::text(&faces, scope_hint)
-                    .flex_1()
-                    .min_w(px(0.))
-                    .truncate()
-                    .text_size(px(crate::style::CAPTION))
-                    .line_height(px(16.))
-                    .text_color(theme::text2()),
-            )
+            .child(crumb.unwrap_or_else(|| {
+                div().flex().flex_1().min_w(px(0.)).child(
+                    ui::text(&faces, scope_hint)
+                        .flex_1()
+                        .min_w(px(0.))
+                        .truncate()
+                        .text_size(px(crate::style::CAPTION))
+                        .line_height(px(16.))
+                        .text_color(theme::text2()),
+                )
+            }))
             .child(
                 CarbonButton::new("close-settings", crate::tr("Close settings (Esc)"))
                     .variant(ButtonVariant::Ghost)
@@ -425,25 +467,29 @@ impl Desk {
                     }),
             );
 
-        let body: AnyElement =
-            if let Some(carbon) = self.carbon_tab(self.pages.tab, &query, &faces, cx) {
-                carbon
-            } else {
-                let w = cx.entity().downgrade();
-                let mut settings = Settings::new("settings")
-                    .state(&self.pages.settings)
-                    .sidebar_width(px(100.))
-                    .sidebar_size_range(px(100.)..px(100.));
-                for tab in Tab::ALL {
-                    settings = settings.page(self.tab_page(tab, &w, cx));
-                }
-                div()
-                    .flex_1()
-                    .min_h(px(0.))
-                    .overflow_hidden()
-                    .child(div().h_full().ml(px(-101.)).child(settings))
-                    .into_any_element()
-            };
+        let agent = (self.pages.tab == Tab::Agents)
+            .then(|| self.pages.agent.clone())
+            .flatten();
+        let body: AnyElement = if let Some(id) = agent {
+            self.agent_tab(&faces, self.pages.on, &id, cx)
+        } else if let Some(carbon) = self.carbon_tab(self.pages.tab, &query, &faces, cx) {
+            carbon
+        } else {
+            let w = cx.entity().downgrade();
+            let mut settings = Settings::new("settings")
+                .state(&self.pages.settings)
+                .sidebar_width(px(100.))
+                .sidebar_size_range(px(100.)..px(100.));
+            for tab in Tab::ALL {
+                settings = settings.page(self.tab_page(tab, &w, cx));
+            }
+            div()
+                .flex_1()
+                .min_h(px(0.))
+                .overflow_hidden()
+                .child(div().h_full().ml(px(-101.)).child(settings))
+                .into_any_element()
+        };
 
         div()
             .relative()
@@ -530,6 +576,7 @@ impl Desk {
                 {
                     desk_machine.update(cx, |this, cx| {
                         this.pages.on = Host(h);
+                        this.pages.agent = None;
                         this.pages.project = None;
                         this.pages.scope = None;
                         this.tab_shown(this.pages.tab, window, cx);
@@ -695,7 +742,7 @@ impl Desk {
         on_layer2: bool,
         cx: &mut Context<Self>,
     ) -> gpui::Stateful<Div> {
-        let active = self.pages.tab == tab;
+        let active = self.pages.tab == tab && self.pages.agent.is_none();
         let selected_bg = theme::role(if on_layer2 {
             ColorRole::LayerSelected02
         } else {
@@ -827,9 +874,16 @@ impl Desk {
         name: String,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        let active = self.pages.tab == Tab::Agents && self.pages.agent.as_ref() == Some(&id);
         let hover_bg = theme::role(ColorRole::LayerHover02);
+        let ink = if active {
+            theme::text()
+        } else {
+            theme::text2()
+        };
         div()
             .id(SharedString::from(format!("snav-agent-{}-{id}", host.0)))
+            .relative()
             .flex()
             .items_center()
             .gap(px(12.))
@@ -839,7 +893,18 @@ impl Desk {
             .pl(px(44.))
             .pr(px(16.))
             .cursor_pointer()
-            .hover(move |s| s.bg(hover_bg))
+            .when(active, |d| {
+                d.bg(theme::role(ColorRole::LayerSelected02)).child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top_0()
+                        .bottom_0()
+                        .w(px(3.))
+                        .bg(theme::role(ColorRole::BorderInteractive)),
+                )
+            })
+            .when(!active, |d| d.hover(move |s| s.bg(hover_bg)))
             .child(ui::mark(faces, &self.mark_of(&id), 16.))
             .child(
                 ui::text(faces, name)
@@ -847,10 +912,15 @@ impl Desk {
                     .min_w(px(0.))
                     .truncate()
                     .text_size(px(crate::style::BODY))
-                    .text_color(theme::text2()),
+                    .weight(if active {
+                        gpui::FontWeight::SEMIBOLD
+                    } else {
+                        gpui::FontWeight::NORMAL
+                    })
+                    .text_color(ink),
             )
             .on_click(cx.listener(move |this, _, window, cx| {
-                this.open_page(Page::Agent(host, id.clone()), window, cx);
+                this.open_agent(host, &id, window, cx);
             }))
             .into_any_element()
     }
@@ -1116,7 +1186,7 @@ impl Desk {
                 Weight::Secondary,
             )
             .on_click(cx.listener(move |this, _, window, cx| {
-                this.open_page(Page::Agent(host, id.clone()), window, cx);
+                this.open_agent(host, &id, window, cx);
             }))
             .into_any_element()
         };
@@ -1141,7 +1211,7 @@ impl Desk {
                     .child(ui::text(faces, name).weight(gpui::FontWeight::MEDIUM))
                     .child(ui::fine(faces, line))
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_page(Page::Agent(host, page_id.clone()), window, cx);
+                        this.open_agent(host, &page_id, window, cx);
                     })),
             )
             .child(control)

@@ -629,7 +629,7 @@ impl Desk {
         self.pages
             .account
             .update(cx, |i, cx| i.set_value("", window, cx));
-        self.open_page(super::Page::Agent(host, id), window, cx);
+        self.open_agent(host, &id, window, cx);
     }
 
     /// Take the account `id` on `host` away: switched off, and its
@@ -649,7 +649,7 @@ impl Desk {
         settings.commands.remove(id);
         self.save_settings_on(host);
         self.fill_slots(host);
-        self.open_page(super::Page::Agent(host, agent), window, cx);
+        self.open_agent(host, &agent, window, cx);
     }
 
     /// Read the registry again.

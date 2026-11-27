@@ -235,7 +235,8 @@ crates/desk/src/
                 tab: simulators and emulators (sims), the Preview tab: dev
                 servers, and a page you open there in the system's webview
                 (preview)
-  pages/        the settings dialog, gpui-kit's Settings, a page a tab (settings, prefs, projects, writing,
+  pages/        the settings dialog, gpui-kit's Settings, a page a tab (settings, prefs, agent: an
+                agent's own page, under Agents; projects, writing,
                 usage, voice: dictation's settings, updates: on About, hosts:
                 Source control, looks: Appearance's themes, diagnostics,
                 devices: Devices, both ways, and the sheet that asks before pairing,

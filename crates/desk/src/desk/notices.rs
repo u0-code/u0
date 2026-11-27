@@ -191,7 +191,7 @@ impl Desk {
             let _ = desk.update(cx, |d, cx| match way.clone() {
                 Some(Way::Open(url)) => d.browse(&url, cx),
                 Some(Way::Agent(host, agent)) => {
-                    d.open_page(super::Page::Agent(host, agent), window, cx);
+                    d.open_agent(host, &agent, window, cx);
                 }
                 Some(Way::Show(key) | Way::Asks(key)) => d.show(key, window, cx),
                 Some(Way::Undo) => d.take_back(cx),

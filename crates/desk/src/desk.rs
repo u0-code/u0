@@ -92,9 +92,6 @@ const LIGHTS: f32 = crate::style::TRAFFIC_LIGHT_INSET;
 pub enum Page {
     /// The session on screen, by its key; or, with none, the empty start.
     Thread,
-    /// An agent's page, on a server: what it is, what it needs, how to
-    /// install it.
-    Agent(hub::Host, String),
     /// A project's pull requests, or its issues.
     Forge(crate::github::Kind),
     /// The workflows workspace view (`Workflows` board).
@@ -986,8 +983,7 @@ impl Desk {
         cx: &mut Context<Self>,
     ) {
         if !self.slot(p.host, agent).is_some_and(Slot::usable) {
-            self.page = Page::Agent(p.host, agent.to_owned());
-            cx.notify();
+            self.open_agent(p.host, agent, window, cx);
             return;
         }
         // A project keeps one draft, brought back as it was left, not
@@ -1993,6 +1989,7 @@ impl Desk {
             return;
         }
         self.pages.tab = tab;
+        self.pages.agent = None;
         let page_ix = crate::pages::Tab::ALL
             .iter()
             .position(|t| *t == tab)
@@ -2043,6 +2040,37 @@ impl Desk {
         self.popup = Popup::Closed;
         window.focus(&self.pages.settings_search.focus_handle(cx), cx);
         cx.notify();
+    }
+
+    /// The settings open at the page of the agent `id` on `host`, its
+    /// command of yours in its field and the CLI it drives asked its
+    /// version.
+    pub fn open_agent(
+        &mut self,
+        host: hub::Host,
+        id: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.pages.on != host {
+            self.pages.on = host;
+            self.pages.project = None;
+            self.pages.scope = None;
+        }
+        let c = (self.settings_on(host).commands.get(id))
+            .cloned()
+            .unwrap_or_default();
+        self.pages
+            .command
+            .update(cx, |i, cx| i.set_value(&c, window, cx));
+        self.pages
+            .model
+            .update(cx, |i, cx| i.set_value("", window, cx));
+        if let Some(cli) = self.here_on(host, id).and_then(|h| h.cli.clone()) {
+            self.call(host, Call::CliVersion { cli });
+        }
+        self.open_tab(crate::pages::Tab::Agents, window, cx);
+        self.pages.agent = Some(id.to_owned());
     }
 
     /// What a tab shows, measured afresh as it is shown: Sessions and
@@ -2118,23 +2146,7 @@ impl Desk {
     }
 
     pub fn open_page(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
-        // An agent's page shows the command of yours that starts it.
         match &page {
-            Page::Agent(host, id) => {
-                let host = *host;
-                let c = (self.settings_on(host).commands.get(id))
-                    .cloned()
-                    .unwrap_or_default();
-                self.pages
-                    .command
-                    .update(cx, |i, cx| i.set_value(&c, window, cx));
-                self.pages
-                    .model
-                    .update(cx, |i, cx| i.set_value("", window, cx));
-                if let Some(cli) = self.here_on(host, id).and_then(|h| h.cli.clone()) {
-                    self.call(host, Call::CliVersion { cli });
-                }
-            }
             Page::Usage => {
                 self.call(
                     self.pages.on,
@@ -2368,7 +2380,6 @@ impl Render for Desk {
                         .child(self.composer(&faces, column, window, cx))
                         .children(self.drawer(&faces, cell, cx))
                 }
-                Page::Agent(host, id) => middle.child(self.agent_page(&faces, host, &id, cx)),
                 Page::Forge(_) => middle.child(self.forge_page(&faces, cx)),
                 Page::Workflows => middle.child(self.workflows_page(window, cx)),
                 Page::Usage => middle.child(self.usage_page(cx)),
@@ -2383,7 +2394,6 @@ impl Render for Desk {
                 self.aside(&faces, cell, cx)
                     .w(px(self.right_width().min(width - 48.))),
             )),
-            Page::Agent(_, id) => Some(self.about(&faces, id, cx)),
             _ => None,
         };
         let split_rail = (self.page == Page::Thread && right_beside)

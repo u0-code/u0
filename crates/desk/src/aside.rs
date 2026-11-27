@@ -53,7 +53,6 @@ use u0ui::{
 use crate::{
     desk::{Desk, Page, TOPBAR, draggable},
     fonts::Faces,
-    registry::{self, Way},
     session::{Item, Session, State},
     settings::Detail,
     theme,
@@ -144,17 +143,6 @@ fn empty(faces: &Faces, text: impl Into<SharedString>) -> Div {
         .text_size(px(crate::style::CAPTION))
         .line_height(px(18.))
         .text_color(theme::role(ColorRole::TextSecondary))
-}
-
-fn key_value(faces: &Faces, key: &str, value: impl IntoElement) -> Div {
-    frow()
-        .child(
-            ui::text(faces, key.to_owned())
-                .flex_1()
-                .text_size(px(crate::style::CAPTION))
-                .text_color(theme::role(ColorRole::TextSecondary)),
-        )
-        .child(value)
 }
 
 /// One `.dt` definition row (`96px` key in `text-secondary`, value in `text-primary`).
@@ -1151,99 +1139,6 @@ impl Desk {
         ThreadDetailsSection::new("det-context", crate::tr(Detail::Context.head()))
             .children(meter)
             .child(dl)
-    }
-
-    /// An agent's page's right column: what it is and how u0 runs it.
-    pub(crate) fn about(&self, faces: &Faces, id: &str, cx: &mut Context<Self>) -> Div {
-        let head = top()
-            .px(px(16.))
-            .child(ui::label(faces, &crate::tr("About")));
-        let Some(e) = self.entry(id) else {
-            return frame(head);
-        };
-        let name = self.name_of(id);
-        let (distribution, command) = match e.way() {
-            Way::Archive => {
-                let b = &e.distribution.binary[&registry::platform()];
-                (
-                    crate::tr_with(
-                        "binary \u{00b7} %{platform}",
-                        &[("platform", &registry::platform())],
-                    )
-                    .to_string(),
-                    std::iter::once(b.cmd.trim_start_matches("./").to_owned())
-                        .chain(b.args.iter().cloned())
-                        .collect::<Vec<_>>()
-                        .join(" "),
-                )
-            }
-            Way::Runner { runner, package } => (runner.to_owned(), format!("{runner} {package}")),
-            Way::None => (
-                crate::tr("none for this machine").to_string(),
-                String::new(),
-            ),
-        };
-        let link = e.website.clone().or_else(|| e.repository.clone());
-        let host = link.as_deref().map(|l| {
-            l.trim_start_matches("https://")
-                .trim_start_matches("http://")
-                .split('/')
-                .next()
-                .unwrap_or(l)
-                .to_owned()
-        });
-        let mut about_rows = section(faces, crate::tr("Agent"), None)
-            .child(key_value(
-                faces,
-                &crate::tr("Source"),
-                fine(faces, crate::tr("ACP registry")),
-            ))
-            .child(key_value(
-                faces,
-                &crate::tr("Version"),
-                fine_mono(faces, e.version.clone()),
-            ))
-            .child(key_value(
-                faces,
-                &crate::tr("Distribution"),
-                fine_mono(faces, distribution),
-            ))
-            .child(key_value(
-                faces,
-                &crate::tr("Command"),
-                ui::one_line(ui::fine_mono(faces, command)).max_w(px(220.)),
-            ))
-            .child(key_value(
-                faces,
-                &crate::tr("Sign-in"),
-                fine(faces, crate::tr_with("%{name}'s own", &[("name", &name)])),
-            ));
-        if let (Some(link), Some(host)) = (link, host) {
-            about_rows = about_rows.child(key_value(
-                faces,
-                &crate::tr("Homepage"),
-                fine(faces, host)
-                    .text_color(theme::role(ColorRole::LinkPrimary))
-                    .id("homepage")
-                    .cursor_pointer()
-                    .on_click(cx.listener(move |this, _, _, cx| this.browse(&link, cx))),
-            ));
-        }
-        let what = section(faces, crate::tr("What u0 does with it"), None)
-            .border_b_0()
-            .child(
-                ui::text(
-                    faces,
-                    crate::tr_with(
-                        "Starts %{name} in the thread's folder, sends what you say, and draws what it reports. Edits, commands and permissions are %{name}'s own; u0 only asks you when it asks.",
-                        &[("name", &name)],
-                    ),
-                )
-                .text_size(px(crate::style::LABEL))
-                .line_height(px(20.))
-                .text_color(theme::role(ColorRole::TextSecondary)),
-            );
-        frame(head).child(about_rows).child(what)
     }
 }
 
