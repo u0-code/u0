@@ -26,10 +26,10 @@ use u0ui::{
     },
     icons::{CarbonIcon, Icon as CarbonGlyph},
     t3::composer::{
-        AttachmentImage, AttachmentImageState, BannerKind, CommandMenuItem, CommandMenuSection,
-        ComposerAttachmentStrip, ComposerBanner, ComposerBannerStack, ComposerCommandMenu,
-        ComposerPrimaryActions, ComposerState, ContextChip, ContextChipKind, PrimaryActionTexts,
-        ReadOnlyComposerBar,
+        AttachmentImage, AttachmentImageState, AttachmentTexts, BannerKind, CommandMenuItem,
+        CommandMenuSection, ComposerAttachmentStrip, ComposerBanner, ComposerBannerStack,
+        ComposerCommandMenu, ComposerPrimaryActions, ComposerState, ContextChip, ContextChipKind,
+        PrimaryActionTexts, ReadOnlyComposerBar,
     },
     tokens::ColorRole,
     u0::composer::{ChipKind, ComposerChip},
@@ -246,7 +246,6 @@ impl Desk {
             .child(
                 div()
                     .relative()
-                    .min_h(px(64.))
                     .pt(px(pad_top - 2.))
                     .pb(px(6.))
                     .px(px(12.))
@@ -1703,7 +1702,9 @@ impl Desk {
 
         let image_indices: Vec<(SharedString, usize)> =
             images.into_iter().map(|(ix, img)| (img.name, ix)).collect();
+        let opened = image_indices.clone();
         let desk_img = cx.entity();
+        let desk_open = cx.entity();
 
         Some(
             div()
@@ -1717,6 +1718,21 @@ impl Desk {
                     row.child(
                         ComposerAttachmentStrip::new("composer-images", strip_images, Vec::new())
                             .in_composer(true)
+                            .texts(AttachmentTexts {
+                                remove: std::rc::Rc::new(|name| {
+                                    crate::tr_with("Remove %{name}", &[("name", &name)])
+                                }),
+                                open: std::rc::Rc::new(|name| {
+                                    crate::tr_with("Open %{name}", &[("name", &name)])
+                                }),
+                                ..AttachmentTexts::default()
+                            })
+                            .on_open(move |name, window, cx| {
+                                if let Some(&(_, ix)) = opened.iter().find(|(n, _)| *n == name) {
+                                    desk_open
+                                        .update(cx, |this, cx| this.view_image(ix, window, cx));
+                                }
+                            })
                             .on_remove(move |name, _, cx| {
                                 if let Some((_, ix)) =
                                     image_indices.iter().find(|(n, _)| *n == name)
@@ -1729,6 +1745,42 @@ impl Desk {
                 })
                 .children(chips),
         )
+    }
+
+    /// The attached image `n` at full size, in a dialog that fits the
+    /// window; a click outside it or Escape closes it.
+    fn view_image(&self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
+        use gpui::component::WindowExt as _;
+        use gpui::{ObjectFit, StyledImage as _};
+        let Some(mention::Attached::Image { mime, bytes }) = self.composer.draft.attached.get(n)
+        else {
+            return;
+        };
+        let picture = std::sync::Arc::new(gpui::Image::from_bytes(
+            gpui::ImageFormat::from_mime_type(mime.as_str()).unwrap_or(gpui::ImageFormat::Png),
+            bytes.clone(),
+        ));
+        let name = crate::tr_with("Image %{n}", &[("n", &(n + 1))]);
+        window.open_dialog(cx, move |dialog, window, _| {
+            let room = window.viewport_size();
+            let (w, h) = (room.width * 0.8, room.height * 0.8);
+            dialog
+                .w(w)
+                .p_0()
+                .rounded_none()
+                .border_0()
+                .bg(theme::role(ColorRole::Layer01))
+                .overlay_closable(true)
+                .title(name.clone())
+                .child(
+                    div().flex().justify_center().p(px(16.)).child(
+                        gpui::img(gpui::ImageSource::Image(picture.clone()))
+                            .max_w(w - px(32.))
+                            .max_h(h - px(96.))
+                            .object_fit(ObjectFit::Contain),
+                    ),
+                )
+        });
     }
 
     /// Expanded excerpt preview (`ComposerChip`) and note field when a text

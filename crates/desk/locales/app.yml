@@ -8892,6 +8892,16 @@ _version: 2
   pt-BR: "Abrir"
   ru: "Открыть"
   sv: "Öppna"
+"Open %{name}":
+  zh-CN: "打开 %{name}"
+  de: "%{name} öffnen"
+  es: "Abrir %{name}"
+  fr: "Ouvrir %{name}"
+  ja: "%{name} を開く"
+  ko: "%{name} 열기"
+  pt-BR: "Abrir %{name}"
+  ru: "Открыть %{name}"
+  sv: "Öppna %{name}"
 "Open a surface":
   zh-CN: "打开面板"
   de: "Oberfläche öffnen"

@@ -95,7 +95,8 @@ how much of the agent's context is used.
 
 Paste, drop or choose files and pictures (**+ › Add files or photos**),
 or **Add a window** to attach a capture of an open window (or choose one
-on screen). HEIC and very large pictures are turned into JPEG. A paste of
+on screen). Click a picture's thumbnail to see it at full size; Escape or
+a click outside closes it. HEIC and very large pictures are turned into JPEG. A paste of
 32 KiB or more becomes an attachment (⇧⌘V pastes it as text instead), and
 a message over the length limit offers **Attach as file**. A dropped
 folder is @-mentioned. **+ › Add folder** gives a new thread another
