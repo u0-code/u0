@@ -112,11 +112,20 @@ pub struct Asked {
     pub kind: Option<ToolKind>,
     /// Who asks: the agent, or one of u0's tools, as the server said.
     pub asker: Asker,
-    /// Structured input fields of the call, in key order, when given.
-    pub facts: Vec<(String, String)>,
+    /// The tool call it asks about.
+    pub call: ToolCallId,
+    /// What the call is given, as the agent or u0's tool sent it: the
+    /// window says it in words of its own.
+    pub input: Option<Value>,
+    /// When it was asked.
+    pub asked_at: SystemTime,
     /// The option chosen, by its name and kind, or `None` while it waits.
     /// A turn stopped first answers it as rejected, named "Cancelled".
     pub chosen: Option<(String, PermissionOptionKind)>,
+    /// When it was answered, and whether with a note ("No, and tell it…",
+    /// "Revise…") said next.
+    pub answered_at: Option<SystemTime>,
+    pub noted: bool,
 }
 
 impl Asked {
@@ -230,7 +239,7 @@ impl Tool {
         self.call
             .raw_output
             .as_ref()
-            .map(|v| facts_of(v, false))
+            .map(facts_of)
             .unwrap_or_default()
             .into_iter()
             .filter(|(_, val)| url.as_deref() != Some(val.as_str()))
@@ -240,7 +249,7 @@ impl Tool {
 
 /// Scalar or short fields of a JSON object `value`, in key order, for
 /// showing what a tool call was given or returned.
-fn facts_of(value: &Value, skip_command: bool) -> Vec<(String, String)> {
+fn facts_of(value: &Value) -> Vec<(String, String)> {
     let Some(map) = value.as_object() else {
         return Vec::new();
     };
@@ -248,9 +257,6 @@ fn facts_of(value: &Value, skip_command: bool) -> Vec<(String, String)> {
     keys.sort();
     let mut out = Vec::new();
     for key in keys {
-        if skip_command && key == "command" {
-            continue;
-        }
         let shown = match &map[key] {
             Value::Null => continue,
             Value::String(s) if s.trim().is_empty() => continue,
@@ -1522,10 +1528,6 @@ impl Session {
                 .last()
                 .and_then(|t| t.call.raw_input.clone())
         });
-        let facts = raw_input
-            .as_ref()
-            .map(|v| facts_of(v, kind == Some(ToolKind::Execute)))
-            .unwrap_or_default();
         self.update_tool(request.tool_call, None);
         self.items.push(Item::Asked(Asked {
             id,
@@ -1533,8 +1535,12 @@ impl Session {
             options: request.options,
             kind,
             asker,
-            facts,
+            call,
+            input: raw_input,
+            asked_at: SystemTime::now(),
             chosen: None,
+            answered_at: None,
+            noted: false,
         }));
     }
 
@@ -1605,6 +1611,18 @@ impl Session {
                 && a.id == id
             {
                 a.chosen = Some((option.name.clone(), option.kind));
+                a.answered_at = Some(SystemTime::now());
+            }
+        }
+    }
+
+    /// Note that the question asked under `id` was answered with a note.
+    pub fn noted(&mut self, id: u64) {
+        for item in &mut self.items {
+            if let Item::Asked(a) = item
+                && a.id == id
+            {
+                a.noted = true;
             }
         }
     }
@@ -1842,7 +1860,7 @@ mod tests {
     }
 
     #[test]
-    fn a_permission_question_takes_its_asker_from_the_server_and_its_facts_from_input() {
+    fn a_permission_question_takes_its_asker_from_the_server_and_keeps_its_input() {
         let mut s = Session::new(1, "claude-acp", PathBuf::from("/tmp"));
         let request: RequestPermissionRequest = serde_json::from_str(
             r#"{"sessionId":"s","toolCall":{"toolCallId":"u0-open_pr-42","title":"Open a pull request","rawInput":{"base":"main","draft":true,"title":"Fix auth"}},"options":[{"optionId":"once","name":"Allow","kind":"allow_once"}]}"#,
@@ -1852,12 +1870,8 @@ mod tests {
         let asked = s.waiting().unwrap();
         assert_eq!(asked.asker, Asker::Tool("open_pr".into()));
         assert_eq!(
-            asked.facts,
-            vec![
-                ("base".into(), "main".into()),
-                ("draft".into(), "true".into()),
-                ("title".into(), "Fix auth".into()),
-            ]
+            asked.input,
+            Some(serde_json::json!({"base": "main", "draft": true, "title": "Fix auth"}))
         );
     }
 

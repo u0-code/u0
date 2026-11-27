@@ -294,6 +294,9 @@ impl Desk {
         cx: &mut Context<Self>,
     ) {
         self.choose(key, request, no, cx);
+        if let Some(s) = self.sessions.at_mut(key) {
+            s.noted(request);
+        }
         self.queue(key, text, 0);
         cx.notify();
     }

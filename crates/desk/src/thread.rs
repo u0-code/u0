@@ -18,6 +18,7 @@ pub mod kinds;
 mod later;
 mod lines;
 mod modes;
+mod permission;
 mod picker;
 mod split;
 mod start;

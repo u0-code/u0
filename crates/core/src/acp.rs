@@ -110,6 +110,20 @@ pub enum Asker {
     Device(String),
 }
 
+/// u0's tools asked of you each time, never allowed always: what they do
+/// cannot be undone, and what they are given can be steered by text an
+/// agent reads but nobody vetted (a pull request's body, a CI log, code,
+/// a webhook), so a yes once must not become a yes to that text. The
+/// server offers no Always for them; a card says why.
+pub const EACH_TIME: [&str; 6] = [
+    "merge_pr",
+    "start_workflow",
+    "change_task",
+    "remove_worktree",
+    "answer_request",
+    "resolve_thread",
+];
+
 /// What the `JetBrains` extension of ACP (`air`, `asyncTasks`) says of a
 /// task going on in the background: begun, under way, or over.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

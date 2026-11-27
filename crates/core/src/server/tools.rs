@@ -95,19 +95,6 @@ pub(super) struct Tools {
 const OUTSIDE: &str =
     "Only an agent in a thread of u0's can do this: u0 asks you first there. Start one in u0.";
 
-/// The tools asked of you each time, never allowed always: what they do
-/// cannot be undone, and what they are given can be steered by text an
-/// agent reads but nobody vetted (a pull request's body, a CI log, code,
-/// a webhook), so a yes once must not become a yes to that text.
-const EACH_TIME: [&str; 6] = [
-    "merge_pr",
-    "start_workflow",
-    "change_task",
-    "remove_worktree",
-    "answer_request",
-    "resolve_thread",
-];
-
 /// What u0's MCP server says it is, to an agent that connects.
 const INSTRUCTIONS: &str = "u0, the app this agent may be running in: the threads it keeps of your agents, your projects and what is found in them, their diffs, worktrees, pull requests, checks and issues, its workflows and scheduled tasks, the simulators and emulators where it runs; and the user, asked in this thread. Subscribe to u0://events to be told when something happens in the threads, then call events.";
 
@@ -225,14 +212,10 @@ impl Tools {
                 );
                 (Some((from, own)), title(&named))
             }
-            Some(Caller::Outside) if Settings::load(&self.shared.home).0.outside_acts => (
-                None,
-                format!("An agent outside u0: {}", title("this thread")),
-            ),
-            Some(Caller::Device(Scope::Full)) => (
-                None,
-                format!("An agent on another device: {}", title("this thread")),
-            ),
+            Some(Caller::Outside) if Settings::load(&self.shared.home).0.outside_acts => {
+                (None, title("this thread"))
+            }
+            Some(Caller::Device(Scope::Full)) => (None, title("this thread")),
             Some(Caller::Session(_, None)) => return Err(OUTSIDE.into()),
             _ => return Err(READS.into()),
         };
@@ -261,9 +244,9 @@ impl Tools {
         }
         // Every agent outside u0 comes in by the one key `mcp.json`
         // holds: a yes for always would be a yes to each of them; and
-        // some tools are asked each time whoever calls (`EACH_TIME`).
+        // some tools are asked each time whoever calls (`acp::EACH_TIME`).
         let caller = self.caller();
-        let each_time = once || caller == Some(Caller::Outside) || EACH_TIME.contains(&tool);
+        let each_time = once || caller == Some(Caller::Outside) || acp::EACH_TIME.contains(&tool);
         // Who asks is said by the server, from the key it came in with:
         // the card never reads it from the request an agent could forge.
         let asker = match caller {
@@ -568,12 +551,12 @@ impl Tools {
             )
         } else {
             let settings = Settings::load(&self.shared.home).0;
-            let who = match self.caller() {
-                Some(Caller::Outside) if settings.outside_acts => "An agent outside u0",
-                Some(Caller::Device(Scope::Full)) => "An agent on another device",
+            match self.caller() {
+                Some(Caller::Outside) if settings.outside_acts => {}
+                Some(Caller::Device(Scope::Full)) => {}
                 Some(Caller::Session(_, None)) => return Err(OUTSIDE.into()),
                 _ => return Err(READS.into()),
-            };
+            }
             let project = ask
                 .project
                 .clone()
@@ -593,7 +576,7 @@ impl Tools {
             let allowed = self
                 .ask(
                     "delegate_task",
-                    format!("{who}: Start “{}”", ask.title),
+                    format!("Start “{}”", ask.title),
                     &ask,
                     &agent,
                     id.clone(),
@@ -1659,10 +1642,8 @@ esac; done"#;
         let (request, asked) = card(&next);
         assert_eq!(asked.session_id, SessionId::new("s1"));
         let title = asked.tool_call.fields.title.unwrap_or_default();
-        assert!(
-            title.starts_with("An agent outside u0: Say “Go on”"),
-            "{title}"
-        );
+        // Who asks is not written into the title: the card says it.
+        assert!(title.starts_with("Say “Go on”"), "{title}");
         // Each agent outside u0 has the one key: none is let always.
         let offered: Vec<&str> = (asked.options.iter()).map(|o| &*o.option_id.0).collect();
         assert_eq!(offered, ["once", "no"]);
