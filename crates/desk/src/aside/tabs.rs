@@ -46,6 +46,8 @@ pub enum Surface {
     Devices,
     /// Dev servers printed by its terminals, opened in your browser.
     Preview,
+    /// Full output of a tool call, by its ACP id.
+    Output(agent_client_protocol::v1::schema::ToolCallId),
 }
 
 /// A session's tabs in order, the one shown, and those closed, the last
@@ -365,6 +367,7 @@ impl Desk {
                 SurfaceKind::Chat,
                 true,
             ),
+            Surface::Output(id) => (Self::output_tab_name(s, id), SurfaceKind::Terminal, true),
         }
     }
 

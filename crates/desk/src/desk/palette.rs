@@ -114,6 +114,8 @@ pub struct Palette {
     pub pages: Vec<(Sub, String)>,
     /// The folders in each folder a path typed to add a project is in.
     pub folders: HashMap<super::Place, Vec<String>>,
+    /// The repositories `gh` listed on each server, for `Clone a repository`.
+    pub repos: HashMap<crate::hub::Host, Vec<crate::github::Repo>>,
     /// The server a project is added on, cloned on or made on.
     pub on: crate::hub::Host,
     /// How words are looked for (⇧⌘F): case, whole words, a pattern.
@@ -136,6 +138,7 @@ impl Palette {
             grep: Vec::new(),
             pages: Vec::new(),
             folders: HashMap::new(),
+            repos: HashMap::new(),
             on: crate::hub::Host::HERE,
             how: crate::git::Match::default(),
             snoozing: Vec::new(),
@@ -1036,6 +1039,9 @@ impl Desk {
             Act::Sub(sub) => return self.palette_page(*sub, window, cx),
             Act::On(host) => {
                 self.palette.on = *host;
+                if self.palette.pages.last().is_some_and(|p| p.0 == Sub::Clone) {
+                    self.ask_repos(*host);
+                }
                 return cx.notify();
             }
 

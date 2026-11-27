@@ -381,6 +381,10 @@ impl Desk {
             Event::Folders { dir, names } => {
                 self.palette.folders.insert(at(dir), names);
             }
+            Event::Repos(Ok(repos)) => {
+                self.palette.repos.insert(host, repos);
+            }
+            Event::Repos(Err(_)) => {}
             Event::Diffed { key, scope, result } => {
                 if let Some(s) = self.sessions.at_mut(key) {
                     match result {

@@ -1905,10 +1905,28 @@ impl Desk {
                     }
                     let text = text_of(&x.content);
                     if !text.trim().is_empty() {
-                        body = body.child(well(faces).child(output::printed(
+                        let call_id = call.tool_call_id.clone();
+                        let show_all = Some(
+                            u0ui::components::Button::new(
+                                SharedString::from(format!("{key}-{j}-show-all")),
+                                crate::tr("Show all"),
+                            )
+                            .variant(u0ui::components::ButtonVariant::Ghost)
+                            .size(u0ui::components::ButtonSize::Sm)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.open_surface(
+                                    crate::aside::Surface::Output(call_id.clone()),
+                                    cx,
+                                );
+                            }))
+                            .into_any_element(),
+                        );
+                        body = body.child(well(faces).child(output::printed_with(
                             faces,
                             &text,
                             self.expanded.contains(&format!("{key}-all")),
+                            show_all,
                         )));
                     }
                 }

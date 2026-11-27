@@ -649,10 +649,10 @@ impl Desk {
             .map_or(0, |k| k.port);
         let mut rows: Vec<gpui::component::setting::SettingItem> = Vec::new();
         if let Some(why) = self.pages.servers_refused.clone() {
-            rows.push(whole(w, &[], move |_, faces, _| {
+            rows.push(whole(w, &[], move |_, _, _| {
                 crate::desk::banners::banner(
-                    faces,
-                    crate::desk::banners::Kind::Error,
+                    "servers-bad",
+                    u0ui::components::alert::AlertVariant::Error,
                     crate::tr("Couldn't read your machines"),
                     why.clone(),
                     None,

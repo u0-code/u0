@@ -1,91 +1,61 @@
 //! Cross-screen banners for unreadable files, organisation policy, and
-//! servers out of reach (`Banners`).
+//! servers out of reach (`Banners`), built on `u0ui`'s Carbon `Alert`.
 
 use std::time::SystemTime;
 
 use gpui::component::setting::{SettingGroup, SettingItem};
 use gpui::{AnyElement, Context, Div, SharedString, WeakEntity, div, prelude::*, px};
+use u0ui::components::alert::{Alert, AlertAction, AlertVariant};
+use u0ui::prelude::*;
 
 use super::Desk;
-use crate::fonts::Weighted as _;
 use crate::{
     fonts::Faces,
     hub::{Host, Machine, Up},
     pages::Tab,
-    theme,
-    ui::{self, Weight},
-    when,
+    theme, when,
 };
 
-/// A banner's severity, setting its border and icon colour.
-#[derive(Clone, Copy)]
-pub(crate) enum Kind {
-    Info,
-    Warning,
-    Error,
-}
-
-/// A structured banner card: a left accent bar, icon, bold title, body,
-/// optional link, and optional action button.
+/// Build a Carbon low-contrast `Alert` (`InlineNotification` /
+/// `ActionableNotification`), with an optional external support link under
+/// its subtitle and an optional ghost action button.
 pub(crate) fn banner(
-    faces: &Faces,
-    kind: Kind,
+    id: impl Into<gpui::ElementId>,
+    variant: AlertVariant,
     title: impl Into<SharedString>,
     body: impl Into<SharedString>,
     link: Option<(&str, SharedString)>,
-    action: Option<AnyElement>,
-) -> Div {
-    let (accent, icon) = match kind {
-        Kind::Info => (theme::link(), "bulb"),
-        Kind::Warning => (theme::accent(), "alert"),
-        Kind::Error => (theme::coral(), "alert"),
-    };
-    let link_el = link.map(|(url, label)| {
-        let url = url.to_owned();
-        div()
-            .id(SharedString::from(format!("banner-link-{url}")))
-            .cursor_pointer()
-            .child(
-                ui::text(faces, label)
-                    .text_size(px(crate::style::CAPTION))
-                    .text_color(theme::link()),
-            )
-            .on_click(move |_, _, cx| cx.open_url(&url))
-    });
-    div()
-        .flex()
-        .items_start()
-        .gap(px(10.))
-        .w_full()
-        .px(px(12.))
-        .py(px(10.))
-        .bg(theme::panel())
-        .border_1()
-        .border_l(px(3.))
-        .border_color(accent)
-        .child(ui::icon(icon, 16.).mt(px(2.)).text_color(accent))
-        .child(
+    action: Option<AlertAction>,
+) -> Alert {
+    let id = id.into();
+    let body = body.into();
+    let desc: AnyElement = match link {
+        None => div().child(body).into_any_element(),
+        Some((url, label)) => {
+            let url = url.to_owned();
             div()
                 .flex()
                 .flex_col()
-                .flex_1()
-                .min_w(px(0.))
-                .gap(px(2.))
+                .gap(px(4.))
+                .child(body)
                 .child(
-                    ui::text(faces, title)
-                        .text_size(px(crate::style::LABEL))
-                        .weight(gpui::FontWeight::SEMIBOLD)
-                        .text_color(theme::text()),
+                    div()
+                        .id((id.clone(), "support-link"))
+                        .cursor_pointer()
+                        .type_style(TypeStyle::BodyCompact01)
+                        .text_color(color(ColorRole::LinkPrimary))
+                        .hover(|s| s.text_color(color(ColorRole::LinkPrimaryHover)))
+                        .child(format!("{label} ↗"))
+                        .on_click(move |_, _, cx| cx.open_url(&url)),
                 )
-                .child(
-                    ui::text(faces, body)
-                        .text_size(px(crate::style::CAPTION))
-                        .line_height(px(18.))
-                        .text_color(theme::text2()),
-                )
-                .children(link_el),
-        )
-        .children(action)
+                .into_any_element()
+        }
+    };
+    Alert::new(id)
+        .variant(variant)
+        .title(title)
+        .description(desc)
+        .when_some(action, Alert::action)
 }
 
 /// Short display host/path of a support URL (`https://it.example.com/u0` →
@@ -116,24 +86,21 @@ impl Desk {
                 div()
                     .px(px(16.))
                     .pt(px(8.))
-                    .child(Self::bad_policy_banner(faces, bad))
+                    .child(Self::bad_policy_banner("thread-bad-policy", bad))
                     .into_any_element(),
             );
         } else if let Some(why) = &self.settings_refused {
-            let again = ui::button(
-                "thread-read-settings",
-                crate::tr("Read them again"),
-                Weight::Secondary,
-            )
-            .on_click(cx.listener(|this, _, _, cx| this.read_settings_again(cx)))
-            .into_any_element();
+            let desk = cx.entity();
+            let again = AlertAction::new(crate::tr("Read them again")).on_click(move |_, cx| {
+                desk.update(cx, Self::read_settings_again);
+            });
             out.push(
                 div()
                     .px(px(16.))
                     .pt(px(8.))
                     .child(banner(
-                        faces,
-                        Kind::Error,
+                        "thread-bad-settings",
+                        AlertVariant::Error,
                         crate::tr("Your settings did not read"),
                         crate::tr_with(
                             "%{why} u0 runs on its defaults and saves nothing until it reads.",
@@ -153,8 +120,9 @@ impl Desk {
         out
     }
 
-    /// Compact band over a thread whose server `m` is offline or refused.
-    fn offline_band(&self, faces: &Faces, m: &Machine, cx: &mut Context<Self>) -> Div {
+    /// Compact band over a thread whose server `m` is offline or refused
+    /// (`Banners.dc.html` `.bnb-band`).
+    fn offline_band(&self, _faces: &Faces, m: &Machine, cx: &mut Context<Self>) -> Div {
         let host = m.host;
         let now = SystemTime::now();
         let (lead, detail) = match &m.up {
@@ -198,7 +166,7 @@ impl Desk {
             .min_h(px(36.))
             .px(px(16.))
             .py(px(6.))
-            .bg(theme::panel())
+            .bg(color(ColorRole::Layer01))
             .border_b_1()
             .border_color(theme::border())
             .child(
@@ -206,7 +174,7 @@ impl Desk {
                     .size(px(8.))
                     .rounded_full()
                     .border_1()
-                    .border_color(theme::muted()),
+                    .border_color(color(ColorRole::IconSecondary)),
             )
             .child(
                 div()
@@ -217,36 +185,36 @@ impl Desk {
                     .min_w(px(0.))
                     .gap(px(6.))
                     .child(
-                        ui::text(faces, lead)
-                            .text_size(px(crate::style::CAPTION))
-                            .weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(theme::text()),
+                        div()
+                            .type_style(TypeStyle::HeadingCompact01)
+                            .text_color(color(ColorRole::TextPrimary))
+                            .child(lead),
                     )
                     .child(
-                        ui::text(faces, format!("· {detail}"))
-                            .text_size(px(crate::style::CAPTION))
-                            .text_color(theme::muted()),
+                        div()
+                            .type_style(TypeStyle::Label01)
+                            .text_color(color(ColorRole::TextSecondary))
+                            .child(format!("· {detail}")),
                     ),
             )
             .child(
-                ui::button(
-                    "thread-reach-again",
-                    crate::tr("Reach again"),
-                    Weight::Quiet,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| this.reach_again(host, cx))),
+                Button::new("thread-reach-again", crate::tr("Reach again"))
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Sm)
+                    .icon(CarbonIcon::Renew)
+                    .on_click(cx.listener(move |this, _, _, cx| this.reach_again(host, cx))),
             )
     }
 
     /// Warning banner in the sidebar when `sessions.json` did not read.
-    pub(crate) fn sidebar_banner(&self, faces: &Faces) -> Option<Div> {
+    pub(crate) fn sidebar_banner(&self, _faces: &Faces) -> Option<Div> {
         let why = self
             .machines
             .iter()
             .find_map(|m| m.store_refused.as_deref())?;
         Some(div().px(px(8.)).pb(px(8.)).child(banner(
-            faces,
-            Kind::Warning,
+            "sidebar-bad-sessions",
+            AlertVariant::Warning,
             crate::tr("sessions.json does not read"),
             why.to_owned(),
             None,
@@ -267,22 +235,19 @@ impl Desk {
         if on == Host::HERE
             && let Err(bad) = crate::policy::current()
         {
-            items.push(crate::pages::whole(w, &[], move |_, faces, _| {
-                Self::bad_policy_banner(faces, bad).into_any_element()
+            items.push(crate::pages::whole(w, &[], move |_, _, _| {
+                Self::bad_policy_banner("settings-bad-policy", bad).into_any_element()
             }));
         } else if let Some(why) = match on {
             Host::HERE => self.settings_refused.clone(),
             _ => self.machine(on).and_then(|m| m.refused.clone()),
         } {
-            items.push(crate::pages::whole(w, &[], move |_, faces, cx| {
+            items.push(crate::pages::whole(w, &[], move |_, _, cx| {
+                let desk = cx.entity();
                 let again = (on == Host::HERE).then(|| {
-                    ui::button(
-                        "settings-read-again",
-                        crate::tr("Read them again"),
-                        Weight::Secondary,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| this.read_settings_again(cx)))
-                    .into_any_element()
+                    AlertAction::new(crate::tr("Read them again")).on_click(move |_, cx| {
+                        desk.update(cx, Self::read_settings_again);
+                    })
                 });
                 let body = if on == Host::HERE {
                     crate::tr("settings.json did not read, so these are the defaults, and a change would not be kept. Each control is off until the file reads.")
@@ -290,8 +255,8 @@ impl Desk {
                     SharedString::from(why.clone())
                 };
                 banner(
-                    faces,
-                    Kind::Error,
+                    "settings-bad-settings",
+                    AlertVariant::Error,
                     crate::tr("Nothing here is saved"),
                     body,
                     None,
@@ -303,17 +268,14 @@ impl Desk {
             && let Some(m) = self.machine(on).filter(|m| m.up != Up::On)
         {
             let name = m.name.clone();
-            items.push(crate::pages::whole(w, &[], move |_, faces, cx| {
-                let again = ui::button(
-                    "settings-reach-again",
-                    crate::tr("Reach again"),
-                    Weight::Secondary,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| this.reach_again(on, cx)))
-                .into_any_element();
+            items.push(crate::pages::whole(w, &[], move |_, _, cx| {
+                let desk = cx.entity();
+                let again = AlertAction::new(crate::tr("Reach again")).on_click(move |_, cx| {
+                    desk.update(cx, |this, cx| this.reach_again(on, cx));
+                });
                 banner(
-                    faces,
-                    Kind::Warning,
+                    "settings-offline-server",
+                    AlertVariant::Warning,
                     crate::tr_with("%{name} is offline: read only", &[("name", &name)]),
                     crate::tr("Its settings are shown as it last sent them, and can be changed again once it is back. u0 tries it on its own, waiting longer each time, up to 30 seconds."),
                     None,
@@ -325,7 +287,7 @@ impl Desk {
             && let Some(org) = crate::policy::organization()
         {
             let url = crate::policy::support_url();
-            items.push(crate::pages::whole(w, &[], move |_, faces, _| {
+            items.push(crate::pages::whole(w, &[], move |_, _, _| {
                 let link = url.map(|u| {
                     (
                         u,
@@ -333,8 +295,8 @@ impl Desk {
                     )
                 });
                 banner(
-                    faces,
-                    Kind::Info,
+                    "settings-managed-policy",
+                    AlertVariant::Info,
                     crate::tr_with("Managed by %{by}", &[("by", &org)]),
                     crate::tr_with(
                         "Some settings here are set by %{org}’s policy: each shows a lock, its value and who set it.",
@@ -350,20 +312,18 @@ impl Desk {
         if tab == Tab::Keybindings
             && let Some(why) = self.keys_refused.clone()
         {
-            items.push(crate::pages::whole(w, &[], move |d, faces, cx| {
+            items.push(crate::pages::whole(w, &[], move |d, _, cx| {
                 let path = d.home.join("keybindings.json");
-                let open = ui::button(
-                    "banner-open-keys",
-                    crate::tr("Open keybindings.json"),
-                    Weight::Secondary,
-                )
-                .on_click(cx.listener(move |this, _, _, _| {
-                    this.edit(path.clone(), None);
-                }))
-                .into_any_element();
+                let desk = cx.entity();
+                let open = AlertAction::new(crate::tr("Open keybindings.json")).on_click(
+                    move |_, cx| {
+                        let path = path.clone();
+                        desk.update(cx, |this, _| this.edit(path, None));
+                    },
+                );
                 banner(
-                    faces,
-                    Kind::Warning,
+                    "settings-bad-keys",
+                    AlertVariant::Warning,
                     crate::tr("keybindings.json did not read, so it is ignored"),
                     crate::tr_with(
                         "%{why} u0 uses its own keys meanwhile and logs why; this page leaves the file untouched rather than writing over it.",
@@ -379,7 +339,7 @@ impl Desk {
         (!items.is_empty()).then(|| SettingGroup::new().items(items))
     }
 
-    fn bad_policy_banner(faces: &Faces, bad: &crate::policy::BadPolicy) -> Div {
+    fn bad_policy_banner(id: &'static str, bad: &crate::policy::BadPolicy) -> Alert {
         let title = match &bad.organization {
             Some(org) => crate::tr_with("%{org}’s policy does not read", &[("org", org)]),
             None => crate::tr("The policy does not read"),
@@ -391,8 +351,8 @@ impl Desk {
             )
         });
         banner(
-            faces,
-            Kind::Error,
+            id,
+            AlertVariant::Error,
             title,
             crate::tr_with(
                 "%{why}. u0 starts on its defaults and saves nothing until the policy is fixed: nothing runs half governed. Ask whoever manages this Mac.",

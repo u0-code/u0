@@ -5,6 +5,7 @@
 
 mod diff;
 mod files;
+mod output;
 mod repo;
 mod review;
 mod side;
@@ -251,6 +252,7 @@ impl Desk {
             Some(Surface::Side(key)) => self.side_chat(faces, key, cx).into_any_element(),
             Some(Surface::Devices) => scrolled(self.sims_tab(faces, cx)).into_any_element(),
             Some(Surface::Preview) => scrolled(self.preview_tab(faces, cx)).into_any_element(),
+            Some(Surface::Output(id)) => self.output_tab(faces, s, &id, cx).into_any_element(),
         };
         frame(head).child(body).child(
             resize_handle::<RightEdge, RightEdge>("right-edge", gpui::Axis::Horizontal)
@@ -828,18 +830,23 @@ impl Desk {
         branch: &str,
         cx: &mut Context<Self>,
     ) -> Popover {
+        use u0ui::u0::foundations::truncate::{Truncate, TruncateMode};
         let link = theme::role(ColorRole::LinkPrimary);
         let chip = ui::opener("branch-chip")
             .h(px(28.))
             .px(px(8.))
             .gap(px(6.))
             .child(
-                ui::one_line(
-                    ui::mono(faces, branch.to_owned())
-                        .type_style(TypeStyle::Code01)
-                        .text_color(link),
-                )
-                .max_w(px(140.)),
+                div()
+                    .max_w(px(140.))
+                    .min_w(px(0.))
+                    .font_family(faces.mono.clone())
+                    .type_style(TypeStyle::Code01)
+                    .text_color(link)
+                    .child(
+                        Truncate::new("branch-chip-name", branch.to_owned())
+                            .mode(TruncateMode::Middle),
+                    ),
             )
             .child(
                 Icon::carbon(CarbonIcon::ChevronDown)

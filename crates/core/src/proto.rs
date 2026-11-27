@@ -451,6 +451,8 @@ pub enum Call {
     },
     /// Remove a named secret reference and any Keychain item for it.
     DropSecretRef(String),
+    /// The repositories `gh` can clone (`github::repos`).
+    Repos,
     /// Open the terminal `id` in `dir`, running
     /// `shell` (your login shell when none), `size` rows by columns, `first`
     /// typed into it; one open already is said again.
@@ -622,6 +624,7 @@ impl Call {
             | Self::ExtractArchive { .. }
             | Self::CopyFile { .. }
             | Self::Forge { .. }
+            | Self::Repos
             | Self::Create { .. }
             | Self::Clone { .. }
             | Self::CancelClone
@@ -1007,6 +1010,8 @@ pub enum Event {
         providers: Vec<crate::secrets::SecretProvider>,
         refs: Result<Vec<crate::secrets::SecretRef>, String>,
     },
+    /// The repositories `gh` listed for cloning.
+    Repos(Result<Vec<crate::github::Repo>, String>),
     /// The terminal `id` opened, called what it is called in its tab, or
     /// why it did not.
     TermOpened {
@@ -1610,6 +1615,14 @@ mod tests {
                     projects: vec![dir.clone()],
                 }]),
             },
+            Event::Repos(Ok(vec![crate::github::Repo {
+                name: "acme/u0".into(),
+                description: "app".into(),
+                private: true,
+                updated: "2026-01-01T00:00:00Z".into(),
+                url: "https://github.com/acme/u0".into(),
+                ssh_url: "git@github.com:acme/u0.git".into(),
+            }])),
             Event::TermOpened {
                 id: 2,
                 result: Ok("zsh".into()),
@@ -1864,6 +1877,7 @@ mod tests {
             Call::Used {
                 records: vec![(1, "a".into(), session)],
             },
+            Call::Repos,
         ];
         let events = vec![
             Event::Registry(Ok(registry::Registry {

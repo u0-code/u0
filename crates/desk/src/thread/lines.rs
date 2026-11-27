@@ -506,8 +506,38 @@ impl Desk {
     }
 
     /// Go to the next (or, `back`, the one before) item that holds what is
-    /// looked for.
+    /// looked for — or, when `Surface::Output` is shown in the right column,
+    /// the next matching output line there.
     pub fn find_next(&mut self, back: bool, cx: &mut Context<Self>) {
+        if self.panes.right
+            && let Some(crate::aside::Surface::Output(id)) = self.surface()
+            && let Some(s) = self.session()
+        {
+            let query = self.find.input.read(cx).value().trim().to_lowercase();
+            if query.is_empty() {
+                return;
+            }
+            let full = Self::tool_output_text(s, &id);
+            let hits: Vec<usize> = crate::thread::output::lines(&full)
+                .into_iter()
+                .enumerate()
+                .filter(|(_, l)| l.text.to_lowercase().contains(&query))
+                .map(|(i, _)| i)
+                .collect();
+            if hits.is_empty() {
+                return;
+            }
+            self.find.at = match (self.find.at < hits.len(), back) {
+                (false, false) => 0,
+                (false, true) => hits.len() - 1,
+                (true, false) => (self.find.at + 1) % hits.len(),
+                (true, true) => (self.find.at + hits.len() - 1) % hits.len(),
+            };
+            self.output_scroll
+                .scroll_to_item(hits[self.find.at], gpui::ScrollStrategy::Center);
+            cx.notify();
+            return;
+        }
         let hits = self.find_hits(cx);
         if hits.is_empty() {
             return;

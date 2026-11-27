@@ -784,6 +784,10 @@ impl Server {
                     }
                 });
             }
+            Call::Repos => {
+                let home = self.shared.home.clone();
+                self.off(move || Event::Repos(crate::github::repos(&home)));
+            }
             Call::Devices => self.off(crate::devices::listed),
             Call::Device { device, act } => {
                 let send = self.shared.send.clone();

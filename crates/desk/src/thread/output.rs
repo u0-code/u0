@@ -240,6 +240,11 @@ fn styled(faces: &Faces, lines: &[Line]) -> StyledText {
     StyledText::new(SharedString::from(text)).with_runs(runs)
 }
 
+/// One line in mono, coloured as `styled` colours a list of lines.
+pub fn styled_one(faces: &Faces, line: &Line) -> StyledText {
+    styled(faces, std::slice::from_ref(line))
+}
+
 /// The lines drawn when all are asked for, and how many are left out.
 pub fn capped<T>(lines: &[T]) -> (&[T], usize) {
     let shown = lines.len().min(MOST);
@@ -247,20 +252,32 @@ pub fn capped<T>(lines: &[T]) -> (&[T], usize) {
 }
 
 /// The line under output cut at `MOST`, saying how much of it is not
-/// drawn. Nothing holds the rest for the desk to open: a call's log keeps
-/// only the head of what came back, and that much is here.
-fn left_out(faces: &Faces, n: usize) -> Div {
+/// drawn in the thread, with `Show all` to open the whole output in the
+/// right column (`LongAndMany`).
+fn left_out(faces: &Faces, n: usize, show_all: Option<gpui::AnyElement>) -> Div {
     let said = if n == 1 {
         crate::tr("… 1 more line not drawn")
     } else {
         crate::tr_with("… %{n} more lines not drawn", &[("n", &n)])
     };
-    meta(faces, said).px(px(10.))
+    div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .min_h(px(36.))
+        .px(px(12.))
+        .bg(u0ui::theme::color(u0ui::tokens::ColorRole::Layer02))
+        .border_t_1()
+        .border_b_1()
+        .border_dashed()
+        .border_color(u0ui::theme::color(u0ui::tokens::ColorRole::BorderStrong01))
+        .child(meta(faces, said).flex_1())
+        .children(show_all)
 }
 
 /// What a call printed, without the Markdown fence an agent may have
 /// put round it (Claude's adapter sends "```console" … "```"): its lines.
-fn unfenced(text: &str) -> &str {
+pub fn unfenced(text: &str) -> &str {
     let t = text.trim();
     let Some(open) = t.strip_prefix("```") else {
         return text;
@@ -274,8 +291,14 @@ fn unfenced(text: &str) -> &str {
 
 /// What a command printed, in mono, quiet, its long lines wrapped: whole
 /// when it is short or asked for (up to `MOST` lines), else its head, how
-/// much was left out, and its last line.
-pub fn printed(faces: &Faces, text: &str, all: bool) -> Div {
+/// much was left out, and its last line; `show_all` opens the whole output
+/// in the right column when lines are cut.
+pub fn printed_with(
+    faces: &Faces,
+    text: &str,
+    all: bool,
+    mut show_all: Option<gpui::AnyElement>,
+) -> Div {
     let lines = lines(unfenced(text));
     let mut inner = div()
         .flex()
@@ -296,8 +319,16 @@ pub fn printed(faces: &Faces, text: &str, all: bool) -> Div {
             .child(styled(faces, &lines[..HEAD]))
             .child(
                 div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
                     .text_color(theme::quiet())
-                    .child(crate::tr_with("… %{n} lines", &[("n", &gone)])),
+                    .child(crate::tr_with("… %{n} lines", &[("n", &gone)]).into_any_element())
+                    .children(if lines.len() > MOST {
+                        show_all.take()
+                    } else {
+                        None
+                    }),
             )
             .child(styled(faces, &lines[lines.len() - 1..]));
     }
@@ -307,7 +338,7 @@ pub fn printed(faces: &Faces, text: &str, all: bool) -> Div {
         .gap(px(S2))
         .w_full()
         .child(inner)
-        .when(left > 0, |d| d.child(left_out(faces, left)))
+        .when(left > 0, |d| d.child(left_out(faces, left, show_all)))
 }
 
 #[cfg(test)]

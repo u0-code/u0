@@ -320,14 +320,19 @@ impl Desk {
         s: &Session,
         cx: &mut Context<Self>,
     ) -> Popover {
+        use u0ui::u0::foundations::truncate::{Truncate, TruncateMode};
         let shown = s.git.compare_to.clone().unwrap_or_else(|| "main".into());
         let chip = ui::opener("compare")
             .h(px(24.))
             .px(px(6.))
             .child(
-                ui::one_line(ui::mono(faces, shown).text_size(px(crate::style::CAPTION)))
+                div()
                     .max_w(px(120.))
-                    .text_color(theme::role(ColorRole::TextSecondary)),
+                    .min_w(px(0.))
+                    .font_family(faces.mono.clone())
+                    .text_size(px(crate::style::CAPTION))
+                    .text_color(theme::role(ColorRole::TextSecondary))
+                    .child(Truncate::new("compare-chip-name", shown).mode(TruncateMode::Middle)),
             )
             .child(
                 Icon::carbon(CarbonIcon::ChevronDown)

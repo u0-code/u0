@@ -354,6 +354,7 @@ pub struct Desk {
     pub forge: forge::Forge,
     /// How far the column's tabs are scrolled, to bring one opened into view.
     pub tab_scroll: gpui::ScrollHandle,
+    pub output_scroll: gpui::UniformListScrollHandle,
     /// gpui-kit's view of each edit opened in the thread, by its card.
     pub edits: std::cell::RefCell<HashMap<String, Entity<gpui::component::diff::DiffState>>>,
     pub search: lists::Search,
@@ -707,6 +708,7 @@ impl Desk {
             viewer: Viewer::new(window, cx),
             forge: forge::Forge::new(&settings::home(), window, cx),
             tab_scroll: gpui::ScrollHandle::new(),
+            output_scroll: gpui::UniformListScrollHandle::new(),
             edits: std::cell::RefCell::default(),
             search: lists::Search::new(window, cx),
             registry_read: None,

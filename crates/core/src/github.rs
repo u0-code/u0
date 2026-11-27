@@ -26,6 +26,44 @@ impl Kind {
     }
 }
 
+/// A repository on GitHub you can clone, as `gh repo list` says.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Repo {
+    #[serde(rename = "nameWithOwner")]
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(rename = "isPrivate", default)]
+    pub private: bool,
+    #[serde(rename = "updatedAt", default)]
+    pub updated: String,
+    pub url: String,
+    #[serde(rename = "sshUrl", default)]
+    pub ssh_url: String,
+}
+
+/// The repositories on GitHub your `gh` lists.
+pub fn repos(home: &Path) -> Result<Vec<Repo>, String> {
+    let _ = std::fs::create_dir_all(home);
+    let said = git::yours(
+        home,
+        "gh",
+        &[
+            "repo",
+            "list",
+            "--limit",
+            "200",
+            "--json",
+            "nameWithOwner,description,isPrivate,updatedAt,url,sshUrl",
+        ],
+    )?;
+    parse_repos(&said)
+}
+
+fn parse_repos(said: &str) -> Result<Vec<Repo>, String> {
+    serde_json::from_str(said).map_err(|e| e.to_string())
+}
+
 /// One listed: a pull request or an issue.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Item {
@@ -1037,5 +1075,15 @@ mod tests {
             (None, true, true)
         );
         assert_eq!((read[0].bots, read[1].bots), (false, true));
+    }
+
+    #[test]
+    fn github_repositories_read_with_visibility_and_addresses() {
+        let said = r#"[{"nameWithOwner":"acme/carbon-ui","description":"Carbon UI","isPrivate":true,"updatedAt":"2026-03-01T00:00:00Z","url":"https://github.com/acme/carbon-ui","sshUrl":"git@github.com:acme/carbon-ui.git"}]"#;
+        let got = parse_repos(said).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].name, "acme/carbon-ui");
+        assert!(got[0].private);
+        assert_eq!(got[0].url, "https://github.com/acme/carbon-ui");
     }
 }

@@ -55,7 +55,7 @@ impl Sub {
             Self::NewIn | Self::Look | Self::Link => "Search…",
             Self::Tag => "A tag, or one used before",
             Self::Add => "Enter project path (e.g. ~/projects/my-app)",
-            Self::Clone => "Repository URL",
+            Self::Clone => "owner/name or URL",
             Self::Make => "Project name",
 
             Self::Snooze => "In 3h, in 2 days, at 5pm…",
@@ -104,6 +104,9 @@ impl Desk {
         self.palette.pages.push((sub, typed));
         if matches!(sub, Sub::Add | Sub::Clone | Sub::Make) && self.palette.pages.len() == 1 {
             self.palette.on = self.session().map_or(crate::hub::Host::HERE, |s| s.host);
+        }
+        if sub == Sub::Clone {
+            self.ask_repos(self.palette.on);
         }
         self.palette
             .state
@@ -536,6 +539,7 @@ impl Desk {
                 return narrowed(rows, typed);
             }
             Sub::Clone => {
+                let on = self.palette.on;
                 let mut rows = Vec::new();
                 if let Some(c) = &self.adding.cloning {
                     let share = c.share.map(|s| format!(" · {:.0}%", s * 100.));
@@ -546,23 +550,54 @@ impl Desk {
                             share.unwrap_or_default()
                         )),
                     );
-                } else if let Some(source) = crate::desk::projects::Source::read(typed) {
-                    let on = self.palette.on;
-                    let dir = source.dir(&self.projects_in(on), self.settings_on(on).host_folders);
-                    rows.push(
-                        Row::new(
-                            "branch",
-                            crate::tr_with("Clone %{url}", &[("url", &source.url)]),
-                            Act::Clone(typed.to_owned()),
-                        )
-                        .sub(crate::tr_with(
-                            "into %{dir}",
-                            &[("dir", &Desk::shown(&dir))],
-                        )),
-                    );
+                } else {
+                    if let Some(source) = crate::desk::projects::Source::read(typed) {
+                        let dir =
+                            source.dir(&self.projects_in(on), self.settings_on(on).host_folders);
+                        rows.push(
+                            Row::new(
+                                "branch",
+                                crate::tr_with("Clone %{url}", &[("url", &source.url)]),
+                                Act::Clone(typed.to_owned()),
+                            )
+                            .sub(crate::tr_with(
+                                "into %{dir}",
+                                &[("dir", &Desk::shown(&dir))],
+                            )),
+                        );
+                    }
+                    if let Some(listed) = self.palette.repos.get(&on) {
+                        let now = std::time::SystemTime::now();
+                        let repo_rows: Vec<Row> = listed
+                            .iter()
+                            .map(|r| {
+                                let vis = if r.private {
+                                    crate::tr("Private")
+                                } else {
+                                    crate::tr("Public")
+                                };
+                                let age = crate::when::parse(&r.updated)
+                                    .map(|t| format!(" · {}", crate::when::ago(t, now)))
+                                    .unwrap_or_default();
+                                let mut row =
+                                    Row::new("branch", r.name.clone(), Act::Clone(r.url.clone()));
+                                row.end = Some((format!("{vis}{age}"), crate::theme::muted()));
+                                if !r.description.is_empty() {
+                                    row.sub = Some(crate::ui::fit(&r.description, 72));
+                                    row.words.push(r.description.clone());
+                                }
+                                row
+                            })
+                            .collect();
+                        if let Some(found) = narrowed(repo_rows, typed) {
+                            rows.extend(found.into_iter().flat_map(|(_, r)| r));
+                        }
+                    }
                 }
-                rows.push(self.parent_row());
-                rows.extend(self.servers_rows());
+                if typed.is_empty() {
+                    rows.push(self.parent_row());
+                    rows.extend(self.servers_rows());
+                }
                 rows
             }
             Sub::Make => {
@@ -603,6 +638,14 @@ impl Desk {
             }
         };
         Some(vec![(String::new(), rows)])
+    }
+
+    /// Ask `gh` on `on` for the repositories you can clone, once per server.
+    pub(super) fn ask_repos(&mut self, on: crate::hub::Host) {
+        if let std::collections::hash_map::Entry::Vacant(e) = self.palette.repos.entry(on) {
+            e.insert(Vec::new());
+            self.call(on, crate::proto::Call::Repos);
+        }
     }
 
     /// Where new and cloned projects go; on this Mac, the way to choose
