@@ -26,6 +26,10 @@ use crate::{fonts::Faces, session::State, theme, ui, when};
 mod pages;
 use pages::Sub;
 
+/// What the palette looks through with nothing else open, as its line and
+/// the command box in the bar over the thread say.
+pub(crate) const SEARCHES: &str = "Search threads, projects, commands and settings";
+
 /// What a row of the palette does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Act {
@@ -129,6 +133,10 @@ pub struct Palette {
     /// What it looked through before it was turned to this, while open:
     /// where Escape goes back to.
     pub from: Option<Through>,
+    /// The middle of the command box in the bar over the thread, as it
+    /// was last drawn, for the palette to be centred on; none in a frame
+    /// without it.
+    pub under: std::rc::Rc<std::cell::Cell<Option<gpui::Pixels>>>,
 }
 
 impl Palette {
@@ -146,6 +154,7 @@ impl Palette {
             snoozing: Vec::new(),
             back_to: None,
             from: None,
+            under: std::rc::Rc::default(),
         }
     }
 }
@@ -440,11 +449,13 @@ impl Desk {
             self.close_settings(window, cx);
             let desk = cx.entity();
             let shown = cx.new(|cx| super::Over::new(desk.clone(), Self::palette_view, cx));
-            window.open_dialog(cx, move |dialog, window, _| {
+            let (top, shift) = hung(self.palette.under.get(), window.viewport_size().width);
+            window.open_dialog(cx, move |dialog, _, _| {
                 let desk = desk.clone();
                 dialog
-                    .w(px(640.))
-                    .margin_top((window.viewport_size().height - px(520.)).clamp(px(24.), px(96.)))
+                    .w(WIDTH)
+                    .margin_top(top)
+                    .ml(shift)
                     .p_0()
                     .rounded_none()
                     .bg(theme::role(u0ui::tokens::ColorRole::Layer01))
@@ -1195,10 +1206,7 @@ impl Desk {
         let page = self.palette.pages.last().map(|p| p.0);
         let (placeholder, empty) = match self.palette.through {
             Through::Everything if let Some(sub) = page => (sub.placeholder(), "Nothing here."),
-            Through::Everything => (
-                "Search threads, projects, commands and settings",
-                "No matching commands, projects, or threads.",
-            ),
+            Through::Everything => (SEARCHES, "No matching commands, projects, or threads."),
             Through::Files => ("Search files…", "No matching files."),
             Through::Words => ("Search the project's files…", "No matching words."),
         };
@@ -1283,6 +1291,22 @@ impl Desk {
         }
         command.into_any_element()
     }
+}
+
+/// The palette's width.
+const WIDTH: gpui::Pixels = px(640.);
+
+/// Where the palette hangs in a window `view` wide: 2px under the bar
+/// (`Palette` board: `top: 40px`), centred on the command box at `under`
+/// as far as the window lets it (the dialog is centred in the window, so
+/// the shift from there); with no box, in the middle.
+fn hung(under: Option<gpui::Pixels>, view: gpui::Pixels) -> (gpui::Pixels, gpui::Pixels) {
+    let top = px(super::TOPBAR + 2.);
+    let Some(x) = under else {
+        return (top, px(0.));
+    };
+    let most = ((view - WIDTH) / 2. - px(8.)).max(px(0.));
+    (top, (x - view / 2.).clamp(-most, most))
 }
 
 /// How words are looked for (⇧⌘F): in their case, whole, as a pattern;
@@ -1531,6 +1555,18 @@ fn once(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_palette_hangs_under_the_command_box_centred_on_it_within_the_window() {
+        // The board's palette: 40px down, under the 38px bar.
+        let top = px(40.);
+        // A box centred at 848 in a 1440 window: 128 right of the middle.
+        assert_eq!(hung(Some(px(848.)), px(1440.)), (top, px(128.)));
+        // Near the edge, as far as the window lets it.
+        assert_eq!(hung(Some(px(950.)), px(1000.)), (top, px(172.)));
+        // No box: at the same height, in the middle.
+        assert_eq!(hung(None, px(1440.)), (top, px(0.)));
+    }
 
     #[test]
     fn escape_goes_back_to_the_palette_only_when_it_was_turned_from_there() {

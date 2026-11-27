@@ -104,7 +104,12 @@ impl Desk {
     }
 
     /// Top bar of the Workflows workspace page (`.r2-top`).
-    pub(crate) fn workflows_topbar(&self, bar: Div, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn workflows_topbar(
+        &self,
+        left: Div,
+        right: Div,
+        cx: &mut Context<Self>,
+    ) -> (Div, Div) {
         let count = self.flows.list.iter().filter(|r| r.is_ok()).count();
         let next_at = (self.tasks_on(self.pages.on).and_then(|r| r.as_ref().ok())).and_then(|ts| {
             ts.iter()
@@ -124,21 +129,21 @@ impl Desk {
             None => crate::tr_with("%{n} workflows", &[("n", &count)]),
         };
         let desk = cx.entity();
-        bar.child(
-            div()
-                .type_style(TypeStyle::Label01)
-                .text_color(theme::role(ColorRole::TextSecondary))
-                .child(ctx_line),
-        )
-        .child(div().flex_1())
-        .child(
-            Button::new("wf-new-btn", crate::tr("New workflow"))
-                .variant(ButtonVariant::Ghost)
-                .size(ButtonSize::Sm)
-                .icon(CarbonIcon::Add)
-                .on_click(move |_, window, cx| {
-                    desk.update(cx, |this, cx| this.begin_edit_flow(None, window, cx));
-                }),
+        let line = div()
+            .type_style(TypeStyle::Label01)
+            .text_color(theme::role(ColorRole::TextSecondary))
+            .child(ctx_line);
+        (
+            left.child(line),
+            right.child(
+                Button::new("wf-new-btn", crate::tr("New workflow"))
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Sm)
+                    .icon(CarbonIcon::Add)
+                    .on_click(move |_, window, cx| {
+                        desk.update(cx, |this, cx| this.begin_edit_flow(None, window, cx));
+                    }),
+            ),
         )
     }
 

@@ -230,24 +230,24 @@ impl Desk {
     }
 
     /// Top bar of the Usage workspace page (`.r2-top`).
-    pub(crate) fn usage_topbar(&self, bar: Div, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn usage_topbar(&self, left: Div, right: Div, cx: &mut Context<Self>) -> (Div, Div) {
         let now = SystemTime::now();
         let desk = cx.entity();
-        bar.child(
-            div()
-                .type_style(TypeStyle::Label01)
-                .text_color(theme::role(ColorRole::TextSecondary))
-                .child(when::header_date(now, self.settings.twelve)),
-        )
-        .child(div().flex_1())
-        .child(
-            Button::new("usage-export-csv", crate::tr("Export CSV"))
-                .variant(ButtonVariant::Ghost)
-                .size(ButtonSize::Sm)
-                .icon(CarbonIcon::Download)
-                .on_click(move |_, _, cx| {
-                    desk.update(cx, |this, cx| this.export_usage_csv(cx));
-                }),
+        let line = div()
+            .type_style(TypeStyle::Label01)
+            .text_color(theme::role(ColorRole::TextSecondary))
+            .child(when::header_date(now, self.settings.twelve));
+        (
+            left.child(line),
+            right.child(
+                Button::new("usage-export-csv", crate::tr("Export CSV"))
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Sm)
+                    .icon(CarbonIcon::Download)
+                    .on_click(move |_, _, cx| {
+                        desk.update(cx, |this, cx| this.export_usage_csv(cx));
+                    }),
+            ),
         )
     }
 
