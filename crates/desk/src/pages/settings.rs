@@ -265,6 +265,10 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if tab == Tab::Agents && !self.pages.agents_open {
+            self.pages.agents_open = true;
+            cx.notify();
+        }
         if self.pages.tab != tab {
             self.pages.tab = tab;
             let page_ix = tab.index();
@@ -505,12 +509,16 @@ impl Desk {
             let mut rows: Vec<AnyElement> = Vec::new();
             for &tab in tabs {
                 if tab_matches(tab) {
-                    rows.push(
-                        self.settings_nav_row(faces, tab, true, cx)
-                            .into_any_element(),
-                    );
+                    let row = self.settings_nav_row(faces, tab, true, cx);
+                    rows.push(if tab == Tab::Agents {
+                        self.agents_folder(row, cx)
+                    } else {
+                        row.into_any_element()
+                    });
                 }
-                if tab == Tab::Agents {
+                // The agents are a folder under Agents: shown open, or
+                // as you search for one.
+                if tab == Tab::Agents && (self.pages.agents_open || !q.is_empty()) {
                     for slot in self.slots_on(self.pages.on) {
                         let id = slot.entry.id.clone();
                         let name = self.name_of(&id);
@@ -744,6 +752,39 @@ impl Desk {
             }))
     }
 
+    /// The Agents row as a folder: a chevron that opens it on its agents,
+    /// and closes it again.
+    fn agents_folder(&self, row: gpui::Stateful<Div>, cx: &mut Context<Self>) -> AnyElement {
+        let open = self.pages.agents_open;
+        let desk = cx.entity();
+        row.child(
+            CarbonButton::new(
+                "snav-agents-folder",
+                crate::tr(if open {
+                    "Hide the agents"
+                } else {
+                    "Show the agents"
+                }),
+            )
+            .variant(ButtonVariant::Ghost)
+            .size(ButtonSize::Sm)
+            .icon(if open {
+                CarbonIcon::ChevronDown
+            } else {
+                CarbonIcon::ChevronRight
+            })
+            .icon_only(true)
+            .on_click(move |_, _, cx| {
+                cx.stop_propagation();
+                desk.update(cx, |this, cx| {
+                    this.pages.agents_open = !open;
+                    cx.notify();
+                });
+            }),
+        )
+        .into_any_element()
+    }
+
     fn settings_agent_nav_row(
         &self,
         faces: &Faces,
@@ -752,7 +793,6 @@ impl Desk {
         name: String,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let _ = self;
         let hover_bg = theme::role(ColorRole::LayerHover02);
         div()
             .id(SharedString::from(format!("snav-agent-{}-{id}", host.0)))
@@ -761,15 +801,12 @@ impl Desk {
             .gap(px(12.))
             .w_full()
             .h(px(32.))
-            .px(px(16.))
+            // Inside the folder: its mark under the folder's label.
+            .pl(px(44.))
+            .pr(px(16.))
             .cursor_pointer()
             .hover(move |s| s.bg(hover_bg))
-            .child(
-                CarbonGlyph::carbon(CarbonIcon::Chip)
-                    .size_length(px(16.))
-                    .color(theme::text2())
-                    .flex_none(),
-            )
+            .child(ui::mark(faces, &self.mark_of(&id), 16.))
             .child(
                 ui::text(faces, name)
                     .flex_1()

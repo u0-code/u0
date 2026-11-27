@@ -102,6 +102,8 @@ pub struct Pages {
     pub usage_project: Option<std::path::PathBuf>,
     /// Machine filter on the Usage workspace page (`None` = all machines).
     pub usage_host: Option<crate::hub::Host>,
+    /// Whether the settings sidebar's Agents folder shows each agent.
+    pub agents_open: bool,
     /// The project the settings a project may hold are set for, as
     /// t3code's "Applying settings for"; none, everywhere.
     pub scope: Option<std::path::PathBuf>,
@@ -237,6 +239,7 @@ impl Pages {
             period: Some(7),
             usage_project: None,
             usage_host: None,
+            agents_open: false,
             scope: None,
             forges: Vec::new(),
             themes_refused: Vec::new(),
