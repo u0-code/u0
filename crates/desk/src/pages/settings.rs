@@ -217,7 +217,11 @@ impl Tab {
 impl Desk {
     /// Legacy `SettingPage` builder for tabs not yet migrated to `carbon_tab`.
     fn tab_page(&self, tab: Tab, w: &WeakEntity<Desk>, cx: &App) -> SettingPage {
-        let paged = |lede: &str, groups: Vec<SettingGroup>| {
+        let banners = self.settings_banner_group(tab, w);
+        let paged = |lede: &str, mut groups: Vec<SettingGroup>| {
+            if let Some(b) = banners.clone() {
+                groups.insert(0, b);
+            }
             SettingPage::new(tab.title())
                 .description(crate::tr(lede))
                 .groups(groups)
@@ -251,10 +255,10 @@ impl Desk {
                 "What the machine these settings are of tells the people who make u0, as far as you let it.",
                 self.telemetry_tab(w),
             ),
-            Tab::Projects => self.projects_tab(w),
-            Tab::Devices => self.devices_tab(w),
+            Tab::Projects => self.projects_tab(w, banners),
+            Tab::Devices => self.devices_tab(w, banners),
             _ => self
-                .own_tab(tab, w, cx)
+                .own_tab(tab, w, banners, cx)
                 .unwrap_or_else(|| SettingPage::new(tab.title())),
         };
         page.icon(ui::glyph(tab.icon()))
@@ -300,7 +304,7 @@ impl Desk {
                 (n > 0).then_some((n, SettingsBadgeTone::Warning))
             }
             Tab::Tasks => {
-                let n = self.tasks.list.as_ref().ok().map_or(0, |list| {
+                let n = (self.tasks_on(Host::HERE).and_then(|t| t.as_ref().ok())).map_or(0, |list| {
                     list.iter()
                         .filter(|t| t.last.as_ref().is_some_and(|r| r.error.is_some()))
                         .count()
@@ -834,14 +838,7 @@ impl Desk {
                 },
             ));
         }
-        let refused = match self.pages.on {
-            Host::HERE => self.settings_refused.clone(),
-            on => self.machine(on).and_then(|m| m.refused.clone()),
-        };
-        for trouble in [refused, self.registry_trouble.clone()]
-            .into_iter()
-            .flatten()
-        {
+        if let Some(trouble) = self.registry_trouble.clone() {
             head.push(whole(w, &[], move |_, _, _| {
                 ui::trouble(trouble.clone()).into_any_element()
             }));

@@ -448,12 +448,15 @@ pub fn taken(cx: &App, name: &str, key: &Keystroke) -> Option<&'static str> {
 }
 
 /// The bindings in `home`'s `keybindings.json`; none where there is none,
-/// or (said in the log) where it does not read.
-pub fn yours(home: &Path) -> Vec<Binding> {
-    crate::whole::read_json(&home.join("keybindings.json")).unwrap_or_else(|e| {
-        tracing::warn!("{e}");
-        Vec::new()
-    })
+/// or why it did not read (also said in the log), leaving the file as it is.
+pub fn yours(home: &Path) -> (Vec<Binding>, Option<String>) {
+    match crate::whole::read_json(&home.join("keybindings.json")) {
+        Ok(list) => (list, None),
+        Err(why) => {
+            tracing::warn!("{why}");
+            (Vec::new(), Some(why))
+        }
+    }
 }
 
 /// Bind the window's keys, then `yours` over them.
@@ -752,7 +755,9 @@ mod tests {
         set_yours(home, "palette", Keys::Yours("cmd-shift-k".into())).unwrap();
         let list = set_yours(home, "palette", Keys::Yours("cmd-y".into())).unwrap();
         assert_eq!(list.len(), 1);
-        assert_eq!(yours(home)[0].key, "cmd-y");
+        let (loaded, refused) = yours(home);
+        assert_eq!(loaded[0].key, "cmd-y");
+        assert!(refused.is_none());
         // Taken away, its keys go to nothing; given back, nothing of yours is left.
         let list = set_yours(home, "palette", Keys::Off(vec!["cmd-k".into()])).unwrap();
         assert_eq!((list.len(), list[0].action.as_str()), (1, "-palette"));
@@ -762,6 +767,7 @@ mod tests {
                 .is_empty()
         );
         std::fs::write(home.join("keybindings.json"), "{ not json").unwrap();
+        assert!(yours(home).1.is_some());
         assert!(set_yours(home, "palette", Keys::Defaults).is_err());
         assert_eq!(
             std::fs::read_to_string(home.join("keybindings.json")).unwrap(),

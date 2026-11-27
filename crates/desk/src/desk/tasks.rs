@@ -17,21 +17,11 @@ use crate::{
     when,
 };
 
-/// The scheduled tasks as the desk has them.
+/// The scheduled tasks as the desk writes them.
+#[derive(Default)]
 pub struct Tasks {
-    /// As the server last said them, or why they do not read.
-    pub list: Result<Vec<Task>, String>,
     /// The one being written or changed.
     pub draft: Option<Draft>,
-}
-
-impl Default for Tasks {
-    fn default() -> Self {
-        Self {
-            list: Ok(Vec::new()),
-            draft: None,
-        }
-    }
 }
 
 /// A task being written: what is chosen, and the fields as typed.
@@ -132,10 +122,8 @@ impl Desk {
     /// Change the task `id`.
     pub(crate) fn edit_task(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
         let found = self
-            .tasks
-            .list
-            .as_ref()
-            .ok()
+            .tasks_on(self.pages.on)
+            .and_then(|r| r.as_ref().ok())
             .and_then(|l| l.iter().find(|t| t.id == id));
         if let Some(task) = found.cloned() {
             self.draft_task(task, window, cx);
@@ -305,10 +293,8 @@ impl Desk {
     /// Pause the task `id`, or take it up again.
     pub(crate) fn pause_task(&mut self, id: u64) {
         let found = self
-            .tasks
-            .list
-            .as_ref()
-            .ok()
+            .tasks_on(self.pages.on)
+            .and_then(|r| r.as_ref().ok())
             .and_then(|l| l.iter().find(|t| t.id == id));
         if let Some(mut task) = found.cloned() {
             task.paused = !task.paused;

@@ -152,6 +152,7 @@ impl Desk {
             Msg::OnPath(found) => self.on_path = found,
             Msg::Update(update) => self.updated(update, cx),
             Msg::Keys(Ok(yours)) => {
+                self.keys_refused = None;
                 cx.clear_key_bindings();
                 crate::keys::bind(cx, &yours);
             }
@@ -232,6 +233,7 @@ impl Desk {
         match state {
             State::Up(welcome) => {
                 let was = std::mem::replace(&mut m.up, hub::Up::On);
+                m.lost_since = None;
                 m.home = welcome.home;
                 m.version = Some(welcome.version);
                 m.scope = welcome.scope;
@@ -252,6 +254,7 @@ impl Desk {
                 self.afresh(host);
             }
             State::Lost(why) => {
+                m.lost_since.get_or_insert_with(std::time::SystemTime::now);
                 let was = std::mem::replace(&mut m.up, hub::Up::Lost(why.clone()));
                 if was == hub::Up::On {
                     self.trouble(
@@ -262,6 +265,7 @@ impl Desk {
                 }
             }
             State::Refused(why) => {
+                m.lost_since = None;
                 m.up = hub::Up::Refused(why.clone());
                 self.trouble(
                     crate::tr_with("%{name} turned this Mac away", &[("name", &name)]),
@@ -304,6 +308,9 @@ impl Desk {
         self.sessions.all.retain(|s| !gone.contains(&s.key));
         if self.current.is_some_and(|k| gone.contains(&k)) {
             self.current = None;
+        }
+        if let Some(m) = self.machine_mut(host) {
+            m.tasks = None;
         }
         self.kept.retain(|(h, ..), _| *h != host);
         self.waiting.retain(|(h, ..)| *h != host);
@@ -660,7 +667,9 @@ impl Desk {
                 self.turn_over(key, ok, cx);
             }
             Event::Tasks(list) => {
-                self.tasks.list = list;
+                if let Some(m) = self.machine_mut(host) {
+                    m.tasks = Some(list);
+                }
                 cx.notify();
             }
             // Changed there by one of u0's tools: taken as they are.
@@ -811,7 +820,6 @@ impl Desk {
                 | Event::Telemetry { .. }
                 | Event::Shared(_)
                 | Event::Offered { .. }
-                | Event::Tasks(_)
                 | Event::Workflows { .. }
         )
     }

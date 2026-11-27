@@ -215,9 +215,8 @@ impl Desk {
     /// The scheduled tasks said in the session `s` that are still to run.
     fn waiting_in(&self, s: &crate::session::Session) -> Vec<&crate::tasks::Task> {
         let tasks = self
-            .tasks
-            .list
-            .as_ref()
+            .tasks_on(s.host)
+            .and_then(|r| r.as_ref().ok())
             .map(Vec::as_slice)
             .unwrap_or_default();
         (tasks.iter())

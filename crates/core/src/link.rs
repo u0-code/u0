@@ -873,6 +873,8 @@ pub struct Link {
     /// Woken, it reaches the server now rather than when its wait is
     /// over.
     again: Arc<Notify>,
+    /// When the next retry begins while the server is out of reach.
+    retry_at: Arc<Mutex<Option<std::time::Instant>>>,
 }
 
 /// What goes out on a link: a call, or a word back once all before it
@@ -889,7 +891,15 @@ impl Link {
 
     /// Reach the server again now: one out of reach, or one that refused.
     pub fn again(&self) {
+        *self.retry_at.lock().expect("retry_at") = None;
         self.again.notify_one();
+    }
+
+    /// How long until the next try to reach a server that was lost; none
+    /// while reached, reaching now, or refused.
+    pub fn retry_in(&self) -> Option<Duration> {
+        let at = (*self.retry_at.lock().expect("retry_at"))?;
+        at.checked_duration_since(std::time::Instant::now())
     }
 
     /// Wait, a few seconds at most, until all asked has gone: as u0
@@ -939,6 +949,8 @@ pub fn connect(
     let (tx, mut calls) = mpsc::unbounded_channel();
     let again = Arc::new(Notify::new());
     let woken = again.clone();
+    let retry_at = Arc::new(Mutex::new(None));
+    let next_try = retry_at.clone();
     crate::acp::runtime().spawn(async move {
         let (way, key) = match tokio::task::spawn_blocking(reach).await {
             Ok(Ok(reached)) => reached,
@@ -951,6 +963,7 @@ pub fn connect(
                 Ok((mut ws, welcome)) => {
                     since = Some((welcome.boot, welcome.said));
                     wait = FIRST;
+                    *next_try.lock().expect("retry_at") = None;
                     state(State::Up(Box::new(welcome)));
                     let Some(why) = pump(&mut ws, &mut calls, &said, &mut since).await else {
                         return;
@@ -959,6 +972,7 @@ pub fn connect(
                     lost = true;
                 }
                 Err(Dial::Refused(why)) => {
+                    *next_try.lock().expect("retry_at") = None;
                     state(State::Refused(why));
                     woken.notified().await;
                     continue;
@@ -976,13 +990,19 @@ pub fn connect(
                     lost = true;
                 }
             }
+            *next_try.lock().expect("retry_at") = Some(std::time::Instant::now() + wait);
             tokio::select! {
                 () = tokio::time::sleep(wait) => wait = (wait * 2).min(Duration::from_secs(30)),
                 () = woken.notified() => wait = FIRST,
             }
+            *next_try.lock().expect("retry_at") = None;
         }
     });
-    Link { calls: tx, again }
+    Link {
+        calls: tx,
+        again,
+        retry_at,
+    }
 }
 
 /// Pair with the server `way` by its one-time `code`, coming in with
@@ -2035,6 +2055,7 @@ esac; done"#;
         rt.spawn(listen(server.clone(), bind().unwrap(), None));
         link.again();
         assert!(matches!(told(&stood), State::Up(w) if !w.resumed));
+        assert!(link.retry_in().is_none());
     }
 
     /// Link with the key kept for the server `name` in `home`'s servers.

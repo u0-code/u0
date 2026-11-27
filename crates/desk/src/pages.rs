@@ -23,6 +23,7 @@ mod voice;
 mod writing;
 
 pub(crate) use diagnostics::process_tree;
+pub(crate) use prefs::whole;
 pub use settings::{Tab, height as settings_height};
 
 use gpui::component::{
@@ -112,9 +113,10 @@ pub struct Pages {
     /// The named tunnel's address and token as you write them.
     pub named_host: Entity<InputState>,
     pub named_token: Entity<InputState>,
-    /// The servers paired with, the link pasted to pair with another, and
-    /// whether that is under way.
+    /// The servers paired with, why `servers.json` did not read if so, the
+    /// link pasted to pair with another, and whether that is under way.
     pub servers: crate::servers::Servers,
+    pub servers_refused: Option<String>,
     pub pair_link: Entity<InputState>,
     pub pairing: bool,
     /// What the next pairing link made lets in.
@@ -221,6 +223,7 @@ impl Pages {
                     .masked(true)
             }),
             servers: crate::servers::Servers::default(),
+            servers_refused: None,
             level: telemetry::slider(
                 settings.telemetry.unwrap_or(crate::telemetry::Level::Usage),
                 window,

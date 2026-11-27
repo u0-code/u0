@@ -98,10 +98,25 @@ pub struct Managed {
     pub locked: bool,
 }
 
+/// Why a policy did not read, with who set it and where to ask when the
+/// policy named them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BadPolicy {
+    pub organization: Option<String>,
+    pub support_url: Option<String>,
+    pub why: String,
+}
+
+impl std::fmt::Display for BadPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.why)
+    }
+}
+
 /// The policy of this machine, read once: none where there is none; why
 /// it does not read, where it does not.
-pub fn current() -> &'static Result<Option<Policy>, String> {
-    static POLICY: OnceLock<Result<Option<Policy>, String>> = OnceLock::new();
+pub fn current() -> &'static Result<Option<Policy>, BadPolicy> {
+    static POLICY: OnceLock<Result<Option<Policy>, BadPolicy>> = OnceLock::new();
     POLICY.get_or_init(read)
 }
 
@@ -110,8 +125,18 @@ use profile::read;
 
 /// The policy in `/etc/u0/policy.json`.
 #[cfg(not(target_os = "macos"))]
-fn read() -> Result<Option<Policy>, String> {
+fn read() -> Result<Option<Policy>, BadPolicy> {
     read_file(std::path::Path::new("/etc/u0/policy.json"))
+}
+
+/// The organisation whose policy governs this machine, if one does.
+pub fn organization() -> Option<&'static str> {
+    Some(current().as_ref().ok()?.as_ref()?.organization.as_str())
+}
+
+/// Where to ask about the policy governing this machine, if it says where.
+pub fn support_url() -> Option<&'static str> {
+    current().as_ref().ok()?.as_ref()?.support_url.as_deref()
 }
 
 /// The organisation that locks the setting `key`, if one does.
@@ -120,17 +145,67 @@ pub fn locked(key: &str) -> Option<&'static str> {
     policy.locks(key).then_some(policy.organization.as_str())
 }
 
+/// The organisation and default value set for `key` where the policy sets
+/// one without locking it.
+pub fn default_of(key: &str) -> Option<(&'static str, &'static serde_json::Value)> {
+    let policy = current().as_ref().ok()?.as_ref()?;
+    let managed = policy.settings.get(key)?;
+    (!managed.locked).then_some((policy.organization.as_str(), &managed.value))
+}
+
+/// Build and validate a policy from its raw key-value `found` map, keeping
+/// `organization` and `support_url` when present even if another field
+/// fails to read or names a setting value of the wrong kind.
+pub(super) fn from_map(
+    found: serde_json::Map<String, serde_json::Value>,
+    prefix: &str,
+) -> Result<Option<Policy>, BadPolicy> {
+    if found.is_empty() {
+        return Ok(None);
+    }
+    let str_at = |k| {
+        found
+            .get(k)
+            .and_then(serde_json::Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
+    };
+    let organization = str_at("organization");
+    let support_url = str_at("support_url");
+    let bad = |why: String| BadPolicy {
+        organization: organization.clone(),
+        support_url: support_url.clone(),
+        why: format!("{prefix}: {why}"),
+    };
+    let policy: Policy =
+        serde_json::from_value(serde_json::Value::Object(found)).map_err(|e| bad(e.to_string()))?;
+    policy.validate().map_err(bad)?;
+    Ok(Some(policy))
+}
+
 #[cfg(not(target_os = "macos"))]
-fn read_file(path: &std::path::Path) -> Result<Option<Policy>, String> {
+fn read_file(path: &std::path::Path) -> Result<Option<Policy>, BadPolicy> {
+    let prefix = format!("The policy at {} does not read", path.display());
     match std::fs::read_to_string(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!(
-            "The policy at {} cannot be read: {e}",
-            path.display()
-        )),
-        Ok(text) => serde_json::from_str(&text)
-            .map(Some)
-            .map_err(|e| format!("The policy at {} does not read: {e}", path.display())),
+        Err(e) => Err(BadPolicy {
+            organization: None,
+            support_url: None,
+            why: format!("The policy at {} cannot be read: {e}", path.display()),
+        }),
+        Ok(text) => match serde_json::from_str::<serde_json::Value>(&text) {
+            Ok(serde_json::Value::Object(found)) => from_map(found, &prefix),
+            Ok(_) => Err(BadPolicy {
+                organization: None,
+                support_url: None,
+                why: format!("{prefix}: expected a JSON object"),
+            }),
+            Err(e) => Err(BadPolicy {
+                organization: None,
+                support_url: None,
+                why: format!("{prefix}: {e}"),
+            }),
+        },
     }
 }
 
@@ -163,6 +238,22 @@ impl Policy {
         key.split_once('.')
             .and_then(|(outer, _)| self.settings.get(outer))
             .is_some_and(|m| m.locked)
+    }
+
+    /// Whether every setting this policy sets is a known top-level setting
+    /// of the right kind.
+    pub fn validate(&self) -> Result<(), String> {
+        let serde_json::Value::Object(mut all) =
+            serde_json::to_value(crate::settings::Settings::default()).expect("settings serialize")
+        else {
+            unreachable!("settings are an object")
+        };
+        let mut mine = serde_json::Map::new();
+        self.apply(&mut mine, &all)?;
+        all.extend(mine);
+        serde_json::from_value::<crate::settings::Settings>(serde_json::Value::Object(all))
+            .map(|_| ())
+            .map_err(|e| e.to_string())
     }
 
     /// `settings` (settings.json as read) as the policy has them: its
@@ -258,7 +349,7 @@ mod tests {
     }
 
     #[test]
-    fn a_policy_naming_no_setting_is_refused() {
+    fn a_policy_naming_no_setting_or_wrong_value_keeps_who_set_it_and_where_to_ask() {
         let p = policy(r#"{"organization": "Corp", "settings": {"nope": {"value": 1}}}"#);
         let why = p.apply(&mut map("{}"), &map("{}")).unwrap_err();
         assert!(why.contains("\"nope\""));
@@ -285,6 +376,23 @@ mod tests {
         p.apply(&mut empty, &known).unwrap();
         assert_eq!(empty["confirm"]["quit"], "hold");
         assert!(p.locks("confirm.delete") && !p.locks("confirm.unpin") && !p.locks("confirm.quit"));
+    }
+
+    #[test]
+    fn a_policy_that_does_not_read_still_says_whose_it_is_and_where_to_ask() {
+        let bad = from_map(
+            map(r#"{"organization": "Example Corp",
+                    "support_url": "https://it.example.com/u0",
+                    "settings": {"telemetry": {"value": "off", "locked": true}}}"#),
+            "The policy in the profile for local.u0.desk does not read",
+        )
+        .unwrap_err();
+        assert_eq!(bad.organization.as_deref(), Some("Example Corp"));
+        assert_eq!(
+            bad.support_url.as_deref(),
+            Some("https://it.example.com/u0")
+        );
+        assert!(bad.why.contains("invalid type"), "{}", bad.why);
     }
 
     #[test]

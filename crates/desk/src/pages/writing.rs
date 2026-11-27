@@ -21,7 +21,10 @@ use crate::{
 
 impl Desk {
     /// The writer's tab.
-    pub(super) fn writing_tab(w: &WeakEntity<Desk>) -> SettingPage {
+    pub(super) fn writing_tab(
+        w: &WeakEntity<Desk>,
+        banners: Option<gpui::component::setting::SettingGroup>,
+    ) -> SettingPage {
         let writer = vec![
             item(
                 w,
@@ -75,11 +78,13 @@ impl Desk {
                 |d| &d.pages.transcripts,
             ),
         ];
-        SettingPage::new(super::Tab::Writing.title())
-            .description(crate::tr(
-                "u0 has no model of its own: an agent of yours writes what u0 writes for you.",
-            ))
-            .group(group(crate::tr("The writer"), writer))
+        let mut page = SettingPage::new(super::Tab::Writing.title()).description(crate::tr(
+            "u0 has no model of its own: an agent of yours writes what u0 writes for you.",
+        ));
+        if let Some(b) = banners {
+            page = page.group(b);
+        }
+        page.group(group(crate::tr("The writer"), writer))
             .group(group(crate::tr("Your instructions"), yours))
     }
 

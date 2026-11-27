@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use gpui::component::{Selectable as _, menu::PopupMenu, setting::SettingGroup};
+use gpui::component::{Disableable as _, Selectable as _, menu::PopupMenu, setting::SettingGroup};
 use gpui::{Context, Div, SharedString, WeakEntity, div, prelude::*, px};
 use u0ui::tokens::ColorRole;
 
@@ -86,12 +86,13 @@ impl Desk {
             )
             .into_any_element()
         };
+        let readonly = self.settings_readonly(self.pages.on);
         div()
             .flex()
             .flex_col()
             .items_end()
             .gap(px(2.))
-            .child(ui::segmented(id, choices))
+            .child(ui::segmented(id, choices).disabled(readonly))
             .when(scope.is_some(), |d| d.child(marker))
     }
     /// Carbon `layer-01` scope bar atop pages with project-overridable settings

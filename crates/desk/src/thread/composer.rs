@@ -48,10 +48,15 @@ impl Desk {
         let name = self.name_of(&s.meta.agent);
         // What you might say next stands in the empty line, Tab to take.
         let suggested = self.suggestion(s.key, cx);
-        let says = match suggested {
-            Some(next) => SharedString::from(next.to_owned()),
-            None if s.items.is_empty() => crate::tr("Describe a task or ask a question"),
-            None => crate::tr("Reply"),
+        let offline = self
+            .machine(s.host)
+            .filter(|m| m.up != crate::hub::Up::On)
+            .map(|m| m.name.clone());
+        let says = match (offline, suggested) {
+            (Some(server), _) => crate::tr_with("Sent once %{name} is back", &[("name", &server)]),
+            (None, Some(next)) => SharedString::from(next.to_owned()),
+            (None, None) if s.items.is_empty() => crate::tr("Describe a task or ask a question"),
+            (None, None) => crate::tr("Reply"),
         };
         // Said again only when it changes: setting it draws the line again.
         self.composer.input.update(cx, |i, cx| {

@@ -520,15 +520,18 @@ impl Desk {
         let now = std::time::SystemTime::now();
         // Going on by itself as the limit resets: a task said in this
         // session, which the server runs then.
-        let resuming = self.tasks.list.as_ref().ok().and_then(|list| {
-            list.iter().find(|t| {
-                t.same
-                    && t.session == s.meta.id
-                    && t.prompt == "Continue"
-                    && matches!(t.schedule, crate::tasks::Schedule::Once(_))
-                    && t.next.is_some()
-            })
-        });
+        let resuming = self
+            .tasks_on(s.host)
+            .and_then(|r| r.as_ref().ok())
+            .and_then(|list| {
+                list.iter().find(|t| {
+                    t.same
+                        && t.session == s.meta.id
+                        && t.prompt == "Continue"
+                        && matches!(t.schedule, crate::tasks::Schedule::Once(_))
+                        && t.next.is_some()
+                })
+            });
         if let Some(task) = resuming {
             let (id, at) = (task.id, task.next.map(crate::store::time));
             let goes = at.map_or_else(

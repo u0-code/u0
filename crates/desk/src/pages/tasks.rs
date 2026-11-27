@@ -187,14 +187,17 @@ impl Desk {
                 },
             ));
         }
-        match &self.tasks.list {
-            Err(why) => {
+        match self.tasks_on(self.pages.on) {
+            None => list.push(item(w, crate::tr("Reading…"), "", |_, _, _| {
+                div().into_any_element()
+            })),
+            Some(Err(why)) => {
                 let why = why.clone();
                 list.push(whole(w, &[], move |_, _, _| {
                     ui::trouble(why.clone()).into_any_element()
                 }));
             }
-            Ok(tasks) if tasks.is_empty() => list.push(item(
+            Some(Ok(tasks)) if tasks.is_empty() => list.push(item(
                 w,
                 crate::tr("No tasks yet"),
                 crate::tr(
@@ -202,7 +205,7 @@ impl Desk {
                 ),
                 |_, _, _| div().into_any_element(),
             )),
-            Ok(tasks) => {
+            Some(Ok(tasks)) => {
                 for task in tasks {
                     let (task, named) = (task.clone(), task.title.clone());
                     list.push(

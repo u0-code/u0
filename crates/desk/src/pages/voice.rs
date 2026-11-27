@@ -12,7 +12,7 @@ impl Desk {
     /// The dictation group.
     pub(super) fn dictation_group(w: &WeakEntity<Desk>) -> SettingGroup {
         group(crate::tr("Dictation"), vec![
-                item(w, crate::tr("The dictation key (⇧⌘D)"), crate::tr("Auto: a press begins and a press ends, or hold it while you talk. Toggle: a press begins, a press ends. Hold: it listens while held. Outside the composer, macOS's dictation types instead."), |d, _, cx| Self::pick("voice-key",
+                item(w, crate::tr("The dictation key (⇧⌘D)"), crate::tr("Auto: a press begins and a press ends, or hold it while you talk. Toggle: a press begins, a press ends. Hold: it listens while held. Outside the composer, macOS's dictation types instead."), |d, _, cx| d.pick("voice-key",
                         [
                             (crate::tr("Auto"), VoiceKey::Auto),
                             (crate::tr("Toggle"), VoiceKey::Toggle),
@@ -23,13 +23,13 @@ impl Desk {
                         cx,
                     ).into_any_element()),
                 Self::language_item(w),
-                item(w, crate::tr("Filler words"), crate::tr("“Um”, “uh” and the like."), |d, _, cx| Self::pick("voice-fillers",
+                item(w, crate::tr("Filler words"), crate::tr("“Um”, “uh” and the like."), |d, _, cx| d.pick("voice-fillers",
                         [(crate::tr("Left out"), true), (crate::tr("Kept"), false)],
                         d.settings.voice.no_fillers,
                         |s, v| s.voice.no_fillers = v,
                         cx,
                     ).into_any_element()),
-                item(w, crate::tr("Clean up"), crate::tr("The writer corrects what was misheard and punctuates it before it goes in; Skip puts it in as heard."), |d, _, cx| Self::pick("voice-clean",
+                item(w, crate::tr("Clean up"), crate::tr("The writer corrects what was misheard and punctuates it before it goes in; Skip puts it in as heard."), |d, _, cx| d.pick("voice-clean",
                         [(crate::tr("As heard"), false), (crate::tr("Cleaned up"), true)],
                         d.settings.voice.clean,
                         |s, v| s.voice.clean = v,

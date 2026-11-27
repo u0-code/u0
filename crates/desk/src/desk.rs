@@ -33,6 +33,7 @@ use gpui::{
 use tokio::sync::mpsc;
 
 mod agents;
+pub(crate) mod banners;
 pub(crate) mod dictation;
 pub(crate) mod forge;
 mod gitview;
@@ -171,6 +172,9 @@ pub struct Desk {
     /// Why the settings could not be read, while that is so: nothing is
     /// saved over them.
     pub settings_refused: Option<String>,
+    /// Why `keybindings.json` could not be read, while that is so: u0 uses
+    /// its own keys and leaves the file untouched.
+    pub keys_refused: Option<String>,
     /// What is being renamed, and the line for it.
     pub renaming: Option<lists::Renaming>,
     pub rename: Entity<InputState>,
@@ -601,11 +605,13 @@ impl Desk {
         let dialogs = crate::thread::ThreadDialogs::new(window, cx);
         let onboarding = crate::thread::Onboarding::new(window, cx);
         let registry = registry::kept(&home).unwrap_or_default();
+        let keys_refused = crate::keys::yours(&home).1;
         hub::on_path(tx.clone());
         let mut desk = Self {
             home,
             settings,
             settings_refused,
+            keys_refused,
             renaming: None,
             zoom: None,
             filter: Vec::new(),
@@ -806,6 +812,11 @@ impl Desk {
         self.machine(host)?.here.get(agent)
     }
 
+    /// The scheduled tasks of the server `host`, once it has said them.
+    pub fn tasks_on(&self, host: hub::Host) -> Option<&Result<Vec<crate::tasks::Task>, String>> {
+        self.machine(host)?.tasks.as_ref()
+    }
+
     /// Whether anything is going on that is drawn as it goes.
     fn busy(&self) -> bool {
         self.sessions
@@ -816,6 +827,7 @@ impl Desk {
                 .slots
                 .iter()
                 .any(|s| matches!(s.stage, Stage::Installing(_) | Stage::Starting))
+            || self.machines.iter().any(|m| m.retry_in().is_some())
     }
 
     pub fn session(&self) -> Option<&Session> {
@@ -836,7 +848,7 @@ impl Desk {
             self.speech = None;
         }
         let refused = match self.machine(host) {
-            Some(m) if host != hub::Host::HERE => m.refused.is_some() || m.up == hub::Up::Reaching,
+            Some(m) if host != hub::Host::HERE => m.refused.is_some() || m.up != hub::Up::On,
             _ => self.settings_refused.is_some(),
         };
         if !refused {
@@ -1863,8 +1875,19 @@ impl Desk {
             crate::pages::Tab::Workflows => self.read_flows(window, cx),
             // Where a webhook task is called from.
             crate::pages::Tab::Tasks => self.call(on, Call::Share(crate::share::Share::Look)),
+            crate::pages::Tab::Keybindings => self.reload_keys(cx),
             _ => {}
         }
+    }
+
+    /// Read `keybindings.json` again and rebind keys when it reads.
+    pub(crate) fn reload_keys(&mut self, cx: &mut Context<Self>) {
+        let (yours, refused) = crate::keys::yours(&self.home);
+        if refused.is_none() {
+            cx.clear_key_bindings();
+            crate::keys::bind(cx, &yours);
+        }
+        self.keys_refused = refused;
     }
 
     /// Open the settings on the server `host`'s own: its agents first.
@@ -2088,7 +2111,8 @@ impl Render for Desk {
                         .object_fit(gpui::ObjectFit::Cover)
                         .opacity(0.16)
                 }))
-                .child(self.topbar(&faces, lights, cx));
+                .child(self.topbar(&faces, lights, cx))
+                .children(self.thread_banners(&faces, cx));
 
             match self.page.clone() {
                 Page::Thread => {

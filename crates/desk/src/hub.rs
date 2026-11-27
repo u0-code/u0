@@ -95,6 +95,10 @@ pub struct Machine {
     pub name: String,
     pub transport: Transport,
     pub up: Up,
+    /// When the server went out of reach, while it is `Up::Lost`.
+    pub lost_since: Option<std::time::SystemTime>,
+    /// Its scheduled tasks, once read, or why `tasks.json` did not read.
+    pub tasks: Option<Result<Vec<crate::tasks::Task>, String>>,
     /// u0's home there: where its worktrees and scratch folders are.
     pub home: PathBuf,
     /// Its settings, as its home has them, and why they do not read: this
@@ -129,6 +133,8 @@ impl Machine {
             name,
             transport,
             up,
+            lost_since: None,
+            tasks: None,
             home: PathBuf::new(),
             settings: Settings::default(),
             refused: None,
@@ -217,6 +223,14 @@ impl Machine {
     pub fn again(&self) {
         if let Transport::Remote(link) = &self.transport {
             link.again();
+        }
+    }
+
+    /// How long until the next automatic retry while out of reach.
+    pub fn retry_in(&self) -> Option<std::time::Duration> {
+        match &self.transport {
+            Transport::Local(_) => None,
+            Transport::Remote(link) => link.retry_in(),
         }
     }
 

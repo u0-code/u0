@@ -98,7 +98,11 @@ fn standing(d: &crate::access::Device) -> String {
 
 impl Desk {
     /// Devices: this Mac controlled from others, and others from it.
-    pub(super) fn devices_tab(&self, w: &WeakEntity<Desk>) -> SettingPage {
+    pub(super) fn devices_tab(
+        &self,
+        w: &WeakEntity<Desk>,
+        banners: Option<SettingGroup>,
+    ) -> SettingPage {
         let on = (self.machine(self.pages.on))
             .filter(|_| self.pages.on != Host::HERE)
             .map_or_else(|| crate::tr("this Mac").to_string(), |m| m.name.clone());
@@ -161,18 +165,24 @@ impl Desk {
                     .into_any_element()
             },
         );
-        let mut page = SettingPage::new(crate::tr("Devices"))
-            .description(
-                crate::tr("Use u0 on one Mac from another: its agents, threads, files and terminals, as there. Each device comes in by a key of its own, made as it pairs: its private half stays in that device's Keychain, and only the public half, shown by its fingerprint, is sent."),
-            )
-            .group(SettingGroup::new().items(
+        let mut page = SettingPage::new(crate::tr("Devices")).description(crate::tr(
+            "Use u0 on one Mac from another: its agents, threads, files and terminals, as there. Each device comes in by a key of its own, made as it pairs: its private half stays in that device's Keychain, and only the public half, shown by its fingerprint, is sent.",
+        ));
+        if let Some(b) = banners {
+            page = page.group(b);
+        }
+        page = page.group(
+            SettingGroup::new().items(
                 std::iter::once(serve)
                     .chain(failed.map(|why| {
-                        whole(w, &[], move |_, _, _| ui::trouble(why.clone()).into_any_element())
+                        whole(w, &[], move |_, _, _| {
+                            ui::trouble(why.clone()).into_any_element()
+                        })
                     }))
                     .chain([controlling])
                     .collect::<Vec<_>>(),
-            ));
+            ),
+        );
         if listening {
             page = page
                 .group(group(
@@ -637,36 +647,49 @@ impl Desk {
         let port = crate::access::Access::new(&self.home)
             .kept()
             .map_or(0, |k| k.port);
-        (self.pages.servers.held(port))
-            .map(|s| {
-                let name = s.name.clone();
-                let held = (self.machines.iter()).find(|m| m.host != Host::HERE && m.name == name);
-                let here = crate::update::this_build();
-                let (host, print) = (&s.host, key::fingerprint(&s.key));
-                let runs = match held.and_then(|m| m.version.as_ref()) {
-                    Some(v) if *v == here => crate::tr_with(
-                        "%{host}. Your key: %{print}. It runs %{v}, as this Mac does.",
-                        &[("host", host), ("print", &print), ("v", v)],
-                    ),
-                    Some(v) => crate::tr_with(
-                        "%{host}. Your key: %{print}. It runs %{v}; this Mac runs %{here}.",
-                        &[("host", host), ("print", &print), ("v", v), ("here", &here)],
-                    ),
-                    None => crate::tr_with(
-                        "%{host}. Your key: %{print}.",
-                        &[("host", host), ("print", &print)],
-                    ),
-                };
-                let runs = if held.is_some_and(|m| m.scope == Scope::Read) {
-                    format!("{runs} {}", crate::tr("This Mac may only watch there."))
-                } else {
-                    runs.to_string()
-                };
-                item(w, s.name.clone(), runs, move |d, faces, cx| {
-                    d.server_control(&name, faces, cx)
-                })
+        let mut rows: Vec<gpui::component::setting::SettingItem> = Vec::new();
+        if let Some(why) = self.pages.servers_refused.clone() {
+            rows.push(whole(w, &[], move |_, faces, _| {
+                crate::desk::banners::banner(
+                    faces,
+                    crate::desk::banners::Kind::Error,
+                    crate::tr("Couldn't read your machines"),
+                    why.clone(),
+                    None,
+                    None,
+                )
+                .into_any_element()
+            }));
+        }
+        rows.extend((self.pages.servers.held(port)).map(|s| {
+            let name = s.name.clone();
+            let held = (self.machines.iter()).find(|m| m.host != Host::HERE && m.name == name);
+            let here = crate::update::this_build();
+            let (host, print) = (&s.host, key::fingerprint(&s.key));
+            let runs = match held.and_then(|m| m.version.as_ref()) {
+                Some(v) if *v == here => crate::tr_with(
+                    "%{host}. Your key: %{print}. It runs %{v}, as this Mac does.",
+                    &[("host", host), ("print", &print), ("v", v)],
+                ),
+                Some(v) => crate::tr_with(
+                    "%{host}. Your key: %{print}. It runs %{v}; this Mac runs %{here}.",
+                    &[("host", host), ("print", &print), ("v", v), ("here", &here)],
+                ),
+                None => crate::tr_with(
+                    "%{host}. Your key: %{print}.",
+                    &[("host", host), ("print", &print)],
+                ),
+            };
+            let runs = if held.is_some_and(|m| m.scope == Scope::Read) {
+                format!("{runs} {}", crate::tr("This Mac may only watch there."))
+            } else {
+                runs.to_string()
+            };
+            item(w, s.name.clone(), runs, move |d, faces, cx| {
+                d.server_control(&name, faces, cx)
             })
-            .collect()
+        }));
+        rows
     }
 
     /// Where a link from another Mac is pasted to pair with it.
@@ -933,8 +956,14 @@ impl Desk {
     /// The servers paired with, read again for Devices.
     pub(crate) fn read_servers(&mut self) {
         match Servers::load(&self.home) {
-            Ok(servers) => self.pages.servers = servers,
-            Err(why) => self.trouble(crate::tr("Couldn't read your machines"), Some(why), None),
+            Ok(servers) => {
+                self.pages.servers = servers;
+                self.pages.servers_refused = None;
+            }
+            Err(why) => {
+                self.pages.servers_refused = Some(why.clone());
+                self.trouble(crate::tr("Couldn't read your machines"), Some(why), None);
+            }
         }
     }
 }

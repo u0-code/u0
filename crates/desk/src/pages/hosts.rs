@@ -14,7 +14,11 @@ use crate::{
 
 impl Desk {
     /// The Source control tab: each host, and what merging leaves out.
-    pub(super) fn source_control(&self, w: &WeakEntity<Desk>) -> SettingPage {
+    pub(super) fn source_control(
+        &self,
+        w: &WeakEntity<Desk>,
+        banners: Option<gpui::component::setting::SettingGroup>,
+    ) -> SettingPage {
         // A token holds everywhere: with a project chosen, it is not changed.
         let scoped = self.pages.scope.is_some();
         let hosts = Host::ALL
@@ -40,11 +44,13 @@ impl Desk {
                 item(w, host.name(), about, move |d, _, cx| d.token_field(n, cx)).disabled(scoped)
             })
             .collect();
-        SettingPage::new(crate::tr("Source control"))
-            .description(
-                crate::tr("Where your projects' code and issues are. A token of yours is used over the CLI's own sign-in, and kept in the macOS Keychain, never in a file; it may be a 1Password reference (op://)."),
-            )
-            .group(Self::scope_group(w))
+        let mut page = SettingPage::new(crate::tr("Source control")).description(crate::tr(
+            "Where your projects' code and issues are. A token of yours is used over the CLI's own sign-in, and kept in the macOS Keychain, never in a file; it may be a 1Password reference (op://).",
+        ));
+        if let Some(b) = banners {
+            page = page.group(b);
+        }
+        page.group(Self::scope_group(w))
             .group(group(crate::tr("Hosts"), hosts))
             .group(group(
                 crate::tr("Merging"),

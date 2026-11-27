@@ -30,9 +30,10 @@ const DOMAIN: &str = "local.u0.desk";
 const KEYS: [&str; 4] = ["organization", "support_url", "settings", "limits"];
 
 /// The policy the profiles installed force; none where they force nothing.
-pub fn read() -> Result<Option<Policy>, String> {
+pub fn read() -> Result<Option<Policy>, super::BadPolicy> {
     let domain = CFString::new(DOMAIN);
-    policy(|key| {
+    let prefix = format!("The policy in the profile for {DOMAIN} does not read");
+    policy(&prefix, |key| {
         let key = CFString::new(key);
         // SAFETY: both strings live through the calls; a value copied is
         // owned here (the create rule) and released as it is dropped.
@@ -51,24 +52,42 @@ pub fn read() -> Result<Option<Policy>, String> {
         };
         value.as_ref().map(json).transpose()
     })
-    .map_err(|e| format!("The policy in the profile for {DOMAIN} does not read: {e}"))
 }
 
 /// The policy of the values `get` gives for its keys; none where it gives
 /// none.
-fn policy(get: impl Fn(&str) -> Result<Option<Value>, String>) -> Result<Option<Policy>, String> {
+fn policy(
+    prefix: &str,
+    get: impl Fn(&str) -> Result<Option<Value>, String>,
+) -> Result<Option<Policy>, super::BadPolicy> {
     let mut found = serde_json::Map::new();
+    let mut first_err = None;
     for key in KEYS {
-        if let Some(value) = get(key)? {
-            found.insert(key.into(), value);
+        match get(key) {
+            Ok(Some(value)) => {
+                found.insert(key.into(), value);
+            }
+            Ok(None) => {}
+            Err(why) => {
+                first_err.get_or_insert(why);
+            }
         }
     }
-    if found.is_empty() {
-        return Ok(None);
+    if let Some(why) = first_err {
+        let str_at = |k| {
+            found
+                .get(k)
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+        };
+        return Err(super::BadPolicy {
+            organization: str_at("organization"),
+            support_url: str_at("support_url"),
+            why: format!("{prefix}: {why}"),
+        });
     }
-    serde_json::from_value(Value::Object(found))
-        .map(Some)
-        .map_err(|e| e.to_string())
+    super::from_map(found, prefix)
 }
 
 /// A property list's value as the JSON of policy.json: a boolean, a
@@ -132,9 +151,11 @@ mod tests {
     }
 
     /// The policy a profile's one payload forces, as `read` finds it.
-    fn payload(profile: &Value) -> Result<Option<Policy>, String> {
+    fn payload(profile: &Value) -> Result<Option<Policy>, crate::policy::BadPolicy> {
         let payload = &profile["PayloadContent"][0];
-        policy(|key| Ok(payload.get(key).cloned()))
+        policy("The policy in the profile does not read", |key| {
+            Ok(payload.get(key).cloned())
+        })
     }
 
     #[test]
@@ -182,6 +203,8 @@ mod tests {
             </dict></array></dict></plist>",
         )
         .unwrap();
-        assert!(payload(&wrong).unwrap_err().contains("invalid type"));
+        let bad = payload(&wrong).unwrap_err();
+        assert_eq!(bad.organization.as_deref(), Some("Corp"));
+        assert!(bad.why.contains("invalid type"));
     }
 }

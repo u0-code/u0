@@ -59,7 +59,7 @@ impl Desk {
                 crate::tr("Updates from"),
                 crate::tr("Stable is each release, as the u0 cask installs it; Nightly is what main is now, rebuilt with each change, as u0@nightly installs it."),
                 |d, _, cx| {
-                    Self::pick("channel",
+                    d.pick("channel",
                         [(crate::tr("Stable"), Channel::Stable), (crate::tr("Nightly"), Channel::Nightly)],
                         d.settings.channel,
                         |s, v| s.channel = v,

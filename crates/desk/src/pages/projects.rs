@@ -22,7 +22,11 @@ use crate::{
 impl Desk {
     /// The projects, each a row that opens its page; archived ones too.
     /// With a project chosen, its page.
-    pub(super) fn projects_tab(&self, w: &WeakEntity<Desk>) -> SettingPage {
+    pub(super) fn projects_tab(
+        &self,
+        w: &WeakEntity<Desk>,
+        banners: Option<SettingGroup>,
+    ) -> SettingPage {
         if let Some(folder) = self.pages.project.clone() {
             return self.project_page(w, &folder);
         }
@@ -64,11 +68,13 @@ impl Desk {
                 },
             ),
         ];
-        SettingPage::new(crate::tr("Projects"))
-            .description(crate::tr(
-                "The folders you work in, and how each one's threads begin.",
-            ))
-            .group(SettingGroup::new().item(list))
+        let mut page = SettingPage::new(crate::tr("Projects")).description(crate::tr(
+            "The folders you work in, and how each one's threads begin.",
+        ));
+        if let Some(b) = banners {
+            page = page.group(b);
+        }
+        page.group(SettingGroup::new().item(list))
             .group(SettingGroup::new().items(adding))
     }
 

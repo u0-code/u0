@@ -58,6 +58,7 @@ impl Desk {
         let filter_bar =
             (!projects.is_empty() && !searching).then(|| self.sidebar_filter_bar(&projects, cx));
         let tag_bar = (!self.tag_filter.is_empty() && !searching).then(|| self.sidebar_tag_bar(cx));
+        let store_banner = self.sidebar_banner(faces);
 
         let body = if projects.is_empty() {
             div()
@@ -117,6 +118,7 @@ impl Desk {
             .child(nav)
             .children(filter_bar)
             .children(tag_bar)
+            .children(store_banner)
             .child(body)
             .children(sel_bar)
             .child(foot)

@@ -58,19 +58,6 @@ impl Desk {
                 )
         };
         let mut steps: Vec<ListItem> = Vec::new();
-        // Settings that did not read, as u0 started: read again once
-        // the file is mended or moved away.
-        if self.settings_refused.is_some() {
-            steps.push(
-                row(
-                    "step-settings".into(),
-                    "alert",
-                    crate::tr("Your settings did not read: read them again"),
-                    None,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.read_settings_again(cx))),
-            );
-        }
         if self.projects().is_empty() {
             steps.push(
                 row(

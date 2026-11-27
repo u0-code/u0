@@ -41,10 +41,15 @@ impl Desk {
         title: impl Into<SharedString>,
         about: impl Into<SharedString>,
     ) -> SRow {
+        let offline = self.pages.on != Host::HERE
+            && self
+                .machine(self.pages.on)
+                .is_some_and(|m| m.up != crate::hub::Up::On);
         SRow::new(id, title)
             .description(about)
             .policy_key(id)
             .unreadable(self.edited_unreadable())
+            .disabled(offline)
     }
 
     /// Carbon-native settings page for migrated tabs (`General`, `NewThreads`).
@@ -710,6 +715,7 @@ impl Desk {
         &self,
         tab: super::Tab,
         w: &WeakEntity<Desk>,
+        banners: Option<SettingGroup>,
         cx: &App,
     ) -> Option<SettingPage> {
         use super::Tab;
@@ -727,7 +733,7 @@ impl Desk {
                                     "A project's threads, and the projects: your last message, anything happening, when each began, or name. Pinned ones stay on top.",
                                 ),
                                 |d, _, cx| {
-                                    Self::pick(
+                                    d.pick(
                                         "sort",
                                         [
                                             (
@@ -751,7 +757,7 @@ impl Desk {
                                     "Light and dark keep the same amber for what is going on now.",
                                 ),
                                 |d, _, cx| {
-                                    Self::pick(
+                                    d.pick(
                                         "look",
                                         [
                                             (crate::tr("Dark"), crate::settings::Look::Dark),
@@ -774,7 +780,7 @@ impl Desk {
                                     "Everything in the window, larger or smaller: ⌘+, ⌘− and ⌘0.",
                                 ),
                                 |d, _, cx| {
-                                    Self::pick(
+                                    d.pick(
                                         "scale",
                                         crate::settings::SCALES.map(|s| (format!("{s}%"), s)),
                                         d.settings.scale,
@@ -790,7 +796,7 @@ impl Desk {
                                     "More draws the greys of what matters less, and the edges, stronger.",
                                 ),
                                 |d, _, cx| {
-                                    Self::pick(
+                                    d.pick(
                                         "contrast",
                                         [
                                             (crate::tr("As designed"), false),
@@ -809,7 +815,7 @@ impl Desk {
                                     "The window's grounds let the desktop show through, blurred.",
                                 ),
                                 |d, _, cx| {
-                                    Self::pick(
+                                    d.pick(
                                         "glass",
                                         [(crate::tr("Solid"), false), (crate::tr("Glass"), true)],
                                         d.settings.glass,
@@ -823,7 +829,7 @@ impl Desk {
                                 crate::tr("Code font"),
                                 crate::tr("What code, commands and numbers are set in."),
                                 |d, _, cx| {
-                                    Self::pick(
+                                    d.pick(
                                         "mono",
                                         [
                                             (
@@ -851,7 +857,7 @@ impl Desk {
                                 crate::tr("Terminal text"),
                                 crate::tr("How large your terminals' text is, in the code font."),
                                 |d, _, cx| {
-                                    Self::pick(
+                                    d.pick(
                                         "terminal_size",
                                         [
                                             (crate::tr("Small"), crate::settings::TermSize::Small),
@@ -874,7 +880,7 @@ impl Desk {
                                     "What a new terminal runs: your login shell, or one named.",
                                 ),
                                 |d, _, cx| {
-                                    Self::pick(
+                                    d.pick(
                                         "shell",
                                         [
                                             (
@@ -896,7 +902,7 @@ impl Desk {
                                 crate::tr("Reading width"),
                                 crate::tr("How wide the thread and the composer are."),
                                 |d, _, cx| {
-                                    Self::pick(
+                                    d.pick(
                                         "width",
                                         [
                                             (crate::tr("Comfortable"), Width::Comfortable),
@@ -914,7 +920,7 @@ impl Desk {
                                 crate::tr("What a change added and took away"),
                                 crate::tr("Blue and orange tell them apart without green and red."),
                                 |d, _, cx| {
-                                    Self::pick(
+                                    d.pick(
                                         "blue_orange",
                                         [
                                             (crate::tr("Green and red"), false),
@@ -931,7 +937,7 @@ impl Desk {
                                 crate::tr("Times"),
                                 crate::tr("When a message was said, and what u0 says of times."),
                                 |d, _, cx| {
-                                    Self::pick(
+                                    d.pick(
                                         "twelve",
                                         [
                                             (crate::tr("24-hour"), false),
@@ -950,7 +956,7 @@ impl Desk {
                                     "Wrapped, they show whole; kept to a line, they are cut at the edge.",
                                 ),
                                 |d, _, cx| {
-                                    Self::pick(
+                                    d.pick(
                                         "diff_wrap",
                                         [(crate::tr("Wrap"), true), (crate::tr("Cut"), false)],
                                         d.settings.diff_wrap,
@@ -966,7 +972,7 @@ impl Desk {
                                     "Left out, a diff shows what changed in the words alone.",
                                 ),
                                 |d, _, cx| {
-                                    Self::pick(
+                                    d.pick(
                                         "no_spacing",
                                         [
                                             (crate::tr("Shown"), false),
@@ -983,7 +989,7 @@ impl Desk {
                                 crate::tr("A file's diff opens"),
                                 crate::tr("Side by side widens the column beside the thread."),
                                 |d, _, cx| {
-                                    Self::pick(
+                                    d.pick(
                                         "side_by_side",
                                         [
                                             (crate::tr("Stacked"), false),
@@ -1000,7 +1006,7 @@ impl Desk {
                                 crate::tr("A diff's files"),
                                 crate::tr("Folded, each shows its name and counts until opened."),
                                 |d, _, cx| {
-                                    Self::pick(
+                                    d.pick(
                                         "diff_folded",
                                         [(crate::tr("Open"), false), (crate::tr("Folded"), true)],
                                         d.settings.diff_folded,
@@ -1026,7 +1032,7 @@ impl Desk {
                                 "Steer stops the turn and says it now; waiting says it once the turn ends.",
                             ),
                             |d, _, cx| {
-                                Self::pick(
+                                d.pick(
                                     "steer",
                                     [
                                         (crate::tr("Wait its turn"), false),
@@ -1071,7 +1077,7 @@ impl Desk {
                                 "Where Return does not send, it breaks the line. The other key (⌘Return, or ⇧⌘Return) begins another thread beside it, or while a turn goes on does the opposite of the setting above.",
                             ),
                             |d, _, cx| {
-                                Self::pick(
+                                d.pick(
                                     "send",
                                     [
                                         (crate::tr("Return"), crate::settings::SendKey::Return),
@@ -1099,7 +1105,7 @@ impl Desk {
                                     "Answers shows what you said and its answers; quiet leaves out the calls that went well; normal folds each run of calls into a line; thinking shows its reasoning too; verbose shows every call and step.",
                                 ),
                                 |d, _, cx| {
-                                    Self::pick(
+                                    d.pick(
                                         "view",
                                         [
                                             (crate::tr("Answers"), crate::settings::View::Zen),
@@ -1124,7 +1130,7 @@ impl Desk {
                                     "A paragraph at a time holds each back until it is whole.",
                                 ),
                                 |d, _, cx| {
-                                    Self::pick(
+                                    d.pick(
                                         "paragraphs",
                                         [
                                             (crate::tr("Word by word"), false),
@@ -1144,7 +1150,7 @@ impl Desk {
                                     "TeX in what an agent says, $…$ and $$…$$, set as formulas.",
                                 ),
                                 |d, _, cx| {
-                                    Self::pick(
+                                    d.pick(
                                         "math",
                                         [
                                             (crate::tr("As written"), false),
@@ -1160,16 +1166,21 @@ impl Desk {
                     ),
                 ],
             ),
-            Tab::Keybindings => return Some(keyboard(w)),
-            Tab::Writing => return Some(Self::writing_tab(w)),
-            Tab::About => return Some(self.about_u0(w)),
-            Tab::SourceControl => return Some(self.source_control(w)),
+            Tab::Keybindings => return Some(keyboard(w, banners)),
+            Tab::Writing => return Some(Self::writing_tab(w, banners)),
+            Tab::About => return Some(self.about_u0(w, banners)),
+            Tab::SourceControl => return Some(self.source_control(w, banners)),
             _ => return None,
         };
+        let mut all = Vec::new();
+        if let Some(b) = banners {
+            all.push(b);
+        }
+        all.extend(groups);
         Some(
             SettingPage::new(tab.title())
                 .description(crate::tr(lede))
-                .groups(groups),
+                .groups(all),
         )
     }
 
@@ -1204,6 +1215,7 @@ impl Desk {
     }
 
     pub(super) fn pick<T: Copy + PartialEq + 'static, const N: usize>(
+        &self,
         id: &str,
         choices: [(impl Into<SharedString>, T); N],
         now: T,
@@ -1222,15 +1234,21 @@ impl Desk {
                 (crate::tr(&label.into()), value == now, pick)
             })
             .collect();
-        let group = ui::segmented(id, choices);
+        let readonly = self.settings_readonly(Host::HERE);
+        let group = ui::segmented(id, choices).disabled(readonly);
         let key = id.split_once('-').map_or(id, |(key, _)| key);
-        match crate::policy::locked(id).or_else(|| crate::policy::locked(key)) {
-            None => group.into_any_element(),
-            Some(by) => managed(group.disabled(true), by),
+        if let Some(by) = crate::policy::locked(id).or_else(|| crate::policy::locked(key)) {
+            managed(group.disabled(true), by)
+        } else if let Some(by) =
+            crate::policy::default_of(id).or_else(|| crate::policy::default_of(key))
+        {
+            defaulted(group, by.0)
+        } else {
+            group.into_any_element()
         }
     }
 
-    fn about_u0(&self, w: &WeakEntity<Desk>) -> SettingPage {
+    fn about_u0(&self, w: &WeakEntity<Desk>, banners: Option<SettingGroup>) -> SettingPage {
         let rows = vec![
             item(
                 w,
@@ -1273,7 +1291,7 @@ impl Desk {
                 crate::tr("Keep logs"),
                 crate::tr("The days of log kept; older files go as u0 starts."),
                 |d, _, cx| {
-                    Self::pick(
+                    d.pick(
                         "log_days",
                         [
                             (crate::tr("3 days"), 3),
@@ -1299,9 +1317,12 @@ impl Desk {
                 },
             ),
         ];
-        SettingPage::new(super::Tab::About.title())
-            .description(crate::update::this_build())
-            .group(SettingGroup::new().items(rows))
+        let mut page =
+            SettingPage::new(super::Tab::About.title()).description(crate::update::this_build());
+        if let Some(b) = banners {
+            page = page.group(b);
+        }
+        page.group(SettingGroup::new().items(rows))
             .group(self.updates_group(w))
     }
 
@@ -1406,7 +1427,7 @@ fn managed_info_banner(faces: &Faces) -> Div {
         )
 }
 
-fn keyboard(w: &WeakEntity<Desk>) -> SettingPage {
+fn keyboard(w: &WeakEntity<Desk>, banners: Option<SettingGroup>) -> SettingPage {
     let grouped = |name: &str| keys::GROUPS.iter().position(|(_, g)| g.contains(&name));
     let mut groups: Vec<(&str, Vec<SettingItem>)> = keys::GROUPS
         .iter()
@@ -1452,15 +1473,18 @@ fn keyboard(w: &WeakEntity<Desk>) -> SettingPage {
         .unwrap_or_else(|_| div().into_any_element())
     })
     .keywords(["keybindings.json"]);
-    SettingPage::new(super::Tab::Keybindings.title())
-        .description(crate::tr("The keys as they are now, yours over u0's."))
-        .groups(
-            groups
-                .into_iter()
-                .filter(|(_, items)| !items.is_empty())
-                .map(|(title, items)| group(title, items)),
-        )
-        .group(SettingGroup::new().item(file))
+    let mut page = SettingPage::new(super::Tab::Keybindings.title())
+        .description(crate::tr("The keys as they are now, yours over u0's."));
+    if let Some(b) = banners {
+        page = page.group(b);
+    }
+    page.groups(
+        groups
+            .into_iter()
+            .filter(|(_, items)| !items.is_empty())
+            .map(|(title, items)| group(title, items)),
+    )
+    .group(SettingGroup::new().item(file))
 }
 
 /// A setting as gpui-kit's Settings draws one: what it is, said plainly
@@ -1501,7 +1525,7 @@ pub(super) fn item(
 }
 
 /// What the desk, `w`, draws whole as one setting, found by `words`.
-pub(super) fn whole(
+pub(crate) fn whole(
     w: &WeakEntity<Desk>,
     words: &[&'static str],
     draw: impl Fn(&mut Desk, &Faces, &mut Context<Desk>) -> AnyElement + 'static,
@@ -1528,6 +1552,25 @@ pub(super) fn managed(control: impl IntoElement, by: &str) -> AnyElement {
             div()
                 .text_color(crate::theme::muted())
                 .child(crate::tr_with("Managed by %{by}", &[("by", &by)])),
+        )
+        .into_any_element()
+}
+
+/// A control whose default comes from the policy, still editable, with who
+/// set the default beside it.
+pub(super) fn defaulted(control: impl IntoElement, by: &str) -> AnyElement {
+    div()
+        .flex()
+        .items_center()
+        .gap(px(8.))
+        .child(control)
+        .child(
+            div()
+                .text_color(crate::theme::muted())
+                .child(crate::tr_with(
+                    "Default from %{by}’s policy",
+                    &[("by", &by)],
+                )),
         )
         .into_any_element()
 }
