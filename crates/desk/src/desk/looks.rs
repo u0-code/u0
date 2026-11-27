@@ -44,17 +44,11 @@ impl Desk {
 
     /// Open custom theme `name` in the `600px` `Customize <Theme>` drawer and
     /// populate the 12 hex fields from its current colours.
-    pub(crate) fn open_theme_editor(
-        &mut self,
-        name: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn open_theme_editor(&mut self, name: &str, cx: &mut Context<Self>) {
         if themes::find(cx, name).is_none() {
             return;
         }
         self.pages.editing_theme = Some(name.to_owned());
-        self.sync_theme_editor_hexes(window, cx);
         cx.notify();
     }
 
@@ -62,28 +56,6 @@ impl Desk {
     pub(crate) fn close_theme_editor(&mut self, cx: &mut Context<Self>) {
         self.pages.editing_theme = None;
         cx.notify();
-    }
-
-    /// Select `role` in the drawer so the right-hand `ColorPicker` edits it.
-    pub(crate) fn select_editor_role(&mut self, role: ColorRole, cx: &mut Context<Self>) {
-        self.pages.editing_role = role;
-        cx.notify();
-    }
-
-    fn sync_theme_editor_hexes(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(name) = self.pages.editing_theme.as_deref() else {
-            return;
-        };
-        let Some(config) = themes::find(cx, name) else {
-            return;
-        };
-        let values = themes::role_values(&config);
-        for (idx, (_, color)) in values.into_iter().enumerate() {
-            let hex = themes::to_hex(color);
-            self.pages.theme_hexes[idx].update(cx, |input, cx| {
-                input.set_value(hex, window, cx);
-            });
-        }
     }
 
     fn unique_theme_name(&self, base: &str, cx: &App) -> String {
@@ -104,8 +76,8 @@ impl Desk {
         let name = imported.name.clone();
         let other = self.unique_theme_name(&name, cx);
         let yours = match themes::taken(cx, &self.home, &name) {
-            themes::Taken::Free => return self.keep_import(imported, &name, None, window, cx),
-            themes::Taken::Ours => return self.keep_import(imported, &other, None, window, cx),
+            themes::Taken::Free => return self.keep_import(imported, &name, None, cx),
+            themes::Taken::Ours => return self.keep_import(imported, &other, None, cx),
             themes::Taken::Yours(yours) => yours,
         };
         let (replace, both, cancel) = (
@@ -128,9 +100,9 @@ impl Desk {
         );
         cx.spawn_in(window, async move |this, cx| {
             let chosen = answer.await;
-            let _ = this.update_in(cx, |this, window, cx| match chosen {
-                Ok(0) => this.keep_import(imported, &name, Some(yours), window, cx),
-                Ok(1) => this.keep_import(imported, &other, None, window, cx),
+            let _ = this.update_in(cx, |this, _, cx| match chosen {
+                Ok(0) => this.keep_import(imported, &name, Some(yours), cx),
+                Ok(1) => this.keep_import(imported, &other, None, cx),
                 _ => {}
             });
         })
@@ -143,7 +115,7 @@ impl Desk {
         imported: themes::Imported,
         name: &str,
         replaced: Option<String>,
-        window: &mut Window,
+
         cx: &mut Context<Self>,
     ) {
         if let Some(old) = replaced.filter(|old| old != name) {
@@ -153,12 +125,12 @@ impl Desk {
         }
         let dark = imported.dark;
         let (path, text) = imported.file(&self.home, name);
-        self.save_and_open_theme(path, text, name, dark, window, cx);
+        self.save_and_open_theme(path, text, name, dark, cx);
     }
 
     /// Create a new custom theme from the active theme of the current look,
     /// select it, and open it in the `600px` drawer.
-    pub(crate) fn new_custom_theme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn new_custom_theme(&mut self, cx: &mut Context<Self>) {
         let dark = !crate::theme::is_light();
         let chosen = if dark {
             &self.settings.theme_dark
@@ -186,38 +158,28 @@ impl Desk {
             });
             themes::own_carbon(&self.home, &name, carbon)
         };
-        self.save_and_open_theme(path, text, &name, dark, window, cx);
+        self.save_and_open_theme(path, text, &name, dark, cx);
     }
 
     /// Duplicate built-in `base` into `<Label> (yours)`, select it for its
     /// mode, and open it in the `600px` drawer.
-    pub(crate) fn customize_carbon_theme(
-        &mut self,
-        base: CarbonTheme,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn customize_carbon_theme(&mut self, base: CarbonTheme, cx: &mut Context<Self>) {
         let label = crate::theme::carbon_label(base);
         let name = self.unique_theme_name(&format!("{label} (yours)"), cx);
         let (path, text) = themes::own_carbon(&self.home, &name, base);
-        self.save_and_open_theme(path, text, &name, base.is_dark(), window, cx);
+        self.save_and_open_theme(path, text, &name, base.is_dark(), cx);
     }
 
     /// Duplicate custom theme `source_name` into `<source_name> copy`, select
     /// it for its mode, and open the copy in the drawer.
-    pub(crate) fn duplicate_edited_theme(
-        &mut self,
-        source_name: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn duplicate_edited_theme(&mut self, source_name: &str, cx: &mut Context<Self>) {
         let Some(config) = themes::find(cx, source_name) else {
             return;
         };
         let dark = config.mode.is_dark();
         let name = self.unique_theme_name(&format!("{source_name} copy"), cx);
         let (path, text) = themes::duplicate(&self.home, &config, &name);
-        self.save_and_open_theme(path, text, &name, dark, window, cx);
+        self.save_and_open_theme(path, text, &name, dark, cx);
     }
 
     /// Update `role` on the open custom theme, persist `<home>/themes/*.json`,
@@ -226,7 +188,6 @@ impl Desk {
         &mut self,
         role: ColorRole,
         color: Hsla,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(name) = self.pages.editing_theme.clone() else {
@@ -237,57 +198,12 @@ impl Desk {
         };
         let (path, text) = themes::set_role_color(&self.home, &config, role, color);
         Self::store_theme_bytes(path, text, &name, cx);
-        if let Some(idx) = themes::EDITOR_ROLES.iter().position(|(r, _)| *r == role) {
-            let input = &self.pages.theme_hexes[idx];
-            if !input.focus_handle(cx).is_focused(window) {
-                let hex = themes::to_hex(color);
-                input.update(cx, |s, cx| s.set_value(hex, window, cx));
-            }
-        }
         self.settings_took(cx);
         cx.notify();
     }
 
-    /// Apply a hex edit from `pages.theme_hexes[idx]` (`commit` normalizes or
-    /// restores on blur / Enter; typing applies live once 6 hex digits parse).
-    pub(crate) fn set_edited_theme_hex(
-        &mut self,
-        idx: usize,
-        commit: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some((role, _)) = themes::EDITOR_ROLES.get(idx).copied() else {
-            return;
-        };
-        let Some(name) = self.pages.editing_theme.clone() else {
-            return;
-        };
-        let Some(config) = themes::find(cx, &name) else {
-            return;
-        };
-        let raw = self.pages.theme_hexes[idx].read(cx).value().to_string();
-        if let Some(norm) = u0ui::u0::primitives::color_picker::normalize_hex(&raw)
-            && let Some(color) = themes::parse_hex(&norm)
-        {
-            self.pages.editing_role = role;
-            let (path, text) = themes::set_role_color(&self.home, &config, role, color);
-            Self::store_theme_bytes(path, text, &name, cx);
-            if commit {
-                self.pages.theme_hexes[idx].update(cx, |s, cx| s.set_value(norm, window, cx));
-            }
-            self.settings_took(cx);
-            cx.notify();
-        } else if commit {
-            let current = themes::role_values(&config)[idx].1;
-            let hex = themes::to_hex(current);
-            self.pages.theme_hexes[idx].update(cx, |s, cx| s.set_value(hex, window, cx));
-            cx.notify();
-        }
-    }
-
     /// Reset the open custom theme's colours to Carbon's defaults for its mode.
-    pub(crate) fn reset_edited_theme(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn reset_edited_theme(&mut self, cx: &mut Context<Self>) {
         let Some(name) = self.pages.editing_theme.clone() else {
             return;
         };
@@ -296,7 +212,6 @@ impl Desk {
         };
         let (path, text) = themes::reset_to_carbon(&self.home, &config);
         Self::store_theme_bytes(path, text, &name, cx);
-        self.sync_theme_editor_hexes(window, cx);
         self.settings_took(cx);
         cx.notify();
     }
@@ -394,12 +309,11 @@ impl Desk {
         text: Vec<u8>,
         name: &str,
         dark: bool,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         Self::store_theme_bytes(path, text, name, cx);
         self.choose_theme(dark, Some(name.to_owned()), cx);
-        self.open_theme_editor(name, window, cx);
+        self.open_theme_editor(name, cx);
     }
 
     /// Delete custom theme `name`: its file on disk, any drawer open on it, and

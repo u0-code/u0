@@ -18,6 +18,8 @@ mod settings;
 mod srow;
 mod tasks;
 mod telemetry;
+mod theme_drawer;
+mod theme_library;
 mod updates;
 mod usage;
 mod voice;
@@ -124,10 +126,6 @@ pub struct Pages {
     pub show_all_themes: bool,
     /// Custom theme currently open in the `600px` `Customize <Theme>` drawer.
     pub editing_theme: Option<String>,
-    /// Carbon role currently active in the drawer's `ColorPicker`.
-    pub editing_role: u0ui::tokens::ColorRole,
-    /// Hex inputs for the 12 `themes::EDITOR_ROLES` in the drawer's `Tokens` grid.
-    pub theme_hexes: [Entity<InputState>; 12],
     /// What u0 runs (the agents among it, by id and process id), and
     /// the warnings and errors in its log: Settings › Diagnostics.
     pub processes: (Vec<(String, u32)>, crate::diagnostics::Processes),
@@ -182,22 +180,6 @@ impl Pages {
             cx.notify();
         })
         .detach();
-        let theme_hexes: [Entity<InputState>; 12] = std::array::from_fn(|idx| {
-            let input = cx.new(|cx| InputState::new(window, cx).placeholder("#000000"));
-            cx.subscribe_in(
-                &input,
-                window,
-                move |this, _, event: &InputEvent, window, cx| match event {
-                    InputEvent::Change => this.set_edited_theme_hex(idx, false, window, cx),
-                    InputEvent::Blur | InputEvent::PressEnter { .. } => {
-                        this.set_edited_theme_hex(idx, true, window, cx);
-                    }
-                    InputEvent::Focus => {}
-                },
-            )
-            .detach();
-            input
-        });
         let prefix = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("u0/")
@@ -265,8 +247,6 @@ impl Pages {
             theme_asked: false,
             show_all_themes: false,
             editing_theme: None,
-            editing_role: u0ui::tokens::ColorRole::Interactive,
-            theme_hexes,
             processes: Default::default(),
             process_tree: cx.new(|cx| gpui::component::tree::TreeState::new(cx)),
             troubles: Vec::new(),
