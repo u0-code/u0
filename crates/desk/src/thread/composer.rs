@@ -115,7 +115,7 @@ impl Desk {
                     .bg(theme::panel())
                     .border_1()
                     .border_color(if focused {
-                        theme::ghost_line()
+                        theme::off_track()
                     } else {
                         theme::border2()
                     })

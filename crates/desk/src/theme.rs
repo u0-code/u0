@@ -239,7 +239,7 @@ pub fn quiet() -> Hsla {
 }
 
 /// Disabled / off track (`toggle-off`).
-pub fn ghost_line() -> Hsla {
+pub fn off_track() -> Hsla {
     role(ColorRole::ToggleOff)
 }
 
