@@ -16,15 +16,15 @@ use u0ui::{
         list_box::ListItem,
         select::Select,
     },
-    u0::{
-        devices::{PairingCard, PairingCardTexts},
-        primitives::CopyField,
-    },
     icons::{CarbonIcon, Icon as CarbonGlyph},
     t3::{Status, StatusPill, fmt_elapsed},
     theme::LayerLevel,
     tokens::{ColorRole, TypeStyle},
     typography::TypeStyled as _,
+    u0::{
+        devices::{PairingCard, PairingCardTexts},
+        primitives::CopyField,
+    },
 };
 
 use crate::{

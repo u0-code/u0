@@ -412,17 +412,17 @@ impl Desk {
         ))
         .separator()
         .item(
-                Self::menu_item(desk, crate::tr("Archive"), move |this, _, cx| {
-                    this.archive(key, cx);
-                })
-                .icon(ui::menu_glyph("archive")),
-            )
-            .item(
-                Self::menu_item(desk, crate::tr("Delete…"), move |this, window, cx| {
-                    this.ask_delete(vec![key], window, cx);
-                })
-                .icon(ui::menu_glyph("trash")),
-            )
+            Self::menu_item(desk, crate::tr("Archive"), move |this, _, cx| {
+                this.archive(key, cx);
+            })
+            .icon(ui::menu_glyph("archive")),
+        )
+        .item(
+            Self::menu_item(desk, crate::tr("Delete…"), move |this, window, cx| {
+                this.ask_delete(vec![key], window, cx);
+            })
+            .icon(ui::menu_glyph("trash")),
+        )
     }
 
     /// Show the transcript as `view` says, and keep it so.

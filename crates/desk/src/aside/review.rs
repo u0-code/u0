@@ -19,7 +19,6 @@ use u0ui::{
         Button, ButtonSize, ButtonVariant, Checkbox, MenuItem, Textarea, ToggleGroup,
         ToggleGroupItem, Tooltip, toggle::ToggleSize,
     },
-    u0::panels::{CommitGraph, CommitRow, StashRow, StashRowTexts, git::check_box},
     icons::{CarbonIcon, Icon},
     t3::{
         review::{DiffFileTree, DiffStat, TreeFile},
@@ -28,6 +27,7 @@ use u0ui::{
     theme::LayerLevel,
     tokens::{ColorRole, TypeStyle},
     typography::TypeStyled as _,
+    u0::panels::{CommitGraph, CommitRow, StashRow, StashRowTexts, git::check_box},
 };
 
 use super::{

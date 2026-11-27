@@ -12,15 +12,15 @@ use u0ui::components::{
     badge::{Badge, BadgeSize, BadgeVariant},
     list_box::ListItem,
 };
-use u0ui::u0::{
-    fields::{InlineCheck, field_fill, line_input},
-    tasks::WorkflowStepEditor,
-};
 use u0ui::prelude::*;
 use u0ui::t3::{
     Spin,
     base::fmt_elapsed,
     workspace::{RunState, WorkflowRunRow},
+};
+use u0ui::u0::{
+    fields::{InlineCheck, field_fill, line_input},
+    tasks::WorkflowStepEditor,
 };
 
 use crate::{
@@ -206,9 +206,11 @@ impl Desk {
                             .variant(ButtonVariant::Ghost)
                             .size(ButtonSize::Sm)
                             .icon(CarbonIcon::Edit)
-                            .on_click(cx.listener(move |this, _, _, _| {
-                                this.edit(path.clone(), None);
-                            })),
+                            .on_click(cx.listener(
+                                move |this, _, _, _| {
+                                    this.edit(path.clone(), None);
+                                },
+                            )),
                         )
                     })
             })

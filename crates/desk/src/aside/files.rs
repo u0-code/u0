@@ -40,10 +40,6 @@ use u0ui::{
         table::TableSize,
         toggle::ToggleSize,
     },
-    u0::{
-        panels::{PdfViewer, PdfViewerTexts},
-        primitives::{CellAlign, TreeTable, TreeTableColumn, TreeTableRow},
-    },
     icons::{CarbonIcon, Icon},
     t3::{
         review::FileStatus,
@@ -55,6 +51,10 @@ use u0ui::{
     theme::LayerLevel,
     tokens::{ColorRole, TypeStyle},
     typography::TypeStyled as _,
+    u0::{
+        panels::{PdfViewer, PdfViewerTexts},
+        primitives::{CellAlign, TreeTable, TreeTableColumn, TreeTableRow},
+    },
 };
 
 use super::{

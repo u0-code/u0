@@ -1640,8 +1640,13 @@ impl Desk {
         // The split's rail stands beside the right column; the whole
         // review keeps the sidebar away.
         let rail = if self.split.is_some() { 40. } else { 0. };
-        let (left_beside, left_over, right_shown, right_beside) =
-            columns_for(width, left, self.right_width() + rail, self.panes, thread_page);
+        let (left_beside, left_over, right_shown, right_beside) = columns_for(
+            width,
+            left,
+            self.right_width() + rail,
+            self.panes,
+            thread_page,
+        );
         let review_whole = self.panes.whole && thread_page && self.surface() == Some(Surface::Diff);
         (
             left,
