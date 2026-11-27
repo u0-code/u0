@@ -605,6 +605,7 @@ impl Telemetry {
                     ),
                 };
                 say(Event::Telemetry {
+                    level,
                     batch: batch_json,
                     install_id,
                 });
@@ -825,6 +826,43 @@ mod tests {
         assert_eq!(endpoint("dev"), None);
         assert_eq!(endpoint("nightly"), Some(ENDPOINT));
         assert_eq!(endpoint("stable"), Some(ENDPOINT));
+    }
+
+    #[test]
+    fn what_is_shown_for_a_level_is_the_batch_that_level_sends() {
+        let home = tempfile::tempdir().expect("a home");
+        let t = Telemetry::new(home.path(), None);
+        for level in Level::ALL {
+            let shown = Mutex::new(None);
+            t.ask(Ask::Show(level), &|e| *shown.lock().unwrap() = Some(e));
+            let Some(Event::Telemetry {
+                level: of,
+                batch: b,
+                install_id,
+            }) = shown.into_inner().unwrap()
+            else {
+                panic!("no batch shown");
+            };
+            assert_eq!(of, level);
+            let id = install_id.unwrap_or_default();
+            let facts = Facts::here(home.path());
+            let goes = batch(
+                level,
+                if level == Level::Off { "" } else { &id },
+                &Counts::default(),
+                &facts,
+            );
+            // What this process holds moves between the two readings.
+            let without_memory = |mut v: Value| {
+                v.as_object_mut().unwrap().remove("memory_mb");
+                v
+            };
+            assert_eq!(
+                without_memory(serde_json::from_str(&b).unwrap()),
+                without_memory(serde_json::to_value(goes).unwrap())
+            );
+        }
+        store::settle();
     }
 
     #[test]

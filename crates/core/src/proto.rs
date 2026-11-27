@@ -774,8 +774,10 @@ pub enum Event {
     },
     /// The warnings and errors in u0's log, newest first.
     Troubles(Vec<crate::diagnostics::LogTrouble>),
-    /// The batch of telemetry that goes next, as JSON, and this install's id.
+    /// The batch of telemetry that goes next at `level`, as JSON, and this
+    /// install's id.
     Telemetry {
+        level: crate::telemetry::Level,
         batch: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         install_id: Option<String>,
@@ -1998,6 +2000,7 @@ mod tests {
                 time: "10:12:04".into(),
             }]),
             Event::Telemetry {
+                level: crate::telemetry::Level::Basic,
                 batch: "{}".into(),
                 install_id: Some("id-1".into()),
             },

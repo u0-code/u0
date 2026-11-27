@@ -156,10 +156,10 @@ pub struct Pages {
     pub pairing_modal: Option<pairing::PairingModal>,
     /// Recently approved device `(label, public_key, standing)` for the green `Alert`.
     pub recently_approved: Option<(String, String, String)>,
-    /// The telemetry level on its slider, and the batch it would send,
-    /// as the server last showed it.
+    /// The telemetry level on its slider, and the batch each level would
+    /// send, as the server last showed it.
     pub level: Entity<gpui::component::slider::SliderState>,
-    pub sent: Option<String>,
+    pub sent: [Option<String>; 4],
 }
 
 impl Pages {
@@ -274,7 +274,7 @@ impl Pages {
                 window,
                 cx,
             ),
-            sent: None,
+            sent: Default::default(),
             pair_link: field("u0://pair?host=…", window, cx),
             pairing: false,
             grant: crate::access::Grant::default(),

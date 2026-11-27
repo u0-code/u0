@@ -603,8 +603,12 @@ impl Desk {
                 self.pages.processes = (agents, processes);
             }
             Event::Troubles(lines) => self.pages.troubles = lines,
-            Event::Telemetry { batch, install_id } => {
-                self.pages.sent = Some(batch);
+            Event::Telemetry {
+                level,
+                batch,
+                install_id,
+            } => {
+                self.pages.sent[usize::from(u8::from(level))] = Some(batch);
                 if install_id.is_some() {
                     self.pages.install_id = install_id;
                 }

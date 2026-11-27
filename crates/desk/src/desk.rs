@@ -1943,7 +1943,7 @@ impl Desk {
                     .unwrap_or(crate::telemetry::Level::Usage);
                 let at = f32::from(u8::from(level));
                 (self.pages.level).update(cx, |s, cx| s.set_value(at, window, cx));
-                self.pages.sent = None;
+                self.pages.sent = Default::default();
             }
             crate::pages::Tab::Archive => self.measure(),
             crate::pages::Tab::Appearance => self.read_themes(cx),

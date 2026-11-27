@@ -9,6 +9,7 @@ use gpui::component::{
     slider::{Slider, SliderEvent, SliderState},
 };
 use gpui::{AnyElement, Context, Entity, WeakEntity, Window, div, prelude::*, px};
+use u0ui::u0::settings::Payload;
 
 use super::prefs::{group, item, whole};
 use crate::{
@@ -51,13 +52,34 @@ pub fn slider(level: Level, window: &mut Window, cx: &mut Context<Desk>) -> Enti
                     this.settings_on_mut(on).telemetry = Some(level);
                     this.save_settings_on(on);
                 }
-                this.pages.sent = None;
+                this.pages.sent = Default::default();
                 cx.notify();
             }
         },
     )
     .detach();
     state
+}
+
+/// A batch as the consent sheet's preview draws it: the JSON the server
+/// answered, field for field and in its order; what does not read as
+/// JSON, as the words it is.
+fn payload_of(batch: &str) -> Payload {
+    fn of(v: &serde_json::Value) -> Payload {
+        use serde_json::Value;
+        match v {
+            Value::Null => Payload::Null,
+            Value::Bool(b) => Payload::Bool(*b),
+            Value::Number(n) => Payload::Number(n.as_f64().unwrap_or_default()),
+            Value::String(s) => Payload::String(s.clone().into()),
+            Value::Array(a) => Payload::Array(a.iter().map(of).collect()),
+            Value::Object(o) => {
+                Payload::Object(o.iter().map(|(k, v)| (k.clone().into(), of(v))).collect())
+            }
+        }
+    }
+    serde_json::from_str(batch)
+        .map_or_else(|_| Payload::String(batch.to_owned().into()), |v| of(&v))
 }
 
 /// The slider, with each level's name under its step and what the level
@@ -117,9 +139,11 @@ impl Desk {
                 },
             ),
         ];
-        if let Some(sent) = self.pages.sent.clone() {
-            items.push(whole(w, &["telemetry"], move |_, faces, _| {
-                ui::fine_mono(faces, sent.clone()).into_any_element()
+        if self.pages.sent.iter().any(Option::is_some) {
+            items.push(whole(w, &["telemetry"], |d, faces, cx| {
+                let at = level_of(d.pages.level.read(cx));
+                let sent = d.pages.sent[usize::from(u8::from(at))].clone();
+                ui::fine_mono(faces, sent.unwrap_or_default()).into_any_element()
             }));
         }
         items.push(item(
@@ -137,7 +161,7 @@ impl Desk {
                         ui::button("telemetry-forget", crate::tr("Reset"), Weight::Quiet).on_click(
                             cx.listener(|this, _, _, cx| {
                                 this.call(this.pages.on, Call::Telemetry(Ask::Forget));
-                                this.pages.sent = None;
+                                this.pages.sent = Default::default();
                                 this.pages.install_id = None;
                                 cx.notify();
                             }),
@@ -159,12 +183,19 @@ impl Desk {
         {
             return;
         }
+        // What each level sends, as the server would send it, to show on
+        // the sheet: never a sample.
+        for level in Level::ALL {
+            self.call(Host::HERE, Call::Telemetry(Ask::Show(level)));
+        }
         let desk = cx.entity();
         let shown = cx.new(|cx| {
             crate::desk::Over::new(
                 desk.clone(),
-                |_, _, cx| {
+                |d, _, cx| {
                     use u0ui::u0::settings::{ConsentSheet, ConsentTexts};
+                    let sent = d.pages.sent.clone();
+                    let reading = crate::tr("Reading…");
                     let desk = cx.entity();
                     let texts = ConsentTexts {
                         title: std::rc::Rc::new(|a| {
@@ -185,6 +216,12 @@ impl Desk {
                         .app_name("u0")
                         .default_level(1)
                         .texts(texts)
+                        .payload(move |lvl| {
+                            sent.get(lvl).cloned().flatten().map_or_else(
+                                || Payload::String(reading.clone()),
+                                |b| payload_of(&b),
+                            )
+                        })
                         .on_continue(move |lvl, window, cx| {
                             window.close_dialog(cx);
                             let chosen = Level::try_from(u8::try_from(lvl).unwrap_or(0))
@@ -210,5 +247,31 @@ impl Desk {
                 .overlay_closable(false)
                 .child(shown.clone())
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_sheet_shows_the_batch_the_server_answered_field_for_field() {
+        let shown = payload_of(
+            r#"{"level":1,"version":"0.2.0","agents":{"codex":"0.9.4"},"listening":true}"#,
+        );
+        assert_eq!(
+            shown,
+            Payload::Object(vec![
+                ("level".into(), Payload::Number(1.)),
+                ("version".into(), Payload::String("0.2.0".into())),
+                (
+                    "agents".into(),
+                    Payload::Object(vec![("codex".into(), Payload::String("0.9.4".into()))])
+                ),
+                ("listening".into(), Payload::Bool(true)),
+            ])
+        );
+        let refused = "telemetry.json does not read, so nothing is sent.";
+        assert_eq!(payload_of(refused), Payload::String(refused.into()));
     }
 }

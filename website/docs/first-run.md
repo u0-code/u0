@@ -7,9 +7,10 @@ description: Agents from the ACP registry, signing in, instances, and telemetry.
 
 ## Telemetry
 
-As u0 first opens, it asks **Help make u0 better?**: how much it may
-tell the people who make it. Move the slider and choose **Share**, or
-choose **Don't share** (Escape too), which is level 0. **Settings ›
+As u0 first opens, **Welcome to u0** asks how much it may tell the
+people who make it. Move the slider: under it is the exact JSON that
+level would send, as u0 builds it on this Mac, not a sample. Choose
+**Continue**, or **Keep telemetry off**, which is level 0. **Settings ›
 Telemetry** changes it later, and **Show what is sent** shows the exact
 JSON of the next day's batch at any level. **Reset install id** sends
 future batches under a new random id, unlinked from the old one.
