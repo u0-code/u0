@@ -28,7 +28,7 @@ instance, when Homebrew is not installed).
 
 | Platform | Needs |
 |---|---|
-| iOS | Xcode (`xcrun simctl`). Touch, gestures, rotation, typing, Home and the live screen use [AXe](https://github.com/cameroncooke/AXe) (`brew install cameroncooke/axe/axe`); without it, starting a simulator opens Simulator.app. |
+| iOS | Xcode (`xcrun simctl`). Touch, gestures, rotation, typing, Home and the live screen use [AXe](https://github.com/cameroncooke/AXe) (`brew install cameroncooke/axe/axe`); without it, starting a simulator opens Simulator.app, and where the Xcode chosen has none (a beta may not), Start says so. |
 | Android | The Android SDK's `emulator` and `adb`, found on the `PATH`, in `ANDROID_HOME` or `ANDROID_SDK_ROOT`, or in `~/Library/Android/sdk`. |
 
 ## For agents

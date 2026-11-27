@@ -130,6 +130,22 @@ fn run(program: &PathBuf, args: &[&str]) -> Result<Vec<u8>, String> {
     }
 }
 
+/// Open Simulator, of the Xcode in `xcode` (its `Contents/Developer`),
+/// where a booted simulator is touched without `AXe`; or say why it cannot
+/// be, and what to do.
+fn open_simulator(xcode: Option<&std::path::Path>) -> Result<(), String> {
+    const AXE: &str = "install AXe (brew install cameroncooke/axe/axe) to touch it in Ghost";
+    let app = xcode
+        .map(|d| d.join("Applications/Simulator.app"))
+        .filter(|app| app.exists())
+        .ok_or_else(|| {
+            format!("It is booted, but this Xcode has no Simulator to show it in: {AXE}, or choose an Xcode that has one (xcode-select -s)")
+        })?;
+    run(&PathBuf::from("/usr/bin/open"), &[&app.to_string_lossy()])
+        .map(drop)
+        .map_err(|why| format!("It is booted, but Simulator did not open ({why}): {AXE}"))
+}
+
 fn text(program: &PathBuf, args: &[&str]) -> Result<String, String> {
     run(program, args).map(|b| String::from_utf8_lossy(&b).into_owned())
 }
@@ -271,9 +287,12 @@ pub fn act(device: &Device, act: &Act) -> Result<(), String> {
         let x = xcrun().ok_or("Xcode is not installed")?;
         let id = device.id.as_str();
         return match act {
-            Act::Start => run(&x, &["simctl", "boot", id]).map(|_| {
+            Act::Start => run(&x, &["simctl", "boot", id]).and_then(|_| {
                 // Without AXe it is touched in its window: Simulator, of
                 // the Xcode simctl is.
+                if axe().is_some() {
+                    return Ok(Vec::new());
+                }
                 let xcode = std::env::var_os("DEVELOPER_DIR")
                     .map(PathBuf::from)
                     .or_else(|| {
@@ -281,12 +300,7 @@ pub fn act(device: &Device, act: &Act) -> Result<(), String> {
                             .ok()
                             .map(|p| PathBuf::from(p.trim()))
                     });
-                if axe().is_none()
-                    && let Some(app) = xcode.map(|d| d.join("Applications/Simulator.app"))
-                {
-                    let _ = run(&PathBuf::from("/usr/bin/open"), &[&app.to_string_lossy()]);
-                }
-                Vec::new()
+                open_simulator(xcode.as_deref()).map(|()| Vec::new())
             }),
             Act::Stop => run(&x, &["simctl", "shutdown", id]),
             Act::Dark { dark } => run(
@@ -654,6 +668,16 @@ fn primary(said: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_xcode_with_no_simulator_app_is_said_with_what_to_do() {
+        let xcode = tempfile::tempdir().unwrap();
+        for at in [Some(xcode.path()), None] {
+            let why = open_simulator(at).unwrap_err();
+            assert!(why.contains("no Simulator"), "{why}");
+            assert!(why.contains("brew install cameroncooke/axe/axe"), "{why}");
+        }
+    }
 
     #[test]
     fn what_is_typed_on_an_emulator_is_one_word_its_shell_never_runs() {

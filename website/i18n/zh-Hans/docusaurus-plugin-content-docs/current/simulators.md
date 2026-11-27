@@ -21,7 +21,7 @@ description: 设备标签页操控 iOS 模拟器和 Android 模拟器，供你�
 
 | 平台 | 需要 |
 |---|---|
-| iOS | Xcode（`xcrun simctl`）。轻点、手势、旋转、输入、主屏幕和实时屏幕使用 [AXe](https://github.com/cameroncooke/AXe)（`brew install cameroncooke/axe/axe`）；没有它时，启动模拟器会打开 Simulator.app。 |
+| iOS | Xcode（`xcrun simctl`）。轻点、手势、旋转、输入、主屏幕和实时屏幕使用 [AXe](https://github.com/cameroncooke/AXe)（`brew install cameroncooke/axe/axe`）；没有它时，启动模拟器会打开 Simulator.app；所选的 Xcode 没有 Simulator.app 时（测试版可能没有），“启动”会说明这一点。 |
 | Android | Android SDK 的 `emulator` 和 `adb`，可在 `PATH`、`ANDROID_HOME` 或 `ANDROID_SDK_ROOT` 中，或在 `~/Library/Android/sdk` 中找到。 |
 
 ## 给智能体用 {#for-agents}
