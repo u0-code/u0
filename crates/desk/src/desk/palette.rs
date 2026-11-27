@@ -482,7 +482,7 @@ impl Desk {
         let mut rows = Vec::new();
         if let Some(project) = self.chosen_project() {
             let name = self.project_on(&project);
-            let title = crate::tr_with("New session in %{name}", &[("name", &name)]);
+            let title = crate::tr_with("New thread in %{name}", &[("name", &name)]);
             let from = title
                 .find(&name)
                 .map_or(0, |at| title[..at].chars().count());
@@ -496,14 +496,14 @@ impl Desk {
             keys: crate::keys::keys_of(cx, "new_session"),
             ..Row::new(
                 "square-pen",
-                crate::tr("New session in…"),
+                crate::tr("New thread in…"),
                 Act::Sub(Sub::NewIn),
             )
         });
-        rows.push(key("new_scratch", "New session without a project"));
+        rows.push(key("new_scratch", "New thread without a project"));
         let s = self.session();
         if let Some(s) = s {
-            rows.push(key("find", "Find in the session"));
+            rows.push(key("find", "Find in the thread"));
             rows.push(Row::new(
                 "copy",
                 crate::tr("Copy the conversation"),
@@ -519,7 +519,7 @@ impl Desk {
             }
             rows.push(Row::new(
                 "retry",
-                crate::tr("Restart the session"),
+                crate::tr("Restart the thread"),
                 Act::Restart,
             ));
             let pinned = s.meta.flags.pinned.is_some();
@@ -536,7 +536,7 @@ impl Desk {
             ));
             rows.push(Row::new(
                 "list",
-                crate::tr("Tag the session"),
+                crate::tr("Tag the thread"),
                 Act::Sub(Sub::Tag),
             ));
             if s.repo {
@@ -549,12 +549,12 @@ impl Desk {
             if !matches!(s.state, State::Working | State::Opening) {
                 rows.push(Row::new(
                     "archive",
-                    crate::tr("Archive the session"),
+                    crate::tr("Archive the thread"),
                     Act::Archive,
                 ));
                 rows.push(Row::new(
                     "trash",
-                    crate::tr("Delete the session"),
+                    crate::tr("Delete the thread"),
                     Act::Delete,
                 ));
             }
@@ -639,7 +639,7 @@ impl Desk {
         under.extend(s.branch.clone());
         under.push(self.name_of(&s.meta.agent));
         let end = if self.current == Some(s.key) {
-            (crate::tr("Current session").to_string(), theme::faint())
+            (crate::tr("Current thread").to_string(), theme::faint())
         } else {
             match lists::status(s) {
                 Some(st) => (crate::tr(st.word()).to_string(), st.color()),
@@ -728,7 +728,7 @@ impl Desk {
                     .take(RECENT)
                     .map(|s| self.found_row(s, now))
                     .collect();
-                groups.push((crate::tr("Recent sessions").to_string(), rows));
+                groups.push((crate::tr("Recent threads").to_string(), rows));
             }
             return groups;
         }
@@ -740,7 +740,7 @@ impl Desk {
                 .into_iter()
                 .map(|p| {
                     let name = self.project_on(&p);
-                    let title = crate::tr_with("New session in %{name}", &[("name", &name)]);
+                    let title = crate::tr_with("New thread in %{name}", &[("name", &name)]);
                     Row::new("square-pen", title, Act::NewIn(p))
                 })
                 .collect();
@@ -757,7 +757,7 @@ impl Desk {
             }
             groups.push(("Suggestions", suggested));
             groups.push((
-                "Sessions",
+                "Threads",
                 sessions.clone().map(|s| self.found_row(s, now)).collect(),
             ));
             let projects = self
@@ -820,13 +820,13 @@ impl Desk {
                 typos,
             )
         });
-        let any_session = ranked.iter().any(|(g, _)| *g == "Sessions");
+        let any_session = ranked.iter().any(|(g, _)| *g == "Threads");
         let mut listed: Vec<u64> = Vec::new();
         let mut out: Vec<(String, Vec<Row>)> = ranked
             .into_iter()
             .map(|(group, rows)| {
                 let most = match group {
-                    "Sessions" => SESSIONS,
+                    "Threads" => SESSIONS,
                     "Suggestions" | "Pull requests" | "Issues" => SUGGESTED,
                     _ if any_session => BESIDE_SESSIONS,
                     _ => usize::MAX,
@@ -883,7 +883,7 @@ impl Desk {
                     format!("#{n} {title}"),
                     Act::FromPr(project.clone(), n, title),
                 )
-                .sub(crate::tr("A session on its branch"))
+                .sub(crate::tr("A thread on its branch"))
             })
             .collect();
         let issues = of(&self.issues)
@@ -894,7 +894,7 @@ impl Desk {
                     format!("#{n} {title}"),
                     Act::FromIssue(project.clone(), n, title),
                 )
-                .sub(crate::tr("A session about it"))
+                .sub(crate::tr("A thread about it"))
             })
             .collect();
         vec![("Pull requests", prs), ("Issues", issues)]
@@ -1013,8 +1013,8 @@ impl Desk {
         let (placeholder, empty) = match self.palette.through {
             Through::Everything if let Some(sub) = page => (sub.placeholder(), "Nothing here."),
             Through::Everything => (
-                "Search commands, projects, and sessions…",
-                "No matching commands, projects, or sessions.",
+                "Search commands, projects, and threads…",
+                "No matching commands, projects, or threads.",
             ),
             Through::Files => ("Search files…", "No matching files."),
             Through::Words => ("Search the project's files…", "No matching words."),

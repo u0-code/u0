@@ -948,7 +948,7 @@ impl Desk {
         let found = match result {
             Ok(found) => found,
             Err(why) => {
-                tracing::warn!("{agent} could not list its sessions: {why}");
+                tracing::warn!("{agent} could not list its threads: {why}");
                 return Vec::new();
             }
         };
@@ -995,7 +995,7 @@ impl Desk {
             Err(f) if f.code == crate::acp::ErrorCode::AUTH_REQUIRED => {
                 self.slots[at].auth = hub::Auth::Needed(f.message);
             }
-            Err(f) => tracing::warn!("{agent} would not open a session to be read: {}", f.message),
+            Err(f) => tracing::warn!("{agent} would not open a thread to be read: {}", f.message),
         }
     }
 

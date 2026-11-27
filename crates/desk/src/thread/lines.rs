@@ -35,7 +35,7 @@ pub struct Find {
 impl Find {
     pub fn new(window: &mut Window, cx: &mut Context<Desk>) -> Self {
         let input =
-            cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Find in this session")));
+            cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Find in this thread")));
         cx.subscribe(&input, |this, _, e: &InputEvent, cx| match e {
             InputEvent::Change => {
                 this.find.at = usize::MAX;

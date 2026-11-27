@@ -102,16 +102,16 @@ actions!(
 type Make = fn() -> Box<dyn Action>;
 pub const ACTIONS: [(&str, &str, Make); 52] = [
     ("palette", "Go to anything", || Box::new(Palette)),
-    ("new_session", "New session", || Box::new(NewSession)),
-    ("new_here", "New session in this project", || {
+    ("new_session", "New thread", || Box::new(NewSession)),
+    ("new_here", "New thread in this project", || {
         Box::new(NewHere)
     }),
-    ("find", "Find in the session", || Box::new(Find)),
+    ("find", "Find in the thread", || Box::new(Find)),
     ("drawer", "Terminal", || Box::new(Drawer)),
     ("model", "Choose the model", || Box::new(Model)),
     ("stop", "Stop the turn", || Box::new(Stop)),
-    ("next_session", "Next session", || Box::new(NextSession)),
-    ("previous_session", "Previous session", || {
+    ("next_session", "Next thread", || Box::new(NextSession)),
+    ("previous_session", "Previous thread", || {
         Box::new(PreviousSession)
     }),
     ("toggle_sidebar", "Show or hide the sidebar", || {
@@ -129,7 +129,7 @@ pub const ACTIONS: [(&str, &str, Make); 52] = [
         "Widen the right column over the thread",
         || Box::new(WholeRight),
     ),
-    ("usage", "What sessions spent, and what runs", || {
+    ("usage", "What threads spent, and what runs", || {
         Box::new(Usage)
     }),
     ("light_or_dark", "Light or dark", || Box::new(LightOrDark)),
@@ -138,7 +138,7 @@ pub const ACTIONS: [(&str, &str, Make); 52] = [
     ("copy_pr", "Copy the pull request's address", || {
         Box::new(CopyPr)
     }),
-    ("copy_id", "Copy the session's id", || Box::new(CopyId)),
+    ("copy_id", "Copy the thread's id", || Box::new(CopyId)),
     ("settle", "Done, or not done", || Box::new(Settle)),
     ("pin", "Pin, or unpin", || Box::new(Pin)),
     (
@@ -150,10 +150,8 @@ pub const ACTIONS: [(&str, &str, Make); 52] = [
         Box::new(OpenFolder)
     }),
     ("dictate", "Dictate", || Box::new(Dictate)),
-    ("new_scratch", "New scratch session", || {
-        Box::new(NewScratch)
-    }),
-    ("back", "Back to the session before", || Box::new(Back)),
+    ("new_scratch", "New scratch thread", || Box::new(NewScratch)),
+    ("back", "Back to the thread before", || Box::new(Back)),
     ("ahead", "Ahead again", || Box::new(Ahead)),
     ("next_area", "Keys to the next part of the window", || {
         Box::new(NextArea)
@@ -221,7 +219,7 @@ pub const ACTIONS: [(&str, &str, Make); 52] = [
 /// one named in none shows under Other.
 pub const GROUPS: [(&str, &[&str]); 6] = [
     (
-        "Sessions",
+        "Threads",
         &[
             "new_session",
             "new_here",

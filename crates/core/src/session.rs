@@ -361,7 +361,7 @@ pub enum Begin {
 #[derive(Debug, Clone)]
 #[allow(
     clippy::struct_excessive_bools,
-    reason = "each is a fact of its own about the session, not a state among several"
+    reason = "each is a fact of its own about the thread, not a state among several"
 )]
 pub struct Session {
     /// The desk's own key for it, stable from before the agent names it.
@@ -1405,7 +1405,7 @@ impl Session {
     /// whose title is only its folder's name till you write in it.
     pub fn shown_title(&self) -> &str {
         if self.state == State::Draft && self.items.is_empty() {
-            "New session"
+            "New thread"
         } else {
             &self.meta.title
         }

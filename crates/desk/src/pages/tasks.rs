@@ -198,7 +198,7 @@ impl Desk {
                 w,
                 crate::tr("No tasks yet"),
                 crate::tr(
-                    "A task says its prompt to an agent on a schedule, as a session of its own.",
+                    "A task says its prompt to an agent on a schedule, as a thread of its own.",
                 ),
                 |_, _, _| div().into_any_element(),
             )),
@@ -272,19 +272,19 @@ impl Desk {
             item(
                 w,
                 crate::tr("Each run"),
-                crate::tr("A session of its own, or the next turn of the first run's."),
+                crate::tr("A thread of its own, or the next turn of the first run's."),
                 |d, _, cx| {
                     let same = d.tasks.draft.as_ref().is_some_and(|d| d.task.same);
                     ui::segmented(
                         "task-same",
                         vec![
                             (
-                                crate::tr("A new session each run"),
+                                crate::tr("A new thread each run"),
                                 !same,
                                 draft_pick(cx, |d| d.task.same = false),
                             ),
                             (
-                                crate::tr("One session, continued"),
+                                crate::tr("One thread, continued"),
                                 same,
                                 draft_pick(cx, |d| d.task.same = true),
                             ),
@@ -298,7 +298,7 @@ impl Desk {
             items.push(item(
                 w,
                 crate::tr("In a worktree of its own"),
-                crate::tr("Each run's session works on a new branch, away from your checkout."),
+                crate::tr("Each run's thread works on a new branch, away from your checkout."),
                 |d, _, cx| {
                     Switch::new("task-worktree")
                         .accessibility_label(crate::tr("In a worktree of its own"))
@@ -500,7 +500,7 @@ impl Desk {
                     )
                     .child(ui::fine(
                         faces,
-                        crate::tr("In a session of yours, not one u0 turns on its own (a task's, a workflow's), so that no task runs on its own runs. {{event}} in what it says is what happened, marked as data from outside."),
+                        crate::tr("In a thread of yours, not one u0 turns on its own (a task's, a workflow's), so that no task runs on its own runs. {{event}} in what it says is what happened, marked as data from outside."),
                     ))
             }
         };

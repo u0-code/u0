@@ -1750,7 +1750,7 @@ impl Desk {
                 (self.pages.level).update(cx, |s, cx| s.set_value(at, window, cx));
                 self.pages.sent = None;
             }
-            crate::pages::Tab::Sessions => self.measure(),
+            crate::pages::Tab::Archive => self.measure(),
             crate::pages::Tab::Appearance => self.read_themes(cx),
             crate::pages::Tab::SourceControl => self.call(on, Call::Forges),
             crate::pages::Tab::Usage => self.read_used(),

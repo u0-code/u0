@@ -764,11 +764,8 @@ mod tests {
         let q = Query::new("settings");
         let ranked = rank(
             vec![
-                ("actions", vec!["Open settings", "New session"]),
-                (
-                    "sessions",
-                    vec!["Settings sync rewrite", "Session settings"],
-                ),
+                ("actions", vec!["Open settings", "New thread"]),
+                ("sessions", vec!["Settings sync rewrite", "Thread settings"]),
                 ("projects", vec!["Settings app"]),
             ],
             |t, typos| terms(&q, t, &[], typos),
@@ -781,10 +778,7 @@ mod tests {
             names,
             [
                 ("actions", vec!["Open settings"]),
-                (
-                    "sessions",
-                    vec!["Settings sync rewrite", "Session settings"]
-                ),
+                ("sessions", vec!["Settings sync rewrite", "Thread settings"]),
                 ("projects", vec!["Settings app"]),
             ]
         );

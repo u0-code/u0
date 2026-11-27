@@ -1461,7 +1461,7 @@ mod tests {
                 key: 1,
                 starts: vec![(call, vec![Some(3), None])],
             },
-            Event::Sizes(vec![("Session records".into(), 3)]),
+            Event::Sizes(vec![("Thread records".into(), 3)]),
             Event::Tidied("1 record removed".into()),
             Event::Forges(vec![crate::forge::Seen {
                 host: crate::forge::Host::GitLab,

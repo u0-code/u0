@@ -306,7 +306,7 @@ impl Desk {
         if busy {
             self.trouble(
                 crate::tr("The branch is not switched"),
-                Some(crate::tr("A session is at work in this checkout.").into()),
+                Some(crate::tr("A thread is at work in this checkout.").into()),
                 None,
             );
             cx.notify();

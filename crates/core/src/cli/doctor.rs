@@ -14,7 +14,7 @@ pub fn doctor(home: &Path) -> (String, bool) {
     check("settings.json", refused.map_or(Ok("reads".into()), Err));
     check(
         "sessions.json",
-        store::load(home).map(|i| format!("{} sessions", i.sessions.len())),
+        store::load(home).map(|i| format!("{} threads", i.sessions.len())),
     );
     check(
         "tasks.json",

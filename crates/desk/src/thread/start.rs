@@ -90,7 +90,7 @@ impl Desk {
                 row(
                     "step-new".into(),
                     "plus",
-                    crate::tr_with("New session in %{project}", &[("project", &named)]),
+                    crate::tr_with("New thread in %{project}", &[("project", &named)]),
                     None,
                 )
                 .on_click(cx.listener(|this, _, window, cx| this.new_default(window, cx))),

@@ -132,11 +132,11 @@ impl Undone {
     /// What was done to `%{n}` sessions.
     fn many(self) -> &'static str {
         match self {
-            Self::Unpin => "Unpinned %{n} sessions",
-            Self::Settle => "Settled %{n} sessions",
-            Self::Snooze => "Snoozed %{n} sessions",
-            Self::Archive => "Archived %{n} sessions",
-            Self::Delete => "Deleted %{n} sessions",
+            Self::Unpin => "Unpinned %{n} threads",
+            Self::Settle => "Settled %{n} threads",
+            Self::Snooze => "Snoozed %{n} threads",
+            Self::Archive => "Archived %{n} threads",
+            Self::Delete => "Deleted %{n} threads",
         }
     }
 }
@@ -312,7 +312,7 @@ impl Desk {
                 match what {
                     Undone::Unpin => "Unpin “%{title}”?",
                     Undone::Archive => "Archive “%{title}”?",
-                    _ => "Delete session “%{title}”?",
+                    _ => "Delete thread “%{title}”?",
                 },
                 &[(
                     "title",
@@ -325,9 +325,9 @@ impl Desk {
             ),
             _ => crate::tr_with(
                 match what {
-                    Undone::Unpin => "Unpin %{n} sessions?",
-                    Undone::Archive => "Archive %{n} sessions?",
-                    _ => "Delete %{n} sessions?",
+                    Undone::Unpin => "Unpin %{n} threads?",
+                    Undone::Archive => "Archive %{n} threads?",
+                    _ => "Delete %{n} threads?",
                 },
                 &[("n", &keys.len())],
             ),
@@ -454,11 +454,11 @@ impl Desk {
             return;
         };
         let (label, about) = match what {
-            Undone::Unpin => ("Unpin", "It goes back among its project's sessions."),
+            Undone::Unpin => ("Unpin", "It goes back among its project's threads."),
             Undone::Archive => ("Archive", "It is hidden until you restore it."),
             _ => (
                 "Delete",
-                "This permanently clears conversation history for this session.",
+                "This permanently clears conversation history for this thread.",
             ),
         };
         let desk = cx.entity();
@@ -482,7 +482,7 @@ impl Desk {
         use gpui::component::WindowExt as _;
         let desk = cx.entity();
         let said = crate::tr_with(
-            "This session is the only one linked to this worktree: %{path}. Delete the worktree too?",
+            "This thread is the only one linked to this worktree: %{path}. Delete the worktree too?",
             &[("path", &Desk::shown(path))],
         );
         window.defer(cx, move |window, cx| {
@@ -790,7 +790,7 @@ impl Desk {
         let token = mention::token_of(&title);
         self.show(origin, window, cx);
         let typed = self.typed(cx);
-        let line = format!("{typed}What was done in a branch of this session, {token}: ");
+        let line = format!("{typed}What was done in a branch of this thread, {token}: ");
         self.put_line(line.trim_start(), window, cx);
         self.composer.mentions.push(mention::Mention {
             token,

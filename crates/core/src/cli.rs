@@ -56,7 +56,7 @@ enum Word {
     Doctor,
     /// The scheduled tasks, and when each runs next.
     Tasks,
-    /// The sessions kept; what was said in one; something said in one.
+    /// The threads kept; what was said in one; something said in one.
     Thread {
         #[command(subcommand)]
         what: Thread,
@@ -70,11 +70,15 @@ enum Word {
 
 #[derive(Debug, clap::Subcommand)]
 enum Thread {
-    /// The sessions kept, the latest first, each with its agent and id.
+    /// The threads kept, the latest first, each with its agent and id.
     List,
-    /// What was said in a session.
-    Show { agent: String, session: String },
-    /// Begin a session in a project (`.`: this folder) with what to say.
+    /// What was said in a thread.
+    Show {
+        agent: String,
+        #[arg(value_name = "THREAD")]
+        session: String,
+    },
+    /// Begin a thread in a project (`.`: this folder) with what to say.
     Start {
         project: PathBuf,
         prompt: String,
@@ -84,14 +88,15 @@ enum Thread {
         /// Wait for its answer, and print it.
         #[arg(long)]
         wait: bool,
-        /// The server paired with to ask; none, this Mac's service.
+        /// The machine paired with to ask; none, this Mac's service.
         #[arg(long)]
         on: Option<String>,
     },
-    /// Say something in a session, as its next turn (one going on is let
+    /// Say something in a thread, as its next turn (one going on is let
     /// end first).
     Send {
         agent: String,
+        #[arg(value_name = "THREAD")]
         session: String,
         prompt: String,
         #[arg(long)]
@@ -459,7 +464,7 @@ fn thread(home: &Path, what: Thread) -> Result<String, String> {
             let project = (index.sessions.iter())
                 .find(|m| m.agent == agent && m.id.as_ref().is_some_and(|id| *id.0 == *session))
                 .map(|m| m.project.clone())
-                .ok_or_else(|| format!("u0 keeps no session {session} of {agent}"))?;
+                .ok_or_else(|| format!("u0 keeps no thread {session} of {agent}"))?;
             threads::say(
                 home,
                 on.as_deref(),

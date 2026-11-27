@@ -282,7 +282,7 @@ impl Shared {
                     .find(|d| &d.name == earlier)
                     .and_then(|d| d.session.clone())
                     .map(|(_, id)| id)
-                    .ok_or_else(|| format!("“{earlier}” has no session to go on in"))?,
+                    .ok_or_else(|| format!("“{earlier}” has no thread to go on in"))?,
             ),
             None => None,
         };
@@ -385,7 +385,7 @@ mod tests {
         assert!(
             runs[0]
                 .input
-                .contains("a session s1): its turn ended (end_turn)"),
+                .contains("a thread s1): its turn ended (end_turn)"),
             "{}",
             runs[0].input
         );

@@ -54,7 +54,7 @@ use crate::{
 };
 
 impl Shared {
-    /// The session `id` of `agent`, as the index keeps it.
+    /// The thread `id` of `agent`, as the index keeps it.
     pub(super) fn meta(&self, agent: &str, id: &SessionId) -> Option<Meta> {
         (self.index.lock().expect("index").as_ref().ok())?
             .sessions
@@ -64,7 +64,7 @@ impl Shared {
     }
 
     /// Ask you `ask` (made with the number it is asked under) in the
-    /// session of `agent` it names, as the agent's own questions are; your
+    /// thread of `agent` it names, as the agent's own questions are; your
     /// answer, or none where the agent stopped first.
     async fn ask_you(&self, agent: &str, ask: impl FnOnce(u64) -> acp::Event) -> Option<Answer> {
         let (n, answer) = self.running(agent)?.question();
@@ -92,7 +92,7 @@ pub(super) struct Tools {
 
 /// Why a tool that acts, or asks you, is not for an agent outside u0.
 const OUTSIDE: &str =
-    "Only an agent in a session of u0's can do this: u0 asks you first there. Start one in u0.";
+    "Only an agent in a thread of u0's can do this: u0 asks you first there. Start one in u0.";
 
 /// The tools asked of you each time, never allowed always: what they do
 /// cannot be undone, and what they are given can be steered by text an
@@ -108,7 +108,7 @@ const EACH_TIME: [&str; 6] = [
 ];
 
 /// What u0's MCP server says it is, to an agent that connects.
-const INSTRUCTIONS: &str = "u0, the app this agent may be running in: the sessions it keeps of your agents, your projects and what is found in them, their diffs, worktrees, pull requests, checks and issues, its workflows and scheduled tasks, the simulators and emulators where it runs; and the user, asked in this session's thread. Subscribe to u0://events to be told when something happens in the sessions, then call events.";
+const INSTRUCTIONS: &str = "u0, the app this agent may be running in: the threads it keeps of your agents, your projects and what is found in them, their diffs, worktrees, pull requests, checks and issues, its workflows and scheduled tasks, the simulators and emulators where it runs; and the user, asked in this thread. Subscribe to u0://events to be told when something happens in the threads, then call events.";
 
 /// Why a call is not made: the key it came in with lets no one in now.
 const LET_GO: &str =
@@ -118,7 +118,7 @@ const LET_GO: &str =
 const NOT_HERE: &str = "Only a project of yours, or a worktree of one, is read here";
 
 /// Why a tool that acts is not for this caller: it may only read.
-const READS: &str = "This agent may only read here: let agents outside u0 act on a session in Settings › Agents, or start one in u0.";
+const READS: &str = "This agent may only read here: let agents outside u0 act on a thread in Settings › Agents, or start one in u0.";
 
 impl Tools {
     /// The tools for the caller `key` lets in; none where it lets no one.
@@ -135,7 +135,7 @@ impl Tools {
         })
     }
 
-    /// The session it calls from, and how the index keeps it; none for an
+    /// The thread it calls from, and how the index keeps it; none for an
     /// agent outside u0.
     fn session(&self) -> Option<(SessionId, Meta)> {
         let caller = self.caller()?;
@@ -182,7 +182,7 @@ impl Tools {
     }
 
     /// Ask you whether `tool` may do what `title` says, with `input`, in
-    /// the session it calls from: yes where you allowed it always there.
+    /// the thread it calls from: yes where you allowed it always there.
     async fn allowed(
         &self,
         tool: &'static str,
@@ -194,14 +194,14 @@ impl Tools {
         Ok(meta)
     }
 
-    /// Ask you whether `tool` may do what `title` says to the session
-    /// `on` of `agent`, `title` given how that session is named on the
-    /// card: in the session it calls from, for one in a session of
+    /// Ask you whether `tool` may do what `title` says to the thread
+    /// `on` of `agent`, `title` given how that thread is named on the
+    /// card: in the thread it calls from, for one in a thread of
     /// u0's, which names the other by its title, agent and project and
     /// is asked each time (a yes for always there would be a yes to any
-    /// session); for one outside u0 where your settings let it act, or
-    /// on another device, in the session it acts on ("this session").
-    /// That session, as kept.
+    /// thread); for one outside u0 where your settings let it act, or
+    /// on another device, in the thread it acts on ("this thread").
+    /// That thread, as kept.
     async fn allowed_on(
         &self,
         tool: &'static str,
@@ -210,15 +210,15 @@ impl Tools {
         agent: &str,
         on: &SessionId,
     ) -> Result<Meta, String> {
-        let meta = (self.shared.meta(agent, on)).ok_or("u0 keeps no such session")?;
+        let meta = (self.shared.meta(agent, on)).ok_or("u0 keeps no such thread")?;
         let (card, title) = match self.caller() {
             Some(Caller::Session(from, Some(own))) if from == agent && own == *on => {
-                (None, title("this session"))
+                (None, title("this thread"))
             }
             Some(Caller::Session(from, Some(own))) => {
                 let project = meta.project.file_name().unwrap_or_default();
                 let named = format!(
-                    "the session “{}” ({agent}, in {})",
+                    "the thread “{}” ({agent}, in {})",
                     meta.title,
                     project.to_string_lossy()
                 );
@@ -226,11 +226,11 @@ impl Tools {
             }
             Some(Caller::Outside) if Settings::load(&self.shared.home).0.outside_acts => (
                 None,
-                format!("An agent outside u0: {}", title("this session")),
+                format!("An agent outside u0: {}", title("this thread")),
             ),
             Some(Caller::Device(Scope::Full)) => (
                 None,
-                format!("An agent on another device: {}", title("this session")),
+                format!("An agent on another device: {}", title("this thread")),
             ),
             Some(Caller::Session(_, None)) => return Err(OUTSIDE.into()),
             _ => return Err(READS.into()),
@@ -243,7 +243,7 @@ impl Tools {
         Ok(meta)
     }
 
-    /// Ask you, on a permission card in the session `id` of `agent`,
+    /// Ask you, on a permission card in the thread `id` of `agent`,
     /// whether `tool` may do what `title` says with `input`; `once`, with
     /// no yes for always, whatever was allowed always before.
     async fn ask(
@@ -306,18 +306,18 @@ impl Tools {
         }
     }
 
-    /// Refuse a session's own: it would wait on the turn it calls from.
+    /// Refuse a thread's own: it would wait on the turn it calls from.
     fn not_mine(&self, agent: &str, id: &SessionId) -> Result<(), String> {
         match self.caller() {
             Some(Caller::Session(a, Some(own))) if a == agent && own == *id => {
-                Err("That is this session: name another".into())
+                Err("That is this thread: name another".into())
             }
             _ => Ok(()),
         }
     }
 
-    /// `folder`, or where the session it calls from works.
-    /// One not in a session of u0's (outside u0, on a device) reads
+    /// `folder`, or where the thread it calls from works.
+    /// One not in a thread of u0's (outside u0, on a device) reads
     /// only in a project of yours or a worktree, as a device that may only
     /// read does (`access::within`).
     fn folder(&self, folder: Option<PathBuf>) -> Result<PathBuf, String> {
@@ -362,11 +362,11 @@ impl Tools {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 struct ListSessions {
-    /// Only the sessions of this project (its folder).
+    /// Only the threads of this project (its folder).
     project: Option<PathBuf>,
 }
 
-/// A session kept, as the tools list it.
+/// A thread kept, as the tools list it.
 #[derive(Serialize)]
 struct Listed {
     agent: String,
@@ -397,15 +397,15 @@ impl Listed {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 struct ReadSession {
-    /// The session's agent, by its registry id (as `list_sessions` says).
+    /// The thread's agent, by its registry id (as `list_sessions` says).
     agent: String,
-    /// The session's id.
+    /// The thread's id.
     session: String,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
 struct ReadDiff {
-    /// The folder; none, where this session works.
+    /// The folder; none, where this thread works.
     folder: Option<PathBuf>,
 }
 
@@ -415,12 +415,12 @@ struct Delegate {
     prompt: String,
     /// The agent to hand it to, by its registry id; none, this one.
     agent: Option<String>,
-    /// The project it works in (its folder); none, this session's.
+    /// The project it works in (its folder); none, this thread's.
     project: Option<PathBuf>,
     /// It works in a worktree of its own.
     #[serde(default)]
     worktree: bool,
-    /// The new session's title.
+    /// The new thread's title.
     title: String,
 }
 
@@ -444,15 +444,15 @@ struct ScheduleTask {
     every_minutes: Option<u32>,
     /// The agent it is said to, by its registry id; none, this one.
     agent: Option<String>,
-    /// The project it works in (its folder); none, this session's.
+    /// The project it works in (its folder); none, this thread's.
     project: Option<PathBuf>,
 }
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 struct SendTo {
-    /// The session's agent, by its registry id (as `list_sessions` says).
+    /// The thread's agent, by its registry id (as `list_sessions` says).
     agent: String,
-    /// The session's id.
+    /// The thread's id.
     session: String,
     /// What to say in it, as its next turn: one going on is let end
     /// first, never stopped.
@@ -464,9 +464,9 @@ struct SendTo {
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 struct Which {
-    /// The session's agent, by its registry id.
+    /// The thread's agent, by its registry id.
     agent: String,
-    /// The session's id.
+    /// The thread's id.
     session: String,
 }
 
@@ -496,7 +496,7 @@ struct AskUser {
 
 #[tool_router]
 impl Tools {
-    /// The sessions u0 keeps, the latest first: each one's agent, id,
+    /// The threads u0 keeps, the latest first: each one's agent, id,
     /// title, project and the folder it works in.
     #[tool]
     async fn list_sessions(
@@ -509,7 +509,7 @@ impl Tools {
         said(&Listed::latest(sessions))
     }
 
-    /// What was said in a session: what the user said (led by "You:")
+    /// What was said in a thread: what the user said (led by "You:")
     /// and what its agent answered.
     #[tool]
     async fn read_session(&self, Parameters(ask): Parameters<ReadSession>) -> String {
@@ -535,8 +535,8 @@ impl Tools {
         })
     }
 
-    /// Hand a task to an agent in a new session of u0's, which you can
-    /// watch there, and wait for its answer: its session's id and what it
+    /// Hand a task to an agent in a new thread of u0's, which you can
+    /// watch there, and wait for its answer: its thread's id and what it
     /// said at the end.
     #[tool]
     async fn delegate_task(&self, Parameters(ask): Parameters<Delegate>) -> Result<String, String> {
@@ -568,10 +568,10 @@ impl Tools {
             .await
             .map_err(|(_, why)| why)?;
         let said = self.shared.said_in(&agent, &id, true).await;
-        Ok(format!("Session {} of {agent} answered:\n\n{said}", id.0))
+        Ok(format!("Thread {} of {agent} answered:\n\n{said}", id.0))
     }
 
-    /// Commit what is not committed where this session works, push it
+    /// Commit what is not committed where this thread works, push it
     /// (on a branch of its own, where it is on the default one) and open a
     /// pull request with `gh`.
     #[tool]
@@ -600,7 +600,7 @@ impl Tools {
         }
     }
 
-    /// Schedule a prompt to be said to an agent, in a new session each
+    /// Schedule a prompt to be said to an agent, in a new thread each
     /// time: once, some minutes from now, or every so many minutes. u0
     /// lists it with the scheduled tasks, where it can be paused or taken
     /// away.
@@ -639,7 +639,7 @@ impl Tools {
         Ok(format!("“{}” is scheduled.", ask.title))
     }
 
-    /// Say something in a session u0 keeps, as its next turn (one going
+    /// Say something in a thread u0 keeps, as its next turn (one going
     /// on is let end first, never stopped); with `wait`, give back what
     /// its agent answered. You are asked first.
     #[tool]
@@ -698,7 +698,7 @@ impl Tools {
         }
     }
 
-    /// Wait until the turn going on in a session ends (at once where none
+    /// Wait until the turn going on in a thread ends (at once where none
     /// does), and give back what its agent said in its last turn.
     #[tool]
     async fn wait_for_turn(&self, Parameters(ask): Parameters<WaitFor>) -> Result<String, String> {
@@ -711,7 +711,7 @@ impl Tools {
         Ok(self.shared.said_in(&ask.agent, &id, true).await)
     }
 
-    /// Stop the turn going on in a session. You are asked first.
+    /// Stop the turn going on in a thread. You are asked first.
     #[tool]
     async fn interrupt_session(
         &self,
@@ -737,7 +737,7 @@ impl Tools {
         }
     }
 
-    /// Ask the user a question in this session's thread, and wait for the
+    /// Ask the user a question in this thread, and wait for the
     /// answer.
     #[tool]
     async fn ask_user(&self, Parameters(ask): Parameters<AskUser>) -> Result<String, String> {
@@ -799,7 +799,7 @@ impl ServerHandler for Tools {
         _: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<rmcp::model::ListResourcesResult, rmcp::ErrorData> {
         let events = rmcp::model::Resource::new(events::EVENTS, "events").with_description(
-            "What happened in the sessions u0 runs; subscribed to, it says each time something does",
+            "What happened in the threads u0 runs; subscribed to, it says each time something does",
         );
         Ok(rmcp::model::ListResourcesResult::with_all_items(vec![
             events,
@@ -980,8 +980,8 @@ pub(super) mod tests {
     }
 
     /// A server of `home` running the agent `a` (a stand-in that opens
-    /// `s1` and ends each turn), its session `s1` opened in `folder` and
-    /// kept; what the server says, and a client of that session's tools,
+    /// `s1` and ends each turn), its thread `s1` opened in `folder` and
+    /// kept; what the server says, and a client of that thread's tools,
     /// by the key it was given.
     pub(in crate::server) fn in_session(
         home: &std::path::Path,
@@ -1002,7 +1002,7 @@ esac; done"#;
     }
 
     /// As `in_session`, the agent `a` the stand-in `script` (which writes
-    /// what it was asked to open its first session with in `$0.opened`).
+    /// what it was asked to open its first thread with in `$0.opened`).
     pub(in crate::server) fn in_session_as(
         home: &std::path::Path,
         folder: &std::path::Path,
@@ -1497,7 +1497,7 @@ esac; done"#,
         });
         assert_eq!(
             client.result(),
-            ("Session s2 of a answered:\n\nIt is done.".to_owned(), false)
+            ("Thread s2 of a answered:\n\nIt is done.".to_owned(), false)
         );
         let index = server.shared.index.lock().unwrap().clone().unwrap();
         assert!((index.sessions.iter()).any(|m| m.title == "Tidy"));

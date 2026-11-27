@@ -21,9 +21,9 @@ use crate::{
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 struct AnswerRequest {
-    /// The session's agent, by its registry id (as `events` says).
+    /// The thread's agent, by its registry id (as `events` says).
     agent: String,
-    /// The session's id.
+    /// The thread's id.
     session: String,
     /// The question, by its number (`request`, as `events` says it asks).
     request: u64,
@@ -33,9 +33,9 @@ struct AnswerRequest {
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 struct Organize {
-    /// The session's agent, by its registry id (as `list_sessions` says).
+    /// The thread's agent, by its registry id (as `list_sessions` says).
     agent: String,
-    /// The session's id.
+    /// The thread's id.
     session: String,
     /// Pin it on top, or take its pin off; none, as it is.
     pin: Option<bool>,
@@ -92,7 +92,7 @@ impl Organize {
 
 #[tool_router(router = session_router, vis = "pub(super)")]
 impl Tools {
-    /// Answer what an agent asks in another session and waits on (a
+    /// Answer what an agent asks in another thread and waits on (a
     /// permission, as `events` tells it: its `request` and `options`) with
     /// one of its options. You are asked first, each time.
     #[tool]
@@ -144,9 +144,9 @@ impl Tools {
         Ok(told)
     }
 
-    /// Organise a session u0 keeps: pin it or take its pin off, archive
+    /// Organise a thread u0 keeps: pin it or take its pin off, archive
     /// or restore it, rename it, set its tags. You are asked first, in
-    /// that session.
+    /// that thread.
     #[tool]
     async fn organize_session(
         &self,
@@ -171,7 +171,7 @@ impl Tools {
             *kept = ask.apply(kept.clone(), pinned.unwrap_or(0));
             changed = Some(kept.clone());
         });
-        let now = changed.ok_or("u0 keeps no such session now")?;
+        let now = changed.ok_or("u0 keeps no such thread now")?;
         let told = format!("“{}” is organised.", now.title);
         (self.shared.send)(Event::Organized(Box::new(now)));
         Ok(told)
@@ -251,7 +251,7 @@ esac; done"#;
         assert_eq!(
             title,
             format!(
-                "Answer “Delete it” with “Yes” (allow once) in the session “Other” (a, in {project})"
+                "Answer “Delete it” with “Yes” (allow once) in the thread “Other” (a, in {project})"
             )
         );
         assert_eq!(client.result(), ("You did not allow it".to_owned(), true));
@@ -310,7 +310,7 @@ esac; done"#;
         let title = card.1.tool_call.fields.title.unwrap_or_default();
         assert_eq!(
             title,
-            "Organise this session: pin it, rename it “Ship it”, tag it release"
+            "Organise this thread: pin it, rename it “Ship it”, tag it release"
         );
         assert!(!client.result().1);
         let told = loop {
@@ -350,7 +350,7 @@ esac; done"#;
         );
         assert_eq!(
             answer_card(&server, &said, "always"),
-            "Organise this session: pin it"
+            "Organise this thread: pin it"
         );
         assert!(!client.result().1);
         let archive = json!({"agent": "a", "session": "s2", "archive": true});
@@ -365,12 +365,12 @@ esac; done"#;
         assert_eq!(
             card.tool_call.fields.title.as_deref(),
             Some(&*format!(
-                "Organise the session “Other” (a, in {project}): archive it"
+                "Organise the thread “Other” (a, in {project}): archive it"
             ))
         );
         assert_eq!(&*card.session_id.0, "s1", "asked where it was called from");
         let offered: Vec<_> = card.options.iter().map(|o| &*o.option_id.0).collect();
-        assert_eq!(offered, ["once", "no"], "no yes for always to any session");
+        assert_eq!(offered, ["once", "no"], "no yes for always to any thread");
         server.handle(Call::Answer {
             agent: "a".into(),
             request: n,
@@ -413,7 +413,7 @@ esac; done"#;
         let shown = format!("Ask which database {}…", "x".repeat(61));
         assert_eq!(
             card.tool_call.fields.title.unwrap_or_default(),
-            format!("Say “{shown}” in the session “Other” (a, in {project})")
+            format!("Say “{shown}” in the thread “Other” (a, in {project})")
         );
         let offered: Vec<_> = card.options.iter().map(|o| &*o.option_id.0).collect();
         assert_eq!(offered, ["once", "no"]);

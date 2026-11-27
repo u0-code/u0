@@ -218,7 +218,7 @@ impl Desk {
         .px(px(7.))
         .loading(s.git.writing_message)
         .tooltip(crate::tr_with(
-            "%{name} writes the message from the changes, in a session of its own",
+            "%{name} writes the message from the changes, in a thread of its own",
             &[("name", &self.name_of(&writer))],
         ))
         .on_click(cx.listener(move |this, _, _, cx| this.ask_message(key, cx)));
@@ -227,7 +227,7 @@ impl Desk {
             .clone()
             .map_or_else(|| crate::tr("its branch"), Into::into);
         let what = crate::tr_with(
-            "Everything in %{folder} on %{branch}, as you, with this message or the session's title",
+            "Everything in %{folder} on %{branch}, as you, with this message or the thread's title",
             &[
                 ("folder", &Desk::shown(&s.meta.folder)),
                 ("branch", &branch),
@@ -399,7 +399,7 @@ impl Desk {
                                     Weight::Quiet,
                                 )
                                 .selected(watching)
-                                .tooltip(crate::tr("Its checks finishing, or a review coming in, is said in this session"))
+                                .tooltip(crate::tr("Its checks finishing, or a review coming in, is said in this thread"))
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     if let Some(s) = this.sessions.at_mut(key) {
                                         s.meta.watch = (!watching).then_some(number);

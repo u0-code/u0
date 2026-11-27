@@ -95,7 +95,7 @@ impl Desk {
                             .into_any_element()
                     };
                     let caret =
-                        ui::icon_button("title-menu", "chevron-down", crate::tr("This session"))
+                        ui::icon_button("title-menu", "chevron-down", crate::tr("This thread"))
                             .size(px(22.))
                             .text_color(theme::faint());
                     bar = bar
@@ -219,7 +219,7 @@ impl Desk {
             ))
             .item(Self::menu_item(
                 desk,
-                crate::tr("Copy the session's id"),
+                crate::tr("Copy the thread's id"),
                 |this, _, cx| {
                     this.copy_of_session(|s| s.meta.id.as_ref().map(|i| i.0.to_string()), cx);
                 },

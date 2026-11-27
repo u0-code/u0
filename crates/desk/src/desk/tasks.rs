@@ -333,7 +333,7 @@ impl Desk {
         ended: Option<Result<agent_client_protocol::v1::schema::StopReason, String>>,
         cx: &mut Context<Self>,
     ) {
-        let id = meta.id.clone().expect("a task's session has an id");
+        let id = meta.id.clone().expect("a task's thread has an id");
         if self.sessions.by_id(host, &meta.agent, &id).is_none() {
             let key = self.sessions.take_key();
             self.kept

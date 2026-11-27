@@ -76,7 +76,7 @@ impl Level {
                 "Each day: an id made for this install, the agents in use and their versions, the Macs paired, whether others may control this one."
             }
             Self::Usage => {
-                "Also how much each part is used: sessions and turns, worktrees, tasks and workflows run, u0's tools called, pages opened, crashes."
+                "Also how much each part is used: threads and turns, worktrees, tasks and workflows run, u0's tools called, pages opened, crashes."
             }
             Self::Detailed => {
                 "Also how u0 runs: time to start, memory, the kinds of errors, models chosen, the window's size and zoom, the look and the language."

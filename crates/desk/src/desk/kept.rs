@@ -118,7 +118,7 @@ impl Desk {
         let mut changed: Vec<(Host, Vec<store::Meta>)> = Vec::new();
         for s in &self.sessions.all {
             let Some(meta) = s.kept() else { continue };
-            let id = meta.id.clone().expect("a kept session has an id");
+            let id = meta.id.clone().expect("a kept thread has an id");
             let at = (s.host, meta.agent.clone(), id);
             if self.kept.get(&at) == Some(meta) || self.store_refused(s.host).is_some() {
                 continue;

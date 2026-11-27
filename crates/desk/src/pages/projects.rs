@@ -66,7 +66,7 @@ impl Desk {
         ];
         SettingPage::new(crate::tr("Projects"))
             .description(crate::tr(
-                "The folders you work in, and how each one's sessions begin.",
+                "The folders you work in, and how each one's threads begin.",
             ))
             .group(SettingGroup::new().item(list))
             .group(SettingGroup::new().items(adding))
@@ -153,7 +153,7 @@ impl Desk {
             item(
                 w,
                 crate::tr("Agent"),
-                crate::tr("The agent its new sessions begin with."),
+                crate::tr("The agent its new threads begin with."),
                 {
                     let dir = dir.clone();
                     move |d, _, cx| d.project_agent(&dir, cx)
@@ -164,7 +164,7 @@ impl Desk {
             let dir = dir.clone();
             rows.push(item(
                 w,
-                crate::tr("New sessions"),
+                crate::tr("New threads"),
                 crate::tr(
                     "Where they work: in the folder, or a worktree of their own on a new branch.",
                 ),
@@ -226,7 +226,7 @@ impl Desk {
         rows.push(item(
             w,
             crate::tr("Archived"),
-            crate::tr("Hides the project from the sidebar and project pickers. Sessions and files are kept."),
+            crate::tr("Hides the project from the sidebar and project pickers. Threads and files are kept."),
             switch(
                 "project-archived",
                 |p| p.archived,
@@ -242,7 +242,7 @@ impl Desk {
         let danger = item(
             w,
             crate::tr("Remove project"),
-            crate::tr("Forgets the project and its sessions here. Files on disk are not touched."),
+            crate::tr("Forgets the project and its threads here. Files on disk are not touched."),
             {
                 let dir = dir.clone();
                 move |_, _, cx| {
@@ -371,9 +371,9 @@ impl Desk {
         for (n, (wt, key, sessions)) in worktrees.into_iter().enumerate() {
             let about = crate::tr_with(
                 if sessions == 1 {
-                    "%{branch} · %{sessions} session"
+                    "%{branch} · %{sessions} thread"
                 } else {
-                    "%{branch} · %{sessions} sessions"
+                    "%{branch} · %{sessions} threads"
                 },
                 &[("branch", &wt.branch), ("sessions", &sessions)],
             );
@@ -495,14 +495,14 @@ impl Desk {
             .count();
         let title = crate::tr_with(
             if n == 1 {
-                "Remove project “%{name}” and forget its %{n} session?"
+                "Remove project “%{name}” and forget its %{n} thread?"
             } else {
-                "Remove project “%{name}” and forget its %{n} sessions?"
+                "Remove project “%{name}” and forget its %{n} threads?"
             },
             &[("name", &self.project_name(folder)), ("n", &n)],
         );
         let said = crate::tr_with(
-            "Path: %{path}\nu0 forgets these sessions and their records. Each agent keeps its own sessions.\nFiles on disk are not touched.\nThis cannot be undone.",
+            "Path: %{path}\nu0 forgets these threads and their records. Each agent keeps its own threads.\nFiles on disk are not touched.\nThis cannot be undone.",
             &[("path", &Desk::shown(&folder.folder))],
         );
         let (desk, folder) = (cx.entity(), folder.clone());

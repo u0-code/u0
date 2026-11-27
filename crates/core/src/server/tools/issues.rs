@@ -22,7 +22,7 @@ use crate::{
 
 #[derive(Deserialize, schemars::JsonSchema)]
 struct ListIssues {
-    /// The project's folder; none, where this session works.
+    /// The project's folder; none, where this thread works.
     folder: Option<PathBuf>,
     /// open (none), closed or all.
     state: Option<String>,
@@ -33,14 +33,14 @@ struct ListIssues {
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 struct Numbered {
-    /// The project's folder; none, where this session works.
+    /// The project's folder; none, where this thread works.
     folder: Option<PathBuf>,
     number: u64,
 }
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 struct CreateIssue {
-    /// The project's folder; none, where this session works.
+    /// The project's folder; none, where this thread works.
     folder: Option<PathBuf>,
     title: String,
     body: String,
@@ -48,7 +48,7 @@ struct CreateIssue {
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 struct CommentOnIssue {
-    /// The project's folder; none, where this session works.
+    /// The project's folder; none, where this thread works.
     folder: Option<PathBuf>,
     number: u64,
     body: String,
@@ -56,7 +56,7 @@ struct CommentOnIssue {
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 struct SetIssueState {
-    /// The project's folder; none, where this session works.
+    /// The project's folder; none, where this thread works.
     folder: Option<PathBuf>,
     number: u64,
     /// Open it again; else close it.
@@ -75,7 +75,7 @@ fn team(home: &Path, folder: &Path) -> Option<String> {
 }
 
 /// The issue `number` of the project `folder`, as it is now: what its card
-/// names. Asked only of an agent in a session of u0's, for none other
+/// names. Asked only of an agent in a thread of u0's, for none other
 /// may act.
 async fn about(tools: &Tools, folder: PathBuf, number: u64) -> Result<Item, String> {
     tools.session().ok_or(super::OUTSIDE)?;

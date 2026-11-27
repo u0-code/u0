@@ -42,7 +42,7 @@ fn ask<T>(
     crate::acp::runtime().block_on(crate::link::ask(&way, &key, call, heard))
 }
 
-/// The sessions kept, the latest first: when, the agent, the id, the
+/// The threads kept, the latest first: when, the agent, the id, the
 /// project and the title.
 pub fn list(home: &Path) -> Result<String, String> {
     let mut index = store::load(home)?.sessions;
@@ -69,15 +69,15 @@ pub fn list(home: &Path) -> Result<String, String> {
     Ok(out)
 }
 
-/// What was said in the session `id` of `agent`, as its record has it.
+/// What was said in the thread `id` of `agent`, as its record has it.
 pub fn show(home: &Path, agent: &str, id: &str) -> Result<String, String> {
     let record = store::read(&store::record_path(home, agent, id))
         .ok_or_else(|| format!("u0 keeps no record of {agent} {id}"))?;
     Ok(crate::session::said(record, false))
 }
 
-/// Say `prompt` to `agent`, in its session `session` or a new one in
-/// `project`, on the server `on`: the session it is said in; with `wait`,
+/// Say `prompt` to `agent`, in its thread `session` or a new one in
+/// `project`, on the server `on`: the thread it is said in; with `wait`,
 /// what the agent answered.
 pub fn say(
     home: &Path,

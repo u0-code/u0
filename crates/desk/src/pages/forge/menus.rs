@@ -196,14 +196,14 @@ impl Desk {
         if pr {
             let (f2, t2) = (folder.clone(), title.clone());
             entry(
-                "A session on it, in a worktree",
+                "A thread on it, in a worktree",
                 Box::new(move |d, window, cx| {
                     d.start_from_pr(f2.clone(), n, t2.clone(), false, window, cx);
                 }),
             );
             let (f3, t3) = (folder.clone(), title.clone());
             entry(
-                "A session on it, checked out here",
+                "A thread on it, checked out here",
                 Box::new(move |d, window, cx| {
                     d.start_from_pr(f3.clone(), n, t3.clone(), true, window, cx);
                 }),
@@ -229,7 +229,7 @@ impl Desk {
         } else {
             let (f2, t2) = (folder.clone(), title.clone());
             entry(
-                "A session about it",
+                "A thread about it",
                 Box::new(move |d, window, cx| {
                     d.start_from_issue(f2.clone(), n, &t2, false, window, cx);
                 }),

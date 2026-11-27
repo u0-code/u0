@@ -460,7 +460,7 @@ mod tests {
         // Never answered: its agent gave up, and the turn ended.
         sessions.at_mut(1).unwrap().state = State::Idle;
         assert!(!sessions.asks(1));
-        assert!(!sessions.asks(9), "a session gone asks nothing");
+        assert!(!sessions.asks(9), "a thread gone asks nothing");
     }
 
     #[test]

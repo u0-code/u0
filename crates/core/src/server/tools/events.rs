@@ -29,11 +29,11 @@ struct Since {
     /// happen that the filters let through; none, not at all.
     #[serde(default)]
     seconds: u64,
-    /// Only in the sessions of this agent (its registry id).
+    /// Only in the threads of this agent (its registry id).
     agent: Option<String>,
-    /// Only in this session (its id).
+    /// Only in this thread (its id).
     session: Option<String>,
-    /// Only in the sessions of this project (its folder).
+    /// Only in the threads of this project (its folder).
     project: Option<PathBuf>,
 }
 
@@ -95,7 +95,7 @@ impl Tools {
 
 #[tool_router(router = event_router, vis = "pub(super)")]
 impl Tools {
-    /// What happened in the sessions u0 runs after a number (a turn
+    /// What happened in the threads u0 runs after a number (a turn
     /// ended, an agent asks the user), the latest last, each numbered;
     /// only that of an `agent`, a `session` or a `project` where one is
     /// named. Call again with `last` to follow on; with `seconds`, it

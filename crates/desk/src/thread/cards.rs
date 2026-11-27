@@ -495,7 +495,7 @@ impl Desk {
                     .flex()
                     .gap(px(6.))
                     .child(
-                        ui::button("restart", crate::tr("Restart session"), Weight::Secondary)
+                        ui::button("restart", crate::tr("Restart thread"), Weight::Secondary)
                             .on_click(cx.listener(|this, _, window, cx| this.restart(window, cx))),
                     )
                     .child(

@@ -115,7 +115,7 @@ impl Desk {
         } else {
             if let Some(s) = self.sessions.at_mut(key) {
                 s.ended(
-                    Err(crate::tr("The agent is not running; start a new session with it.").into()),
+                    Err(crate::tr("The agent is not running; start a new thread with it.").into()),
                     Vec::new(),
                 );
             }
@@ -401,7 +401,7 @@ impl Desk {
         if removed {
             s.meta.worktree = None;
             s.state = State::Broken(
-                crate::tr("Its worktree was removed. Start a new session to go on.").into(),
+                crate::tr("Its worktree was removed. Start a new thread to go on.").into(),
             );
         }
         // A repository made here: its project is read again.

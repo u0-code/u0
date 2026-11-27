@@ -443,7 +443,7 @@ impl Desk {
                 self.terminal_on(host, &line, cx);
             }
             None => self.trouble(
-                crate::tr_with("Sign in to %{name} on its server", &[("name", &name)]),
+                crate::tr_with("Sign in to %{name} on its machine", &[("name", &name)]),
                 Some(crate::tr("u0 there does not know the program it signs in with.").into()),
                 None,
             ),
@@ -528,7 +528,7 @@ impl Desk {
             gpui::PromptLevel::Warning,
             &crate::tr_with("Uninstall %{name}?", &[("name", &name)]),
             Some(&crate::tr_with(
-                "Its download in %{folder} is removed. Its sessions and sign-in stay with %{name}, and it can be installed again.",
+                "Its download in %{folder} is removed. Its threads and sign-in stay with %{name}, and it can be installed again.",
                 &[
                     ("folder", &Desk::shown(&self.home_on(host).join("agents").join(id))),
                     ("name", &name),
@@ -600,7 +600,7 @@ impl Desk {
         if self.settings_on(host).enabled.contains(&id) {
             self.trouble(
                 crate::tr_with(
-                    "There is an account named “%{name}” already",
+                    "There is an instance named “%{name}” already",
                     &[("name", &typed.trim())],
                 ),
                 None,

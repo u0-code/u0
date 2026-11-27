@@ -297,7 +297,7 @@ impl Desk {
             let needs = matches!(slot.auth, Auth::Needed(_));
             let said = |english: &str| crate::tr_with(english, &[("name", &name)]);
             let tip = if bound {
-                said("%{name} can't take over this session. Start a new session to use it.")
+                said("%{name} can't take over this thread. Start a new thread to use it.")
             } else {
                 match &slot.stage {
                     Stage::Starting => said("%{name}: Starting"),
@@ -745,7 +745,7 @@ impl Desk {
                             .text_size(px(crate::style::CAPTION))
                             .text_color(theme::muted()),
                         )
-                        .tooltip(crate::tr("A session each, begun with the same words"))
+                        .tooltip(crate::tr("A thread each, begun with the same words"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.composer.fanout = !this.composer.fanout;
                             cx.notify();

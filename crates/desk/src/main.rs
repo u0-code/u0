@@ -98,7 +98,7 @@ fn main() {
                 MenuItem::action(crate::tr("Quit u0"), Quit),
             ]),
             Menu::new(crate::tr("File")).items(vec![
-                MenuItem::action(crate::tr("New Session"), NewSession),
+                MenuItem::action(crate::tr("New Thread"), NewSession),
                 MenuItem::action(crate::tr("Stop"), Stop),
             ]),
             Menu::new(crate::tr("Edit")).items(vec![

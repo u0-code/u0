@@ -363,7 +363,7 @@ impl Desk {
             })
             .child(flag(
                 "script-settle",
-                "As its session settles",
+                "As its thread settles",
                 w.settle,
                 |w| {
                     w.settle = !w.settle;
@@ -371,7 +371,7 @@ impl Desk {
             ))
             .child(flag(
                 "script-stop",
-                "Stop it as its session settles",
+                "Stop it as its thread settles",
                 w.stop,
                 |w| {
                     w.stop = !w.stop;

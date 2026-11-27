@@ -184,7 +184,7 @@ impl Desk {
                 let found = self.sessions.by_id(crate::hub::Host::HERE, &agent, &id);
                 let Some(key) = found.map(|s| s.key) else {
                     self.trouble(
-                        crate::tr("That session isn't here"),
+                        crate::tr("That thread isn't here"),
                         Some(format!("{agent} {}", id.0)),
                         None,
                     );
@@ -228,7 +228,7 @@ impl Desk {
             let (desk, prompt) = (desk.clone(), prompt.clone());
             alert
                 .title(crate::tr("Replace what you were writing?"))
-                .description(crate::tr("A link brought a prompt for this session."))
+                .description(crate::tr("A link brought a prompt for this thread."))
                 .ok_text(crate::tr("Replace"))
                 .show_cancel(true)
                 .on_ok(move |_, window, cx| {

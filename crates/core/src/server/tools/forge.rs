@@ -18,7 +18,7 @@ use crate::{
 
 #[derive(Deserialize, schemars::JsonSchema)]
 struct ListPrs {
-    /// The project's folder; none, where this session works.
+    /// The project's folder; none, where this thread works.
     folder: Option<PathBuf>,
     /// open (none), closed, merged or all.
     state: Option<String>,
@@ -29,7 +29,7 @@ struct ListPrs {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 struct ReadPr {
-    /// The project's folder; none, where this session works.
+    /// The project's folder; none, where this thread works.
     folder: Option<PathBuf>,
     number: u64,
     /// Its whole patch too.
@@ -47,7 +47,7 @@ enum Verdict {
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 struct ReviewPr {
-    /// The project's folder; none, where this session works.
+    /// The project's folder; none, where this thread works.
     folder: Option<PathBuf>,
     number: u64,
     verdict: Verdict,
@@ -60,7 +60,7 @@ struct ReviewPr {
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 struct MergePr {
-    /// The project's folder; none, where this session works.
+    /// The project's folder; none, where this thread works.
     folder: Option<PathBuf>,
     number: u64,
     /// none, as your settings merge.
@@ -72,7 +72,7 @@ struct MergePr {
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 struct ReplyToThread {
-    /// The project's folder; none, where this session works.
+    /// The project's folder; none, where this thread works.
     folder: Option<PathBuf>,
     number: u64,
     /// The conversation, by its id as `read_pr` gives it (`threads`).
@@ -82,7 +82,7 @@ struct ReplyToThread {
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 struct ResolveThread {
-    /// The project's folder; none, where this session works.
+    /// The project's folder; none, where this thread works.
     folder: Option<PathBuf>,
     number: u64,
     /// The conversation, by its id as `read_pr` gives it (`threads`).
@@ -94,7 +94,7 @@ struct ResolveThread {
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 struct RerunCi {
-    /// The project's folder; none, where this session works.
+    /// The project's folder; none, where this thread works.
     folder: Option<PathBuf>,
     number: u64,
     /// The failed run, by its id as `pr_checks` gives it.
@@ -103,14 +103,14 @@ struct RerunCi {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 struct Checks {
-    /// The project's folder; none, where this session works.
+    /// The project's folder; none, where this thread works.
     folder: Option<PathBuf>,
     number: u64,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
 struct CiLog {
-    /// The project's folder; none, where this session works.
+    /// The project's folder; none, where this thread works.
     folder: Option<PathBuf>,
     /// The run, by its id as `pr_checks` gives it.
     run: String,
@@ -150,7 +150,7 @@ fn merge(ask: &MergePr, settings: &Settings) -> Act {
 }
 
 /// The pull request `number` of `folder`'s host, as it is now: what its
-/// card names. Asked only of an agent in a session of u0's, for none
+/// card names. Asked only of an agent in a thread of u0's, for none
 /// other may act.
 async fn about(tools: &Tools, folder: PathBuf, number: u64) -> Result<Item, String> {
     Ok(viewed(tools, folder, number).await?.item)

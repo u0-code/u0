@@ -870,9 +870,7 @@ impl Desk {
                             crate::tr("switch to this model").into(),
                         ),
                         Offer::File(f) => ("file", f, String::new()),
-                        Offer::Session { title, .. } => {
-                            ("list", title, crate::tr("session").into())
-                        }
+                        Offer::Session { title, .. } => ("list", title, crate::tr("thread").into()),
                         Offer::Pr { number, title } => (
                             "branch",
                             format!("#{number} {title}"),

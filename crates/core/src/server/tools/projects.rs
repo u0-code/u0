@@ -19,14 +19,14 @@ struct AddProject {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 struct SearchSessions {
-    /// What to look for, case aside: in a session's title, and in all
+    /// What to look for, case aside: in a thread's title, and in all
     /// that was said in it.
     query: String,
 }
 
 #[derive(Deserialize, schemars::JsonSchema)]
 struct FindFiles {
-    /// The folder; none, where this session works.
+    /// The folder; none, where this thread works.
     folder: Option<PathBuf>,
     /// Letters of the path, in order, as typed to u0's file finder
     /// (`smr` finds `src/main.rs`).
@@ -35,7 +35,7 @@ struct FindFiles {
 
 #[derive(Deserialize, schemars::JsonSchema)]
 struct SearchCode {
-    /// The folder; none, where this session works.
+    /// The folder; none, where this thread works.
     folder: Option<PathBuf>,
     /// What to look for.
     words: String,
@@ -109,7 +109,7 @@ impl Tools {
         Ok(format!("{shown} is a project now."))
     }
 
-    /// The sessions u0 keeps whose title, or what was said in them,
+    /// The threads u0 keeps whose title, or what was said in them,
     /// holds `query` (case aside), the latest first; as `list_sessions`
     /// gives them.
     #[tool]

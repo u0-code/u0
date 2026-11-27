@@ -90,7 +90,7 @@ impl Desk {
     fn say_later(&mut self, key: u64, text: String, when: Later, cx: &mut Context<Self>) -> bool {
         let Some(s) = self.sessions.at(key).filter(|s| s.meta.id.is_some()) else {
             self.trouble(
-                crate::tr("Say something first: a session is kept once its agent has it"),
+                crate::tr("Say something first: a thread is kept once its agent has it"),
                 None,
                 None,
             );
@@ -301,9 +301,8 @@ impl Desk {
                 }
                 Some(_) => {
                     if let Some(s) = self.sessions.at_mut(key) {
-                        s.state = State::Broken(
-                            crate::tr("The agent cannot open a session again").into(),
-                        );
+                        s.state =
+                            State::Broken(crate::tr("The agent cannot open a thread again").into());
                     }
                 }
                 None => {

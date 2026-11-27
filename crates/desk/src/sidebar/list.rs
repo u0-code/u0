@@ -687,11 +687,11 @@ impl Desk {
                             .xsmall()
                             .child(ui::icon("square-pen", 14.))
                             .accessibility_label(crate::tr_with(
-                                "New session in %{name}",
+                                "New thread in %{name}",
                                 &[("name", &self.project_name(folder))],
                             ))
                             .tooltip(crate::tr_with(
-                                "New session in %{name}",
+                                "New thread in %{name}",
                                 &[("name", &self.project_name(folder))],
                             ))
                             .on_click(move |_, window, cx| {
@@ -1145,7 +1145,7 @@ enum Plan {
 /// What a session's menu says of it, read from the desk before it is built.
 #[allow(
     clippy::struct_excessive_bools,
-    reason = "each is a fact of its own about the session, not a state among several"
+    reason = "each is a fact of its own about the thread, not a state among several"
 )]
 struct Facts {
     key: u64,
@@ -1248,7 +1248,7 @@ fn session_menu(
     }
     menu = menu
         .item(item(
-            crate::tr("Find in session"),
+            crate::tr("Find in thread"),
             "search",
             on(|d, key, window, cx| {
                 d.show(key, window, cx);
@@ -1279,7 +1279,7 @@ fn session_menu(
     if let Some(branch) = &f.new_on {
         menu = menu.item(item(
             crate::tr_with(
-                "New session on %{branch}",
+                "New thread on %{branch}",
                 &[("branch", &ui::fit(branch, 22))],
             ),
             "square-pen",
@@ -1341,7 +1341,7 @@ fn session_menu(
                 None => menu,
             };
             match &id {
-                Some(id) => menu.item(copy_item("Session ID", id.clone())),
+                Some(id) => menu.item(copy_item("Thread ID", id.clone())),
                 None => menu,
             }
         },
@@ -1425,7 +1425,7 @@ fn project_menu(menu: PopupMenu, folder: &Place, pinned: bool, desk: &Entity<Des
         move |window: &mut Window, cx: &mut App| desk.update(cx, |d, cx| f(d, &folder, window, cx))
     };
     menu.item(item(
-        crate::tr("New session"),
+        crate::tr("New thread"),
         "square-pen",
         on(|d, f, window, cx| d.new_in(f.clone(), window, cx)),
     ))

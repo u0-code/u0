@@ -305,9 +305,9 @@ impl Desk {
                 Some(
                     crate::tr_with(
                         if *sessions == 1 {
-                            "%{sessions} session"
+                            "%{sessions} thread"
                         } else {
-                            "%{sessions} sessions"
+                            "%{sessions} threads"
                         },
                         &[("sessions", sessions)],
                     )
@@ -331,7 +331,7 @@ impl Desk {
             agents.push(item(
                 w,
                 crate::tr("Nothing said"),
-                crate::tr("No agent said what a session cost or took in this time. Not every agent says; u0 does not guess."),
+                crate::tr("No agent said what a thread cost or took in this time. Not every agent says; u0 does not guess."),
                 |_, _, _| div().into_any_element(),
             ));
         }
@@ -411,7 +411,7 @@ impl Desk {
             groups.push(group(crate::tr("By model"), models));
         }
         if !sessions.is_empty() {
-            groups.push(group(crate::tr("By session"), sessions));
+            groups.push(group(crate::tr("By thread"), sessions));
         }
         groups
     }

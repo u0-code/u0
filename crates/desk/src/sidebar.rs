@@ -103,8 +103,8 @@ impl Desk {
                     .ghost()
                     .small()
                     .child(ui::icon("square-pen", 16.))
-                    .accessibility_label(crate::tr("New session"))
-                    .tooltip(crate::keys::hint(cx, "New session", "new_session"))
+                    .accessibility_label(crate::tr("New thread"))
+                    .tooltip(crate::keys::hint(cx, "New thread", "new_session"))
                     .on_click(cx.listener(|this, e: &gpui::ClickEvent, window, cx| {
                         if e.modifiers().shift {
                             this.new_default(window, cx);

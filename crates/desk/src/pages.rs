@@ -571,7 +571,7 @@ impl Desk {
                                 &[("name", &name), ("why", why)],
                             ),
                             crate::hub::Auth::Ready => {
-                                crate::tr_with("Signed in: %{name} opens sessions.", &named)
+                                crate::tr_with("Signed in: %{name} opens threads.", &named)
                             }
                             crate::hub::Auth::Unknown => crate::tr_with(
                                 "%{name}'s own sign-in. Skipped if you're already signed in.",
@@ -641,7 +641,7 @@ impl Desk {
             }
             _ if enabled => {
                 actions = actions.child(
-                    ui::button("start", crate::tr("New session"), Weight::Primary).on_click(
+                    ui::button("start", crate::tr("New thread"), Weight::Primary).on_click(
                         cx.listener(move |this, _, window, cx| {
                             if let Some(project) = this.project() {
                                 this.new_session(&start_id, project, window, cx);
@@ -792,7 +792,7 @@ impl Desk {
             )
             .child(ui::fine(
                 faces,
-                crate::tr("Each new session of it is given u0's tools, as an MCP server: the sessions u0 keeps, a diff, a task handed to another session, a pull request, a task scheduled, a question put to you. What acts asks you here first."),
+                crate::tr("Each new thread of it is given u0's tools, as an MCP server: the threads u0 keeps, a diff, a task handed to another thread, a pull request, a task scheduled, a question put to you. What acts asks you here first."),
             ))
             .child(ui::label(faces, &crate::tr("Your own")))
             .child(
@@ -947,7 +947,7 @@ impl Desk {
             .flex_col()
             .gap(px(10.))
             .pt(px(8.))
-            .child(ui::label(faces, &crate::tr("Accounts")))
+            .child(ui::label(faces, &crate::tr("Instances")))
             .when(!accounts.is_empty(), |d| d.child(list))
             .child(
                 div()
@@ -956,14 +956,14 @@ impl Desk {
                     .gap(px(8.))
                     .child(div().w(px(180.)).child(Input::new(&self.pages.account).small()))
                     .child(
-                        ui::button("add-account", crate::tr("Add an account"), Weight::Secondary).on_click(
+                        ui::button("add-account", crate::tr("Add an instance"), Weight::Secondary).on_click(
                             cx.listener(move |this, _, window, cx| this.add_account(host, &base, window, cx)),
                         ),
                     ),
             )
             .child(ui::fine(
                 faces,
-                crate::tr("Another account is the agent run again with its own sign-in and settings, side by side with this one: a session begun in it stays with it."),
+                crate::tr("Another instance is the agent run again with its own sign-in and settings, side by side with this one: a thread begun in it stays with it."),
             ))
     }
 

@@ -163,7 +163,7 @@ impl Desk {
         );
         let mut page = SettingPage::new(crate::tr("Devices"))
             .description(
-                crate::tr("Use u0 on one Mac from another: its agents, sessions, files and terminals, as there. Each device comes in by a key of its own, made as it pairs: its private half stays in that device's Keychain, and only the public half, shown by its fingerprint, is sent."),
+                crate::tr("Use u0 on one Mac from another: its agents, threads, files and terminals, as there. Each device comes in by a key of its own, made as it pairs: its private half stays in that device's Keychain, and only the public half, shown by its fingerprint, is sent."),
             )
             .group(SettingGroup::new().items(
                 std::iter::once(serve)
@@ -218,7 +218,7 @@ impl Desk {
             w,
             crate::tr("What it may do"),
             crate::tr(
-                "Read only: it watches sessions, diffs and your projects' files, and changes nothing. Its calls are checked here, on this Mac.",
+                "Read only: it watches threads, diffs and your projects' files, and changes nothing. Its calls are checked here, on this Mac.",
             ),
             move |_, _, cx| {
                 ui::segmented(
@@ -925,7 +925,7 @@ impl Desk {
         change: impl FnOnce(&mut Servers) -> Result<(), String>,
     ) {
         if let Err(why) = Servers::change(&self.home, change) {
-            self.trouble(crate::tr("Couldn't keep your servers"), Some(why), None);
+            self.trouble(crate::tr("Couldn't keep your machines"), Some(why), None);
         }
         self.read_servers();
     }
@@ -934,7 +934,7 @@ impl Desk {
     pub(crate) fn read_servers(&mut self) {
         match Servers::load(&self.home) {
             Ok(servers) => self.pages.servers = servers,
-            Err(why) => self.trouble(crate::tr("Couldn't read your servers"), Some(why), None),
+            Err(why) => self.trouble(crate::tr("Couldn't read your machines"), Some(why), None),
         }
     }
 }

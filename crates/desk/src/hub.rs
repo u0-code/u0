@@ -150,7 +150,7 @@ impl Machine {
     pub fn open(home: &std::path::Path, tx: &Sender) -> Vec<Self> {
         let servers = Servers::load(home).unwrap_or_else(|why| {
             let _ = tx.send(Msg::Notice(Err((
-                crate::tr("Couldn't read your servers").into(),
+                crate::tr("Couldn't read your machines").into(),
                 why,
             ))));
             Servers::default()

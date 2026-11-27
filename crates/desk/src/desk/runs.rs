@@ -190,7 +190,7 @@ impl Desk {
     /// the session on screen; `first` is typed into it: a sign-in there.
     pub(crate) fn terminal_on(&mut self, host: Host, first: &str, cx: &mut Context<Self>) {
         let Some(key) = self.current else {
-            self.trouble(crate::tr("Open a session to sign in beside it"), None, None);
+            self.trouble(crate::tr("Open a thread to sign in beside it"), None, None);
             return;
         };
         let dir = self.home_on(host).to_path_buf();

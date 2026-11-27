@@ -38,13 +38,13 @@ pub struct Kept {
 pub fn sizes(home: &Path, worktrees: &[PathBuf]) -> Vec<(String, u64)> {
     let dir = |d: &str| size(&home.join(d));
     vec![
-        ("Session records".to_owned(), dir("transcripts")),
+        ("Thread records".to_owned(), dir("transcripts")),
         (
             "Worktrees".to_owned(),
             worktrees.iter().map(|w| size(w)).sum(),
         ),
         ("Agents installed".to_owned(), dir("agents")),
-        ("Scratch sessions".to_owned(), dir("scratch")),
+        ("Scratch threads".to_owned(), dir("scratch")),
     ]
 }
 
@@ -123,7 +123,7 @@ pub fn tidy(home: &Path, what: Tidy, kept: &Kept) -> String {
                 }
             }
             format!(
-                "Checkpoints of {n} session{} removed",
+                "Checkpoints of {n} thread{} removed",
                 if n == 1 { "" } else { "s" }
             )
         }
@@ -153,7 +153,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("kept.jsonl"), "x").unwrap();
         std::fs::write(dir.join("gone.jsonl"), "yy").unwrap();
-        assert_eq!(sizes(home, &[])[0], ("Session records".to_owned(), 3));
+        assert_eq!(sizes(home, &[])[0], ("Thread records".to_owned(), 3));
         let kept = Kept {
             records: vec![("a".into(), "kept".into())],
             worktrees: Vec::new(),

@@ -215,7 +215,7 @@ fn safe(id: &str) -> String {
 /// is refused with why, and nothing is saved over it.
 pub fn load(home: &Path) -> Result<Index, String> {
     whole::read_json(&index_path(home)).map_err(|e| {
-        format!("{e}. Move it away to start afresh; until then sessions are not remembered.")
+        format!("{e}. Move it away to start afresh; until then threads are not remembered.")
     })
 }
 

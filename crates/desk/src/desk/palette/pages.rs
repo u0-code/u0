@@ -34,7 +34,7 @@ impl Sub {
     /// What the page says at its head.
     pub(super) fn title(self) -> &'static str {
         match self {
-            Self::NewIn => "New session in…",
+            Self::NewIn => "New thread in…",
             Self::Look => "Change appearance",
             Self::Add => "Add project",
             Self::Clone => "Clone a repository",
@@ -42,7 +42,7 @@ impl Sub {
 
             Self::Snooze => "Snooze until…",
             Self::Link => "Link a pull request or issue",
-            Self::Tag => "Tag the session",
+            Self::Tag => "Tag the thread",
         }
     }
 
@@ -426,12 +426,9 @@ impl Desk {
                 // being projects.
                 for (folder, count, _) in self.found_elsewhere(on).into_iter().take(6) {
                     let worked = if count == 1 {
-                        crate::tr("1 session already worked here")
+                        crate::tr("1 thread already worked here")
                     } else {
-                        crate::tr_with(
-                            "%{count} sessions already worked here",
-                            &[("count", &count)],
-                        )
+                        crate::tr_with("%{count} threads already worked here", &[("count", &count)])
                     };
                     let shown = Desk::shown(&folder);
                     rows.push(Row::new("folder", shown, Act::Adopt(at_on(on, folder))).sub(worked));

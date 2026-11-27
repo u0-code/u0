@@ -26,7 +26,7 @@ impl Desk {
             item(
                 w,
                 crate::tr("Who writes"),
-                crate::tr("In a session of its own, deleted once it answers; it spends what a turn spends."),
+                crate::tr("In a thread of its own, deleted once it answers; it spends what a turn spends."),
                 |d, faces, cx| d.writer_pick(faces, cx).into_any_element(),
             )
             .keywords(["Writer", "model", "agent", "titles", "commit"]),
@@ -53,7 +53,7 @@ impl Desk {
             instructions(
                 w,
                 "Titles",
-                "Written when you ask a session for one again.",
+                "Written when you ask a thread for one again.",
                 |d| &d.pages.titles,
             ),
             instructions(
@@ -88,7 +88,7 @@ impl Desk {
     fn writer_pick(&self, faces: &Faces, cx: &mut Context<Self>) -> impl IntoElement {
         let w = &self.settings.writer;
         let shown = match &w.agent {
-            None => crate::tr("The session's agent").to_string(),
+            None => crate::tr("The thread's agent").to_string(),
             Some(agent) => {
                 let model = w.model.as_ref().map_or_else(
                     || crate::tr("its default").to_string(),
@@ -113,7 +113,7 @@ impl Desk {
                 d.models_menu(
                     menu,
                     desk,
-                    Some("The session's agent"),
+                    Some("The thread's agent"),
                     (w.agent.as_deref(), w.model.as_deref()),
                     |d, agent, model| {
                         (d.settings.writer.agent, d.settings.writer.model) = (agent, model);

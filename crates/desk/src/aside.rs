@@ -891,7 +891,7 @@ impl Desk {
                         div()
                             .id("new-in-worktree")
                             .cursor_pointer()
-                            .child(fine(faces, crate::tr("New session")).text_color(theme::link()))
+                            .child(fine(faces, crate::tr("New thread")).text_color(theme::link()))
                             .on_click(cx.listener(move |this, _, window, cx| {
                                 this.new_in_worktree(key, window, cx);
                             }))
@@ -1021,7 +1021,7 @@ impl Desk {
                 ui::text(
                     faces,
                     crate::tr_with(
-                        "Starts %{name} in the session's folder, sends what you say, and draws what it reports. Edits, commands and permissions are %{name}'s own; u0 only asks you when it asks.",
+                        "Starts %{name} in the thread's folder, sends what you say, and draws what it reports. Edits, commands and permissions are %{name}'s own; u0 only asks you when it asks.",
                         &[("name", &name)],
                     ),
                 )

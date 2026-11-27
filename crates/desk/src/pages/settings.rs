@@ -36,11 +36,11 @@ pub enum Tab {
     General,
     Appearance,
     Chat,
-    NewSessions,
+    NewThreads,
     Writing,
     Agents,
-    Sessions,
-    Keyboard,
+    Archive,
+    Keybindings,
     Usage,
     About,
     Projects,
@@ -59,15 +59,15 @@ impl Tab {
         Self::Devices,
         Self::Appearance,
         Self::Chat,
-        Self::Keyboard,
+        Self::Keybindings,
         Self::Projects,
         Self::SourceControl,
         Self::Agents,
-        Self::NewSessions,
+        Self::NewThreads,
         Self::Writing,
         Self::Tasks,
         Self::Workflows,
-        Self::Sessions,
+        Self::Archive,
         Self::Usage,
         Self::Diagnostics,
         Self::Telemetry,
@@ -80,11 +80,11 @@ impl Tab {
             Self::General => "General",
             Self::Appearance => "Appearance",
             Self::Chat => "Chat",
-            Self::NewSessions => "New sessions",
+            Self::NewThreads => "New threads",
             Self::Writing => "Writing",
             Self::Agents => "Agents",
-            Self::Sessions => "Sessions",
-            Self::Keyboard => "Keyboard",
+            Self::Archive => "Archive",
+            Self::Keybindings => "Keybindings",
             Self::Projects => "Projects",
             Self::Usage => "Usage",
             Self::About => "About",
@@ -102,11 +102,11 @@ impl Tab {
             Self::General => "sliders",
             Self::Appearance => "sun",
             Self::Chat => "reply",
-            Self::NewSessions => "plus",
+            Self::NewThreads => "plus",
             Self::Writing => "pencil",
             Self::Agents => "plug",
-            Self::Sessions => "archive",
-            Self::Keyboard => "keyboard",
+            Self::Archive => "archive",
+            Self::Keybindings => "keyboard",
             Self::Projects => "folder",
             Self::Usage => "gauge",
             Self::About => "u0",
@@ -124,11 +124,11 @@ impl Tab {
     fn group(self) -> &'static str {
         match self {
             Self::Agents
-            | Self::NewSessions
+            | Self::NewThreads
             | Self::Writing
             | Self::Tasks
             | Self::Workflows
-            | Self::Sessions
+            | Self::Archive
             | Self::Usage => "Agents",
             Self::About | Self::Diagnostics | Self::Telemetry => "u0",
             _ => "",
@@ -149,12 +149,12 @@ impl Desk {
                 "Turn on the agents you use. Each runs its own CLI over ACP, with its own sign-in.",
                 self.agents(w, cx),
             ),
-            Tab::Sessions => paged(
-                "Sessions put away, and what u0 keeps on this Mac.",
+            Tab::Archive => paged(
+                "Threads put away, and what u0 keeps on this Mac.",
                 self.sessions_tab(w),
             ),
             Tab::Usage => paged(
-                "What sessions cost and took, and where your limits stand, as agents said.",
+                "What threads cost and took, and where your limits stand, as agents said.",
                 self.usage(w),
             ),
             Tab::Diagnostics => paged(
@@ -162,7 +162,7 @@ impl Desk {
                 self.diagnostics(w),
             ),
             Tab::Tasks => paged(
-                "A prompt said to an agent on a schedule. u0's server runs them, so they run while the window is closed; each run's session is in the sidebar.",
+                "A prompt said to an agent on a schedule. u0's server runs them, so they run while the window is closed; each run's thread is in the sidebar.",
                 self.tasks(w),
             ),
             Tab::Workflows => paged(
@@ -170,7 +170,7 @@ impl Desk {
                 self.flows(w),
             ),
             Tab::Telemetry => paged(
-                "What the server these settings are of tells the people who make u0, as far as you let it.",
+                "What the machine these settings are of tells the people who make u0, as far as you let it.",
                 self.telemetry_tab(w),
             ),
             Tab::Projects => self.projects_tab(w),
@@ -296,7 +296,7 @@ impl Desk {
             // Said, not chosen here: the first agent on is it.
             head.push(item(
                 w,
-                crate::tr("Default for new sessions"),
+                crate::tr("Default for new threads"),
                 crate::tr("The first agent switched on."),
                 move |d, faces, cx| {
                     div()
@@ -343,7 +343,7 @@ impl Desk {
         head.push(item(
             w,
             crate::tr("Agents outside u0 may act"),
-            crate::tr("An agent outside u0 reaches u0's tools by the key in mcp.json (u0 --mcp, or over HTTP on this Mac). Off, it only reads; on, it may say something in a session or stop its turn, each asked of you there."),
+            crate::tr("An agent outside u0 reaches u0's tools by the key in mcp.json (u0 --mcp, or over HTTP on this Mac). Off, it only reads; on, it may say something in a thread or stop its turn, each asked of you there."),
             move |_, _, cx| {
                 gpui::component::switch::Switch::new("outside-acts")
                     .accessibility_label(crate::tr("Agents outside u0 may act"))
@@ -528,12 +528,12 @@ impl Desk {
                         .gap(px(8.))
                         .child(button(
                             "tidy-records",
-                            "Remove records no session keeps",
+                            "Remove records no thread keeps",
                             Tidy::Records,
                         ))
                         .child(button(
                             "tidy-worktrees",
-                            "Remove worktrees no session works in",
+                            "Remove worktrees no thread works in",
                             Tidy::Worktrees,
                         ))
                         .child(button(
@@ -601,12 +601,12 @@ impl Desk {
                 w,
                 crate::tr("Nothing archived"),
                 crate::tr(
-                    "A session archived from its menu waits here, read only, until it is restored.",
+                    "A thread archived from its menu waits here, read only, until it is restored.",
                 ),
                 |_, _, _| div().into_any_element(),
             ));
         }
-        let mut groups = vec![group(crate::tr("Archived sessions"), list)];
+        let mut groups = vec![group(crate::tr("Archived threads"), list)];
         groups.extend(self.archived_projects(w));
         groups.push(self.storage(w));
         groups

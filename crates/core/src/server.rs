@@ -1558,7 +1558,7 @@ read line"#;
             resumed: false,
         });
         let Event::Appended { id, events, .. } = next() else {
-            panic!("not the session's record");
+            panic!("not the thread's record");
         };
         assert_eq!(id, s1);
         assert!(matches!(

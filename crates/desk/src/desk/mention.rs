@@ -383,10 +383,10 @@ fn next_item(line: &str) -> Option<Item> {
 /// Something offered as you type.
 /// u0's own commands after `/`, beside the agent's: done at once.
 const OWN: [(&str, &str); 5] = [
-    ("clear", "Begin afresh: a new session here"),
-    ("usage-limits", "What sessions cost, as agents said"),
+    ("clear", "Begin afresh: a new thread here"),
+    ("usage-limits", "What threads cost, as agents said"),
     ("model", "Choose the model"),
-    ("branch", "Branch off a copy of this session"),
+    ("branch", "Branch off a copy of this thread"),
     ("copy", "Copy the conversation"),
 ];
 
@@ -988,7 +988,7 @@ impl Desk {
                     if let Some(other) = self.sessions.at(*key) {
                         blocks.push(text_resource(
                             &format!("u0://session/{key}"),
-                            &format!("The session “{title}”:\n\n{}", said_in(other)),
+                            &format!("The thread “{title}”:\n\n{}", said_in(other)),
                         ));
                     }
                 }

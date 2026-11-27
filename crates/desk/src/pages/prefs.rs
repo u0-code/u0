@@ -40,8 +40,8 @@ impl Desk {
                         vec![
                             item(
                                 w,
-                                crate::tr("When a session ends a turn or needs you"),
-                                crate::tr("From macOS while u0 is behind, clicked to go to the session; in u0 while another is on screen."),
+                                crate::tr("When a thread ends a turn or needs you"),
+                                crate::tr("From macOS while u0 is behind, clicked to go to the thread; in u0 while another is on screen."),
                                 |d, _, cx| {
                                     Self::pick("notify",
                                         [
@@ -109,7 +109,7 @@ impl Desk {
                         vec![item(
                             w,
                             crate::tr("Merged as"),
-                            crate::tr("How Merge beside a session, and merging once its checks pass, merge a pull request; the PRs page offers each."),
+                            crate::tr("How Merge beside a thread, and merging once its checks pass, merge a pull request; the PRs page offers each."),
                             |d, _, cx| {
                                 d.own(
                                     "merge",
@@ -131,7 +131,7 @@ impl Desk {
                         vec![
                             item(
                                 w,
-                                crate::tr("A session is done after it is left for"),
+                                crate::tr("A thread is done after it is left for"),
                                 crate::tr("It moves to Settled in the sidebar; anything said to it brings it back."),
                                 |d, _, cx| {
                                     Self::pick("settle_days",
@@ -152,7 +152,7 @@ impl Desk {
                             item(
                                 w,
                                 crate::tr("When its pull request merges or closes"),
-                                crate::tr("The session is done then, while it waits on nothing."),
+                                crate::tr("The thread is done then, while it waits on nothing."),
                                 |d, _, cx| {
                                     Self::pick("settle_merged",
                                         [(crate::tr("Settle it"), true), (crate::tr("Leave it"), false)],
@@ -176,7 +176,7 @@ impl Desk {
                             ).disabled(scoped),
                             item(
                                 w,
-                                crate::tr("Keep sessions with a pull request"),
+                                crate::tr("Keep threads with a pull request"),
                                 crate::tr("One whose pull request is open is never done for being left."),
                                 |d, _, cx| {
                                     Self::pick("keep_with_pr",
@@ -246,17 +246,17 @@ impl Desk {
                     group(
                         crate::tr("Confirmations"),
                         vec![
-                            asks(w, ("Unpin", "Ask before a session is unpinned."), |c| {
+                            asks(w, ("Unpin", "Ask before a thread is unpinned."), |c| {
                                 &mut c.unpin
                             }),
-                            asks(w, ("Archive", "Ask before a session is archived."), |c| {
+                            asks(w, ("Archive", "Ask before a thread is archived."), |c| {
                                 &mut c.archive
                             }),
                             asks(
                                 w,
                                 (
                                     "Delete",
-                                    "Ask before a session and what was said in it are deleted.",
+                                    "Ask before a thread and what was said in it are deleted.",
                                 ),
                                 |c| &mut c.delete,
                             ),
@@ -299,7 +299,7 @@ impl Desk {
                             item(
                                 w,
                                 crate::tr("The sidebar sorts by"),
-                                crate::tr("A project's sessions, and the projects: your last message, anything happening, when each began, or name. Pinned ones stay on top."),
+                                crate::tr("A project's threads, and the projects: your last message, anything happening, when each began, or name. Pinned ones stay on top."),
                                 |d, _, cx| {
                                     Self::pick("sort",
                                         [
@@ -586,7 +586,7 @@ impl Desk {
                         vec![item(
                             w,
                             crate::tr("What sends what you write"),
-                            crate::tr("Where Return does not send, it breaks the line. The other key (⌘Return, or ⇧⌘Return) begins another session beside it, or while a turn goes on does the opposite of the setting above."),
+                            crate::tr("Where Return does not send, it breaks the line. The other key (⌘Return, or ⇧⌘Return) begins another thread beside it, or while a turn goes on does the opposite of the setting above."),
                             |d, _, cx| {
                                 Self::pick("send",
                                     [
@@ -661,8 +661,8 @@ impl Desk {
                     ),
                 ],
             ),
-            Tab::NewSessions => (
-                "How a session begins in a repository.",
+            Tab::NewThreads => (
+                "How a thread begins in a repository.",
                 vec![
                     Self::scope_group(w),
                     group(
@@ -670,7 +670,7 @@ impl Desk {
                         vec![
                             item(
                                 w,
-                                crate::tr("A new session works"),
+                                crate::tr("A new thread works"),
                                 crate::tr("A project can choose otherwise from its menu."),
                                 |d, _, cx| {
                                     Self::pick("worktree",
@@ -739,8 +739,8 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                crate::tr("An archived session's worktree is taken away after"),
-                                crate::tr("Its branch stays, and so does a worktree with changes not committed; opened again, the session checks it out again."),
+                                crate::tr("An archived thread's worktree is taken away after"),
+                                crate::tr("Its branch stays, and so does a worktree with changes not committed; opened again, the thread checks it out again."),
                                 |d, _, cx| {
                                     d.own(
                                         "tidy-after",
@@ -761,7 +761,7 @@ impl Desk {
                     ),
                 ],
             ),
-            Tab::Keyboard => return Some(keyboard(w)),
+            Tab::Keybindings => return Some(keyboard(w)),
             Tab::Writing => return Some(Self::writing_tab(w)),
             Tab::About => return Some(self.about_u0(w)),
             Tab::SourceControl => return Some(self.source_control(w)),
@@ -1071,7 +1071,7 @@ fn keyboard(w: &WeakEntity<Desk>) -> SettingPage {
         .unwrap_or_else(|_| div().into_any_element())
     })
     .keywords(["keybindings.json"]);
-    SettingPage::new(super::Tab::Keyboard.title())
+    SettingPage::new(super::Tab::Keybindings.title())
         .description(crate::tr("The keys as they are now, yours over u0's."))
         .groups(
             groups

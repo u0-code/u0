@@ -13,13 +13,13 @@ use crate::{git, proto::Event, settings::Settings};
 
 #[derive(Deserialize, schemars::JsonSchema)]
 struct ListWorktrees {
-    /// The project's folder; none, where this session works.
+    /// The project's folder; none, where this thread works.
     project: Option<PathBuf>,
 }
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 struct MakeWorktree {
-    /// The project's folder; none, where this session works.
+    /// The project's folder; none, where this thread works.
     project: Option<PathBuf>,
     /// What it is for, in a few words: its branch is named for it.
     about: String,
@@ -53,7 +53,7 @@ impl Tools {
     }
 
     /// Make a worktree of a project, on a branch of its own from the
-    /// remote's default branch, as a new session's is: its path and
+    /// remote's default branch, as a new thread's is: its path and
     /// branch. You are asked first.
     #[tool]
     async fn make_worktree(
@@ -78,7 +78,7 @@ impl Tools {
         }
     }
 
-    /// Take away a worktree u0 made, where no session of u0's works
+    /// Take away a worktree u0 made, where no thread of u0's works
     /// in it and nothing in it is uncommitted (git keeps it, and says so);
     /// its branch stays. You are asked first.
     #[tool]
@@ -89,7 +89,7 @@ impl Tools {
         let in_use = (self.shared.index.lock().expect("index").as_ref())
             .is_ok_and(|i| i.sessions.iter().any(|m| m.folder.starts_with(&ask.path)));
         if in_use {
-            return Err("A session of u0's works in it: archive and tidy it instead".into());
+            return Err("A thread of u0's works in it: archive and tidy it instead".into());
         }
         let home = self.shared.home.clone();
         let (path, projects) = (ask.path.clone(), Settings::load(&home).0.folders);
@@ -140,7 +140,7 @@ mod tests {
         server.handle(Call::Keep(vec![meta(&path, "Work")]));
         client.call("remove_worktree", &json!({"path": path}));
         let (why, failed) = client.result();
-        assert!(failed && why.contains("A session"), "{why}");
+        assert!(failed && why.contains("A thread"), "{why}");
         server.handle(Call::Keep(vec![meta(&project, "Work")]));
         client.call("remove_worktree", &json!({"path": path}));
         let title = answer_card(&server, &said, "once");

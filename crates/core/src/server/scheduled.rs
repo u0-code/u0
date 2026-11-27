@@ -268,7 +268,7 @@ impl Shared {
             }
         };
         let title = meta.as_ref().map_or("", |m| m.title.as_str());
-        let said = format!("In “{title}” ({} session {}): {said}", m.agent, m.session.0);
+        let said = format!("In “{title}” ({} thread {}): {said}", m.agent, m.session.0);
         let event = tasks::untrusted("event", &said);
         let due: Vec<u64> = match &*self.tasks.lock().expect("tasks") {
             Ok(all) => (all.tasks.iter())
@@ -525,7 +525,7 @@ impl Shared {
             Some(id) => (self.reopen(&agent, task, id).await?, false),
             None => (self.open(&agent, task).await.map_err(|e| (None, e))?, true),
         };
-        let id = meta.id.clone().expect("a session opened has an id");
+        let id = meta.id.clone().expect("a thread opened has an id");
         opened(&id);
         let failed = |why: String| (Some(id.clone()), why);
         // The desk is told, with what was said in it so far, read after all
@@ -681,7 +681,7 @@ impl Shared {
                     .find(|m| m.agent == task.agent && m.id.as_ref() == Some(&id))
                     .cloned()
             })
-            .ok_or_else(|| failed("Its session is no longer kept".into()))?;
+            .ok_or_else(|| failed("Its thread is no longer kept".into()))?;
         if !self.records.is_open(&task.agent, &id) {
             self.records.open(&task.agent, id.clone());
             let (_, given) = self.tools(&task.agent, Some(id.clone()));

@@ -30,22 +30,22 @@ commands, and what u0 keeps and sends.
 
 | | |
 |---|---|
-| **Projects down the left** | Each project is a folder, with its sessions under it, whichever agent each one is with. Start a session in a project with the agent you choose. |
+| **Projects down the left** | Each project is a folder, with its threads under it, whichever agent each one is with. Start a thread in a project with the agent you choose. |
 | **Your agents beside them** | Switch on the ones you use. Each shows its logo and whether it is ready. |
 | **Installs what is missing** | Click an agent that is not on this machine and install it there: its release is downloaded and kept in u0's home; one published as an npm or Python package is installed there with npm or uv. What is installed runs as it is; the registry's newest is installed when an agent is missing, or fails as an older version. |
 | **One thread for every agent** | What you said, what the agent said, each tool call as a row that opens to its diff or its output, the questions it asks before it acts, its plan. The same rendering whichever agent it is: Markdown, its Mermaid diagrams drawn and, where you turn math on, its TeX set as formulas, natively. |
-| **Their own harness, untouched** | Each agent runs as its own program, with its own tools, its own sign-in and its own sessions. u0 offers it no file system or terminal of its own, so it works exactly as it would in its CLI. |
-| **u0's tools, given to them** | Each session is given one MCP server of u0's: the sessions kept and what was said in them, what is not committed, a task handed to an agent in a session of its own (its answer back), something said in another session or its turn stopped or waited on, what happened since it last looked, a pull request opened, a task scheduled, a question put to you in the thread. What acts asks you first, on the same card the agent's own questions use. |
+| **Their own harness, untouched** | Each agent runs as its own program, with its own tools, its own sign-in and its own threads. u0 offers it no file system or terminal of its own, so it works exactly as it would in its CLI. |
+| **u0's tools, given to them** | Each thread is given one MCP server of u0's: the threads kept and what was said in them, what is not committed, a task handed to an agent in a thread of its own (its answer back), something said in another thread or its turn stopped or waited on, what happened since it last looked, a pull request opened, a task scheduled, a question put to you in the thread. What acts asks you first, on the same card the agent's own questions use. |
 | **Their own choices under your hand** | The agent's modes (read-only, ask first, auto), its models and how hard it thinks, as the agent itself lists them. |
-| **What the session came to** | Down the right: the files it changed with lines added and removed, its plan, the commands it ran, how full its context is. |
-| **A worktree of its own** | In a git repository a session can work in its own worktree, on a new branch, and leave your folder as it is. |
-| **Simulators and emulators** | The column's Devices tab lists the iOS simulators (Xcode) and Android emulators (the Android SDK) of the machine the session is on: start one, power it off, watch its screen frame after frame, switch it dark or light, tap and type into it and press Home (Back and Recents on Android). An iOS simulator is touched and streamed through [AXe](https://github.com/cameroncooke/AXe) where it is installed. Agents use the same devices through u0's tools: `list_devices`, `device_screen`, `use_device`. |
-| **A folder of repositories** | A project need not be a repository: one holding several (one level down, or two inside a folder such as `packages`) shows each in the Diff tab's repository picker, its changes, commits, commit and pull request read there. A worktree session gets a folder laid out as the project is, with a worktree of each repository on the session's branch and the rest linked; each turn is checkpointed, undone and diffed in every repository. |
+| **What the thread came to** | Down the right: the files it changed with lines added and removed, its plan, the commands it ran, how full its context is. |
+| **A worktree of its own** | In a git repository a thread can work in its own worktree, on a new branch, and leave your folder as it is. |
+| **Simulators and emulators** | The column's Devices tab lists the iOS simulators (Xcode) and Android emulators (the Android SDK) of the machine the thread is on: start one, power it off, watch its screen frame after frame, switch it dark or light, tap and type into it and press Home (Back and Recents on Android). An iOS simulator is touched and streamed through [AXe](https://github.com/cameroncooke/AXe) where it is installed. Agents use the same devices through u0's tools: `list_devices`, `device_screen`, `use_device`. |
+| **A folder of repositories** | A project need not be a repository: one holding several (one level down, or two inside a folder such as `packages`) shows each in the Diff tab's repository picker, its changes, commits, commit and pull request read there. A worktree thread gets a folder laid out as the project is, with a worktree of each repository on the thread's branch and the rest linked; each turn is checkpointed, undone and diffed in every repository. |
 | **Every turn can be undone** | Before and after each turn the files are checkpointed (in an index of u0's own, under `refs/u0/`, never touching yours). Undo puts the files back as they were before a turn; Redo puts it back. |
 | **Review, commit, pull request** | What changed in the last turn, in all of them, what is not committed, the branch against main, or one commit, as git reads it, file by file, one above the other or side by side; comment on lines for the agent; then commit, commit and push, or open a pull request (GitHub with `gh`, GitLab with `glab`), its checks watched; one behind its base is updated there (Update branch, by a merge or a rebase). |
-| **Sessions kept, and yours to order** | Each agent's sessions are listed by project and read back from u0's own record, resumed with the agent when you write. Rename, pin, mark done, snooze, archive, branch one off, search what was said in all of them. |
-| **What it used, and your limits** | ⌘U: what each session cost and the tokens it took, by agent and by model, as the agent said; where each limit stands and when it resets, as Claude's adapter says it. A turn a limit stopped goes on by itself when the limit resets. |
-| **Keys** | ⌘K the palette, ⌘N a new session, ⌘1–⌘9 and ⌘[ ⌘] between sessions, ⌘F find, ⌘J the commands drawer, ⌘⇧M the model, ⌘U usage, ⇧⌘B the right column over the thread, Esc closes a menu. Your own in `~/.u0/keybindings.json`: `[{"key": "cmd-k", "action": "palette"}]`. |
+| **Threads kept, and yours to order** | Each agent's threads are listed by project and read back from u0's own record, resumed with the agent when you write. Rename, pin, mark done, snooze, archive, branch one off, search what was said in all of them. |
+| **What it used, and your limits** | ⌘U: what each thread cost and the tokens it took, by agent and by model, as the agent said; where each limit stands and when it resets, as Claude's adapter says it. A turn a limit stopped goes on by itself when the limit resets. |
+| **Keys** | ⌘K the palette, ⌘N a new thread, ⌘1–⌘9 and ⌘[ ⌘] between threads, ⌘F find, ⌘J the commands drawer, ⌘⇧M the model, ⌘U usage, ⇧⌘B the right column over the thread, Esc closes a menu. Your own in `~/.u0/keybindings.json`: `[{"key": "cmd-k", "action": "palette"}]`. |
 | **In your language** | English, Simplified Chinese, German, Spanish, French, Japanese, Korean, Brazilian Portuguese, Russian or Swedish (t3code's languages), as the system is or as Settings › Appearance › Language says; what agents say stays as they say it. |
 | **Tasks and workflows that start themselves** | Settings › Scheduled tasks: a prompt said to an agent, or a workflow begun with it, every so often, at a time of day, once, when its webhook is called (signed with a secret, narrowed to the calls it is for, each delivery run once, its address renewed at will), or when a turn of yours ends or an agent asks you. |
 | **A repository's own commands** | `u0.json` at its root names commands (`{"scripts": [{"name": "dev", "command": "npm run dev"}]}`) run from the drawer; one marked `"worktree": true` runs in each new worktree. |
@@ -69,7 +69,7 @@ the way it says.
 Signing in is the agent's own. Codex and Claude Code run the `codex` and
 `claude` on your PATH where you have them, so they are the version, the
 login and the settings of your terminal; without one, the adapter's own. An agent that signs in over ACP (Antigravity, with your Google account)
-shows its ways to sign in in the thread, and the session opens once you are
+shows its ways to sign in in the thread, and the thread opens once you are
 in. u0 never sees a credential.
 
 ```
@@ -136,7 +136,7 @@ self-signed certificate stops that: in Keychain Access, Certificate Assistant
 ## From another machine
 
 The u0 on one machine can be used from a Mac elsewhere: its agents,
-sessions, files, git and terminals, as if you sat at it.
+threads, files, git and terminals, as if you sat at it.
 
 Every Mac's u0 can do both, in **Settings › Devices** (or ⌘K
 "Pair a device" / "Show pairing code", and the u0 menu):
@@ -151,7 +151,7 @@ Every Mac's u0 can do both, in **Settings › Devices** (or ⌘K
   device trusts that Mac alone. It shows a pairing link, and its QR code,
   that works once, for ten minutes, for the way chosen (this Mac, the
   local network, Tailscale, the tunnel) and lets in what you chose:
-  **Everything** or **Read only** (it watches sessions, diffs and your
+  **Everything** or **Read only** (it watches threads, diffs and your
   projects' files, and changes nothing: the server checks each thing it
   asks), until revoked or for a day, a week, 30 days, and at once or
   only once you **Let in** the device it names. The devices paired are
@@ -159,10 +159,10 @@ Every Mac's u0 can do both, in **Settings › Devices** (or ⌘K
   and **Revoke**. Turned off, it cuts every device off.
 - **Control other Macs** (off at first: a Mac controls only itself) puts
   each Mac paired with in this window beside this one: the sidebar has a
-  row for each server, this Mac's first, with its projects and sessions
+  row for each machine, this Mac's first, with its projects and threads
   under it, whether it is reached, and **Reach again**. A server that
   drops is shown offline, what the window had of it still readable, and
-  is reached again on its own. New sessions, ⌘K and ⌘P name the server
+  is reached again on its own. New threads, ⌘K and ⌘P name the machine
   of each project; the settings show each server's own (its agents,
   projects, tasks, sharing), chosen at their top, saved there. It lists
   the Macs paired with, with **Forget**, and takes a pasted link;
@@ -238,11 +238,11 @@ given `http://127.0.0.1:<http>/mcp` from the same file, its key as a
 bearer token. From another Mac paired with this one, `u0 --mcp --on
 <name>` reaches its tools over the link the window uses, signed with
 that Mac's key: a read-only device's agent reads, one of full scope may
-act as below. Such an agent reads (the sessions, what was said, a diff, what
+act as below. Such an agent reads (the threads, what was said, a diff, what
 happened since it last looked, a turn waited on). With **Agents outside
 u0 may act** (Settings › Agents) it may also say something in a
-session, as its next turn, or stop its turn: each asked of you in that
-session first. What else acts, or asks you, is for a session in u0,
+thread, as its next turn, or stop its turn: each asked of you in that
+thread first. What else acts, or asks you, is for a thread in u0,
 where u0 asks you first.
 
 ## Telemetry
@@ -260,7 +260,7 @@ in its `settings.json`.
 - **1, Basic**: each day, that and a random id of this install, the
   agents switched on (their ACP registry ids and versions), the number of
   Macs paired, and whether others may control this one.
-- **2, Usage** (the default offered): also the day's counts: sessions by
+- **2, Usage** (the default offered): also the day's counts: threads by
   agent, turns, worktrees made, scheduled tasks' turns and workflows' runs,
   u0's tools called by name, pages opened by name, crashes.
 - **3, Detailed**: also the time to open, the memory u0 holds, the
@@ -269,7 +269,7 @@ in its `settings.json`.
   system's language.
 
 No level sends what you or an agent wrote, a path, the name of a project,
-repository, branch or session, a host name, an email, a token or the
+repository, branch or thread, a host name, an email, a token or the
 words of an error. Nothing above level 0 goes before you confirm the
 level. Batches go to a Cloudflare Worker ([telemetry/](telemetry/)),
 which keeps them and the country they came from, not the address.
