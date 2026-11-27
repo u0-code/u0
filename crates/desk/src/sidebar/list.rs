@@ -1602,7 +1602,7 @@ impl Desk {
         }
         let (ix, row, is_folder, is_open, len) = {
             let tree = self.side.read(cx);
-            let len = (0..self.side_shape.len().max(1))
+            let len = (0..usize::MAX)
                 .take_while(|i| tree.entry(*i).is_some())
                 .count();
             let ix = tree.selected_index();

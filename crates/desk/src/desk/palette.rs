@@ -222,6 +222,7 @@ impl Desk {
             Composer,
             Terminals,
         }
+        let side = gpui::Focusable::focus_handle(self.side.read(cx), cx);
         let line = gpui::Focusable::focus_handle(self.composer.input.read(cx), cx);
         let mut areas = Vec::new();
         if self.sidebar_shown(window) {
@@ -231,17 +232,45 @@ impl Desk {
         if self.drawer.open && !self.terminals_beside() {
             areas.push(Area::Terminals);
         }
-        let now = if line.contains_focused(window, cx) {
-            Area::Composer
+        let now = if side.contains_focused(window, cx) {
+            Some(Area::Sidebar)
+        } else if line.contains_focused(window, cx) {
+            Some(Area::Composer)
         } else if self.drawer.focus.contains_focused(window, cx) {
-            Area::Terminals
+            Some(Area::Terminals)
         } else {
-            Area::Sidebar
+            None
         };
-        let at = areas.iter().position(|a| *a == now).unwrap_or(0);
         let n = areas.len();
-        match &areas[if back { (at + n - 1) % n } else { (at + 1) % n }] {
-            Area::Sidebar => self.side.update(cx, |tree, cx| tree.focus(window, cx)),
+        let next = match now.and_then(|a| areas.iter().position(|x| *x == a)) {
+            Some(at) if back => (at + n - 1) % n,
+            Some(at) => (at + 1) % n,
+            None if back => n - 1,
+            None => 0,
+        };
+        let active_id = self.current.map(|k| format!("s:{k}"));
+        match &areas[next] {
+            Area::Sidebar => self.side.update(cx, |tree, cx| {
+                if tree.selected_index().is_none() {
+                    let found = active_id.as_deref().and_then(|want| {
+                        (0..usize::MAX)
+                            .take_while(|i| tree.entry(*i).is_some())
+                            .find(|i| tree.entry(*i).is_some_and(|e| e.item().id.as_ref() == want))
+                    });
+                    let first_session = (0..usize::MAX)
+                        .take_while(|i| tree.entry(*i).is_some())
+                        .find(|i| {
+                            tree.entry(*i)
+                                .is_some_and(|e| e.item().id.starts_with("s:"))
+                        });
+                    if let Some(ix) = found.or(first_session).or(Some(0))
+                        && tree.entry(ix).is_some()
+                    {
+                        tree.set_selected_index(Some(ix), cx);
+                    }
+                }
+                tree.focus(window, cx);
+            }),
             Area::Composer => window.focus(&line, cx),
             Area::Terminals => window.focus(&self.drawer.focus, cx),
         }

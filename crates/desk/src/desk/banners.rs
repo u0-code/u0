@@ -3,7 +3,7 @@
 
 use std::time::SystemTime;
 
-use gpui::component::setting::{SettingGroup, SettingItem};
+use gpui::component::setting::SettingGroup;
 use gpui::{AnyElement, Context, Div, SharedString, WeakEntity, div, prelude::*, px};
 use u0ui::components::alert::{Alert, AlertAction, AlertVariant};
 use u0ui::prelude::*;
@@ -222,38 +222,57 @@ impl Desk {
         )))
     }
 
-    /// Banner group at the top of a Settings page `tab` when settings/policy
-    /// did not read, the chosen server is offline, `keybindings.json` did
-    /// not read, or an organisation's policy governs this Mac.
-    pub(crate) fn settings_banner_group(
+    /// Whether `tab` currently has a top-of-page Settings banner.
+    fn has_settings_banner(&self, tab: Tab) -> bool {
+        let on = self.pages.on;
+        if on == Host::HERE
+            && (crate::policy::current().is_err()
+                || self.settings_refused.is_some()
+                || crate::policy::organization().is_some())
+        {
+            return true;
+        }
+        if on != Host::HERE
+            && self
+                .machine(on)
+                .is_some_and(|m| m.refused.is_some() || m.up != Up::On)
+        {
+            return true;
+        }
+        tab == Tab::Keybindings && self.keys_refused.is_some()
+    }
+
+    /// Carbon `Alert` stack at the top of a `carbon_page` Settings tab
+    /// (`General`, `NewThreads`, …).
+    pub(crate) fn carbon_settings_banner(
         &self,
         tab: Tab,
-        w: &WeakEntity<Self>,
-    ) -> Option<SettingGroup> {
-        let mut items: Vec<SettingItem> = Vec::new();
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let mut out: Vec<AnyElement> = Vec::new();
         let on = self.pages.on;
         if on == Host::HERE
             && let Err(bad) = crate::policy::current()
         {
-            items.push(crate::pages::whole(w, &[], move |_, _, _| {
-                Self::bad_policy_banner("settings-bad-policy", bad).into_any_element()
-            }));
+            out.push(Self::bad_policy_banner("settings-bad-policy", bad).into_any_element());
         } else if let Some(why) = match on {
             Host::HERE => self.settings_refused.clone(),
             _ => self.machine(on).and_then(|m| m.refused.clone()),
         } {
-            items.push(crate::pages::whole(w, &[], move |_, _, cx| {
-                let desk = cx.entity();
-                let again = (on == Host::HERE).then(|| {
-                    AlertAction::new(crate::tr("Read them again")).on_click(move |_, cx| {
-                        desk.update(cx, Self::read_settings_again);
-                    })
-                });
-                let body = if on == Host::HERE {
-                    crate::tr("settings.json did not read, so these are the defaults, and a change would not be kept. Each control is off until the file reads.")
-                } else {
-                    SharedString::from(why.clone())
-                };
+            let desk = cx.entity();
+            let again = (on == Host::HERE).then(|| {
+                AlertAction::new(crate::tr("Read them again")).on_click(move |_, cx| {
+                    desk.update(cx, Self::read_settings_again);
+                })
+            });
+            let body = if on == Host::HERE {
+                crate::tr(
+                    "settings.json did not read, so these are the defaults, and a change would not be kept. Each control is off until the file reads.",
+                )
+            } else {
+                SharedString::from(why)
+            };
+            out.push(
                 banner(
                     "settings-bad-settings",
                     AlertVariant::Error,
@@ -262,17 +281,17 @@ impl Desk {
                     None,
                     again,
                 )
-                .into_any_element()
-            }));
+                .into_any_element(),
+            );
         } else if on != Host::HERE
             && let Some(m) = self.machine(on).filter(|m| m.up != Up::On)
         {
             let name = m.name.clone();
-            items.push(crate::pages::whole(w, &[], move |_, _, cx| {
-                let desk = cx.entity();
-                let again = AlertAction::new(crate::tr("Reach again")).on_click(move |_, cx| {
-                    desk.update(cx, |this, cx| this.reach_again(on, cx));
-                });
+            let desk = cx.entity();
+            let again = AlertAction::new(crate::tr("Reach again")).on_click(move |_, cx| {
+                desk.update(cx, |this, cx| this.reach_again(on, cx));
+            });
+            out.push(
                 banner(
                     "settings-offline-server",
                     AlertVariant::Warning,
@@ -281,19 +300,18 @@ impl Desk {
                     None,
                     Some(again),
                 )
-                .into_any_element()
-            }));
+                .into_any_element(),
+            );
         } else if on == Host::HERE
             && let Some(org) = crate::policy::organization()
         {
-            let url = crate::policy::support_url();
-            items.push(crate::pages::whole(w, &[], move |_, _, _| {
-                let link = url.map(|u| {
-                    (
-                        u,
-                        crate::tr_with("Questions go to %{url}", &[("url", &short_support(u))]),
-                    )
-                });
+            let link = crate::policy::support_url().map(|u| {
+                (
+                    u,
+                    crate::tr_with("Questions go to %{url}", &[("url", &short_support(u))]),
+                )
+            });
+            out.push(
                 banner(
                     "settings-managed-policy",
                     AlertVariant::Info,
@@ -305,22 +323,21 @@ impl Desk {
                     link,
                     None,
                 )
-                .into_any_element()
-            }));
+                .into_any_element(),
+            );
         }
 
         if tab == Tab::Keybindings
             && let Some(why) = self.keys_refused.clone()
         {
-            items.push(crate::pages::whole(w, &[], move |d, _, cx| {
-                let path = d.home.join("keybindings.json");
-                let desk = cx.entity();
-                let open = AlertAction::new(crate::tr("Open keybindings.json")).on_click(
-                    move |_, cx| {
-                        let path = path.clone();
-                        desk.update(cx, |this, _| this.edit(path, None));
-                    },
-                );
+            let path = self.home.join("keybindings.json");
+            let desk = cx.entity();
+            let open =
+                AlertAction::new(crate::tr("Open keybindings.json")).on_click(move |_, cx| {
+                    let path = path.clone();
+                    desk.update(cx, |this, _| this.edit(path, None));
+                });
+            out.push(
                 banner(
                     "settings-bad-keys",
                     AlertVariant::Warning,
@@ -332,11 +349,34 @@ impl Desk {
                     None,
                     Some(open),
                 )
-                .into_any_element()
-            }));
+                .into_any_element(),
+            );
         }
 
-        (!items.is_empty()).then(|| SettingGroup::new().items(items))
+        (!out.is_empty()).then(|| {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(12.))
+                .children(out)
+                .into_any_element()
+        })
+    }
+
+    /// Banner group at the top of a `SettingPage` `tab` when settings/policy
+    /// did not read, the chosen server is offline, `keybindings.json` did not
+    /// read, or an organisation's policy governs this Mac.
+    pub(crate) fn settings_banner_group(
+        &self,
+        tab: Tab,
+        w: &WeakEntity<Self>,
+    ) -> Option<SettingGroup> {
+        self.has_settings_banner(tab).then(|| {
+            SettingGroup::new().item(crate::pages::whole(w, &[], move |d, _, cx| {
+                d.carbon_settings_banner(tab, cx)
+                    .unwrap_or_else(|| div().into_any_element())
+            }))
+        })
     }
 
     fn bad_policy_banner(id: &'static str, bad: &crate::policy::BadPolicy) -> Alert {

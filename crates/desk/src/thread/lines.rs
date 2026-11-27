@@ -264,6 +264,8 @@ impl Desk {
         )
         .size_full();
         let faces = fonts::faces(cx).clone();
+        let output_open =
+            self.panes.right && matches!(self.surface(), Some(crate::aside::Surface::Output(_)));
         div()
             .relative()
             .flex()
@@ -272,7 +274,7 @@ impl Desk {
             .min_h(px(0.))
             .w_full()
             .children(self.family_tabs(cx))
-            .children(self.find.open.then(|| self.find_bar(&faces, cx)))
+            .children((self.find.open && !output_open).then(|| self.find_bar(&faces, cx)))
             .child(div().flex_1().min_h(px(0.)).child(list))
     }
 

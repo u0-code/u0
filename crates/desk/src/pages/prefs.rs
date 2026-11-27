@@ -81,12 +81,15 @@ impl Desk {
                 ]
                 .into_iter()
                 .any(|k| crate::policy::locked(k).is_some());
+                let top_banner = self.carbon_settings_banner(tab, cx);
+                let has_top = top_banner.is_some();
                 let mut banners = div()
                     .flex()
                     .flex_col()
                     .gap(px(12.))
+                    .children(top_banner)
                     .child(self.scope_banner(faces, cx));
-                if any_managed {
+                if any_managed && !has_top {
                     banners = banners.child(managed_info_banner(faces));
                 }
                 let groups = vec![
@@ -433,11 +436,17 @@ impl Desk {
                         ),
                     ],
                 )];
+                let banners = div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(12.))
+                    .children(self.carbon_settings_banner(tab, cx))
+                    .child(self.scope_banner(faces, cx));
                 Some(carbon_page(
                     "settings-new-threads",
                     tab.title(),
                     crate::tr("How a thread begins in a repository."),
-                    Some(self.scope_banner(faces, cx).into_any_element()),
+                    Some(banners.into_any_element()),
                     groups,
                     query,
                     faces,
@@ -1239,10 +1248,10 @@ impl Desk {
         let key = id.split_once('-').map_or(id, |(key, _)| key);
         if let Some(by) = crate::policy::locked(id).or_else(|| crate::policy::locked(key)) {
             managed(group.disabled(true), by)
-        } else if let Some(by) =
+        } else if let Some((by, _)) =
             crate::policy::default_of(id).or_else(|| crate::policy::default_of(key))
         {
-            defaulted(group, by.0)
+            defaulted(group, by)
         } else {
             group.into_any_element()
         }
