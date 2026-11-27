@@ -258,7 +258,7 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 | Anything git | `git.rs`, in the server: a `proto::Call` handled with `repo.rs` |
 | A tool for agents | a `#[tool]` in `server/tools.rs` or the file of its subject in `server/tools/` (its router added to `Tools::every`), over what the server already does for a `Call`; one that acts calls `Tools::allowed` first, or `Tools::allowed_on` for one that acts on a session it names |
 | Text written for you (a title, a commit message, ...) | `Desk::ask_writer` with a `writer::Ask`: the writer agent, in a session of its own |
-| A widget (switch, button, menu, ...) | `u0ui` (`u0ui::prelude::*`, `u0ui::components`, `u0ui::ghost`, `u0ui::t3`, `u0ui::patterns`), then `gpui::component`, coloured by `u0ui::theme::set_theme` (`theme::kit`) |
+| A widget (switch, button, menu, ...) | `u0ui` (`u0ui::prelude::*`, `u0ui::components`, `u0ui::u0`, `u0ui::t3`, `u0ui::patterns`), then `gpui::component`, coloured by `u0ui::theme::set_theme` (`theme::kit`) |
 | Colours, type, spacing and layout | `u0ui::theme::color(ColorRole::…)` (`theme::role`), `TypeStyled::type_style(TypeStyle::…)`, `u0ui::tokens::SPACING_*`, and `style::*` layout constants |
 | A menu opened from a trigger | `Desk::menu`: gpui-kit's PopupMenu (items, ticked for a choice) in a Popover held open by `Desk::popup`; one with a line to type in, `Desk::popover`; a choice among several in the settings, gpui-kit's `SettingField::dropdown` |
 | A call from inside the desk's update that may call the desk back (a window call that tells its observers, such as `set_zoom`) | `window.defer`, so it runs once the update is over: the desk updated twice at once panics |

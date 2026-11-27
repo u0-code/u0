@@ -17,10 +17,10 @@ use u0ui::{
         Button, ButtonSize, ButtonVariant, Checkbox, RadioGroup, RadioGroupItem, RadioOrientation,
         alert::{Alert, AlertVariant},
     },
-    ghost::{fields, primitives::TimeField},
     icons::{CarbonIcon, Icon, IconSize},
     tokens::{ColorRole, TypeStyle},
     typography::TypeStyled as _,
+    u0::{fields, primitives::TimeField},
 };
 
 use crate::{
@@ -497,8 +497,7 @@ impl Desk {
                 .map_or(Later::Tomorrow, Later::At),
             "custom" => {
                 let date_text = self.dialogs.snooze_date.read(cx).value().trim().to_owned();
-                let (h, m) =
-                    u0ui::ghost::primitives::time_field::parse_hm(&self.dialogs.snooze_time);
+                let (h, m) = u0ui::u0::primitives::time_field::parse_hm(&self.dialogs.snooze_time);
                 let minute = u16::try_from(h * 60 + m).unwrap_or(540);
                 let at = parse_custom_snooze(&date_text, minute, now);
                 Later::At(at)

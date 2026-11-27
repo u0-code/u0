@@ -8876,7 +8876,7 @@ dependencies = [
 [[package]]
 name = "u0ui"
 version = "0.1.0"
-source = "git+https://github.com/u0-code/gpui-u0ui#30b82f33f7c45c028f0a3cc60632c8240fc4ca25"
+source = "git+https://github.com/u0-code/gpui-u0ui#e7a69b379d5bc7431422b763356a5c53ba361efa"
 dependencies = [
  "chrono",
  "gpui-base",

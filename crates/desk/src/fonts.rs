@@ -97,7 +97,7 @@ mod tests {
     fn carbon_plex_families_and_cjk_fallbacks_are_configured() {
         assert_eq!(FontFamilyKey::Sans.primary(), "IBM Plex Sans");
         assert_eq!(FontFamilyKey::Mono.primary(), "IBM Plex Mono");
-        assert_eq!(u0ui::typography::FONT_FILES.len(), 8);
+        assert_eq!(u0ui::typography::FONT_FILES.len(), 9);
         let bold = fallbacks(FontWeight::SEMIBOLD);
         assert_eq!(bold.fallback_list()[0], "PingFangSC-Semibold");
         let normal = fallbacks(FontWeight::NORMAL);

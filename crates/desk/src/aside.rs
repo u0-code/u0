@@ -33,13 +33,13 @@ use gpui::component::{
 use gpui::{Context, Div, Entity, SharedString, div, prelude::*, px};
 use u0ui::{
     components::{Button, ButtonSize, ButtonVariant},
-    ghost::panels::{LinkedItem, LinkedItemsSection, LinkedItemsTexts},
     icons::{CarbonIcon, Icon},
     t3::review::{
         ContextMeter, IssueState, PullRequestState, ThreadDetailsSection, thread::meter_percent,
     },
     tokens::{ColorRole, TypeStyle},
     typography::TypeStyled as _,
+    u0::panels::{LinkedItem, LinkedItemsSection, LinkedItemsTexts},
 };
 
 use crate::{
@@ -457,7 +457,7 @@ impl Desk {
         sec
     }
 
-    /// Linked pull requests and issues (`u0ui::ghost::panels::LinkedItemsSection`).
+    /// Linked pull requests and issues (`u0ui::u0::panels::LinkedItemsSection`).
     fn linked_items(s: &Session, cx: &mut Context<Self>) -> Div {
         let items: Vec<LinkedItem> = s
             .meta

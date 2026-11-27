@@ -25,9 +25,9 @@ use u0ui::{
         badge::{Badge, BadgeSize, BadgeVariant},
         button::{Button as CarbonButton, ButtonSize, ButtonVariant},
     },
-    ghost::shell::{FilterItem, FilterMenu, FilterMenuTexts},
     icons::{CarbonIcon, Icon as CarbonGlyph},
     tokens::ColorRole,
+    u0::shell::{FilterItem, FilterMenu, FilterMenuTexts},
 };
 
 use crate::{

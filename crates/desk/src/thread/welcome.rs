@@ -12,14 +12,14 @@ use gpui::{
 };
 use u0ui::{
     components::{Button, ButtonSize, ButtonVariant, Checkbox, Tabs, TabsTrigger},
-    ghost::{
+    icons::{CarbonIcon, Icon, IconSize},
+    tokens::{ColorRole, TypeStyle},
+    typography::TypeStyled as _,
+    u0::{
         fields,
         primitives::Dropzone,
         settings::{AgentRow, AgentState},
     },
-    icons::{CarbonIcon, Icon, IconSize},
-    tokens::{ColorRole, TypeStyle},
-    typography::TypeStyled as _,
 };
 
 use crate::{

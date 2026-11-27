@@ -161,7 +161,7 @@ impl Desk {
             crate::desk::Over::new(
                 desk.clone(),
                 |_, _, cx| {
-                    use u0ui::ghost::settings::{ConsentSheet, ConsentTexts};
+                    use u0ui::u0::settings::{ConsentSheet, ConsentTexts};
                     let desk = cx.entity();
                     let texts = ConsentTexts {
                         title: std::rc::Rc::new(|a| {

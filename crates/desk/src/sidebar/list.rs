@@ -19,7 +19,6 @@ use gpui::{
     SharedString, Stateful, StyledText, Window, div, point, prelude::*, px, radians, rgb,
 };
 use u0ui::{
-    ghost::shell::{ServerHeader, ServerState},
     icons::{CarbonIcon, Icon as CarbonGlyph},
     t3::{
         Spin, Status as T3Status, fmt_elapsed,
@@ -30,6 +29,7 @@ use u0ui::{
         },
     },
     tokens::ColorRole,
+    u0::shell::{ServerHeader, ServerState},
 };
 
 use super::{Dragged, gist, menus::snooze_items};
