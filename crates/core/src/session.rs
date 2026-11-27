@@ -1394,16 +1394,10 @@ impl Session {
                     self.compacting_from = self.usage.as_ref().map(|u| u.used);
                 }
                 CompactionStatus::Completed => {
-                    let meta_num = |keys: &[&str]| match &c.meta {
-                        agent_client_protocol::schema::MaybeUndefined::Value(m) => {
-                            keys.iter().find_map(|k| m.get(*k)?.as_u64())
-                        }
-                        _ => None,
-                    };
-                    let before = meta_num(&["tokensBefore", "preTokens", "before"])
-                        .or_else(|| self.compacting_from.take())
+                    // What it held before is the usage last said; what it
+                    // holds after, the next usage said (see UsageUpdate).
+                    let before = (self.compacting_from.take())
                         .or_else(|| self.usage.as_ref().map(|u| u.used));
-                    let after = meta_num(&["tokensAfter", "postTokens", "after"]);
                     let summary = match c.summary {
                         agent_client_protocol::schema::MaybeUndefined::Value(blocks) => {
                             let s = blocks
@@ -1418,7 +1412,7 @@ impl Session {
                     };
                     self.items.push(Item::Compacted {
                         before,
-                        after,
+                        after: None,
                         summary,
                     });
                 }
