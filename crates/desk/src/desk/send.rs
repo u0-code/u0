@@ -28,8 +28,8 @@ impl Desk {
             .session()
             .is_some_and(|s| s.state == State::Draft && s.items.is_empty());
         self.send_in(key, text, cx);
-        if draft && !self.composer.also_run.is_empty() {
-            let targets = std::mem::take(&mut self.composer.also_run);
+        if draft && !self.composer.draft.also_run.is_empty() {
+            let targets = std::mem::take(&mut self.composer.draft.also_run);
             self.fan_out(key, &targets, text, cx);
         }
     }

@@ -774,11 +774,11 @@ impl Desk {
             Some(("save-queued", crate::tr("Save to queue")))
         } else if s.state == State::Draft
             && s.items.is_empty()
-            && !self.composer.also_run.is_empty()
+            && !self.composer.draft.also_run.is_empty()
             && !empty
             && !over
         {
-            let total = self.composer.also_run.len() + 1;
+            let total = self.composer.draft.also_run.len() + 1;
             Some((
                 "run-many",
                 crate::tr_with("Run %{n} agents", &[("n", &total)]),
@@ -893,8 +893,8 @@ impl Desk {
         }
         if draft && s.git_dir().is_some() && s.wants_worktree {
             row = row.child(self.base_chip(faces, s, cx));
-            if !self.composer.also_run.is_empty() {
-                let total = self.composer.also_run.len() + 1;
+            if !self.composer.draft.also_run.is_empty() {
+                let total = self.composer.draft.also_run.len() + 1;
                 let base = match &s.begin {
                     Some(crate::session::Begin::Branch(b)) => b.clone(),
                     Some(crate::session::Begin::Pr(n, _)) => format!("#{n}"),
@@ -925,7 +925,7 @@ impl Desk {
             );
         }
         if draft {
-            let bg_on = self.composer.in_background;
+            let bg_on = self.composer.draft.in_background;
             row = row.child(
                 ui::opener("start-bg")
                     .h(px(26.))
@@ -933,7 +933,7 @@ impl Desk {
                     .selected(bg_on)
                     .child(chip_text(faces, crate::tr("Start in the background")))
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.composer.in_background = !this.composer.in_background;
+                        this.composer.draft.in_background = !this.composer.draft.in_background;
                         cx.notify();
                     })),
             );
@@ -1127,7 +1127,9 @@ impl Desk {
         column: f32,
         cx: &mut Context<Self>,
     ) -> Option<Div> {
-        if !(s.state == State::Draft && s.items.is_empty()) || self.composer.also_run.is_empty() {
+        if !(s.state == State::Draft && s.items.is_empty())
+            || self.composer.draft.also_run.is_empty()
+        {
             return None;
         }
         let mut row = div()
@@ -1142,7 +1144,7 @@ impl Desk {
                     .text_size(px(crate::style::CAPTION))
                     .text_color(theme::faint()),
             );
-        for (n, (agent, model)) in self.composer.also_run.iter().enumerate() {
+        for (n, (agent, model)) in self.composer.draft.also_run.iter().enumerate() {
             let label = self.also_label(s, agent, model.as_deref());
             let (a, m) = (agent.clone(), model.clone());
             row = row.child(
@@ -1185,7 +1187,7 @@ impl Desk {
     /// Preview card for an attached text/excerpt chip when clicked.
     fn chip_preview_row(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<Div> {
         let n = self.composer.previewing_chip?;
-        let Some(mention::Attached::Text(chip)) = self.composer.attached.get(n) else {
+        let Some(mention::Attached::Text(chip)) = self.composer.draft.attached.get(n) else {
             return None;
         };
         let preview: String = chip.text.lines().take(8).collect::<Vec<_>>().join("\n");
@@ -1246,7 +1248,7 @@ impl Desk {
     ) -> Option<Div> {
         let mut banners: Vec<AnyElement> = Vec::new();
 
-        if self.composer.from_link {
+        if self.composer.draft.from_link {
             let desk = cx.entity();
             banners.push(
                 ComposerBanner::new("banner-prompt-link", BannerKind::Info)
@@ -1256,7 +1258,7 @@ impl Desk {
                     ))
                     .on_dismiss(move |_, cx| {
                         desk.update(cx, |this, cx| {
-                            this.composer.from_link = false;
+                            this.composer.draft.from_link = false;
                             cx.notify();
                         });
                     })
@@ -1609,14 +1611,14 @@ impl Desk {
     /// and text excerpts).
     fn attached_row(&self, cx: &mut Context<Self>) -> Option<Div> {
         use crate::desk::mention::Attached;
-        if self.composer.attached.is_empty() && self.composer.reading == 0 {
+        if self.composer.draft.attached.is_empty() && self.composer.reading == 0 {
             return None;
         }
 
         let mut images: Vec<(usize, AttachmentImage)> = Vec::new();
         let mut chips: Vec<AnyElement> = Vec::new();
 
-        for (n, a) in self.composer.attached.iter().enumerate() {
+        for (n, a) in self.composer.draft.attached.iter().enumerate() {
             match a {
                 Attached::Image { mime, bytes } => {
                     let src =
@@ -1733,7 +1735,7 @@ impl Desk {
     fn note_row(&self, _faces: &Faces, cx: &mut Context<Self>) -> Option<Div> {
         use crate::desk::mention::{Attached, Chip};
         let n = self.composer.noting?;
-        let Some(Attached::Text(chip)) = self.composer.attached.get(n) else {
+        let Some(Attached::Text(chip)) = self.composer.draft.attached.get(n) else {
             return None;
         };
         let kind = match chip.kind {
@@ -1806,15 +1808,16 @@ impl Desk {
 
     fn replying_row(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<gpui::Stateful<Div>> {
         use crate::desk::mention::{Attached, Chip};
-        let (n, text) = (self.composer.attached.iter().enumerate()).find_map(|(n, a)| match a {
-            Attached::Text(Chip {
-                kind: TextKind::Quote,
-                from: Some(_),
-                text,
-                ..
-            }) => Some((n, text.clone())),
-            _ => None,
-        })?;
+        let (n, text) =
+            (self.composer.draft.attached.iter().enumerate()).find_map(|(n, a)| match a {
+                Attached::Text(Chip {
+                    kind: TextKind::Quote,
+                    from: Some(_),
+                    text,
+                    ..
+                }) => Some((n, text.clone())),
+                _ => None,
+            })?;
         Some(
             div()
                 .id("replying")

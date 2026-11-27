@@ -1213,6 +1213,10 @@ impl Desk {
         if !typed.is_empty() {
             self.put_line(&typed, window, cx);
         }
+        // What went with it is the new session's: it was kept as session 0.
+        if let Some(draft) = self.composer.drafts.remove(&0) {
+            self.composer.draft = draft;
+        }
     }
 
     /// Begin the draft on screen with another agent.

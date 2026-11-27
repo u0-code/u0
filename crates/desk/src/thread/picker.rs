@@ -62,8 +62,8 @@ impl Desk {
     pub(crate) fn model_chip(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Popover {
         let base =
             Self::option_name(s, &Category::Model).unwrap_or_else(|| self.name_of(&s.meta.agent));
-        let model = if !self.composer.also_run.is_empty() && Self::is_draft(s) {
-            format!("{base} +{}", self.composer.also_run.len())
+        let model = if !self.composer.draft.also_run.is_empty() && Self::is_draft(s) {
+            format!("{base} +{}", self.composer.draft.also_run.len())
         } else {
             base
         };
@@ -98,7 +98,7 @@ impl Desk {
         s: &Session,
         cx: &mut Context<Self>,
     ) -> Option<gpui::AnyElement> {
-        if !self.composer.also_run.is_empty() && Self::is_draft(s) {
+        if !self.composer.draft.also_run.is_empty() && Self::is_draft(s) {
             return None;
         }
         let (effort, levels) = (s.options.iter())
@@ -399,6 +399,7 @@ impl Desk {
                 && !(m.current && m.agent == s.meta.agent)
                 && self
                     .composer
+                    .draft
                     .also_run
                     .iter()
                     .any(|(a, v)| a == &m.agent && v.as_deref() == Some(m.value.as_str()));
@@ -764,7 +765,7 @@ impl Desk {
     /// the session's mode at the right.
     fn picker_foot(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
         let usable = self.slots_on(s.host).filter(|x| x.usable()).count();
-        let all_on = usable > 1 && self.composer.also_run.len() + 1 >= usable;
+        let all_on = usable > 1 && self.composer.draft.also_run.len() + 1 >= usable;
         let (host, current_agent) = (s.host, s.meta.agent.clone());
         div()
             .flex()
@@ -790,14 +791,14 @@ impl Desk {
                         )
                         .tooltip(crate::tr("A thread each, begun with the same words"))
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            if this.composer.also_run.is_empty() {
-                                this.composer.also_run = this
+                            if this.composer.draft.also_run.is_empty() {
+                                this.composer.draft.also_run = this
                                     .others(host, &current_agent)
                                     .into_iter()
                                     .map(|(id, _)| (id, None))
                                     .collect();
                             } else {
-                                this.composer.also_run.clear();
+                                this.composer.draft.also_run.clear();
                             }
                             cx.notify();
                         })),
@@ -812,13 +813,14 @@ impl Desk {
     pub fn toggle_also_run(&mut self, agent: &str, model: Option<String>, cx: &mut Context<Self>) {
         if let Some(at) = self
             .composer
+            .draft
             .also_run
             .iter()
             .position(|(a, m)| a == agent && *m == model)
         {
-            self.composer.also_run.remove(at);
+            self.composer.draft.also_run.remove(at);
         } else {
-            self.composer.also_run.push((agent.to_owned(), model));
+            self.composer.draft.also_run.push((agent.to_owned(), model));
         }
         cx.notify();
     }
@@ -848,6 +850,7 @@ impl Desk {
             self.switch_agent(&m.agent, cx);
         }
         self.composer
+            .draft
             .also_run
             .retain(|(a, v)| !(a == &m.agent && v.as_deref() == Some(m.value.as_str())));
         self.set_option(m.config.clone(), m.value.clone(), cx);

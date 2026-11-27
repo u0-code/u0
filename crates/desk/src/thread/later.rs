@@ -233,7 +233,7 @@ impl Desk {
             return;
         }
         let crate::desk::mention::Stashed { text, attached } = self.composer.stashed.remove(n);
-        self.composer.attached.extend(attached);
+        self.composer.draft.attached.extend(attached);
         self.save_stash();
         self.popup = Popup::Closed;
         let typed = self.typed(cx);

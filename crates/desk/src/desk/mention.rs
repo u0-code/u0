@@ -7,7 +7,10 @@
 //! what was said in it, a pull request as `gh` shows it, an image as itself,
 //! a long paste as its text.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use agent_client_protocol::v1::schema::{
     BlobResourceContents, ContentBlock, EmbeddedResource, EmbeddedResourceResource, ImageContent,
@@ -54,31 +57,19 @@ pub const CONTEXT: &str = "Composer";
 /// takes, what was named with `@` and images put in, waiting to be sent;
 /// how many pictures are still being read for it, and whether what is
 /// typed goes once they are (and how: `Some(true)` the other way, see
-/// `Desk::send_typed`); whether the draft on screen goes to every agent
-/// that can run once sent; what you put aside from it; and what was sent
-/// from it, the latest last, with which of that is in the line while ↑
-/// and ↓ go back through it; what the writer thinks you will say next in
-/// a session, by its key; the chip whose note is being written, and the
-/// field for it; and what is attached to each other session's draft, by
-/// its key, while another is on screen.
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "each is an independent draft flag on the composer"
-)]
+/// `Desk::send_typed`); the draft of the session on screen; what you put
+/// aside from it; and what was sent from it, the latest last, with which
+/// of that is in the line while ↑ and ↓ go back through it; what the
+/// writer thinks you will say next in a session, by its key; the chip
+/// whose note is being written, and the field for it; and each other
+/// session's draft, by its key, while another is on screen.
 pub struct Composer {
     pub input: Entity<TextareaState>,
     pub offer: usize,
     pub mentions: Vec<Mention>,
-    pub attached: Vec<Attached>,
+    pub draft: Draft,
     pub reading: usize,
     pub held: Option<bool>,
-    /// Additional `(agent_id, optional_model_id)` targets a new thread runs
-    /// on in parallel ("Also run on").
-    pub also_run: Vec<(String, Option<String>)>,
-    /// Start a new thread in the background without leaving the draft page.
-    pub in_background: bool,
-    /// The composer text was pre-filled by an external `u0://` prompt link.
-    pub from_link: bool,
     /// Queued message index currently being edited in place in the composer.
     pub editing_queued: Option<usize>,
     /// Attached excerpt chip index currently showing its preview card.
@@ -88,7 +79,41 @@ pub struct Composer {
     pub suggested: Option<(u64, String)>,
     pub noting: Option<usize>,
     pub note: Entity<InputState>,
-    pub drafts: std::collections::HashMap<u64, Vec<Attached>>,
+    pub drafts: HashMap<u64, Draft>,
+}
+
+/// What goes with a session's draft besides its text, kept with that
+/// session alone: what is attached; the other `(agent, model)` it also
+/// starts on once sent ("Also run on"); whether it starts in the
+/// background, the draft page staying; and whether its text came from a
+/// `u0://` link.
+#[derive(Default)]
+pub struct Draft {
+    pub attached: Vec<Attached>,
+    pub also_run: Vec<(String, Option<String>)>,
+    pub in_background: bool,
+    pub from_link: bool,
+}
+
+impl Draft {
+    fn is_empty(&self) -> bool {
+        self.attached.is_empty()
+            && self.also_run.is_empty()
+            && !self.in_background
+            && !self.from_link
+    }
+}
+
+/// The draft of the session left (`from`; none for the composer drawn
+/// with no session on screen, kept as session 0) put away in `drafts`,
+/// and that of the session `to` brought back into `on`: a session that
+/// has none gets an empty one.
+fn swap_draft(on: &mut Draft, drafts: &mut HashMap<u64, Draft>, from: Option<u64>, to: u64) {
+    let left = std::mem::take(on);
+    if !left.is_empty() {
+        drafts.insert(from.unwrap_or(0), left);
+    }
+    *on = drafts.remove(&to).unwrap_or_default();
 }
 
 /// What was put aside (⌘S): its text, kept between runs (see
@@ -159,12 +184,9 @@ impl Composer {
             input,
             offer: 0,
             mentions: Vec::new(),
-            attached: Vec::new(),
+            draft: Draft::default(),
             reading: 0,
             held: None,
-            also_run: Vec::new(),
-            in_background: false,
-            from_link: false,
             editing_queued: None,
             previewing_chip: None,
             stashed: Vec::new(),
@@ -172,7 +194,7 @@ impl Composer {
             suggested: None,
             noting: None,
             note,
-            drafts: std::collections::HashMap::new(),
+            drafts: HashMap::new(),
         }
     }
 }
@@ -245,7 +267,7 @@ impl Desk {
             return;
         }
         self.composer.held = None;
-        self.composer.from_link = false;
+        self.composer.draft.from_link = false;
         self.put_line("", window, cx);
         let draft = self
             .session()
@@ -253,7 +275,7 @@ impl Desk {
         let working = self
             .session()
             .is_some_and(|s| matches!(s.state, State::Working | State::Opening));
-        let aside = other || (draft && self.composer.in_background);
+        let aside = other || (draft && self.composer.draft.in_background);
         match (aside, working) {
             (true, true) => {
                 if let Some(key) = self.current {
@@ -289,7 +311,7 @@ impl Desk {
     /// there is, or the list to choose from.
     pub(crate) fn stash_typed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let text = self.typed(cx);
-        if text.is_empty() && self.composer.attached.is_empty() {
+        if text.is_empty() && self.composer.draft.attached.is_empty() {
             match self.composer.stashed.len() {
                 0 => {}
                 1 => self.take_stashed(0, window, cx),
@@ -299,7 +321,7 @@ impl Desk {
             return;
         }
         self.put_line("", window, cx);
-        let attached = std::mem::take(&mut self.composer.attached);
+        let attached = std::mem::take(&mut self.composer.draft.attached);
         self.composer.stashed.push(Stashed { text, attached });
         self.save_stash();
         self.done(
@@ -764,7 +786,7 @@ impl Desk {
                 .and_then(crate::hub::Slot::caps)
                 .is_some_and(|known| !known.prompt_capabilities.image);
         let twice = matches!(&attached, Attached::File(p)
-            if self.composer.attached.iter().any(|a| matches!(a, Attached::File(q) if q == p)));
+            if self.composer.draft.attached.iter().any(|a| matches!(a, Attached::File(q) if q == p)));
         if refused {
             let name = self
                 .session()
@@ -776,7 +798,7 @@ impl Desk {
                 None,
             );
         } else if !twice {
-            self.composer.attached.push(attached);
+            self.composer.draft.attached.push(attached);
         }
         cx.notify();
     }
@@ -819,8 +841,8 @@ impl Desk {
 
     /// Take out what was attached `n`th.
     pub fn detach(&mut self, n: usize, cx: &mut Context<Self>) {
-        if n < self.composer.attached.len() {
-            self.composer.attached.remove(n);
+        if n < self.composer.draft.attached.len() {
+            self.composer.draft.attached.remove(n);
         }
         self.composer.noting = None;
         self.composer.previewing_chip = None;
@@ -831,7 +853,7 @@ impl Desk {
     pub fn toggle_chip_preview(&mut self, n: usize, cx: &mut Context<Self>) {
         if self.composer.previewing_chip == Some(n) {
             self.composer.previewing_chip = None;
-        } else if matches!(self.composer.attached.get(n), Some(Attached::Text(_))) {
+        } else if matches!(self.composer.draft.attached.get(n), Some(Attached::Text(_))) {
             self.composer.previewing_chip = Some(n);
         }
         cx.notify();
@@ -839,7 +861,7 @@ impl Desk {
 
     /// Begin writing your note on the chip attached `n`th, or stop.
     pub fn begin_note(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(Attached::Text(chip)) = self.composer.attached.get(n) else {
+        let Some(Attached::Text(chip)) = self.composer.draft.attached.get(n) else {
             return;
         };
         if self.composer.noting == Some(n) {
@@ -860,7 +882,7 @@ impl Desk {
     pub(crate) fn keep_note(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let note = self.composer.note.read(cx).value().trim().to_owned();
         if let Some(n) = self.composer.noting.take()
-            && let Some(Attached::Text(chip)) = self.composer.attached.get_mut(n)
+            && let Some(Attached::Text(chip)) = self.composer.draft.attached.get_mut(n)
         {
             chip.note = note;
         }
@@ -876,7 +898,7 @@ impl Desk {
         let Some(Attached::Text(Chip {
             from: Some((key, item)),
             ..
-        })) = self.composer.attached.get(n)
+        })) = self.composer.draft.attached.get(n)
         else {
             return;
         };
@@ -887,7 +909,7 @@ impl Desk {
 
     /// Copy the chips of the draft on screen, to paste in another.
     pub fn copy_chips(&mut self, cx: &mut Context<Self>) {
-        let chips: Copied = (self.composer.attached.iter())
+        let chips: Copied = (self.composer.draft.attached.iter())
             .filter_map(|a| match a {
                 Attached::Text(c) => Some((c.kind.uri(0), c.text.clone(), c.note.clone())),
                 _ => None,
@@ -903,20 +925,14 @@ impl Desk {
         cx.notify();
     }
 
-    /// What is attached to the draft of the session left goes with it, and
-    /// the draft of the session shown brings back its own.
+    /// The draft of the session left goes with it (what is attached, the
+    /// agents it also runs on), and the session shown brings back its own.
     pub(crate) fn swap_drafts(&mut self, from: Option<u64>, to: u64) {
         let c = &mut self.composer;
-        let left = std::mem::take(&mut c.attached);
-        if let Some(from) = from
-            && !left.is_empty()
-        {
-            c.drafts.insert(from, left);
-        }
-        c.attached = c.drafts.remove(&to).unwrap_or_default();
+        swap_draft(&mut c.draft, &mut c.drafts, from, to);
+        c.editing_queued = None;
         c.noting = None;
         c.previewing_chip = None;
-        c.editing_queued = None;
     }
 
     /// A session dragged onto the composer: named in what you write, as
@@ -1000,7 +1016,7 @@ impl Desk {
             .sessions
             .at(key)
             .is_none_or(|s| s.host == hub::Host::HERE);
-        let mut blocks: Vec<ContentBlock> = (self.composer.attached.drain(..).enumerate())
+        let mut blocks: Vec<ContentBlock> = (self.composer.draft.attached.drain(..).enumerate())
             .filter_map(|(n, a)| match a {
                 Attached::Image { mime, bytes } => Some(ContentBlock::Image(ImageContent::new(
                     base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes),
@@ -1178,5 +1194,25 @@ mod tests {
         assert_eq!(l.uri, "file:///tmp/my%20project/a%20%231.rs");
         let back = url::Url::parse(&l.uri).unwrap().to_file_path().unwrap();
         assert_eq!(back, Path::new("/tmp/my project/a #1.rs"));
+    }
+
+    #[test]
+    fn a_new_draft_in_another_project_runs_on_no_agent_chosen_for_the_last() {
+        let (mut on, mut drafts) = (Draft::default(), HashMap::new());
+        // Draft 1, in one project: also run on two more agents.
+        swap_draft(&mut on, &mut drafts, None, 1);
+        on.also_run = vec![
+            ("codex".into(), None),
+            ("gemini".into(), Some("pro".into())),
+        ];
+        on.in_background = true;
+        // A new draft (2), in another project: it starts on its own agent alone.
+        swap_draft(&mut on, &mut drafts, Some(1), 2);
+        assert!(on.also_run.is_empty());
+        assert!(!on.in_background);
+        // Back on draft 1, its choice is as it was left.
+        swap_draft(&mut on, &mut drafts, Some(2), 1);
+        assert_eq!(on.also_run.len(), 2);
+        assert!(on.in_background);
     }
 }
