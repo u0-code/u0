@@ -24,6 +24,9 @@ asks before it acts, and answers them only as you choose. u0's own
 - **Updates** are looked for on the repository's GitHub releases.
 - **Your hosts** (GitHub, GitLab, Bitbucket, Azure DevOps, Linear) are
   asked for your pull requests and issues, with your tokens.
+- **The pictures** a pull request or an issue shows are fetched from
+  where they are kept, over HTTPS; only GitHub's attachments are asked
+  with your GitHub token.
 
 What your agents send to their own services is between you and them.
 

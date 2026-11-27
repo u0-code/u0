@@ -309,6 +309,12 @@ pub enum Call {
         ask: crate::github::Ask,
         linear: Option<String>,
     },
+    /// The picture at `url` that a pull request or issue of the project in
+    /// `folder` shows (`forge::picture`).
+    Picture {
+        folder: PathBuf,
+        url: String,
+    },
     /// What the file at `path` holds, for the column's viewer (`full` loads
     /// past the minified-file preview cap).
     ReadFile {
@@ -552,6 +558,7 @@ impl Call {
             | Self::ListPrs { folder }
             | Self::ListFiles { folder }
             | Self::Grep { folder, .. }
+            | Self::Picture { folder, .. }
             | Self::Forge {
                 folder,
                 ask:
@@ -941,6 +948,11 @@ pub enum Event {
         kind: crate::github::Kind,
         answer: crate::github::Answer,
     },
+    /// The picture at `url`, as it came; or why it did not.
+    Picture {
+        url: String,
+        picture: Result<Vec<u8>, String>,
+    },
     /// What the file at `path` holds.
     FileRead {
         path: PathBuf,
@@ -1303,6 +1315,10 @@ mod tests {
                     regex: false,
                 },
             },
+            Call::Picture {
+                folder: dir.clone(),
+                url: "https://github.com/user-attachments/assets/a".into(),
+            },
             Call::ReadFile {
                 path: dir.join("a.rs"),
                 full: false,
@@ -1531,6 +1547,10 @@ mod tests {
                 folder: dir.clone(),
                 kind: crate::github::Kind::Issue,
                 answer: crate::github::Answer::Acted(None, Err("no gh".into())),
+            },
+            Event::Picture {
+                url: "https://github.com/user-attachments/assets/a".into(),
+                picture: Ok(vec![0x89, b'P']),
             },
             Event::FileRead {
                 path: dir.join("a.pdf"),

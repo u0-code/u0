@@ -15,6 +15,7 @@ description: u0 存储什么、存在哪里、发送什么，以及如何把智�
 - **ACP 注册表** 从 `cdn.agentclientprotocol.com` 读取，智能体从它指明的位置下载。
 - **更新** 在该仓库的 GitHub releases 上查找。
 - **你的代码托管平台**（GitHub、GitLab、Bitbucket、Azure DevOps、Linear）会被用你的令牌查询你的拉取请求和议题。
+- **图片**：拉取请求或议题中的图片从其存放处通过 HTTPS 获取；只有 GitHub 的附件会带上你的 GitHub 令牌请求。
 
 你的智能体向它们自己的服务发送什么，是你与它们之间的事。
 

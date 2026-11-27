@@ -46,6 +46,8 @@ static AGENT: LazyLock<Agent> = LazyLock::new(|| {
         )
         .user_agent(concat!("u0/", env!("CARGO_PKG_VERSION")))
         .timeout_global(Some(QUICK))
+        // A token sent one host is never carried to another it redirects to.
+        .redirect_auth_headers(ureq::config::RedirectAuthHeaders::Never)
         // What a host said went wrong is read from its answer.
         .http_status_as_error(false)
         .build()
@@ -54,7 +56,8 @@ static AGENT: LazyLock<Agent> = LazyLock::new(|| {
 
 /// What `method` at `url` answers, sent `headers` and `body`: whether it
 /// succeeded (a status under 400), and what it said, or why nothing was
-/// heard.
+/// heard. A request made over HTTPS is followed only to HTTPS, and its
+/// `Authorization` is never carried to where it is redirected.
 pub fn call(
     method: &str,
     url: &str,
@@ -68,6 +71,10 @@ pub fn call(
     let request = request
         .body(body.unwrap_or_default())
         .map_err(|e| e.to_string())?;
+    let request = AGENT
+        .configure_request(request)
+        .https_only(url.starts_with("https://"))
+        .build();
     let mut answer = AGENT.run(request).map_err(|e| e.to_string())?;
     let ok = answer.status().as_u16() < 400;
     let said = answer

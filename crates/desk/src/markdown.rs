@@ -3,9 +3,15 @@
 //! and copied. u0 adds what only the desk can say: where a link may go,
 //! that a name in code which reads as a file opens it in your editor (its
 //! menu copies where it is), GitHub's alerts (`> [!NOTE]`) set apart, and
-//! what the buttons on a code block and a table do.
+//! what the buttons on a code block and a table do; and the pictures a
+//! pull request or an issue shows, fetched by its server.
 
-use std::{borrow::Cow, fmt::Write as _};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, hash_map::Entry},
+    fmt::Write as _,
+    sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError},
+};
 
 use gpui::{
     App, ClickEvent, Context, Div, IntoElement, Overflow, SharedString, StyleRefinement,
@@ -26,6 +32,7 @@ use crate::{
     desk::Desk,
     figures,
     fonts::Faces,
+    session::Picture,
     style::{H1, H2, H3, PROSE, prose_line},
     theme, ui,
 };
@@ -55,6 +62,11 @@ pub fn render(faces: &Faces, key: &str, text: &str, cx: &mut Context<Desk>) -> i
         })
         .code_block(code_block)
         .table(table);
+    let came = came(text);
+    let view = match came {
+        Some(n) => format!("{key}-words-{n}"),
+        None => format!("{key}-words"),
+    };
     div()
         .w_full()
         .min_w(px(0.))
@@ -63,10 +75,11 @@ pub fn render(faces: &Faces, key: &str, text: &str, cx: &mut Context<Desk>) -> i
         .line_height(px(prose_line()))
         .text_color(theme::text())
         .child(
-            TextView::markdown(SharedString::from(format!("{key}-words")), bulleted(text))
+            TextView::markdown(SharedString::from(view), bulleted(text))
                 .style(style)
                 .selectable(true)
                 .markdown_extensions(extensions())
+                .when(came.is_some(), |v| v.image_source(fetched))
                 .plugin(Paths(desk))
                 .plugin(figures::Figures(figures::math()))
                 .when(figures::math(), |v| v.plugin(figures::Formulas))
@@ -80,8 +93,156 @@ pub fn render(faces: &Faces, key: &str, text: &str, cx: &mut Context<Desk>) -> i
         )
 }
 
-/// What of Markdown is read: no HTML (a tag shows as the text it is), and
-/// GitHub's alerts, each a block set apart by a line down its left in its
+/// The pictures asked of a server for what Markdown shows, by their
+/// address: none while one has not come.
+static PICTURES: LazyLock<Mutex<HashMap<String, Option<Arc<Picture>>>>> =
+    LazyLock::new(Mutex::default);
+
+fn kept() -> MutexGuard<'static, HashMap<String, Option<Arc<Picture>>>> {
+    PICTURES.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// The addresses of the pictures `text` shows over HTTPS that are not yet
+/// asked for, each taken as asked.
+pub fn wanted(text: &str) -> Vec<String> {
+    let mut kept = kept();
+    let mut urls = pictures(text);
+    urls.retain(|url| match kept.entry(url.clone()) {
+        Entry::Vacant(asked) => {
+            asked.insert(None);
+            true
+        }
+        Entry::Occupied(_) => false,
+    });
+    urls
+}
+
+/// The picture at `url` come; one that did not is asked again the next
+/// time it is shown.
+pub fn fetched_at(url: String, picture: Option<Arc<Picture>>) {
+    let mut kept = kept();
+    match picture {
+        Some(picture) => kept.insert(url, Some(picture)),
+        None => kept.remove(&url),
+    };
+}
+
+/// How many of the pictures asked for that `text` shows have come; none,
+/// it shows none asked for. Only then are its pictures drawn from what
+/// came, so that the view's own reading of any other (a `data:` address)
+/// is kept; and its view is a new one each time another comes, as the
+/// view lays a picture out once, at the size it had then.
+fn came(text: &str) -> Option<usize> {
+    let shown: Vec<_> = (kept().iter())
+        .filter(|(url, _)| text.contains(url.as_str()))
+        .map(|(_, picture)| picture.is_some())
+        .collect();
+    (!shown.is_empty()).then(|| shown.into_iter().filter(|c| *c).count())
+}
+
+/// What the view draws for the picture at `url`: what came, or nothing yet.
+fn fetched(url: &gpui::SharedUri) -> gpui::ImageSource {
+    match kept().get(url.as_ref()) {
+        Some(Some(picture)) => crate::thread::picture(picture),
+        _ => gpui::ImageSource::Custom(Arc::new(|_, _| None)),
+    }
+}
+
+/// The addresses of the pictures `text` shows over HTTPS, as the view
+/// reads it: each image (`![alt](…)`, `![alt][ref]`) and each `<img>`'s
+/// `src`, once each.
+fn pictures(text: &str) -> Vec<String> {
+    use ::markdown::mdast::Node;
+    fn walk<'a>(node: &'a Node, found: &mut Vec<Cow<'a, str>>, refs: &mut Vec<&'a str>) {
+        match node {
+            Node::Image(image) => found.push(Cow::Borrowed(&image.url)),
+            Node::ImageReference(image) => refs.push(&image.identifier),
+            Node::Html(html) => found.extend(sources(&html.value).map(Cow::Owned)),
+            _ => {}
+        }
+        for child in node.children().into_iter().flatten() {
+            walk(child, found, refs);
+        }
+    }
+    fn defined<'a>(node: &'a Node, id: &str) -> Option<&'a str> {
+        match node {
+            Node::Definition(d) if d.identifier == id => Some(&d.url),
+            _ => node.children()?.iter().find_map(|c| defined(c, id)),
+        }
+    }
+    let Ok(tree) = ::markdown::to_mdast(text, &::markdown::ParseOptions::gfm()) else {
+        return Vec::new();
+    };
+    let (mut found, mut refs) = (Vec::new(), Vec::new());
+    walk(&tree, &mut found, &mut refs);
+    found.extend(
+        refs.into_iter()
+            .filter_map(|id| defined(&tree, id).map(Cow::Borrowed)),
+    );
+    let mut urls: Vec<String> = Vec::new();
+    for url in found {
+        if url.starts_with("https://") && !urls.iter().any(|u| *u == url) {
+            urls.push(url.into_owned());
+        }
+    }
+    urls
+}
+
+/// The `src` of each `<img>` in `html`: all of a tag that is read.
+fn sources(html: &str) -> impl Iterator<Item = String> + '_ {
+    html.match_indices('<').filter_map(|(at, _)| {
+        let tag = &html[at + 1..];
+        let rest = tag
+            .get(..3)
+            .filter(|name| name.eq_ignore_ascii_case("img"))
+            .map(|_| &tag[3..])?;
+        if !rest.starts_with(|c: char| c.is_whitespace() || c == '/') {
+            return None;
+        }
+        attribute(&rest[..rest.find('>').unwrap_or(rest.len())], "src")
+    })
+}
+
+/// The value of the attribute `name` among a tag's `attrs`, the entities
+/// for `&` and quotes read.
+fn attribute(attrs: &str, name: &str) -> Option<String> {
+    let mut rest = attrs;
+    loop {
+        rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == '/');
+        if rest.is_empty() {
+            return None;
+        }
+        let end = rest
+            .find(|c: char| c.is_whitespace() || c == '=' || c == '/')
+            .unwrap_or(rest.len());
+        let key = &rest[..end];
+        rest = rest[end..].trim_start();
+        let mut value = "";
+        if let Some(after) = rest.strip_prefix('=') {
+            let after = after.trim_start();
+            (value, rest) = match after.chars().next() {
+                Some(quote @ ('"' | '\'')) => {
+                    let inner = &after[1..];
+                    let close = inner.find(quote).unwrap_or(inner.len());
+                    (&inner[..close], inner.get(close + 1..).unwrap_or(""))
+                }
+                _ => after.split_at(after.find(char::is_whitespace).unwrap_or(after.len())),
+            };
+        }
+        if key.eq_ignore_ascii_case(name) {
+            return Some(
+                value
+                    .replace("&quot;", "\"")
+                    .replace("&#39;", "'")
+                    .replace("&amp;", "&"),
+            );
+        }
+    }
+}
+
+/// What of Markdown is read: HTML as gpui-kit reads it into its own nodes
+/// (an `<img>` a picture, by its `src`, `alt` and size; a `<br>` a break),
+/// never drawn as a page; and GitHub's alerts, each a block set apart by a line down its left in its
 /// colour, under its name: `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`,
 /// `[!WARNING]`, `[!CAUTION]`, and Claude's `[!INSIGHT]`.
 fn extensions() -> MarkdownExtensions {
@@ -352,6 +513,68 @@ fn csv(table: &TableData) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_pictures_a_body_shows_are_its_images_and_img_tags_over_https() {
+        let body = concat!(
+            "### What happened\n\n",
+            "<img width=\"1973\" height=\"1162\" alt=\"image\" ",
+            "src=\"https://github.com/user-attachments/assets/aad7\" />\n\n",
+            "![shot](https://example.com/a.png) and ![again](https://example.com/a.png)\n\n",
+            "<p align=center><IMG SRC='https://example.com/b.png?x=1&amp;y=2'></p>\n\n",
+            "![ref][r]\n\n[r]: https://example.com/c.png\n\n",
+            "![plain](http://example.com/d.png) ![here](a.png) ",
+            "![data](data:image/png;base64,AAAA) <imgx src=\"https://e.com/x\">\n\n",
+            "`![code](https://example.com/e.png)`\n\n",
+            "```\n<img src=\"https://example.com/f.png\">\n```\n",
+        );
+        assert_eq!(
+            pictures(body),
+            [
+                "https://github.com/user-attachments/assets/aad7",
+                "https://example.com/a.png",
+                "https://example.com/b.png?x=1&y=2",
+                "https://example.com/c.png",
+            ]
+        );
+    }
+
+    #[test]
+    fn an_img_tag_is_read_for_its_src_alone() {
+        assert_eq!(
+            attribute(r#" alt="a src=x" data-src="no" src = "yes" "#, "src").as_deref(),
+            Some("yes")
+        );
+        assert_eq!(attribute(" alt=a/", "src"), None);
+        assert_eq!(
+            attribute(" src=https://e.com/a.png width=3", "src").as_deref(),
+            Some("https://e.com/a.png")
+        );
+    }
+
+    #[test]
+    fn a_picture_is_asked_for_once_and_again_only_after_it_failed() {
+        let body = "![a](https://example.com/once.png)";
+        assert_eq!(wanted(body), ["https://example.com/once.png"]);
+        assert!(wanted(body).is_empty());
+        assert_eq!(came(body), Some(0));
+        fetched_at("https://example.com/once.png".into(), None);
+        assert_eq!(came(body), None);
+        assert_eq!(wanted(body), ["https://example.com/once.png"]);
+    }
+
+    #[test]
+    fn a_text_is_drawn_anew_as_each_of_its_pictures_comes() {
+        let body = "![a](https://example.com/one.png) ![b](https://example.com/two.png)";
+        wanted(body);
+        assert_eq!(came(body), Some(0));
+        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0".to_vec();
+        let picture = Picture::read(png);
+        assert!(picture.is_some());
+        fetched_at("https://example.com/one.png".into(), picture);
+        assert_eq!(came(body), Some(1));
+        assert_eq!(came("no pictures here"), None);
+    }
 
     #[test]
     fn a_host_commit_link_names_its_commit() {

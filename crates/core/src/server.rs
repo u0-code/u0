@@ -619,6 +619,10 @@ impl Server {
                 folder,
                 kind,
             }),
+            Call::Picture { folder, url } => self.off(move || Event::Picture {
+                picture: crate::forge::picture(&folder, &url),
+                url,
+            }),
             Call::Grep { folder, words, how } => self.off(move || Event::Grepped {
                 found: git::grep(&folder, &words, how),
                 words,

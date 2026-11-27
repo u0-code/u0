@@ -896,6 +896,18 @@ impl Desk {
                 });
             }
             Answer::Viewed(n, detail) if self.forge.chosen == Some(n) => {
+                // The pictures it shows, asked of its server as it is read.
+                if let Ok(d) = &detail {
+                    let said = d.threads.iter().flat_map(|t| &t.said).chain(&d.said);
+                    let texts = std::iter::once(&d.body).chain(said.map(|s| &s.body));
+                    for url in texts.flat_map(|t| crate::markdown::wanted(t)) {
+                        let call = Call::Picture {
+                            folder: folder.folder.clone(),
+                            url,
+                        };
+                        self.call(folder.host, call);
+                    }
+                }
                 self.forge.detail = Some(detail);
                 if let Some(patch) = self.forge.patch.take() {
                     self.pr_patch(&patch, cx);

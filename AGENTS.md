@@ -244,7 +244,8 @@ crates/desk/src/
                 a pull request reviewed, pr)
   i18n.rs       the desk's words in your language (rust-i18n, as gpui-kit): `tr`, the
                 language set; locales/app.yml holds each English string in every language
-  markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
+  markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go;
+                the pictures a pull request or issue shows (`Call::Picture`)
   figures.rs    what Markdown shows as a picture: Mermaid (mermaid-rs-renderer) and
                 TeX (ratex), drawn natively as SVG
   ui.rs, theme.rs, style.rs   Carbon tokens, theme projection (White/G10/G90/G100), layout constants
