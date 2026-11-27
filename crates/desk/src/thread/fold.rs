@@ -1,8 +1,10 @@
 //! What of a thread is folded away, as Claude folds it: in a turn that is
 //! over, the agent's work from its first call to its answer becomes one
 //! line ("Read 3 files, ran 2 commands, and 4 more steps"); what it said
-//! before that call and its answer (or the notes it ended with) stay out.
-//! Inside a fold opened again, a run of three or more quiet tool calls
+//! before that call and its answer (or the notes it ended with) stay out,
+//! and so does each subagent it set to work, a card of its own under the
+//! fold. A turn begins with what you said, or in a subagent with what it
+//! was told. Inside a fold opened again, a run of three or more quiet tool calls
 //! becomes one line of its own. A turn still going on is never folded: it
 //! is what you are watching. A turn loaded from an agent has no end
 //! marked; it is over when another follows it or nothing is going on.
@@ -59,7 +61,7 @@ pub fn rows(
     let mut out = Vec::new();
     let mut i = 0;
     while i < items.len() {
-        if !matches!(items[i], Item::You(_)) {
+        if !asks(&items[i]) {
             out.push(Row::Item(i));
             i += 1;
             continue;
@@ -76,7 +78,7 @@ pub fn rows(
         // The turn runs to the next thing you said.
         let end = items[i + 1..]
             .iter()
-            .position(|x| matches!(x, Item::You(_)))
+            .position(asks)
             .map_or(items.len(), |p| i + 1 + p);
         let ended = items[i + 1..end]
             .iter()
@@ -108,6 +110,9 @@ pub fn rows(
                 });
                 if open {
                     grouped(session, items, from, to, expanded, &open_call, &mut out);
+                } else {
+                    let children = (from..to).filter(|&k| matches!(items[k], Item::Child { .. }));
+                    out.extend(children.map(Row::Item));
                 }
                 out.extend((to..end).map(Row::Item));
             }
@@ -122,12 +127,16 @@ pub fn rows(
     out
 }
 
-/// Whether the item is work done: a call, a question asked, a subagent.
+/// Whether the item begins a turn: what you said, or what a subagent was
+/// told.
+fn asks(item: &Item) -> bool {
+    matches!(item, Item::You(_) | Item::Told(_))
+}
+
+/// Whether the item is work done: a call, a question asked. A subagent
+/// set to work is not: it is never folded away.
 fn is_call(item: &Item) -> bool {
-    matches!(
-        item,
-        Item::Tool(_) | Item::Asked(_) | Item::Elicited(_) | Item::Child { .. }
-    )
+    matches!(item, Item::Tool(_) | Item::Asked(_) | Item::Elicited(_))
 }
 
 /// The items `from..to`, with each run of quiet calls folded into a group.
@@ -286,6 +295,62 @@ mod tests {
         let rows = rows(7, &s.items, &HashSet::new(), |_| false, false, true);
         assert!(matches!(s.items[1], Item::File { .. }));
         assert_eq!(rows[..2], [Row::Item(0), Row::Item(1)]);
+    }
+
+    #[test]
+    fn a_subagent_set_to_work_shows_under_its_turns_fold() {
+        let mut s = Session::new(7, "x", "/r".into());
+        s.said("go");
+        for update in [
+            r#"{"sessionUpdate":"tool_call","toolCallId":"a","title":"t","kind":"read","status":"completed"}"#,
+            r#"{"sessionUpdate":"subagent_update","sessionId":"c1","title":"Review","state":{"state":"running"}}"#,
+            r#"{"sessionUpdate":"tool_call","toolCallId":"b","title":"t","kind":"read","status":"completed"}"#,
+            r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Done."}}"#,
+        ] {
+            s.apply(serde_json::from_str(update).unwrap());
+        }
+        let rows = rows(7, &s.items, &HashSet::new(), |_| false, false, true);
+        assert_eq!(
+            rows,
+            vec![
+                Row::Item(0),
+                Row::Turn {
+                    from: 1,
+                    to: 4,
+                    secs: None,
+                    open: false
+                },
+                Row::Item(2),
+                Row::Item(4)
+            ]
+        );
+    }
+
+    #[test]
+    fn a_subagents_task_begins_a_turn_that_folds_as_yours_does() {
+        let mut s = Session::new(7, "x", "/r".into());
+        s.meta.id = Some(agent_client_protocol::v1::schema::SessionId::new("c1"));
+        for update in [
+            r#"{"sessionUpdate":"session_message","messageId":"m","senderSessionId":"p","recipientSessionId":"c1","content":[{"type":"text","text":"Look."}]}"#,
+            r#"{"sessionUpdate":"tool_call","toolCallId":"a","title":"t","kind":"read","status":"completed"}"#,
+            r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Found."}}"#,
+        ] {
+            s.apply(serde_json::from_str(update).unwrap());
+        }
+        let rows = rows(7, &s.items, &HashSet::new(), |_| false, false, true);
+        assert_eq!(
+            rows,
+            vec![
+                Row::Item(0),
+                Row::Turn {
+                    from: 1,
+                    to: 2,
+                    secs: None,
+                    open: false
+                },
+                Row::Item(2)
+            ]
+        );
     }
 
     #[test]

@@ -207,7 +207,8 @@ crates/desk/src/
                 flows (the workflows and their runs)
   sidebar.rs, thread.rs, aside.rs, pages.rs   what is drawn
   sidebar/      its list (gpui-kit's Tree): pinned, projects, the shelves
-  thread/       the thread as a list (lines), folds, cards, the composer and what
+  thread/       the thread as a list (lines), folds, cards, a subagent's card
+                (subagent), the composer and what
                 waits beside it (later), what an agent asks for (form), the model
                 picker (picker) and the mode menu (modes), the start,
                 the drawer, the top bar; calls read (kinds);

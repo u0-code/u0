@@ -546,6 +546,45 @@ mod tests {
     }
 
     #[test]
+    fn a_claude_code_load_puts_each_subagent_under_the_one_that_set_it_to_work() {
+        let home = tempfile::tempdir().unwrap();
+        let records = Records::new(home.path().to_path_buf());
+        let agent = "claude-acp";
+        records.open(agent, SessionId::new("p1"));
+        let mut sessions = Sessions::default();
+        let key = sessions.take_key();
+        let mut s = Session::new(key, agent, "/p".into());
+        s.meta.id = Some(SessionId::new("p1"));
+        s.state = State::Opening;
+        sessions.all.push(s);
+        let sent: Vec<SessionNotification> = serde_json::from_str(include_str!(
+            "../../core/src/fixtures/claude-subagents-load.json"
+        ))
+        .unwrap();
+        for n in sent {
+            assert!(heard(&records, &mut sessions, agent, n).is_some());
+        }
+        let of = |id: &str| {
+            (sessions.all.iter())
+                .find(|s| s.meta.id.as_ref().is_some_and(|i| &*i.0 == id))
+                .unwrap()
+        };
+        let (parser, docs, spec) = (
+            of("a1b2c3d4e5f6a7b8c"),
+            of("ab1c2d3e4f5a6b7c8"),
+            of("a9f8e7d6c5b4a3f2e"),
+        );
+        assert_eq!((parser.parent, docs.parent), (Some(key), Some(key)));
+        assert_eq!(spec.parent, Some(parser.key));
+        // Each done, as its parent said at the load's end; told its task.
+        for c in [parser, docs, spec] {
+            assert!(!c.sub.working());
+            assert_eq!(c.sub.end, Some(crate::session::End::Done));
+            assert!(matches!(c.items.first(), Some(Item::Told(_))));
+        }
+    }
+
+    #[test]
     fn a_record_cut_short_is_loaded_from_its_agent_not_resumed() {
         let mut sessions = two();
         let update = || store::Event::Update(Box::new(serde_json::from_str(&chunk("Do")).unwrap()));

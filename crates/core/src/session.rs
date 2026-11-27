@@ -312,12 +312,20 @@ pub enum Item {
         name: String,
         uri: String,
     },
-    /// A subagent the agent set to work: its session's id, and what the
-    /// agent calls it.
+    /// A subagent the agent set to work: its session's id, what the agent
+    /// calls it and the kind of agent it is (Claude Code's subagent type),
+    /// the task it was given (the first message sent it), and what it
+    /// answered, when it answered as a message (a run its parent waited on).
     Child {
         id: SessionId,
         title: String,
+        role: Option<String>,
+        task: Option<String>,
+        answer: Option<String>,
     },
+    /// What another session told this one: a subagent's task, as the
+    /// agent that set it to work gave it, and what that agent sent it later.
+    Told(String),
     /// The context was compacted, with token counts before and after when
     /// known, and any summary the agent gave.
     Compacted {
@@ -413,34 +421,50 @@ impl Session {
 
 /// What a subagent is doing, as its parent's agent says (ACP's
 /// subagent state): at work since when, how long its last work took,
-/// whether it waits on you, and whether its work can be stopped.
+/// whether it waits on you, how its last work ended, and whether its work
+/// can be stopped.
 #[derive(Debug, Clone, Default)]
 pub struct Sub {
     pub since: Option<SystemTime>,
     pub took: Option<std::time::Duration>,
     pub needs_you: bool,
+    pub end: Option<End>,
     pub stoppable: bool,
+}
+
+/// How a subagent's work ended, as the reason its agent gave.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum End {
+    Done,
+    Stopped,
+    Failed,
 }
 
 impl Sub {
     /// Take in what the parent's agent says of it now.
     pub fn take(&mut self, u: &agent_client_protocol::v1::schema::SubagentUpdate) {
-        use agent_client_protocol::{schema::MaybeUndefined, v1::schema::StateUpdate};
+        use agent_client_protocol::{
+            schema::MaybeUndefined,
+            v1::schema::{IdleStopReason, StateUpdate},
+        };
         match &u.state {
             MaybeUndefined::Value(StateUpdate::Running(_)) => {
                 self.since.get_or_insert_with(SystemTime::now);
-                self.needs_you = false;
+                (self.needs_you, self.end) = (false, None);
             }
             MaybeUndefined::Value(StateUpdate::RequiresAction(_)) => {
                 self.since.get_or_insert_with(SystemTime::now);
-                self.needs_you = true;
+                (self.needs_you, self.end) = (true, None);
             }
-            MaybeUndefined::Value(StateUpdate::Idle(_)) | MaybeUndefined::Null => {
-                if let Some(t) = self.since.take() {
-                    self.took = t.elapsed().ok();
-                }
-                self.needs_you = false;
+            MaybeUndefined::Value(StateUpdate::Idle(idle)) => {
+                self.ended();
+                self.end = Some(match idle.stop_reason {
+                    None | Some(IdleStopReason::EndTurn) => End::Done,
+                    Some(IdleStopReason::Cancelled) => End::Stopped,
+                    Some(_) => End::Failed,
+                });
             }
+            MaybeUndefined::Null => self.ended(),
             _ => {}
         }
         match &u.capabilities {
@@ -450,17 +474,29 @@ impl Sub {
         }
     }
 
+    /// Its work is over: how long it took, when it was seen to take any
+    /// time. A session loaded from its agent says a subagent began and
+    /// ended in the one moment, its history read back: that is no time.
+    fn ended(&mut self) {
+        if let Some(t) = self.since.take() {
+            self.took = t.elapsed().ok().filter(|d| d.as_secs() > 0);
+        }
+        self.needs_you = false;
+    }
+
     /// At work now.
     pub fn working(&self) -> bool {
         self.since.is_some()
     }
 
+    /// How long it has worked, or worked last.
+    pub fn took(&self) -> Option<std::time::Duration> {
+        self.since.and_then(|t| t.elapsed().ok()).or(self.took)
+    }
+
     /// How long it has worked, or worked last: "1m 2s".
     pub fn time(&self) -> Option<String> {
-        self.since
-            .and_then(|t| t.elapsed().ok())
-            .or(self.took)
-            .map(crate::when::took)
+        self.took().map(crate::when::took)
     }
 }
 
@@ -1349,37 +1385,8 @@ impl Session {
                 }
                 self.usage = Some(u);
             }
-            SessionUpdate::SubagentUpdate(u) => {
-                let id = u.session_id.clone();
-                let named = match u.title {
-                    agent_client_protocol::schema::MaybeUndefined::Value(t) => Some(t),
-                    _ => None,
-                };
-                if let Some(Item::Child { title, .. }) = self
-                    .items
-                    .iter_mut()
-                    .find(|i| matches!(i, Item::Child { id: c, .. } if *c == id))
-                {
-                    if let Some(t) = named {
-                        *title = t;
-                    }
-                } else {
-                    self.items.push(Item::Child {
-                        id: id.clone(),
-                        title: named.unwrap_or_else(|| "A subagent".into()),
-                    });
-                }
-                // The index keeps it too, to bring it back after a restart.
-                let title = self.items.iter().rev().find_map(|i| match i {
-                    Item::Child { id: c, title } if *c == id => Some(title.clone()),
-                    _ => None,
-                });
-                let id = id.0.to_string();
-                match self.meta.subagents.iter_mut().find(|(c, _)| *c == id) {
-                    Some((_, t)) => *t = title.unwrap_or_default(),
-                    None => self.meta.subagents.push((id, title.unwrap_or_default())),
-                }
-            }
+            SessionUpdate::SubagentUpdate(u) => self.child(u),
+            SessionUpdate::SessionMessage(m) => self.message(m),
             SessionUpdate::AvailableCommandsUpdate(c) => self.commands = c.available_commands,
             SessionUpdate::Notice(n) => self.items.push(Item::Note {
                 text: match n.description {
@@ -1431,6 +1438,79 @@ impl Session {
                 _ => {}
             },
             _ => {}
+        }
+    }
+
+    /// A subagent set to work, or what its agent says of it now: a row of
+    /// the thread, named as the agent names it. The index keeps it too, to
+    /// bring it back after a restart.
+    fn child(&mut self, u: agent_client_protocol::v1::schema::SubagentUpdate) {
+        use agent_client_protocol::schema::MaybeUndefined;
+        let at = self.child_at(&u.session_id).unwrap_or_else(|| {
+            self.items.push(Item::Child {
+                id: u.session_id.clone(),
+                title: "A subagent".into(),
+                role: None,
+                task: None,
+                answer: None,
+            });
+            self.items.len() - 1
+        });
+        let Item::Child { title, role, .. } = &mut self.items[at] else {
+            return;
+        };
+        if let MaybeUndefined::Value(t) = u.title {
+            *title = t;
+        }
+        match u.description {
+            MaybeUndefined::Value(d) => *role = Some(d),
+            MaybeUndefined::Null => *role = None,
+            MaybeUndefined::Undefined => {}
+        }
+        let (id, title) = (u.session_id.0.to_string(), title.clone());
+        match self.meta.subagents.iter_mut().find(|(c, _)| *c == id) {
+            Some((_, t)) => *t = title,
+            None => self.meta.subagents.push((id, title)),
+        }
+    }
+
+    /// Where the row of the subagent `id` is.
+    fn child_at(&self, id: &SessionId) -> Option<usize> {
+        (self.items.iter()).position(|i| matches!(i, Item::Child { id: c, .. } if c == id))
+    }
+
+    /// A message between sessions, as this one's record has it: the task
+    /// sent to a subagent of its, the answer one sent back, or what was
+    /// told this one. One with no words (what it refers to, said again) is
+    /// none of these.
+    fn message(&mut self, m: agent_client_protocol::v1::schema::SessionMessage) {
+        use agent_client_protocol::schema::MaybeUndefined;
+        let MaybeUndefined::Value(blocks) = m.content else {
+            return;
+        };
+        let text = blocks.iter().map(text_of).collect::<String>();
+        if text.trim().is_empty() {
+            return;
+        }
+        let (to, from) = (m.recipient_session_id, m.sender_session_id);
+        if let MaybeUndefined::Value(to) = &to
+            && let Some(at) = self.child_at(to)
+        {
+            // Sent again later (to go on), it is no longer its task.
+            if let Item::Child {
+                task: task @ None, ..
+            } = &mut self.items[at]
+            {
+                *task = Some(text);
+            }
+        } else if let MaybeUndefined::Value(from) = &from
+            && let Some(at) = self.child_at(from)
+        {
+            if let Item::Child { answer, .. } = &mut self.items[at] {
+                *answer = Some(text);
+            }
+        } else if matches!(&to, MaybeUndefined::Value(to) if self.meta.id.as_ref() == Some(to)) {
+            self.items.push(Item::Told(text));
         }
     }
 
@@ -1964,7 +2044,18 @@ mod tests {
         s.take(&sub(
             r#"{"sessionUpdate":"subagent_update","sessionId":"c","state":{"state":"idle"}}"#,
         ));
-        assert!(!s.working() && !s.needs_you && s.took.is_some());
+        assert!(!s.working() && !s.needs_you);
+        assert_eq!(s.end, Some(super::End::Done));
+        // Begun and ended in one moment, as a load reads it back: no time.
+        assert_eq!(s.took, None);
+        s.take(&sub(
+            r#"{"sessionUpdate":"subagent_update","sessionId":"c","state":{"state":"running"}}"#,
+        ));
+        assert_eq!(s.end, None);
+        s.take(&sub(r#"{"sessionUpdate":"subagent_update","sessionId":"c","state":{"state":"idle","stopReason":"cancelled"}}"#));
+        assert_eq!(s.end, Some(super::End::Stopped));
+        s.take(&sub(r#"{"sessionUpdate":"subagent_update","sessionId":"c","state":{"state":"idle","stopReason":"error","error":{"code":-32603,"message":"overloaded"}}}"#));
+        assert_eq!(s.end, Some(super::End::Failed));
     }
 
     #[test]
@@ -2311,6 +2402,72 @@ mod tests {
         assert!(
             matches!(&s.items[0], Item::Child { title, .. } if title == "Explore the uploader")
         );
+    }
+
+    /// The sessions of a load of a Claude Code session with subagents, as
+    /// its adapter sends them (recorded, its words made neutral): each by
+    /// its id, its thread read from its updates.
+    fn claude_subagents() -> Vec<(String, Session)> {
+        let sent: Vec<agent_client_protocol::v1::schema::SessionNotification> =
+            serde_json::from_str(include_str!("fixtures/claude-subagents-load.json")).unwrap();
+        let mut sessions: Vec<(String, Session)> = Vec::new();
+        for n in sent {
+            let id = n.session_id.0.to_string();
+            if !sessions.iter().any(|(s, _)| *s == id) {
+                let mut s = Session::new(sessions.len() as u64, "claude-acp", "/tmp".into());
+                s.meta.id = Some(n.session_id.clone());
+                sessions.push((id.clone(), s));
+            }
+            let s = &mut sessions.iter_mut().find(|(s, _)| *s == id).unwrap().1;
+            s.replay(vec![store::Event::Update(Box::new(n.update))]);
+        }
+        sessions
+    }
+
+    #[test]
+    fn a_subagent_is_shown_with_its_kind_its_task_and_the_answer_it_sent_back() {
+        let sessions = claude_subagents();
+        let of = |id: &str| &sessions.iter().find(|(s, _)| s == id).unwrap().1.items;
+        let child = |item: &Item| match item {
+            Item::Child {
+                title,
+                role,
+                task,
+                answer,
+                ..
+            } => (title.clone(), role.clone(), task.clone(), answer.clone()),
+            other => panic!("{other:?}"),
+        };
+        // The parent: what you asked, the two it set to work, its answer.
+        let parent = of("p1");
+        assert_eq!(parent.len(), 4, "{parent:?}");
+        assert_eq!(
+            child(&parent[1]),
+            (
+                "Review the parser".into(),
+                Some("general-purpose".into()),
+                Some("Read src/parser.rs and list what it gets wrong.".into()),
+                None
+            )
+        );
+        assert_eq!(child(&parent[2]).1.as_deref(), Some("Explore"));
+        // A subagent: told its task, its calls, a subagent of its own that
+        // answered it, what it was told later, and its own answer.
+        let sub = of("a1b2c3d4e5f6a7b8c");
+        assert!(matches!(&sub[0], Item::Told(t) if t.starts_with("Read src/parser.rs")));
+        assert!(matches!(&sub[1], Item::Tool(_)));
+        assert_eq!(
+            child(&sub[2]).3.as_deref(),
+            Some("The spec has three rules.")
+        );
+        assert!(matches!(&sub[3], Item::Told(t) if t.ends_with("Check the docs too.")));
+        assert!(matches!(&sub[4], Item::Agent(t) if t.starts_with("The parser misses")));
+        assert_eq!(sub.len(), 5);
+        let nested = of("a9f8e7d6c5b4a3f2e");
+        assert!(matches!(
+            &nested[..],
+            [Item::Told(_), Item::Tool(_), Item::Agent(_)]
+        ));
     }
 
     #[test]

@@ -80,6 +80,8 @@ fn shown(view: crate::settings::View, items: &[Item], row: &fold::Row) -> bool {
         (View::Zen, fold::Row::Item(i)) => matches!(
             items[*i],
             Item::You(_)
+                | Item::Told(_)
+                | Item::Child { .. }
                 | Item::Agent(_)
                 | Item::Asked(_)
                 | Item::Note { .. }
@@ -351,7 +353,13 @@ impl Desk {
                 cx,
             ));
         for c in kids {
-            bar = bar.child(tab(c.key, super::sub_mark(&c.sub), &c.meta.title, true, cx));
+            bar = bar.child(tab(
+                c.key,
+                super::subagent::mark(c),
+                &c.meta.title,
+                true,
+                cx,
+            ));
         }
         Some(
             div()

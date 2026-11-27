@@ -235,6 +235,15 @@ impl Desk {
                 self.place(key);
                 // A record from before its index named its subagents names them.
                 self.subagents_back(key);
+                // Their cards in it show their work and answers: theirs
+                // are read too.
+                let unread: Vec<u64> = (self.sessions.all.iter())
+                    .filter(|c| c.parent == Some(key) && !c.recorded && c.items.is_empty())
+                    .map(|c| c.key)
+                    .collect();
+                for child in unread {
+                    self.read_record(child);
+                }
             }
             // One cut short is dropped: the agent has the rest.
             Read::Unrecorded => {

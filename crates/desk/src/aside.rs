@@ -828,7 +828,7 @@ impl Desk {
             row_of(SharedString::from(format!("bg-sub-{key}")))
                 .cursor_pointer()
                 .when(key == s.key, |d| d.bg(theme::role(ColorRole::LayerHover01)))
-                .child(crate::thread::sub_mark(&c.sub))
+                .child(crate::thread::subagent::mark(c))
                 .child(title(&c.meta.title))
                 .children(c.sub.time().map(|t| fine(faces, t)))
                 .when(c.sub.working() && c.sub.stoppable, |d| {

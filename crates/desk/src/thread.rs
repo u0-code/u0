@@ -22,6 +22,7 @@ mod permission;
 mod picker;
 mod split;
 mod start;
+pub(crate) mod subagent;
 mod welcome;
 
 pub use dialogs::ThreadDialogs;
@@ -282,24 +283,6 @@ fn step() -> Div {
 
 fn icon(name: &str) -> gpui::Svg {
     ui::icon(name, 16.).text_color(theme::faint())
-}
-
-/// A subagent's mark: the live dot while it works, coral while it waits
-/// on you, else the person.
-pub(crate) fn sub_mark(sub: &crate::session::Sub) -> Div {
-    let place = div()
-        .size(px(16.))
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center();
-    if sub.needs_you {
-        place.child(ui::dot(theme::coral()))
-    } else if sub.working() {
-        place.child(ui::live_dot())
-    } else {
-        place.child(icon("user"))
-    }
 }
 
 fn verb(faces: &Faces, text: impl Into<SharedString>) -> Div {
@@ -593,22 +576,9 @@ impl Desk {
         });
         let subagents = {
             use u0ui::t3::timeline::{SubagentBar, SubagentStatus};
-            let statuses: Vec<SubagentStatus> = self
-                .sessions
-                .all
-                .iter()
+            let statuses: Vec<SubagentStatus> = (self.sessions.all.iter())
                 .filter(|c| c.parent == Some(s.key))
-                .map(|c| {
-                    if c.sub.needs_you {
-                        SubagentStatus::Waiting
-                    } else if c.sub.working() {
-                        SubagentStatus::Running
-                    } else if matches!(c.state, crate::session::State::Broken(_)) {
-                        SubagentStatus::Failed
-                    } else {
-                        SubagentStatus::Completed
-                    }
-                })
+                .map(subagent::status)
                 .collect();
             (!statuses.is_empty()).then(|| {
                 let desk = cx.entity();
@@ -1217,42 +1187,8 @@ impl Desk {
                     )
                     .into_any_element()
             }
-            // A subagent set to work: its own session, a click away.
-            Item::Child { id, title } => {
-                let child = self
-                    .sessions
-                    .all
-                    .iter()
-                    .find(|c| c.meta.id.as_ref() == Some(id) && c.parent.is_some());
-                let sub = child.map(|c| c.sub.clone()).unwrap_or_default();
-                let child = child.map(|c| c.key);
-                step()
-                    .id(SharedString::from(format!("{key}-child")))
-                    .rounded(px(8.))
-                    .cursor_pointer()
-                    .hover(|st| st.bg(theme::hover()))
-                    .child(sub_mark(&sub))
-                    .child(verb(faces, crate::tr("Subagent")))
-                    .child(
-                        ui::one_line(ui::text(faces, title.clone()))
-                            .w_auto()
-                            .min_w(px(0.)),
-                    )
-                    .child(match (sub.needs_you, sub.working(), sub.time()) {
-                        (true, _, _) => right_in(faces, crate::tr("Needs you"), theme::coral()),
-                        (_, true, t) => right_in(faces, t.unwrap_or_default(), theme::accent()),
-                        (_, false, Some(t)) => {
-                            right(faces, crate::tr_with("Done · %{took}", &[("took", &t)]))
-                        }
-                        _ => right(faces, crate::tr("Open")),
-                    })
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        if let Some(key) = child {
-                            this.show(key, window, cx);
-                        }
-                    }))
-                    .into_any_element()
-            }
+            Item::Child { .. } => self.subagent(faces, s, i, cx),
+            Item::Told(text) => Self::told(faces, &key, text),
             // What went wrong in the session is a row of its own; anything
             // else it notes reads as a quiet line.
             Item::Note {

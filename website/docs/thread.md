@@ -33,8 +33,18 @@ The thread is the same for every agent:
 - **Forms**: when an agent asks for input, an inline question card appears
   right in the thread, one question at a time, which you can **Decline** while
   keeping the composer open below.
-- **Subagents** at work or waiting show a summary bar in the thread and get
-  tabs over it; × hides a tab while the subagent goes on.
+- **Subagents** the agent sets to work (Claude Code's Task and Agent
+  tools, in the foreground or the background) are each a card that a
+  finished turn never folds away: the kind of agent it is, what it was set
+  to do, **Running**, **Needs you**, **Done**, **Failed** or **Stopped**,
+  how long it took, **Open chat** and, while it runs, **Stop it**. Under
+  the card, its calls fold into one line as a turn's do, and open to what
+  it was told and each call; below them is what it answered. **Open chat**
+  shows its whole transcript, starting from the task its agent gave it
+  ("From the agent that set it to work"). Subagents at work or waiting
+  also show a summary bar in the thread and get tabs over it; × hides a tab
+  while the subagent goes on. A session loaded from Claude Code has no
+  times for its subagents, so their cards show none.
 
 ### The transcript view
 
