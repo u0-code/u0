@@ -85,11 +85,12 @@ impl GitAction {
     }
 }
 
-/// What a project's folder holds: whether it is in a repository, and an
-/// icon of its own.
+/// What a project's folder holds: whether it is in a repository, else
+/// the repositories in it; and an icon of its own.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Held {
     pub repo: bool,
+    pub repos: Vec<PathBuf>,
     pub icon: Option<PathBuf>,
 }
 
@@ -140,9 +141,15 @@ pub fn folders(dir: &Path) -> Vec<String> {
 
 /// What the project `folder` holds.
 pub fn read_project(folder: PathBuf) -> Event {
+    let repo = git::root(&folder).is_some();
     Event::Held {
         held: Held {
-            repo: git::root(&folder).is_some(),
+            repo,
+            repos: if repo {
+                Vec::new()
+            } else {
+                git::repos(&folder)
+            },
             icon: icon_of(&folder),
         },
         folder,

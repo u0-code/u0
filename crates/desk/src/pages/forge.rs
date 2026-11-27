@@ -88,7 +88,7 @@ impl Desk {
             .collect();
         let project = match &f.folder {
             _ if f.every.is_some() => crate::tr("All projects").to_string(),
-            Some(p) => self.project_on(p),
+            Some(p) => self.forge_name(p),
             None => crate::tr("No project").to_string(),
         };
         let chip = ui::opener("forge-project")

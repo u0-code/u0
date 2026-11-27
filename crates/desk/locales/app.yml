@@ -7402,6 +7402,16 @@ _version: 2
   pt-BR: "Deixado de fora"
   ru: "Исключено"
   sv: "Utelämnad"
+"Left out of All projects: %{names}":
+  zh-CN: "未列入所有项目：%{names}"
+  de: "Nicht in Alle Projekte: %{names}"
+  es: "Fuera de Todos los proyectos: %{names}"
+  fr: "Exclu de Tous les projets : %{names}"
+  ja: "すべてのプロジェクトから除外：%{names}"
+  ko: "모든 프로젝트에서 제외됨: %{names}"
+  pt-BR: "Fora de Todos os projetos: %{names}"
+  ru: "Не вошло во «Все проекты»: %{names}"
+  sv: "Utanför Alla projekt: %{names}"
 "Left out of the next commit":
   zh-CN: "已从下次提交中排除"
   de: "Aus dem nächsten Commit weggelassen"

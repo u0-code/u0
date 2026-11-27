@@ -14,7 +14,8 @@ use crate::{
 type Act3 = Box<dyn Fn(&mut Desk, &mut gpui::Window, &mut Context<Desk>)>;
 
 impl Desk {
-    /// The projects a page can be of.
+    /// The projects a page can be of: each repository of one that holds
+    /// several.
     pub(super) fn forge_projects(&self, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
         menu = menu
             .item(
@@ -24,9 +25,9 @@ impl Desk {
                 .checked(self.forge.every.is_some()),
             )
             .separator();
-        for folder in self.projects() {
+        for folder in self.forge_places() {
             let on = self.forge.every.is_none() && self.forge.folder.as_ref() == Some(&folder);
-            let name = self.project_on(&folder);
+            let name = self.forge_name(&folder);
             menu = menu.item(
                 Self::menu_item(desk, name, move |this, window, cx| {
                     this.list_projects(false, Some(folder.clone()), window, cx);

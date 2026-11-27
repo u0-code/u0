@@ -18,7 +18,7 @@ use super::{Desk, Page};
 use crate::{
     github::{Act, Answer, Ask, Detail, Item, Kind},
     proto::Call,
-    session::State,
+    session::{Session, State},
     store::Link,
 };
 
@@ -168,6 +168,40 @@ pub fn gather<P: Clone>(every: &[(P, Listed)]) -> (Listed, Vec<(P, usize)>) {
         .map(|(p, items)| ((*p).clone(), items.len()))
         .collect();
     (Some(Ok(items.collect())), groups)
+}
+
+/// Those of `every` left out of the list of every project and why, once
+/// all have answered and some were listed: none while one is still read,
+/// or where every one failed (the list says why then).
+pub fn left_out<P: Clone>(every: &[(P, Listed)]) -> Vec<(P, String)> {
+    let answered = every.iter().all(|(_, a)| a.is_some());
+    let listed = (every.iter()).any(|(_, a)| matches!(a, Some(Ok(_))));
+    if !answered || !listed {
+        return Vec::new();
+    }
+    (every.iter())
+        .filter_map(|(p, a)| match a {
+            Some(Err(why)) => Some((p.clone(), why.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The repositories the PRs and Issues pages read, of `projects`: a
+/// project's folder, or, for one that is no repository but holds some
+/// (`held`), each of those, as the Diff tab picks among them.
+pub fn repositories(
+    projects: &[super::Place],
+    held: &std::collections::HashMap<super::Place, crate::repo::Held>,
+) -> Vec<super::Place> {
+    (projects.iter())
+        .flat_map(|p| match held.get(p) {
+            Some(h) if !h.repo && !h.repos.is_empty() => (h.repos.iter())
+                .map(|r| super::Place::new(p.host, r.clone()))
+                .collect(),
+            _ => vec![p.clone()],
+        })
+        .collect()
 }
 
 impl ListDelegate for Rows {
@@ -416,7 +450,17 @@ impl Desk {
         if self.forge.kind != kind || (self.forge.folder.is_none() && !all) {
             self.forge.kind = kind;
             if !all {
-                self.forge.folder = self.chosen_project();
+                // In a project of several repositories, the one the
+                // session on screen chose, else its first.
+                let here = (self.session().and_then(Session::git_dir))
+                    .zip(self.chosen_project())
+                    .map(|(dir, p)| super::Place::new(p.host, dir));
+                self.forge.folder = self.chosen_project().map(|p| {
+                    let repos = repositories(&[p], &self.held);
+                    (here.clone())
+                        .filter(|h| repos.contains(h))
+                        .unwrap_or_else(|| repos[0].clone())
+                });
                 self.forge.every = self.forge.folder.is_none().then(Vec::new);
             }
             self.forge.state = "open";
@@ -479,7 +523,7 @@ impl Desk {
         let state = self.forge.state.to_owned();
         let ask = Ask::List { state, search };
         if self.forge.every.is_some() {
-            let projects = self.projects();
+            let projects = self.forge_places();
             self.forge.every = Some(projects.iter().map(|p| (p.clone(), None)).collect());
             for p in projects {
                 self.ask_forge_of(p, self.forge.kind, ask.clone());
@@ -881,6 +925,26 @@ impl Desk {
 }
 
 impl Desk {
+    /// The repositories of the projects, as the PRs and Issues pages read
+    /// them.
+    pub(crate) fn forge_places(&self) -> Vec<super::Place> {
+        repositories(&self.projects(), &self.held)
+    }
+
+    /// The name of `p` on those pages: its project's, and for a repository
+    /// in a project that holds several, its folder there after it.
+    pub(crate) fn forge_name(&self, p: &super::Place) -> String {
+        let project =
+            (self.held.iter()).find(|(q, h)| q.host == p.host && h.repos.contains(&p.folder));
+        match project {
+            Some((q, _)) => {
+                let within = p.folder.strip_prefix(&q.folder).unwrap_or(&p.folder);
+                format!("{} / {}", self.project_on(q), within.display())
+            }
+            None => self.project_on(p),
+        }
+    }
+
     /// What `folder` answered in the list of every project.
     fn every_answered(
         &mut self,
@@ -897,9 +961,24 @@ impl Desk {
         };
         every[at].1 = Some(list);
         let (list, groups) = gather(every);
+        let left = left_out(every);
+        if !left.is_empty() {
+            let names: Vec<_> = left.iter().map(|(p, _)| self.forge_name(p)).collect();
+            let why: Vec<_> = (left.iter())
+                .map(|(p, why)| format!("{}: {}", self.forge_name(p), why.trim()))
+                .collect();
+            self.trouble(
+                crate::tr_with(
+                    "Left out of All projects: %{names}",
+                    &[("names", &names.join(", "))],
+                ),
+                Some(why.join("\n")),
+                None,
+            );
+        }
         let groups: Vec<_> = (groups.into_iter())
             .map(|(p, len)| {
-                let name = self.project_on(&p);
+                let name = self.forge_name(&p);
                 (p, name, len)
             })
             .collect();
@@ -985,6 +1064,51 @@ mod tests {
         let (list, groups) = gather(&every);
         assert_eq!(numbers(list), [1, 2, 7]);
         assert_eq!(groups, [("a", 2), ("b", 1)]);
+    }
+
+    #[test]
+    fn a_folder_of_repositories_is_read_repository_by_repository() {
+        use crate::{desk::Place, hub::Host, repo::Held};
+        let (multi, plain, repo) = (
+            Place::new(Host::HERE, "/w/multi"),
+            Place::new(Host::HERE, "/w/plain"),
+            Place::new(Host::HERE, "/w/repo"),
+        );
+        let mut held = std::collections::HashMap::new();
+        let holds = vec!["/w/multi/alpha".into(), "/w/multi/beta".into()];
+        held.insert(
+            multi.clone(),
+            Held {
+                repos: holds,
+                ..Held::default()
+            },
+        );
+        held.insert(plain.clone(), Held::default());
+        let read = Held {
+            repo: true,
+            ..Held::default()
+        };
+        held.insert(repo.clone(), read);
+        let folders: Vec<_> = repositories(&[multi, plain, repo], &held)
+            .into_iter()
+            .map(|p| p.folder)
+            .collect();
+        let want = ["/w/multi/alpha", "/w/multi/beta", "/w/plain", "/w/repo"];
+        assert_eq!(folders, want.map(std::path::PathBuf::from));
+    }
+
+    #[test]
+    fn every_projects_list_says_which_were_left_out_and_why_once_all_answered() {
+        let mut every = vec![
+            ("a", Some(Ok(vec![item(1)]))),
+            ("plain", Some(Err("not a git repository".into()))),
+            ("b", None),
+        ];
+        assert!(left_out(&every).is_empty(), "b is still read");
+        every[2].1 = Some(Ok(Vec::new()));
+        assert_eq!(left_out(&every), [("plain", "not a git repository".into())]);
+        let failed: [(&str, Listed); 1] = [("a", Some(Err("gh is not signed in".into())))];
+        assert!(left_out(&failed).is_empty(), "the list says why itself");
     }
 
     #[test]

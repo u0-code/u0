@@ -1358,6 +1358,7 @@ mod tests {
                 folder: dir.clone(),
                 held: Held {
                     repo: true,
+                    repos: Vec::new(),
                     icon: Some(dir.join("icon.png")),
                 },
             },

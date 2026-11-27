@@ -33,7 +33,10 @@ issues.
 
 ## The pages
 
-Each page lists one project's items, or **All projects** together.
+Each page lists one project's items, or **All projects** together. A
+project that is a folder of repositories is listed repository by
+repository (`project / alpha`). A project that is on no forge is left out
+of **All projects**, and a notice names it and says why.
 Filter by state (open, closed, merged, all) and by your part: **All**,
 **Mine**, **Reviewing**, **Assigned**, **Mentions**; search, and **Save
 this view** to keep the filter (`views` in settings).
