@@ -16382,16 +16382,6 @@ _version: 2
   pt-BR: "Tags"
   ru: "Теги"
   sv: "Taggar"
-"Unsent draft · ":
-  zh-CN: "未发送草稿 · "
-  de: "Ungesendeter Entwurf · "
-  es: "Borrador sin enviar · "
-  fr: "Brouillon non envoyé · "
-  ja: "未送信の下書き · "
-  ko: "보내지 않은 초안 · "
-  pt-BR: "Rascunho não enviado · "
-  ru: "Неотправленный черновик · "
-  sv: "Oskickat utkast · "
 "What was said":
   zh-CN: "对话内容"
   de: "Gesagtes"

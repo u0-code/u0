@@ -15,8 +15,8 @@ use gpui::component::{
     tree::{TreeItem, TreeState},
 };
 use gpui::{
-    AnyElement, App, BoxShadow, Context, Div, ElementId, Entity, Focusable as _, HighlightStyle,
-    SharedString, Stateful, StyledText, Window, div, point, prelude::*, px, radians, rgb,
+    AnyElement, App, BoxShadow, Context, Div, ElementId, Entity, Focusable as _, SharedString,
+    Stateful, Window, div, point, prelude::*, px, radians, rgb,
 };
 use u0ui::{
     icons::{CarbonIcon, Icon as CarbonGlyph},
@@ -37,7 +37,7 @@ use crate::{
     desk::{Desk, Place, Renaming, lists, rank},
     fonts::{Faces, Weighted as _},
     hub::{Host, Up},
-    session::{Item, Session, State},
+    session::{Item, Session},
     settings::{Icon as ProjectIcon, Sort},
     store, theme, ui, when,
 };
@@ -1172,7 +1172,6 @@ impl Desk {
         let selected = self.chosen.contains(&key) || self.sweep.contains(&key);
         let highlighted = active || selected;
         let unread = s.meta.flags.unread;
-        let draft = s.state == State::Draft && s.items.is_empty();
         let now = SystemTime::now();
 
         let status_glyph = glyph(Glyph::of(s), key);
@@ -1183,7 +1182,6 @@ impl Desk {
             theme::faint()
         };
         // The agent is its logo at the head of the line; its name is in the tip.
-        let has_meta = meta_override.is_some() || !(s.state == State::Draft && s.items.is_empty());
         let meta_text = meta_override.or_else(|| self.thread_meta_line(s));
 
         let title_str = s.shown_title().to_owned();
@@ -1192,37 +1190,17 @@ impl Desk {
         } else {
             theme::text2()
         };
-        let title_el: AnyElement = if draft {
-            let prefix = crate::tr("Unsent draft · ");
-            let full = format!("{prefix}{title_str}");
-            div()
-                .min_w(px(0.))
-                .truncate()
-                .text_size(px(crate::style::BODY))
-                .line_height(px(20.))
-                .text_color(title_color)
-                .child(StyledText::new(full).with_highlights([(
-                    0..prefix.len(),
-                    HighlightStyle {
-                        color: Some(meta_color),
-                        ..Default::default()
-                    },
-                )]))
-                .into_any_element()
-        } else {
-            ui::text(faces, title_str.clone())
-                .min_w(px(0.))
-                .truncate()
-                .text_size(px(crate::style::BODY))
-                .line_height(px(20.))
-                .weight(if unread {
-                    gpui::FontWeight::SEMIBOLD
-                } else {
-                    gpui::FontWeight::NORMAL
-                })
-                .text_color(title_color)
-                .into_any_element()
-        };
+        let title_el = ui::text(faces, title_str.clone())
+            .min_w(px(0.))
+            .truncate()
+            .text_size(px(crate::style::BODY))
+            .line_height(px(20.))
+            .weight(if unread {
+                gpui::FontWeight::SEMIBOLD
+            } else {
+                gpui::FontWeight::NORMAL
+            })
+            .text_color(title_color);
 
         let jump = self
             .side_order
@@ -1303,9 +1281,9 @@ impl Desk {
                 .w_full()
                 .items_start()
                 .gap(px(8.))
-                .min_h(px(if has_meta { 36. } else { 32. }))
+                .min_h(px(36.))
                 .px(px(12.))
-                .py(px(if has_meta { 2. } else { 6. }))
+                .py(px(2.))
                 .cursor_pointer()
                 .when(highlighted, |d| {
                     d.bg(theme::role(ColorRole::LayerSelected01)).child(
@@ -1349,25 +1327,23 @@ impl Desk {
                         .min_w(px(0.))
                         .gap(px(2.))
                         .child(title_el)
-                        .when(has_meta, |d| {
-                            d.child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(6.))
-                                    .min_w(px(0.))
-                                    .h(px(16.))
-                                    .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 12.))
-                                    .children(meta_text.filter(|m| !m.is_empty()).map(|m| {
-                                        ui::text(faces, m)
-                                            .min_w(px(0.))
-                                            .truncate()
-                                            .text_size(px(crate::style::CAPTION))
-                                            .line_height(px(16.))
-                                            .text_color(meta_color)
-                                    })),
-                            )
-                        }),
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(6.))
+                                .min_w(px(0.))
+                                .h(px(16.))
+                                .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 12.))
+                                .children(meta_text.filter(|m| !m.is_empty()).map(|m| {
+                                    ui::text(faces, m)
+                                        .min_w(px(0.))
+                                        .truncate()
+                                        .text_size(px(crate::style::CAPTION))
+                                        .line_height(px(16.))
+                                        .text_color(meta_color)
+                                })),
+                        ),
                 )
                 .child(
                     div()
@@ -1449,9 +1425,6 @@ impl Desk {
     }
 
     fn thread_meta_line(&self, s: &Session) -> Option<String> {
-        if s.state == State::Draft && s.items.is_empty() {
-            return None;
-        }
         let mut parts: Vec<String> = Vec::new();
         if let Some(server) = self.server_chip(s.host).filter(|_| s.host != Host::HERE) {
             parts.push(server.to_owned());
@@ -1800,7 +1773,7 @@ impl Glyph {
                 Self::NeedsYou
             }
             Some(lists::Status::Failed | lists::Status::Limited) => Self::Failed,
-            _ if s.state == State::Draft && s.items.is_empty() => Self::Draft,
+            _ if s.is_draft() => Self::Draft,
             _ if s.meta.flags.unread => Self::Unread,
             _ if !s.items.is_empty() => Self::Done,
             _ => Self::New,
@@ -1840,6 +1813,7 @@ pub(crate) fn glyph(g: Glyph, key: u64) -> AnyElement {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::State;
 
     #[test]
     fn a_thread_leads_with_where_it_stands_before_anything_else() {

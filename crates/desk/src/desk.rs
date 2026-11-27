@@ -986,19 +986,26 @@ impl Desk {
             cx.notify();
             return;
         }
-        // A session begun and not used yet is reused, not doubled.
-        let key = if let Some(s) =
-            self.sessions.all.iter().find(|s| {
-                s.of(p.host, agent) && s.meta.project == p.folder && s.state == State::Draft
-            }) {
-            s.key
-        } else {
+        // A project keeps one draft, brought back as it was left, not
+        // doubled; begun with another agent, it is switched to this one.
+        let Some(key) = self.draft_in(&p) else {
             let key = self.sessions.take_key();
             let s = self.begun_in(key, agent, p);
             self.sessions.all.push(s);
-            key
+            self.show(key, window, cx);
+            return;
         };
         self.show(key, window, cx);
+        if self.sessions.at(key).is_some_and(|s| !s.of(p.host, agent)) {
+            self.switch_agent(agent, cx);
+        }
+    }
+
+    /// The draft kept in the project `p`, on its server; Scratch's for a
+    /// scratch folder. A draft is not listed: it is found again here.
+    pub(crate) fn draft_in(&self, p: &Place) -> Option<u64> {
+        let under = self.listed_under(p);
+        (self.sessions).draft(|s| self.listed_under(&Place::project_of(s)) == under)
     }
 
     /// A new session of `agent` in the project `p`, its folder looked at.
@@ -1157,6 +1164,10 @@ impl Desk {
     /// screen if it runs on its server and can run, else the first there
     /// that can.
     pub fn new_in(&mut self, p: Place, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(key) = self.draft_in(&p) {
+            self.show(key, window, cx);
+            return;
+        }
         // Scratch, the sidebar's folder of scratch sessions: one more.
         if p.folder == self.scratch_dir(p.host) {
             self.new_scratch_on(p.host, window, cx);
@@ -1318,10 +1329,7 @@ impl Desk {
     pub fn restart(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         let (agent, project) = (s.meta.agent.clone(), Place::project_of(s));
-        let key = self.sessions.take_key();
-        let s = self.begun_in(key, &agent, project);
-        self.sessions.all.push(s);
-        self.show(key, window, cx);
+        self.new_session(&agent, project, window, cx);
     }
 
     /// Ask for a folder the draft on screen works in too, beside its own:

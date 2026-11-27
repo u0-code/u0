@@ -285,9 +285,7 @@ impl Desk {
         self.composer.held = None;
         self.composer.draft.from_link = false;
         self.put_line("", window, cx);
-        let draft = self
-            .session()
-            .is_some_and(|s| s.state == State::Draft && s.items.is_empty());
+        let draft = self.session().is_some_and(Session::is_draft);
         let working = self
             .session()
             .is_some_and(|s| matches!(s.state, State::Working | State::Opening));

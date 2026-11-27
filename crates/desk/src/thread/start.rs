@@ -157,7 +157,7 @@ impl Desk {
             self.listed_now(s)
                 && Some(s.key) != self.current
                 && s.meta.flags.settled.is_none()
-                && !(s.state == State::Draft && s.items.is_empty())
+                && !(s.is_draft())
         });
         let (mut needs, mut rest): (Vec<&Session>, Vec<&Session>) =
             shown.partition(|s| asks(s).is_some());

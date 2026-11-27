@@ -1604,10 +1604,17 @@ impl Session {
         }
     }
 
+    /// Whether it is a draft: a new thread nothing is said in yet, its
+    /// agent and where it works still to be changed. A draft is not a row
+    /// of the lists; its project's + brings it back.
+    pub fn is_draft(&self) -> bool {
+        self.state == State::Draft && self.items.is_empty()
+    }
+
     /// Its title as it is shown and said: "New session" for one not begun,
     /// whose title is only its folder's name till you write in it.
     pub fn shown_title(&self) -> &str {
-        if self.state == State::Draft && self.items.is_empty() {
+        if self.is_draft() {
             "New thread"
         } else {
             &self.meta.title
