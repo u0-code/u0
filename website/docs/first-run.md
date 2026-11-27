@@ -7,7 +7,8 @@ description: Agents from the ACP registry, signing in, instances, and telemetry.
 
 ## Telemetry
 
-As u0 first opens, **Welcome to u0** asks how much it may tell the
+As u0 first opens (once you continue from its setup page, where it shows
+one), **Welcome to u0** asks how much it may tell the
 people who make it. Move the slider: under it is the exact JSON that
 level would send, as u0 builds it on this Mac, not a sample. The slider
 runs from Basic to Detailed: choose **Continue with** the level, or

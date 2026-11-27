@@ -229,12 +229,15 @@ fn main() {
                 // Asked once the composer has the keys, so the sheet takes
                 // them from it and Escape reaches the sheet.
                 shown.desk.update(cx, |d, cx| {
-                    // The Welcome page says how this Mac is reached.
+                    // The Welcome page says how this Mac is reached, and
+                    // asks of telemetry as it is done (finish_welcome):
+                    // answered first, it would end the Welcome page unseen.
                     if d.settings.needs_welcome() {
                         let look = proto::Call::Share(share::Share::Look);
                         d.call(hub::Host::HERE, look);
+                    } else {
+                        d.ask_telemetry(window, cx);
                     }
-                    d.ask_telemetry(window, cx);
                 });
             })
             .expect("the desk");
