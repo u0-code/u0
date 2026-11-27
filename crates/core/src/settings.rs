@@ -13,13 +13,23 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// The desk's home.
+///
+/// A test (this crate's, or the desk's, which build it with the feature
+/// `test`) has no home but the one `GHOST_HOME` names, and never yours:
+/// one that asks for it otherwise panics, before it reads or writes there.
 pub fn home() -> PathBuf {
-    if let Some(dir) = std::env::var_os("GHOST_HOME").filter(|d| !d.is_empty()) {
-        return PathBuf::from(dir);
-    }
-    std::env::var_os("HOME")
+    let yours = std::env::var_os("HOME")
         .map_or_else(|| PathBuf::from("."), PathBuf::from)
-        .join(".ghost")
+        .join(".ghost");
+    let named = std::env::var_os("GHOST_HOME")
+        .filter(|d| !d.is_empty())
+        .map(PathBuf::from);
+    if cfg!(any(test, feature = "test")) {
+        return named.filter(|d| *d != yours).expect(
+            "a test reached Ghost's home: give it a temporary GHOST_HOME, or pass it a folder",
+        );
+    }
+    named.unwrap_or(yours)
 }
 
 /// Make Ghost's home `home` and its `logs/`, each readable and enterable

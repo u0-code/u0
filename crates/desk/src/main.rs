@@ -216,3 +216,24 @@ fn main() {
         cx.activate(true);
     });
 }
+
+#[cfg(test)]
+mod tests {
+    /// A test of the desk has no home of yours, so it never reads or
+    /// writes there, and keeps its secrets in memory: macOS never asks you
+    /// to let a test binary into Ghost's Keychain. Both hold only where the
+    /// desk's tests build `ghost-core` with its feature `test`.
+    #[test]
+    fn a_desk_test_reaches_neither_your_home_nor_your_keychain() {
+        let yours = std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join(".ghost"));
+        if let Ok(home) = std::panic::catch_unwind(crate::settings::home) {
+            assert_ne!(Some(home), yours, "a test may not have your home");
+        }
+        crate::secrets::set("env/probe/KEY", Some("kept")).unwrap();
+        assert_eq!(
+            crate::secrets::get("env/probe/KEY").unwrap().as_deref(),
+            Some("kept")
+        );
+        crate::secrets::set("env/probe/KEY", None).unwrap();
+    }
+}

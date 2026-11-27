@@ -42,6 +42,9 @@ qrcode = { workspace = true, features = ["svg"] }
 
 [dev-dependencies]
 tempfile.workspace = true
+# A test of the desk has no home but a temporary one, and keeps its secrets
+# in memory: never yours, never your Keychain.
+ghost-core = { workspace = true, features = ["test"] }
 
 # To give the running app its icon in the Dock, and begin dictation: AppKit,
 # by way of the same crates GPUI uses for it.

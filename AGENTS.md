@@ -453,7 +453,10 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 - Two Ghosts on one machine each take a `GHOST_HOME` of their own, and
   a `port` of their own in its `devices.json` (4317 unless set). A test
   of the Keychain uses a service of its own and removes what it kept;
-  the unit tests keep secrets in memory, never in the Keychain.
+  the unit tests keep secrets in memory, never in the Keychain, and
+  have no home but a temporary `GHOST_HOME` (`settings::home` panics
+  otherwise). The desk's tests get both by building `ghost-core` with its
+  feature `test`.
 - Agents do not launch the GUI. A check against a real agent drives
   `acp.rs` and `registry.rs` from a test run by hand with a temporary
   `GHOST_HOME`, and sends no prompt unless the user asked: a prompt spends

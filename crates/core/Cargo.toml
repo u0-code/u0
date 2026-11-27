@@ -64,3 +64,8 @@ workspace = true
 
 [build-dependencies]
 vergen-gitcl.workspace = true
+
+[features]
+# For the desk's tests: no home but a temporary one (`settings::home`), and
+# secrets kept in memory, never in the Keychain, as this crate's own tests.
+test = []

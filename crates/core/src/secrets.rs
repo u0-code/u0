@@ -8,8 +8,13 @@
 
 use std::collections::BTreeMap;
 
-/// The Keychain's service for the home Ghost runs in.
+/// The Keychain's service for the home Ghost runs in. A test has no home
+/// (`settings::home` refuses it one) and keeps its secrets in memory, under
+/// this one name.
 fn service() -> String {
+    if cfg!(any(test, feature = "test")) {
+        return "Ghost test".into();
+    }
     format!("Ghost {}", crate::settings::home().display())
 }
 
@@ -69,13 +74,15 @@ pub fn env(
         .collect()
 }
 
-#[cfg(not(test))]
+// A test, this crate's or the desk's (the feature `test`), never reaches
+// the Keychain: macOS would ask you to let a test binary read Ghost's.
+#[cfg(not(any(test, feature = "test")))]
 use keychain as store;
-#[cfg(test)]
+#[cfg(any(test, feature = "test"))]
 use memory as store;
 
 /// What a test keeps in place of the Keychain.
-#[cfg(test)]
+#[cfg(any(test, feature = "test"))]
 mod memory {
     use std::{collections::BTreeMap, sync::Mutex};
 
@@ -111,7 +118,7 @@ mod memory {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", any(test, not(feature = "test"))))]
 mod keychain {
     use security_framework::item::{ItemClass, ItemSearchOptions, Limit};
     use security_framework::passwords;
@@ -155,7 +162,7 @@ mod keychain {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(not(target_os = "macos"), any(test, not(feature = "test"))))]
 mod keychain {
     const NONE: &str = "secrets are kept in the macOS Keychain, which this system does not have";
 
