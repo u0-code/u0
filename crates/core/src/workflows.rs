@@ -303,7 +303,7 @@ mod tests {
             r#"{"about": "Ship it", "steps": [
                 {"agent": {"name": "notes", "prompt": "Notes for {{input}}"}},
                 {"ask": {"name": "ship", "title": "Ship?", "choices": ["Ship", "Hold"], "stop": ["Hold"]}},
-                {"run": {"name": "tag", "command": "git tag {{input}}"}}
+                {"run": {"name": "tag", "command": "git tag -m 'Release {{input}}' -- {{input}}"}}
             ]}"#,
         )
         .unwrap();
@@ -393,6 +393,10 @@ mod tests {
             "echo ok # it's {{input}}",
             "echo \"not closed {{input}}",
             "echo %ghost:1% {{input}}",
+            "alias e=eval\ne {{input}}",
+            "alias e=eval; e {{input}}",
+            "sh <<XEOF\nX\\\nEOF\necho {{input}}\nXEOF",
+            "cat <<EOF\nhello\nEOF\necho {{input}}",
         ] {
             assert_eq!(
                 run.command(evaluated),
@@ -408,7 +412,7 @@ mod tests {
             "if true; then echo {{input}}; fi | tr a b",
             "echo \"$(printf %s '{{input}}')\"",
             "echo a={{input}}",
-            "GIT_PAGER=cat git tag {{input}}",
+            "GIT_PAGER=cat git tag -m \"Release {{input}}\" -- {{input}}",
         ] {
             assert!(run.command(plain).is_ok(), "{plain}");
         }

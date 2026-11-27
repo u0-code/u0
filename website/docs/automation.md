@@ -187,7 +187,7 @@ files each time it lists or starts one.
     { "agent": { "name": "notes", "prompt": "Write release notes for {{input}}" } },
     { "agent": { "name": "polish", "prompt": "Make these shorter: {{notes}}", "after": "notes" } },
     { "ask": { "name": "ship", "title": "Ship {{input}}?", "choices": ["Ship", "Hold"], "stop": ["Hold"] } },
-    { "run": { "name": "tag", "command": "git tag {{input}}" } }
+    { "run": { "name": "tag", "command": "git tag -m \"Release {{input}}\" -- {{input}}" } }
   ]
 }
 ```
@@ -220,7 +220,9 @@ command as bash would (with [brush-parser](https://crates.io/crates/brush-parser
 and takes a `{{name}}` only as an argument of a command named plainly:
 `echo`, `printf` (not as its format, and not with `-v`), `cd` or a
 program, bare, in quotes or within `$( )`. A command that puts one
-anywhere else is refused (the run pauses, saying why): after another
+anywhere else is refused (the run pauses, saying why), as is one that makes an alias or holds a
+here-document (where `/bin/sh` may read a command otherwise than the
+parser does): after another
 builtin (`eval`, `let`, `declare`, `export`, `read`, `test`, `trap`,
 `source`, ...), as the command itself, in arithmetic (`$(( ))`, `$[ ]`,
 `(( ))`, an array index, `${x:offset}`), within `[[ ]]`, in an

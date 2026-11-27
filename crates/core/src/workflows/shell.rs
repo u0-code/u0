@@ -105,6 +105,12 @@ const BUILTINS: &[&str] = &[
 /// How each of the `count` marks in `line` stands, or `None` when one is
 /// anywhere but an argument of a plain command, or `line` does not parse.
 pub fn place(line: &str, count: usize) -> Option<Vec<Within>> {
+    // Where a here-document ends, dash and bash do not always agree with
+    // the parser (a backslash before its newline): whatever stands after
+    // one may be read otherwise than the parser read it.
+    if line.contains("<<") {
+        return None;
+    }
     let mut walk = Walk {
         found: vec![None; count],
         twice: false,
@@ -193,6 +199,12 @@ impl Walk {
             return Some(());
         };
         let name = name.value.as_str();
+        // An alias renames a command for the shell, which the parser
+        // never sees: `alias e=eval; e {{v}}`. A command that makes one
+        // is refused whole, as one that makes a function is.
+        if name == "alias" {
+            return None;
+        }
         let written = name
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || "_./+-".contains(c));

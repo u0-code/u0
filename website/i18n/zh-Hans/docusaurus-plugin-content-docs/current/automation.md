@@ -125,7 +125,7 @@ POST /hook/<token>
     { "agent": { "name": "notes", "prompt": "Write release notes for {{input}}" } },
     { "agent": { "name": "polish", "prompt": "Make these shorter: {{notes}}", "after": "notes" } },
     { "ask": { "name": "ship", "title": "Ship {{input}}?", "choices": ["Ship", "Hold"], "stop": ["Hold"] } },
-    { "run": { "name": "tag", "command": "git tag {{input}}" } }
+    { "run": { "name": "tag", "command": "git tag -m \"Release {{input}}\" -- {{input}}" } }
   ]
 }
 ```
@@ -149,7 +149,7 @@ POST /hook/<token>
 
 取值：`{{input}}` 是运行的输入，`{{<step name>}}` 是前面某一步的结果（去掉首尾空白）。在 `run` 命令中，每个值都作为参数交给 `/bin/sh`，每个 `{{name}}` 都变成对该参数的引用，并按它所在的位置（无引号、双引号或单引号中）加上引号：shell 绝不会把值读作命令的一部分。
 
-命令本身仍可能把一个单词当作代码读取，因此 Ghost 会像 bash 那样解析命令（使用 [brush-parser](https://crates.io/crates/brush-parser)），只接受作为一个名字写得明白的命令的参数出现的 `{{name}}`：`echo`、`printf`（不能作为它的格式，也不能带 `-v`）、`cd` 或某个程序，可以不加引号、加引号或在 `$( )` 之内。把它放在其他任何地方的命令都会被拒绝（运行会暂停并说明原因）：其他内建命令之后（`eval`、`let`、`declare`、`export`、`read`、`test`、`trap`、`source` 等）、作为命令本身、算术之中（`$(( ))`、`$[ ]`、`(( ))`、数组下标、`${x:offset}`）、`[[ ]]` 之内、赋值、重定向、here 文档、`case` 模式或函数之中，以及无法解析的命令。命令所处理的值请放在 `--` 之后（`git fetch origin -- {{ref}}`），这样以 `-` 开头的值不会被当作选项；而把其参数当作代码运行的命令（`sh -c`、`ssh`、`xargs`）会把值当作代码运行。**设置 › 工作流** 的 **命令中的值** 也说明了这一点。
+命令本身仍可能把一个单词当作代码读取，因此 Ghost 会像 bash 那样解析命令（使用 [brush-parser](https://crates.io/crates/brush-parser)），只接受作为一个名字写得明白的命令的参数出现的 `{{name}}`：`echo`、`printf`（不能作为它的格式，也不能带 `-v`）、`cd` 或某个程序，可以不加引号、加引号或在 `$( )` 之内。把它放在其他任何地方的命令都会被拒绝（运行会暂停并说明原因），定义别名或含有 here 文档的命令也一样（`/bin/sh` 对这些的理解可能与解析器不同）：其他内建命令之后（`eval`、`let`、`declare`、`export`、`read`、`test`、`trap`、`source` 等）、作为命令本身、算术之中（`$(( ))`、`$[ ]`、`(( ))`、数组下标、`${x:offset}`）、`[[ ]]` 之内、赋值、重定向、here 文档、`case` 模式或函数之中，以及无法解析的命令。命令所处理的值请放在 `--` 之后（`git fetch origin -- {{ref}}`），这样以 `-` 开头的值不会被当作选项；而把其参数当作代码运行的命令（`sh -c`、`ssh`、`xargs`）会把值当作代码运行。**设置 › 工作流** 的 **命令中的值** 也说明了这一点。
 
 ### 运行工作流 {#running-a-workflow}
 
