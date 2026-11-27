@@ -9102,16 +9102,6 @@ _version: 2
   pt-BR: "Abrir o agente"
   ru: "Открыть агента"
   sv: "Öppna agenten"
-"Open the page":
-  zh-CN: "打开页面"
-  de: "Seite öffnen"
-  es: "Abrir la página"
-  fr: "Ouvrir la page"
-  ja: "ページを開く"
-  ko: "페이지 열기"
-  pt-BR: "Abrir a página"
-  ru: "Открыть страницу"
-  sv: "Öppna sidan"
 "Opened":
   zh-CN: "已打开"
   de: "Geöffnet"

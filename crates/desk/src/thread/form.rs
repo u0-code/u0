@@ -272,19 +272,62 @@ impl Desk {
             let desk_yes = cx.entity();
             let desk_no = cx.entity();
             let (agent_yes, agent_no) = (agent.clone(), agent);
-            let url_preview = url.clone();
+            // A page to open is how an agent asks you to sign in (the
+            // Guest board): what opens, who keeps what you enter there,
+            // and what going on without it does.
+            let name = self.name_of(&agent_yes);
+            let row = |k: gpui::SharedString, v: gpui::SharedString| {
+                div()
+                    .flex()
+                    .items_baseline()
+                    .gap(px(12.))
+                    .child(
+                        ui::text(faces, k)
+                            .w(px(96.))
+                            .flex_none()
+                            .text_size(px(12.))
+                            .text_color(theme::text2()),
+                    )
+                    .child(ui::text(faces, v).flex_1().min_w(px(0.)))
+            };
+            let about = div()
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .child(row(
+                    crate::tr("Opens"),
+                    crate::tr_with(
+                        "The link %{name} gave, in your default browser",
+                        &[("name", &name)],
+                    ),
+                ))
+                .child(row(
+                    crate::tr("Kept by"),
+                    crate::tr_with(
+                        "%{name}, as it keeps its own sign-ins; u0 stores nothing",
+                        &[("name", &name)],
+                    ),
+                ))
+                .child(
+                    ui::text(
+                        faces,
+                        crate::tr_with(
+                            "The thread waits on the agent. Going on without it tells %{name} to carry on without it for this thread.",
+                            &[("name", &name)],
+                        ),
+                    )
+                    .text_size(px(12.))
+                    .text_color(theme::text2()),
+                );
             return RequestCard::new(
                 gpui::SharedString::from(format!("elicit-url-{id}")),
-                title,
-                crate::tr("Open the page"),
-                crate::tr("Decline"),
+                crate::tr_with("%{name} needs you to sign in", &[("name", &name)]),
+                crate::tr("Open in browser"),
+                crate::tr("Go on without it"),
             )
+            .icon(u0ui::Icon::carbon(u0ui::icons::CarbonIcon::Password))
             .body(e.message.clone())
-            .preview(
-                ui::mono(faces, url_preview)
-                    .text_size(px(crate::style::CAPTION))
-                    .text_color(theme::text2()),
-            )
+            .preview(about)
             .on_primary(move |_, cx| {
                 cx.open_url(&url);
                 desk_yes.update(cx, |this, cx| {
