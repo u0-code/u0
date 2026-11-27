@@ -179,7 +179,9 @@ composer, or else the agent's last answer.
 ⇧⌘M (or the model chip) opens the model picker: your favourites, the
 agents, and each agent's models. Search with **Search models…**, star a
 model to keep it among the favourites, and choose how hard it thinks
-under **Effort** (or the agent's other **Options**). ⇧⌘E opens it at the
+under **Effort** (or the agent's other **Options**). A speed option the
+agent offers, such as Codex's **Fast mode**, is a switch under the effort,
+and a bolt beside the effort chip says it is on. ⇧⌘E opens it at the
 effort. Once a thread has begun, only its agent's models are offered.
 On a new thread, **+** beside any model adds it to **Also run on** (and
 **Send to all *n* agents** adds every usable agent), starting a thread
