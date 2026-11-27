@@ -144,12 +144,12 @@ pub fn answer(host: &str, path: &str, kind: Kind, ask: Ask) -> Answer {
                 ),
                 Act::Reply { thread, body } => call(
                     "POST",
-                    &format!("{at}/discussions/{thread}/notes"),
+                    &format!("{at}/discussions/{}/notes", super::segment(&thread)),
                     Some(json!({ "body": body })),
                 ),
                 Act::Resolve { thread, resolved } => call(
                     "PUT",
-                    &format!("{at}/discussions/{thread}"),
+                    &format!("{at}/discussions/{}", super::segment(&thread)),
                     Some(json!({ "resolved": resolved })),
                 ),
                 Act::Label(label) => call("PUT", &at, Some(json!({ "add_labels": label }))),

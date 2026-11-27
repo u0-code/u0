@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use super::{Tools, off, said};
 use crate::{
     git::Method,
-    github::{Act, Answer, Ask, Detail, Item, Kind, Line},
+    github::{Act, Answer, Ask, Detail, Item, Kind, Line, Thread},
     settings::Settings,
 };
 
@@ -153,11 +153,32 @@ fn merge(ask: &MergePr, settings: &Settings) -> Act {
 /// card names. Asked only of an agent in a session of Ghost's, for none
 /// other may act.
 async fn about(tools: &Tools, folder: PathBuf, number: u64) -> Result<Item, String> {
+    Ok(viewed(tools, folder, number).await?.item)
+}
+
+/// The pull request `number` read whole, as `about` reads it.
+async fn viewed(tools: &Tools, folder: PathBuf, number: u64) -> Result<Detail, String> {
     tools.session().ok_or(super::OUTSIDE)?;
     let Answer::Viewed(_, read) = asked(folder, Ask::View(number)).await? else {
         return Err("The host said nothing of it".into());
     };
-    Ok(read?.item)
+    Ok(*read?)
+}
+
+/// The conversation of `pr` whose id is `thread`, exactly as the host
+/// lists it: an id an agent made up (`123#`, `../..`) would be put into a
+/// host's address and reach elsewhere.
+fn thread_of<'a>(pr: &'a Detail, thread: &str) -> Result<&'a Thread, String> {
+    (pr.threads.iter().find(|t| t.id == thread))
+        .ok_or_else(|| "That is not a conversation of this pull request: read_pr lists them".into())
+}
+
+/// A run of the checks, by its id: digits alone, as the hosts number
+/// them, so that none is read as an option of gh.
+fn run_id(run: &str) -> Result<&str, String> {
+    (!run.is_empty() && run.bytes().all(|b| b.is_ascii_digit()))
+        .then_some(run)
+        .ok_or_else(|| "A run is named by its number, as pr_checks gives it".into())
 }
 
 /// A pull request or an issue (`what`) as a card names it: its number,
@@ -283,8 +304,14 @@ impl Tools {
         Parameters(ask): Parameters<ReplyToThread>,
     ) -> Result<String, String> {
         let folder = self.folder(ask.folder.clone())?;
-        let pr = about(self, folder.clone(), ask.number).await?;
-        let title = format!("Answer a conversation on {}", named("pull request", &pr));
+        let pr = viewed(self, folder.clone(), ask.number).await?;
+        let on = thread_of(&pr, &ask.thread)?;
+        let title = format!(
+            "Answer the conversation on {}:{} of {}",
+            on.path,
+            on.line.unwrap_or_default(),
+            named("pull request", &pr.item)
+        );
         self.allowed("reply_to_thread", title, &ask).await?;
         let act = Act::Reply {
             thread: ask.thread,
@@ -301,9 +328,15 @@ impl Tools {
         Parameters(ask): Parameters<ResolveThread>,
     ) -> Result<String, String> {
         let folder = self.folder(ask.folder.clone())?;
-        let pr = about(self, folder.clone(), ask.number).await?;
+        let pr = viewed(self, folder.clone(), ask.number).await?;
+        let on = thread_of(&pr, &ask.thread)?;
         let doing = if ask.reopen { "Reopen" } else { "Resolve" };
-        let title = format!("{doing} a conversation on {}", named("pull request", &pr));
+        let title = format!(
+            "{doing} the conversation on {}:{} of {}",
+            on.path,
+            on.line.unwrap_or_default(),
+            named("pull request", &pr.item)
+        );
         self.allowed("resolve_thread", title, &ask).await?;
         let act = Act::Resolve {
             thread: ask.thread,
@@ -317,6 +350,7 @@ impl Tools {
     #[tool]
     async fn rerun_ci(&self, Parameters(ask): Parameters<RerunCi>) -> Result<String, String> {
         let folder = self.folder(ask.folder.clone())?;
+        run_id(&ask.run)?;
         let pr = about(self, folder.clone(), ask.number).await?;
         let title = format!(
             "Run the failed checks of run {} again on {}",
@@ -345,6 +379,7 @@ impl Tools {
     #[tool]
     async fn ci_log(&self, Parameters(ask): Parameters<CiLog>) -> Result<String, String> {
         let folder = self.folder(ask.folder)?;
+        run_id(&ask.run)?;
         match asked(folder, Ask::Log(ask.run)).await? {
             Answer::Logged(_, log) => log,
             _ => Err("The host gave no log".into()),
@@ -416,6 +451,26 @@ mod tests {
         .unwrap();
         let runs: Vec<_> = checks(&detail).iter().map(|c| c["run"].clone()).collect();
         assert_eq!(runs, [json!("123"), json!(null)]);
+    }
+
+    #[test]
+    fn a_conversation_is_named_as_the_host_lists_it_and_a_run_by_its_number() {
+        let pr: Detail = serde_json::from_value(json!({
+            "item": {"number": 7, "title": "t", "state": "open", "draft": false,
+                "author": "a", "labels": [], "updated": "", "url": "", "branch": "b",
+                "base": "main", "review": "", "checks": [0, 0, 0], "comments": 0},
+            "body": "", "said": [], "assignees": [], "reviewers": [], "checks": [],
+            "conflicts": false, "head": "", "threads": [{"id": "123", "path": "a.rs",
+                "line": 3, "resolved": false, "outdated": false, "bots": false, "said": []}]}))
+        .unwrap();
+        assert_eq!(thread_of(&pr, "123").unwrap().path, "a.rs");
+        for made_up in ["123#", "../../..#", "123/../124", " 123", ""] {
+            assert!(thread_of(&pr, made_up).is_err(), "{made_up:?}");
+        }
+        assert!(run_id("123456").is_ok());
+        for made_up in ["--repo=o/r", "1 2", "", "12a"] {
+            assert!(run_id(made_up).is_err(), "{made_up:?}");
+        }
     }
 
     #[test]

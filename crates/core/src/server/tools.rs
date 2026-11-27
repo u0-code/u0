@@ -93,12 +93,13 @@ const OUTSIDE: &str = "Only an agent in a session of Ghost's can do this: Ghost 
 /// cannot be undone, and what they are given can be steered by text an
 /// agent reads but nobody vetted (a pull request's body, a CI log, code,
 /// a webhook), so a yes once must not become a yes to that text.
-const EACH_TIME: [&str; 5] = [
+const EACH_TIME: [&str; 6] = [
     "merge_pr",
     "start_workflow",
     "change_task",
     "remove_worktree",
     "answer_request",
+    "resolve_thread",
 ];
 
 /// What Ghost's MCP server says it is, to an agent that connects.

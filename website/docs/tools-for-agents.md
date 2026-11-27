@@ -75,7 +75,7 @@ in **Settings › Agents** and switch them off. That agent's id is added to
 | `read_pr` | A pull request read whole: what it says, what was said on it and on its lines, its checks, reviewers and whether it conflicts; with `diff`, its patch too. | Any agent |
 | `review_pr` | Review a pull request: `verdict` approve, request-changes or comment, a `body`, and `lines` (comments on lines of its new side). | Sessions in Ghost; asks you first |
 | `merge_pr` | Merge a pull request, its branch deleted after: `how` (squash, merge or rebase; none, as **General › Pull requests › Merged as** says), now or once its checks pass (`auto`). | Sessions in Ghost; asks you first |
-| `reply_to_thread` | Answer a conversation on a pull request's lines (`thread`, its id as `read_pr` gives it) with a `body`. | Sessions in Ghost; asks you first |
+| `reply_to_thread` | Answer a conversation on a pull request's lines (`thread`, its id as `read_pr` gives it, and only one it lists) with a `body`. | Sessions in Ghost; asks you first |
 | `resolve_thread` | Resolve a conversation on a pull request's lines, or open it again (`reopen`). | Sessions in Ghost; asks you first |
 | `rerun_ci` | Run the failed jobs of a `run` of a pull request's checks again (GitHub Actions). | Sessions in Ghost; asks you first |
 | `pr_checks` | A pull request's checks: each one's name, how it stands, where it ran, and for one that failed on GitHub Actions the `run` that `ci_log` reads. | Any agent |
@@ -119,7 +119,7 @@ There are two kinds of caller:
   names the pull request, its repository (by its address) and all it
   does: the verdict, or the method, whether it waits for the checks, and
   the branch deleted. `merge_pr`, `start_workflow`, `change_task`,
-  `remove_worktree` and `answer_request` never offer **Always allow**: what they do cannot be
+  `remove_worktree`, `answer_request` and `resolve_thread` never offer **Always allow**: what they do cannot be
   undone, and text an agent reads (a pull request, a CI log, code) could
   steer what it asks of them.
 - **An agent outside Ghost** (below). It reads: `list_sessions`,

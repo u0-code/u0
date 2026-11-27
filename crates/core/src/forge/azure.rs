@@ -191,12 +191,12 @@ pub fn answer(dir: &Path, repo: &Repo, kind: Kind, ask: Ask) -> Answer {
                     }),
                 Act::Reply { thread, body } => call(
                     "POST",
-                    &format!("{at}/threads/{thread}/comments"),
+                    &format!("{at}/threads/{}/comments", super::segment(&thread)),
                     Some(json!({"content": body, "parentCommentId": 1, "commentType": 1})),
                 ),
                 Act::Resolve { thread, resolved } => call(
                     "PATCH",
-                    &format!("{at}/threads/{thread}"),
+                    &format!("{at}/threads/{}", super::segment(&thread)),
                     Some(json!({"status": if resolved { "fixed" } else { "active" }})),
                 ),
                 Act::Edit { title, body } => call(

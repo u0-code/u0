@@ -123,7 +123,7 @@ pub fn answer(path: &str, kind: Kind, ask: Ask) -> Answer {
                 ),
                 Act::Resolve { thread, resolved } => call(
                     if resolved { "POST" } else { "DELETE" },
-                    &format!("{at}/comments/{thread}/resolve"),
+                    &format!("{at}/comments/{}/resolve", super::segment(&thread)),
                     None,
                 ),
                 _ => Err("Bitbucket takes this on its own page".into()),

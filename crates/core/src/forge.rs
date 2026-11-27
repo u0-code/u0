@@ -184,6 +184,13 @@ fn escape(words: &str) -> String {
     utf8_percent_encode(words, RESERVED).to_string()
 }
 
+/// `words` as one segment of a URL's path: escaped as `escape` does, and
+/// `.` too, so that no `..`, `/`, `?` or `#` of what a caller said leaves
+/// the segment it is put in.
+fn segment(words: &str) -> String {
+    escape(words).replace('.', "%2E")
+}
+
 /// The string at `pointer` in `v`; empty where there is none.
 pub(crate) fn text(v: &Value, pointer: &str) -> String {
     match v.pointer(pointer) {
@@ -350,6 +357,15 @@ fn agents_line(line: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn what_a_caller_said_stays_one_segment_of_a_path() {
+        for said in ["123#", "../../..#", "a/b", "x?y=1"] {
+            let one = super::segment(said);
+            assert!(!one.contains(['/', '#', '?', '.']), "{said:?} as {one}");
+        }
+        assert_eq!(super::segment("abc-12_3~"), "abc-12_3~");
+    }
+
     use super::*;
 
     #[test]

@@ -47,7 +47,7 @@ Ghost 打开会话时，通过 ACP 的 `mcpServers` 把服务器作为一个要�
 | `read_pr` | 完整读取一个拉取请求：它的描述、其中和各行上的讨论、检查、审阅者，以及是否有冲突；带 `diff` 时还包括补丁。 | 任何智能体 |
 | `review_pr` | 审阅一个拉取请求：`verdict` 为 approve、request-changes 或 comment，附上 `body`，以及 `lines`（对新版本各行的评论）。 | Ghost 中的会话；先询问你 |
 | `merge_pr` | 合并一个拉取请求，之后删除其分支：`how`（squash、merge 或 rebase；未给出时按 **通用 › 拉取请求 › 合并方式** 的设置），立即合并或在检查通过后合并（`auto`）。 | Ghost 中的会话；先询问你 |
-| `reply_to_thread` | 用 `body` 回复拉取请求某些行上的一段讨论（`thread`，即 `read_pr` 给出的 id）。 | Ghost 中的会话；先询问你 |
+| `reply_to_thread` | 用 `body` 回复拉取请求某些行上的一段讨论（`thread`，即 `read_pr` 给出的 id，只接受它列出的）。 | Ghost 中的会话；先询问你 |
 | `resolve_thread` | 把拉取请求某些行上的一段讨论标为已解决，或重新打开（`reopen`）。 | Ghost 中的会话；先询问你 |
 | `rerun_ci` | 重新运行拉取请求检查中某次 `run` 失败的作业（GitHub Actions）。 | Ghost 中的会话；先询问你 |
 | `pr_checks` | 拉取请求的检查：每项的名称、状态、运行位置；在 GitHub Actions 上失败的检查还给出 `ci_log` 可读取的 `run`。 | 任何智能体 |
@@ -71,7 +71,7 @@ Ghost 打开会话时，通过 ACP 的 `mcpServers` 把服务器作为一个要�
 
 调用方有两类：
 
-- **Ghost 中的会话。** 它可以调用所有工具。会执行操作的工具（`delegate_task`、`open_pr`、`schedule_task`、`use_device`、`send_to_session`、`interrupt_session`、`organize_session`、`answer_request`、`add_project`、`review_pr`、`merge_pr`、`reply_to_thread`、`resolve_thread`、`rerun_ci`、`create_issue`、`comment_on_issue`、`set_issue_state`、`start_workflow`、`change_task`、`make_worktree`、`remove_worktree`）会先在该会话的对话中用权限卡片询问你，这与智能体自身提问所用的卡片相同，有 **Allow**、**Always allow** 和 **Reject**。**Always allow** 在该会话中对该工具一直有效，直到会话的连接结束。`review_pr` 和 `merge_pr` 的卡片会写明拉取请求、它所在的仓库（以其地址）以及要做的全部事情：审阅结论，或合并方式、是否等检查通过，以及要删除的分支。`merge_pr`、`start_workflow`、`change_task`、`remove_worktree` 和 `answer_request` 从不提供 **Always allow**：它们做的事无法撤销，而智能体读到的文字（拉取请求、CI 日志、代码）可能左右它向这些工具提出的请求。
+- **Ghost 中的会话。** 它可以调用所有工具。会执行操作的工具（`delegate_task`、`open_pr`、`schedule_task`、`use_device`、`send_to_session`、`interrupt_session`、`organize_session`、`answer_request`、`add_project`、`review_pr`、`merge_pr`、`reply_to_thread`、`resolve_thread`、`rerun_ci`、`create_issue`、`comment_on_issue`、`set_issue_state`、`start_workflow`、`change_task`、`make_worktree`、`remove_worktree`）会先在该会话的对话中用权限卡片询问你，这与智能体自身提问所用的卡片相同，有 **Allow**、**Always allow** 和 **Reject**。**Always allow** 在该会话中对该工具一直有效，直到会话的连接结束。`review_pr` 和 `merge_pr` 的卡片会写明拉取请求、它所在的仓库（以其地址）以及要做的全部事情：审阅结论，或合并方式、是否等检查通过，以及要删除的分支。`merge_pr`、`start_workflow`、`change_task`、`remove_worktree`、`answer_request` 和 `resolve_thread` 从不提供 **Always allow**：它们做的事无法撤销，而智能体读到的文字（拉取请求、CI 日志、代码）可能左右它向这些工具提出的请求。
 - **Ghost 之外的智能体**（见下文）。它可以读取：`list_sessions`、`read_session`、`read_diff`、`wait_for_turn`、`events`、`list_devices`、`device_screen`，以及上面每个列出、查找或读取的工具（它指定的文件夹必须在你的某个项目中，或是其工作树）。打开 **设置 › 智能体 › Ghost 之外的智能体可以执行操作**（`outside_acts`）后，它还可以 `send_to_session`、`interrupt_session`、`organize_session` 和 `answer_request`，每次都在那个会话的卡片上询问你，只有 **Allow** 和 **Reject**：Ghost 之外的每个智能体都用 `mcp.json` 中的同一个密钥进入，**Always allow** 会让它们全都获准，所以没有这一项。其他会执行操作或向你提问的工具会回答：只有 Ghost 会话中的智能体才能这样做。
 - **另一台 Mac 上的智能体**，通过已配对设备的连接访问这台 Mac 的工具（`--mcp --on`，见下文）：它可以读取，并在该设备允许的范围内执行操作（只读设备的智能体只能读取）。
 
