@@ -352,8 +352,9 @@ pub fn kit(cx: &mut App) {
         let mono = crate::fonts::faces(cx).mono.clone();
         Theme::update(cx, |t| {
             t.mono_font_family = mono;
-            t.notification.placement = gpui::Anchor::BottomRight;
-            t.notification.margins.bottom = px(96.);
+            t.notification.placement = gpui::Anchor::TopRight;
+            t.notification.margins.top = px(50.);
+            t.notification.margins.right = px(16.);
             if custom.is_some() {
                 let c = &mut t.colors;
                 c.background = bg();

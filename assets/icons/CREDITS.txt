@@ -1,5 +1,8 @@
 u0.svg         u0's own mark.
 live-dot.svg   Something going on: a dot in a faint ring.
 
-UI icons come from u0ui (Material Symbols Sharp under Carbon names). An
-agent's logo is the one the ACP registry publishes for that agent.
+UI icons come from u0ui (Material Symbols Sharp under Carbon names), and
+brand marks come from u0ui::icons::brands (Simple Icons 16.37.0,
+https://simpleicons.org, CC0 1.0) and u0ui::t3::shell::PROVIDER_GLYPHS. An
+agent's logo is read from the ACP registry where the registry has one,
+falling back to u0ui's brand marks where it has none.

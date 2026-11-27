@@ -40,7 +40,7 @@ as an access that ends does.
 ## Let other devices control this Mac
 
 In **Settings › Devices**, turn on **Let other devices control this
-Mac**. (The u0 menu's **Show Pairing Code…** does the same and opens
+Mac**. (The u0 menu's **Show Pairing Link…** does the same and opens
 the page.)
 
 u0 then listens on `127.0.0.1` only, at port 4317 (the `port` in

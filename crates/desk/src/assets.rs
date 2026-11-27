@@ -1,9 +1,8 @@
 //! Application assets beyond `u0ui::Assets` (which serves Material Symbols
-//! Sharp and Carbon custom glyphs): u0's own mark (`icons/u0.svg`), the
-//! breathing activity indicator (`icons/live-dot.svg`), any legacy
-//! `icons/<name>.svg` resolved through [`crate::ui::icon_path`], and an
-//! agent's logo read from the ACP registry into the home's `icons/`
-//! (`agent/<id>.svg`).
+//! Sharp, Carbon custom glyphs, and vendored Simple Icons 16.37.0 brand marks
+//! under `u0ui/brands/<slug>.svg`): u0's own mark (`icons/u0.svg`), the
+//! breathing activity indicator (`icons/live-dot.svg`), and an agent's logo
+//! read from the ACP registry into the home's `icons/` (`agent/<id>.svg`).
 
 use std::borrow::Cow;
 

@@ -23,9 +23,16 @@ use crate::{
     theme,
 };
 
-/// Resolve a desk icon name to its `u0ui` Material Symbols Sharp asset path
-/// (or u0's own mark for `"u0"` and `"live-dot"`).
+/// Resolve a desk icon name to its `u0ui` Material Symbols Sharp asset path,
+/// a `u0ui` Simple Icons brand mark (`"brand/<name>"`), or u0's own mark
+/// (`"u0"`, `"live-dot"`).
 pub fn icon_path(name: &str) -> SharedString {
+    if let Some(brand) = name.strip_prefix("brand/") {
+        if let Some(mark) = u0ui::icons::brands::brand_mark(brand) {
+            return mark.path().into();
+        }
+        return format!("u0ui/brands/{brand}.svg").into();
+    }
     match name {
         "u0" => return "icons/u0.svg".into(),
         "live-dot" => return "icons/live-dot.svg".into(),
@@ -133,17 +140,76 @@ pub fn text(faces: &Faces, text: impl Into<SharedString>) -> Div {
         .child(text.into())
 }
 
-/// An agent's mark: its logo, or its initial where there is none.
+/// An agent's mark: its logo from the ACP registry, `u0ui`'s Simple Icons /
+/// provider glyph where the registry has none, or its initial.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Mark {
     /// The logo the registry publishes for the agent with this id.
     Logo(SharedString),
+    /// `u0ui`'s vendored Simple Icons brand mark or provider glyph (`Codex`,
+    /// `Antigravity`).
+    Provider(u0ui::t3::shell::ProviderMark),
     Letter(char),
 }
 
-/// An agent's mark at `size`: its logo in its brand's colour, or its letter
-/// on a Carbon 4px-radius neutral tile.
+/// Resolve `u0ui`'s vendored Simple Icons brand mark or `t3` provider glyph
+/// for an agent `(id, display_name)` when the ACP registry has no SVG in
+/// `<home>/icons/`.
+pub fn provider_mark(agent_id: &str, display_name: &str) -> Option<u0ui::t3::shell::ProviderMark> {
+    use u0ui::t3::shell::ProviderMark;
+    let base = crate::registry::instance(agent_id).0;
+    for candidate in [base, display_name] {
+        let mark = ProviderMark::of(candidate);
+        if mark != ProviderMark::Generic {
+            return Some(mark);
+        }
+    }
+    match base {
+        "codex-acp" => Some(ProviderMark::Glyph("Codex")),
+        "antigravity-acp" => Some(ProviderMark::Glyph("Antigravity")),
+        _ => None,
+    }
+}
+
+/// A vendored Simple Icons brand mark from `u0ui::icons::brands` at `size` px,
+/// tinted in its brand ink (or `text-primary` for monochrome marks).
+pub fn brand_icon(name: &str, size: f32) -> Option<Svg> {
+    let mark = u0ui::icons::brands::brand_mark(name)?;
+    Some(
+        svg()
+            .path(mark.path())
+            .size(px(size))
+            .text_color(mark.ink())
+            .flex_none(),
+    )
+}
+
+/// Unified 38px window title bar (`TitleBar` board): draggable, `background`
+/// fill with 1px `border-subtle-01` bottom hairline, clearing the 76px macOS
+/// traffic-light inset when `inset_lights` is true (sidebar collapsed) and
+/// aligning with the 24px content gutter otherwise.
+pub fn title_bar(inset_lights: bool) -> Div {
+    crate::desk::draggable()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(8.))
+        .h(px(crate::style::TITLEBAR_HEIGHT))
+        .pl(px(if inset_lights {
+            crate::style::TRAFFIC_LIGHT_INSET
+        } else {
+            24.
+        }))
+        .pr(px(8.))
+        .bg(theme::bg())
+        .border_b_1()
+        .border_color(theme::border())
+}
+
+/// An agent's mark at `size`: its logo in its brand's colour, `u0ui`'s Simple
+/// Icons / provider fallback, or its letter on a Carbon 4px-radius neutral tile.
 pub fn mark(faces: &Faces, mark: &Mark, size: f32) -> AnyElement {
+    use u0ui::t3::shell::ProviderMark;
     match mark {
         Mark::Logo(id) => svg()
             .path(format!("agent/{id}.svg"))
@@ -151,6 +217,18 @@ pub fn mark(faces: &Faces, mark: &Mark, size: f32) -> AnyElement {
             .text_color(theme::brand(id))
             .flex_none()
             .into_any_element(),
+        Mark::Provider(ProviderMark::Brand(b)) => brand_icon(b.slug, size)
+            .expect("vendored brand mark")
+            .into_any_element(),
+        Mark::Provider(p @ ProviderMark::Glyph(key)) => svg()
+            .path(format!("u0ui/t3/provider-{key}.svg"))
+            .size(px(size))
+            .text_color(p.ink())
+            .flex_none()
+            .into_any_element(),
+        Mark::Provider(ProviderMark::Generic) => {
+            icon(u0ui::t3::shell::GENERIC_PROVIDER_SYMBOL, size).into_any_element()
+        }
         Mark::Letter(letter) => div()
             .flex()
             .flex_none()
@@ -499,6 +577,30 @@ mod tests {
                 .asset_path()
                 .contains("add")
         );
+        for brand in [
+            "android",
+            "anthropic",
+            "apple",
+            "bitbucket",
+            "claude",
+            "cloudflare",
+            "github",
+            "githubcopilot",
+            "gitlab",
+            "googlegemini",
+            "linear",
+            "tailscale",
+        ] {
+            let path = icon_path(&format!("brand/{brand}"));
+            let bytes = assets
+                .load(&path)
+                .unwrap()
+                .unwrap_or_else(|| panic!("missing brand SVG for {brand} ({path})"));
+            assert!(bytes.starts_with(b"<svg"), "{brand} ({path}) is not SVG");
+        }
+        assert!(provider_mark("claude-acp+work", "Claude Code").is_some());
+        assert!(provider_mark("codex-acp", "Codex").is_some());
+        assert!(provider_mark("antigravity-acp", "Antigravity").is_some());
     }
 
     #[test]

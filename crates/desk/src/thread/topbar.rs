@@ -7,7 +7,7 @@ use gpui::{Context, Div, Entity, div, prelude::*, px};
 use super::meta;
 use crate::fonts::Weighted as _;
 use crate::{
-    desk::{Desk, Page, Popup, Renaming, TOPBAR, draggable},
+    desk::{Desk, Page, Popup, Renaming},
     fonts::Faces,
     hub::Stage,
     settings::View,
@@ -15,18 +15,9 @@ use crate::{
 };
 
 impl Desk {
-    /// The bar over the middle.
-    pub(crate) fn topbar(&self, faces: &Faces, lights: f32, cx: &mut Context<Self>) -> Div {
-        let mut bar = draggable()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(10.))
-            .h(px(TOPBAR))
-            .pl(px(if self.panes.left { 16. } else { lights }))
-            .pr(px(12.))
-            .border_b_1()
-            .border_color(theme::border());
+    /// The bar over the middle (`TitleBar` + thread/page header).
+    pub(crate) fn topbar(&self, faces: &Faces, _lights: f32, cx: &mut Context<Self>) -> Div {
+        let mut bar = ui::title_bar(!self.panes.left);
         if !self.panes.left {
             bar = bar.child(
                 ui::icon_button(

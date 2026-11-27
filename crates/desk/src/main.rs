@@ -89,7 +89,7 @@ fn main() {
                 MenuItem::separator(),
                 MenuItem::action(crate::tr("Settings…"), OpenSettings),
                 MenuItem::action(crate::tr("Pair a Device…"), keys::PairDevice),
-                MenuItem::action(crate::tr("Show Pairing Code…"), keys::ShowPairingCode),
+                MenuItem::action(crate::tr("Show Pairing Link…"), keys::ShowPairingCode),
                 MenuItem::separator(),
                 MenuItem::os_submenu(crate::tr("Services"), SystemMenuType::Services),
                 MenuItem::separator(),
@@ -102,6 +102,8 @@ fn main() {
             Menu::new(crate::tr("File")).items(vec![
                 MenuItem::action(crate::tr("New Thread"), NewSession),
                 MenuItem::action(crate::tr("Stop"), Stop),
+                MenuItem::separator(),
+                MenuItem::action(crate::tr("Close Window"), keys::CloseSurface),
             ]),
             Menu::new(crate::tr("Edit")).items(vec![
                 MenuItem::os_action(
@@ -131,6 +133,14 @@ fn main() {
                     crate::tr("Select All"),
                     gpui::component::input::SelectAll,
                     OsAction::SelectAll,
+                ),
+                MenuItem::separator(),
+                MenuItem::action(crate::tr("Find…"), keys::Find),
+                MenuItem::action(crate::tr("Find Next"), keys::FindNext),
+                MenuItem::action(crate::tr("Find Previous"), keys::FindPrevious),
+                MenuItem::action(
+                    crate::tr("Use Selection for Find"),
+                    keys::UseSelectionForFind,
                 ),
                 MenuItem::separator(),
                 MenuItem::submenu(Menu::new(crate::tr("Speech")).items(vec![

@@ -29,6 +29,9 @@ actions!(
         Stop,
         Minimize,
         Find,
+        FindNext,
+        FindPrevious,
+        UseSelectionForFind,
         Drawer,
         Palette,
         OpenSettings,
@@ -210,7 +213,7 @@ pub const ACTIONS: [(&str, &str, Make); 52] = [
     }),
     (
         "show_pairing_code",
-        "Show pairing code: let another device control this Mac",
+        "Show pairing link: let another device control this Mac",
         || Box::new(ShowPairingCode),
     ),
 ];
@@ -464,6 +467,9 @@ pub fn bind(cx: &mut App, yours: &[Binding]) {
         KeyBinding::new("cmd-.", Stop, None),
         KeyBinding::new("cmd-m", Minimize, None),
         KeyBinding::new("cmd-f", Find, None),
+        KeyBinding::new("cmd-g", FindNext, None),
+        KeyBinding::new("cmd-shift-g", FindPrevious, None),
+        KeyBinding::new("cmd-e", UseSelectionForFind, None),
         KeyBinding::new("cmd-j", Drawer, None),
         KeyBinding::new("cmd-k", Palette, None),
         KeyBinding::new("cmd-,", OpenSettings, None),
@@ -580,6 +586,9 @@ pub fn handle(cx: &mut App, shown: &Shown) {
     on::<NewSession>(cx, shown, Desk::new_anywhere);
     on::<NewHere>(cx, shown, Desk::new_default);
     on::<Find>(cx, shown, Desk::toggle_find);
+    on::<FindNext>(cx, shown, |d, _, cx| d.find_next(false, cx));
+    on::<FindPrevious>(cx, shown, |d, _, cx| d.find_next(true, cx));
+    on::<UseSelectionForFind>(cx, shown, Desk::use_selection_for_find);
     on::<Drawer>(cx, shown, Desk::toggle_drawer);
     on::<Palette>(cx, shown, Desk::toggle_palette);
     on::<OpenSettings>(cx, shown, |d, window, cx| {
@@ -601,7 +610,11 @@ pub fn handle(cx: &mut App, shown: &Shown) {
     on::<WholeRight>(cx, shown, |d, _, cx| d.toggle_whole(cx));
     on::<OpenSurface>(cx, shown, |d, _, cx| d.toggle_surfaces(cx));
     on::<ReopenSurface>(cx, shown, |d, _, cx| d.reopen_tab(cx));
-    on::<CloseSurface>(cx, shown, |d, _, cx| d.close_shown(cx));
+    on::<CloseSurface>(cx, shown, |d, _, cx| {
+        if !d.close_shown(cx) {
+            cx.hide();
+        }
+    });
     on::<ClearTerminal>(cx, shown, |d, _, cx| d.clear_terminal(cx));
     on::<PullRequests>(cx, shown, |d, window, cx| {
         d.open_forge(crate::github::Kind::Pr, window, cx);
@@ -612,13 +625,14 @@ pub fn handle(cx: &mut App, shown: &Shown) {
     on::<Usage>(cx, shown, |d, window, cx| {
         d.open_tab(Tab::Usage, window, cx);
     });
-    on::<LightOrDark>(cx, shown, |d, _, cx| {
+    on::<LightOrDark>(cx, shown, |d, window, cx| {
         // From the look as drawn now, the other one.
         d.settings.look = if crate::theme::is_light() {
             crate::settings::Look::Dark
         } else {
             crate::settings::Look::Light
         };
+        d.sync_appearance(window, cx);
         d.save_settings();
         cx.notify();
     });

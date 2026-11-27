@@ -1890,14 +1890,16 @@ impl Render for Desk {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Speech recognition ready for the composer's speech button.
         self.speech(window, cx);
-        if self.settings.look == settings::Look::System {
-            let system_light = matches!(
+        let want_light = match self.settings.look {
+            settings::Look::Dark => false,
+            settings::Look::Light => true,
+            settings::Look::System => matches!(
                 window.appearance(),
                 gpui::WindowAppearance::Light | gpui::WindowAppearance::VibrantLight
-            );
-            if theme::is_light() != system_light {
-                window.defer(cx, move |_, cx| theme::set_light(system_light, cx));
-            }
+            ),
+        };
+        if theme::is_light() != want_light {
+            window.defer(cx, move |_, cx| theme::set_light(want_light, cx));
         }
         // The whole window as large as it is set, once this frame is drawn:
         // a zoom changes the size everything is laid out in.

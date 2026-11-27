@@ -406,15 +406,19 @@ impl Desk {
     }
 
     /// The mark of the agent `id`: its logo where the home holds one (an
-    /// account of an agent shows its agent's), else its initial.
+    /// account of an agent shows its agent's), else `u0ui`'s Simple Icons or
+    /// provider mark where known, else its initial.
     pub(crate) fn mark_of(&self, id: &str) -> Mark {
         let agent = crate::registry::instance(id).0;
         if self.registry.logos.contains(agent) {
             return Mark::Logo(agent.to_owned().into());
         }
+        let name = self.name_of(id);
+        if let Some(mark) = ui::provider_mark(agent, &name) {
+            return Mark::Provider(mark);
+        }
         Mark::Letter(
-            self.name_of(id)
-                .chars()
+            name.chars()
                 .find(|c| c.is_alphanumeric())
                 .map_or('?', |c| c.to_ascii_uppercase()),
         )

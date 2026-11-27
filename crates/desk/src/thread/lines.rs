@@ -538,6 +538,22 @@ impl Desk {
         cx.notify();
     }
 
+    /// Put the composer's selected text into the find bar and open it (⌘E).
+    pub fn use_selection_for_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let chosen = self.composer.input.read(cx).selected_value().to_string();
+        if !chosen.is_empty() {
+            self.find
+                .input
+                .update(cx, |i, cx| i.set_value(&chosen, window, cx));
+        }
+        self.find.open = true;
+        window.focus(
+            &gpui::Focusable::focus_handle(self.find.input.read(cx), cx),
+            cx,
+        );
+        cx.notify();
+    }
+
     fn find_bar(&self, faces: &fonts::Faces, cx: &mut Context<Self>) -> Div {
         let hits = self.find_hits(cx);
         let at = if hits.is_empty() {

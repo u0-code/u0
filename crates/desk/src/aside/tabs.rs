@@ -172,14 +172,18 @@ impl Desk {
         cx.notify();
     }
 
-    /// Close the tab shown (⌘W).
-    pub fn close_shown(&mut self, cx: &mut Context<Self>) {
-        if let Some(on) = self
-            .column()
-            .map_or(Some(0), |c| (!c.tabs.is_empty()).then_some(c.on))
+    /// Close the tab shown in the right column (⌘W), returning whether one
+    /// was open to close.
+    pub fn close_shown(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.panes.right
+            && let Some(on) = self
+                .column()
+                .and_then(|c| (!c.tabs.is_empty()).then_some(c.on))
         {
             self.close_tabs(|n| n == on, cx);
+            return true;
         }
+        false
     }
 
     /// Open the tab closed last again.
