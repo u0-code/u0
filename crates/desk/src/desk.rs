@@ -1101,6 +1101,7 @@ impl Desk {
                 .map(|s| s.meta.unsent.clone())
                 .unwrap_or_default();
             self.put_line(&unsent, window, cx);
+            self.drop_queue_edit(cx);
             self.swap_drafts(self.current, key);
             self.review.scope = crate::git::Scope::All;
             self.review.committing = false;

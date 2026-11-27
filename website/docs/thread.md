@@ -113,7 +113,9 @@ Type `/` for the agent's own slash commands, and u0's: `clear`,
 What you send while a turn goes on **waits its turn** by default: it is
 queued and sent when the turn ends. The queue shows each message with
 **Earlier**, **Send now**, **Edit** (which edits it in place with **Save
-to queue**) and **Remove from queue**; ⌥↑ edits the last one. With
+to queue**) and **Remove from queue**; ⌥↑ edits the last one. A message
+being edited keeps its place however the queue moves, and the queue does
+not send it, or pass it, until you save or press Esc. With
 **Settings › Chat › What you send waits, or steers** set to **Steer**, a
 message steers the turn in progress instead. ⌘-click Send, or ⇧⌘Return,
 sends the other way.

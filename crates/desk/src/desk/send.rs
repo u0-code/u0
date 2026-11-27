@@ -613,11 +613,15 @@ impl Desk {
         let Some(s) = self.sessions.at_mut(key) else {
             return;
         };
-        if s.state != State::Idle || s.meta.queued.is_empty() {
+        if s.state != State::Idle {
             return;
         }
-        let text = s.meta.queued.remove(0);
-        self.send_in(key, &text, cx);
+        let editing = (self.composer.editing_queued.as_ref())
+            .filter(|(k, _)| *k == key)
+            .map(|(_, was)| was.as_str());
+        if let Some(text) = next_queued(&mut s.meta.queued, editing) {
+            self.send_in(key, &text, cx);
+        }
     }
 
     /// Say the queued `n` now: the turn going on is stopped, and it is
@@ -658,7 +662,8 @@ impl Desk {
         cx.notify();
     }
 
-    /// Edit the queued message `n` in place in the composer.
+    /// Edit the queued message `n` in place in the composer. It is held
+    /// by what it says, not where it is, as the queue moves meanwhile.
     pub fn unqueue(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(key) = self.current else { return };
         let Some(s) = self.sessions.at(key) else {
@@ -667,8 +672,8 @@ impl Desk {
         let Some(text) = s.meta.queued.get(n).cloned() else {
             return;
         };
-        self.composer.editing_queued = Some(n);
         self.put_line(&text, window, cx);
+        self.composer.editing_queued = Some((key, text));
         window.focus(
             &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
             cx,
@@ -676,34 +681,45 @@ impl Desk {
         cx.notify();
     }
 
-    /// Update the queued message `n` in place with `text`.
-    pub fn save_queued(&mut self, n: usize, text: &str, cx: &mut Context<Self>) {
-        let Some(key) = self.current else { return };
-        if let Some(s) = self.sessions.at_mut(key) {
-            if n < s.meta.queued.len() {
-                text.clone_into(&mut s.meta.queued[n]);
-            } else {
-                s.meta.queued.push(text.to_owned());
-            }
+    /// Put `text` in place of the queued message that read `was` in the
+    /// session `key`, wherever it is now. Whether it was still there: it
+    /// may have been said, or removed, meanwhile.
+    pub(crate) fn save_queued(
+        &mut self,
+        key: u64,
+        was: &str,
+        text: &str,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let saved =
+            (self.sessions.at_mut(key)).is_some_and(|s| requeue(&mut s.meta.queued, was, text));
+        if saved {
             self.save_index();
         }
+        self.say_queued(key, cx);
         cx.notify();
+        saved
+    }
+
+    /// Stop editing the queued message, leaving it as it was; the queue,
+    /// held for it, goes on.
+    pub(crate) fn drop_queue_edit(&mut self, cx: &mut Context<Self>) {
+        if let Some((key, _)) = self.composer.editing_queued.take() {
+            self.say_queued(key, cx);
+        }
     }
 
     /// Remove the queued message `n`.
     pub fn remove_queued(&mut self, n: usize, cx: &mut Context<Self>) {
         let Some(key) = self.current else { return };
-        if let Some(s) = self.sessions.at_mut(key)
-            && n < s.meta.queued.len()
-        {
-            s.meta.queued.remove(n);
+        let Some(s) = self.sessions.at_mut(key) else {
+            return;
+        };
+        if n < s.meta.queued.len() {
+            let gone = s.meta.queued.remove(n);
             self.save_index();
-        }
-        if let Some(ed) = self.composer.editing_queued {
-            if ed == n {
-                self.composer.editing_queued = None;
-            } else if ed > n {
-                self.composer.editing_queued = Some(ed - 1);
+            if self.composer.editing_queued.as_ref() == Some(&(key, gone)) {
+                self.drop_queue_edit(cx);
             }
         }
         cx.notify();
@@ -771,5 +787,55 @@ impl Desk {
         let prefs = self.settings_on_mut(host).prefs.entry(project).or_default();
         chose(prefs.last.entry(agent).or_default());
         self.save_settings_on(host);
+    }
+}
+
+/// The next queued message to say, taken from `queue`; none while the
+/// first is the one being edited (`editing`): the queue waits for it.
+fn next_queued(queue: &mut Vec<String>, editing: Option<&str>) -> Option<String> {
+    let first = queue.first()?;
+    (editing != Some(first.as_str())).then(|| queue.remove(0))
+}
+
+/// Put `now` in place of the first queued message that reads `was`.
+/// Whether one did.
+fn requeue(queue: &mut [String], was: &str, now: &str) -> bool {
+    queue
+        .iter_mut()
+        .find(|q| *q == was)
+        .map(|q| now.clone_into(q))
+        .is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn queue(said: &[&str]) -> Vec<String> {
+        said.iter().map(|&s| s.to_owned()).collect()
+    }
+
+    #[test]
+    fn an_edit_saved_after_the_queue_moved_changes_the_message_taken_up() {
+        let mut q = queue(&["one", "two", "three"]);
+        // "two" is taken up to edit; then the turn ends and "one" is said.
+        assert_eq!(next_queued(&mut q, Some("two")).as_deref(), Some("one"));
+        assert!(requeue(&mut q, "two", "two, edited"));
+        assert_eq!(q, queue(&["two, edited", "three"]));
+    }
+
+    #[test]
+    fn the_queue_waits_while_its_first_message_is_edited() {
+        let mut q = queue(&["one", "two"]);
+        assert_eq!(next_queued(&mut q, Some("one")), None);
+        assert_eq!(q.len(), 2);
+        assert_eq!(next_queued(&mut q, None).as_deref(), Some("one"));
+    }
+
+    #[test]
+    fn an_edit_of_a_message_no_longer_queued_adds_nothing() {
+        let mut q = queue(&["three"]);
+        assert!(!requeue(&mut q, "two", "two, edited"));
+        assert_eq!(q, queue(&["three"]));
     }
 }

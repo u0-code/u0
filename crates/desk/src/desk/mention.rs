@@ -70,8 +70,9 @@ pub struct Composer {
     pub draft: Draft,
     pub reading: usize,
     pub held: Option<bool>,
-    /// Queued message index currently being edited in place in the composer.
-    pub editing_queued: Option<usize>,
+    /// The queued message being edited in place in the composer: its
+    /// session, and what it said when taken up.
+    pub editing_queued: Option<(u64, String)>,
     /// Attached excerpt chip index currently showing its preview card.
     pub previewing_chip: Option<usize>,
     pub stashed: Vec<Stashed>,
@@ -256,9 +257,16 @@ impl Desk {
             );
             return;
         }
-        if let Some(at) = self.composer.editing_queued.take() {
-            self.put_line("", window, cx);
-            self.save_queued(at, &text, cx);
+        if let Some((key, was)) = self.composer.editing_queued.take() {
+            if self.save_queued(key, &was, &text, cx) {
+                self.put_line("", window, cx);
+            } else {
+                self.trouble(
+                    crate::tr("It left the queue before your edit was saved"),
+                    Some(crate::tr("What you wrote is still in the line").into()),
+                    None,
+                );
+            }
             return;
         }
         if self.composer.reading > 0 {
@@ -930,7 +938,6 @@ impl Desk {
     pub(crate) fn swap_drafts(&mut self, from: Option<u64>, to: u64) {
         let c = &mut self.composer;
         swap_draft(&mut c.draft, &mut c.drafts, from, to);
-        c.editing_queued = None;
         c.noting = None;
         c.previewing_chip = None;
     }

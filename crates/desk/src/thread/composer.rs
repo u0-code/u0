@@ -500,7 +500,8 @@ impl Desk {
                 if this.dictation.is_some() {
                     this.cancel_dictation(window, cx);
                     cx.stop_propagation();
-                } else if this.composer.editing_queued.take().is_some() {
+                } else if this.composer.editing_queued.is_some() {
+                    this.drop_queue_edit(cx);
                     this.put_line("", window, cx);
                     cx.notify();
                     cx.stop_propagation();
@@ -1872,10 +1873,12 @@ impl Desk {
                 &[("n", &count), ("name", &agent_name)],
             )
         };
+        // The one being edited, by what it said: wherever the queue moved it.
+        let edited = (self.composer.editing_queued.as_ref())
+            .filter(|(k, _)| *k == s.key)
+            .and_then(|(_, was)| s.meta.queued.iter().position(|q| q == was));
         let items = (s.meta.queued.iter().enumerate())
-            .map(|(n, text)| {
-                QueuedRun::new(text.clone()).editing(self.composer.editing_queued == Some(n))
-            })
+            .map(|(n, text)| QueuedRun::new(text.clone()).editing(edited == Some(n)))
             .collect();
         let (earlier, now, edit, remove) = (cx.entity(), cx.entity(), cx.entity(), cx.entity());
         Some(
