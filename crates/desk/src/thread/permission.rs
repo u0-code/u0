@@ -54,30 +54,101 @@ fn said(asker: &Asker, input: Option<&Value>) -> Said {
         };
     }
     let carried = ["text", "body", "message", "prompt"];
-    let mut facts = Vec::new();
-    for (key, value) in map {
-        if carried.contains(&key.as_str()) {
-            continue;
-        }
-        let shown = match value {
-            Value::Null | Value::Object(_) => continue,
-            Value::String(s) if s.trim().is_empty() => continue,
-            Value::String(s) => s.clone(),
-            Value::Array(items) if items.is_empty() => continue,
-            Value::Array(items) => items
-                .iter()
-                .map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned))
-                .collect::<Vec<_>>()
-                .join(", "),
-            other => other.to_string(),
-        };
-        facts.push((key.clone(), shown));
-    }
+    let mut facts: Vec<(usize, &str, String)> = (map.iter())
+        .filter(|(key, _)| !carried.contains(&key.as_str()))
+        .filter_map(|(key, value)| Some((rank(key), key.as_str(), value_of(key, value)?)))
+        .collect();
+    facts.sort_by_key(|(rank, key, _)| (*rank, *key));
+    let facts = (facts.into_iter())
+        .map(|(_, key, shown)| (label_of(key).to_string(), shown))
+        .collect();
     Said {
         detail: text(&carried),
         facts,
         reason: None,
         context: None,
+    }
+}
+
+/// Where a field of u0's tools stands among the others on a card: what
+/// it acts on first, then where, then the rest.
+fn rank(key: &str) -> usize {
+    match key {
+        "number" => 0,
+        "repo" | "repository" | "folder" | "project" => 1,
+        "from" => 2,
+        "base" => 3,
+        "title" => 4,
+        "draft" => 5,
+        "how" | "method" => 6,
+        "auto" => 7,
+        "branch" => 8,
+        "session" | "workflow" | "device" | "agent" | "model" => 9,
+        "action" | "schedule" | "verdict" => 10,
+        _ => 20,
+    }
+}
+
+/// What a field of u0's tools is called on a card, in your language; one
+/// it does not know, by its own name.
+fn label_of(key: &str) -> SharedString {
+    let said = match key {
+        "repo" | "repository" => "Repository",
+        "folder" => "Folder",
+        "from" => "From",
+        "base" => "Base",
+        "branch" => "Branch",
+        "title" => "Title",
+        "draft" => "Draft",
+        "number" => "Pull request",
+        "how" | "method" => "Method",
+        "auto" => "Wait for checks",
+        "workflow" => "Workflow",
+        "input" => "Input",
+        "schedule" => "Schedule",
+        "agent" => "Agent",
+        "model" => "Model",
+        "project" => "Project",
+        "device" => "Device",
+        "action" => "Action",
+        "session" => "Thread",
+        "request" => "Request",
+        "option" => "Answer",
+        "pin" => "Pin",
+        "archive" => "Archive",
+        "tags" => "Tags",
+        "verdict" => "Verdict",
+        "run" => "Run",
+        "path" => "Path",
+        "question" => "Question",
+        "choices" => "Choices",
+        "state" => "State",
+        "worktree" => "Worktree",
+        other => return SharedString::from(other.replace('_', " ")),
+    };
+    crate::tr(said)
+}
+
+/// A field's value as a card shows it: yes or no in your language, a pull
+/// request's number with its #, a list joined, tags each with its #;
+/// nothing for one empty or nested.
+fn value_of(key: &str, value: &Value) -> Option<String> {
+    match value {
+        Value::Null | Value::Object(_) => None,
+        Value::Bool(b) => Some(crate::tr(if *b { "Yes" } else { "No" }).to_string()),
+        Value::Number(n) if key == "number" => Some(format!("#{n}")),
+        Value::Number(n) => Some(n.to_string()),
+        Value::String(s) => Some(s.trim().to_owned()).filter(|s| !s.is_empty()),
+        Value::Array(items) => {
+            let each: Vec<String> = (items.iter())
+                .filter_map(|v| value_of("", v))
+                .map(|v| match key {
+                    "tags" if !v.starts_with('#') => format!("#{v}"),
+                    _ => v,
+                })
+                .collect();
+            (!each.is_empty()).then(|| each.join(if key == "tags" { " " } else { ", " }))
+        }
     }
 }
 
@@ -444,8 +515,24 @@ mod tests {
         assert_eq!(
             tool.facts,
             [
-                ("session".into(), "s1".into()),
-                ("tags".into(), "a, b".into())
+                ("Thread".into(), "s1".into()),
+                ("Tags".into(), "#a #b".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn u0s_tool_fields_are_named_in_words_with_the_pull_request_first() {
+        let input =
+            serde_json::json!({"how": "squash", "auto": true, "number": 483, "wait_secs": 5});
+        let merge = said(&Asker::Tool("merge_pr".into()), Some(&input));
+        assert_eq!(
+            merge.facts,
+            [
+                ("Pull request".into(), "#483".into()),
+                ("Method".into(), "squash".into()),
+                ("Wait for checks".into(), "Yes".into()),
+                ("wait secs".into(), "5".into()),
             ]
         );
     }
