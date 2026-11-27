@@ -4,12 +4,12 @@
 //! and the `Pull request` tab with `.pr-box` merge readiness, `Watch` switch,
 //! `ChecksList`, and conflict resolution card.
 
-use gpui::component::{Sizable as _, input::Input, menu::PopupMenu, popover::Popover};
+use gpui::component::{menu::PopupMenu, popover::Popover};
 use gpui::{Context, Div, Entity, SharedString, div, prelude::*, px};
 use u0ui::{
     components::{
         Badge, BadgeSize, BadgeVariant, Button, ButtonSize, ButtonVariant, FieldSize, Select,
-        SelectType, Switch, SwitchSize, list_box::ListItem as SelectItem,
+        SelectType, Switch, SwitchSize, Textarea, Tooltip, list_box::ListItem as SelectItem,
     },
     icons::{CarbonIcon, Icon},
     t3::review::{Check, ChecksList, ChecksStatus, ReviewDecision, ReviewDecisionBadge},
@@ -375,21 +375,29 @@ impl Desk {
     /// Inline commit message form under the diff.
     pub(super) fn commit_form(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
         let key = s.key;
+        let desk = cx.entity();
         let writer = self.writer_of(s);
-        let write = ui::led_button(
-            "ask-message",
-            Some(ui::mark(faces, &self.mark_of(&writer), 12.)),
-            crate::tr("Write it"),
-            Weight::Quiet,
-        )
-        .h(px(24.))
-        .px(px(7.))
-        .loading(s.git.writing_message)
-        .tooltip(crate::tr_with(
+        let write_tip = crate::tr_with(
             "%{name} writes the message from the changes, in a thread of its own",
             &[("name", &self.name_of(&writer))],
-        ))
-        .on_click(cx.listener(move |this, _, _, cx| this.ask_message(key, cx)));
+        );
+        let write_label = if s.git.writing_message {
+            crate::tr("Writing…")
+        } else {
+            crate::tr("Write it for me")
+        };
+        let write = Tooltip::new(
+            "ask-msg-tip",
+            Button::new("ask-message", write_label)
+                .variant(ButtonVariant::Ghost)
+                .size(ButtonSize::Sm)
+                .icon(CarbonIcon::MagicWand)
+                .disabled(s.git.writing_message)
+                .on_click(move |_, _, cx| {
+                    desk.update(cx, |this, cx| this.ask_message(key, cx));
+                }),
+        )
+        .content(write_tip);
         let branch = s
             .branch
             .clone()
@@ -405,7 +413,25 @@ impl Desk {
             .flex()
             .flex_col()
             .gap(px(8.))
-            .child(Input::new(&self.review.message).small().suffix(write))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .h(px(28.))
+                    .child(
+                        ui::text(faces, crate::tr("Commit message"))
+                            .type_style(TypeStyle::Label01)
+                            .text_color(theme::role(ColorRole::TextSecondary)),
+                    )
+                    .child(write),
+            )
+            .child(
+                Textarea::new("commit-msg", &self.review.message)
+                    .placeholder(crate::tr("Commit message"))
+                    .rows(3)
+                    .layer(LayerLevel::One),
+            )
             .child(
                 div()
                     .flex()

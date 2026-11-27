@@ -1699,6 +1699,9 @@ impl Desk {
             cx.notify();
         } else if self.pages.open {
             self.close_settings(window, cx);
+        } else if self.panes.whole && self.page == Page::Thread {
+            self.panes.whole = false;
+            cx.notify();
         } else if self.page != Page::Thread {
             self.page = Page::Thread;
             cx.notify();
@@ -2052,10 +2055,11 @@ impl Render for Desk {
         let left = self.left_width().min(width - MIDDLE_LEAST).max(LEFT_LEAST);
         let thread_page = self.page == Page::Thread && self.session().is_some();
         let whole = self.panes.whole && thread_page;
+        let review_whole = whole && self.surface() == Some(Surface::Diff);
         // The session column keeps its least, at any size or zoom: a column
         // beside it that would leave it less lies over it instead, the
         // right one first.
-        let left_beside = self.panes.left && width - left >= THREAD_LEAST;
+        let left_beside = self.panes.left && !review_whole && width - left >= THREAD_LEAST;
         let right_shown = self.panes.right && thread_page && !whole;
         let rail_room = if right_shown && self.split.is_some() {
             40.
@@ -2195,11 +2199,11 @@ impl Render for Desk {
             .when(!whole, |d| d.child(middle))
             .children(right)
             .children(split_rail)
-            .when(self.panes.left && !left_beside, |d| {
+            .when(self.panes.left && !left_beside && !review_whole, |d| {
                 d.child(over(self.sidebar(&faces, lights, left, cx).left_0()))
             })
             // Hidden, the sidebar is dragged back out from the left edge.
-            .when(!self.panes.left, |d| {
+            .when(!self.panes.left && !review_whole, |d| {
                 use gpui::component::resizable::{HandleEdge, resize_handle};
                 d.child(
                     resize_handle::<crate::sidebar::LeftEdge, crate::sidebar::LeftEdge>(

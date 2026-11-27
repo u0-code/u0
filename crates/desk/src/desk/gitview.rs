@@ -10,7 +10,7 @@ use gpui::{AppContext as _, Context, Entity, Window};
 
 use gpui::component::{
     diff::{DiffLinePosition, DiffState},
-    input::{InputEvent, InputState},
+    input::{InputEvent, InputState, TextareaState},
     tree::TreeState,
 };
 
@@ -30,7 +30,7 @@ use crate::{git::Scope, proto::Call, session::State};
 )]
 pub struct Review {
     pub scope: Scope,
-    pub message: Entity<InputState>,
+    pub message: Entity<TextareaState>,
     pub committing: bool,
     pub commenting: Option<(PathBuf, usize)>,
     pub comment: Entity<InputState>,
@@ -46,6 +46,8 @@ pub struct Review {
     pub hit: usize,
     /// A file to bring into view once the view holds it.
     pub reveal: Option<String>,
+    /// The file currently selected in `ReviewCommit`'s `DiffFileTree`.
+    pub selected_file: Option<String>,
 }
 
 impl Review {
@@ -76,8 +78,7 @@ impl Review {
         .detach();
         Self {
             scope: Scope::All,
-            message: cx
-                .new(|cx| InputState::new(window, cx).placeholder(crate::tr("Commit message"))),
+            message: cx.new(|cx| TextareaState::new(window, cx)),
             committing: false,
             commenting: None,
             comment,
@@ -92,6 +93,7 @@ impl Review {
             hits: Vec::new(),
             hit: 0,
             reveal: None,
+            selected_file: None,
         }
     }
 }

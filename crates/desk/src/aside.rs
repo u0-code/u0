@@ -6,6 +6,7 @@
 mod diff;
 mod files;
 mod repo;
+mod review;
 mod side;
 mod sims;
 mod tabs;
@@ -183,6 +184,9 @@ impl Desk {
         let Some(s) = self.session() else {
             return frame(top());
         };
+        if self.panes.whole && self.surface() == Some(Surface::Diff) {
+            return self.review_workspace(faces, s, cx);
+        }
         let inspecting = self.split.is_some().then(|| {
             div()
                 .flex()
