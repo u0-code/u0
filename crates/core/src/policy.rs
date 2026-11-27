@@ -173,6 +173,7 @@ impl Policy {
         settings: &mut serde_json::Map<String, serde_json::Value>,
         known: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<(), String> {
+        let mut touched_nested = std::collections::BTreeSet::new();
         for (key, managed) in &self.settings {
             if let Some((outer, inner)) = key.split_once('.') {
                 let Some(serde_json::Value::Object(known_inner)) = known.get(outer) else {
@@ -187,25 +188,19 @@ impl Policy {
                         self.organization
                     ));
                 }
-                let had_inner = settings
-                    .get(outer)
-                    .and_then(serde_json::Value::as_object)
-                    .is_some_and(|m| m.contains_key(inner));
                 let entry = settings
                     .entry(outer.to_owned())
-                    .or_insert_with(|| serde_json::Value::Object(known_inner.clone()));
+                    .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
                 let Some(map) = entry.as_object_mut() else {
                     return Err(format!(
                         "{}'s policy sets \"{key}\", while \"{outer}\" is not an object",
                         self.organization
                     ));
                 };
-                for (k, v) in known_inner {
-                    map.entry(k.clone()).or_insert_with(|| v.clone());
-                }
-                if managed.locked || !had_inner {
+                if managed.locked || !map.contains_key(inner) {
                     map.insert(inner.to_owned(), managed.value.clone());
                 }
+                touched_nested.insert(outer.to_owned());
                 continue;
             }
             if !known.contains_key(key) {
@@ -216,6 +211,17 @@ impl Policy {
             }
             if managed.locked || !settings.contains_key(key) {
                 settings.insert(key.clone(), managed.value.clone());
+            }
+        }
+        for outer in touched_nested {
+            if let (
+                Some(serde_json::Value::Object(known_inner)),
+                Some(serde_json::Value::Object(map)),
+            ) = (known.get(&outer), settings.get_mut(&outer))
+            {
+                for (k, v) in known_inner {
+                    map.entry(k.clone()).or_insert_with(|| v.clone());
+                }
             }
         }
         Ok(())

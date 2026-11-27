@@ -55,6 +55,20 @@ pub struct Kept {
     /// port after `port`.
     #[serde(default)]
     pub bind: crate::reach::Bind,
+    /// The icon this machine shows to other devices.
+    #[serde(default)]
+    pub icon: MachineIcon,
+}
+
+/// The icon a machine shows in Devices and the sidebar.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MachineIcon {
+    #[default]
+    Laptop,
+    Desktop,
+    Server,
+    Cloud,
 }
 
 fn port() -> u16 {
@@ -71,6 +85,7 @@ impl Default for Kept {
             tunnel: false,
             awake: false,
             bind: crate::reach::Bind::Here,
+            icon: MachineIcon::default(),
         }
     }
 }
@@ -89,6 +104,12 @@ pub struct Device {
     /// When its access ends (seconds since 1970); none, never.
     #[serde(default)]
     pub until: Option<u64>,
+    /// Days granted, so approval counts from when it is let in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant_days: Option<u32>,
+    /// Build version last reported by this device.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
     /// It paired, and waits for you to let it in.
     #[serde(default)]
     pub waiting: bool,
@@ -272,6 +293,8 @@ impl Access {
                     key: hello.key.clone(),
                     scope: grant.scope,
                     until: grant.days.map(|d| now + u64::from(d) * 86_400),
+                    grant_days: grant.days,
+                    version: hello.version.clone(),
                     waiting: grant.ask,
                     paired: now,
                     seen: now,
@@ -282,11 +305,19 @@ impl Access {
         // Written only for a device let in, and only as its `seen`
         // changes: a key unknown here, one that waits and one whose
         // access ended change nothing, and so write and tell nothing.
-        let seen = |k: &Kept| (k.devices.iter()).any(|d| d.key == hello.key && d.seen != now);
+        let seen = |k: &Kept| {
+            (k.devices.iter()).any(|d| {
+                d.key == hello.key
+                    && (d.seen != now || (hello.version.is_some() && d.version != hello.version))
+            })
+        };
         if (self.kept.lock().expect("access").as_ref()).is_ok_and(seen) {
             self.change(|k| {
                 if let Some(d) = k.devices.iter_mut().find(|d| d.key == hello.key) {
                     d.seen = now;
+                    if hello.version.is_some() {
+                        d.version.clone_from(&hello.version);
+                    }
                 }
             });
         }
@@ -297,16 +328,36 @@ impl Access {
         })
     }
 
+    /// The device known by `key`, if paired.
+    pub fn device(&self, key: &str) -> Option<Device> {
+        self.kept
+            .lock()
+            .expect("access")
+            .as_ref()
+            .ok()?
+            .devices
+            .iter()
+            .find(|d| d.key == key)
+            .cloned()
+    }
+
     /// Unpair the device known by `key`, or turn it away while it waits:
     /// its links close.
     pub fn revoke(&self, key: &str) {
         self.change(|k| k.devices.retain(|d| d.key != key));
     }
 
-    /// Let in the device known by `key`, which waits for you.
+    /// Let in the device known by `key`, which waits for you; its granted
+    /// duration begins now.
     pub fn approve(&self, key: &str) {
+        let now = crate::store::secs(std::time::SystemTime::now());
         self.change(|k| {
             for d in k.devices.iter_mut().filter(|d| d.key == key) {
+                if d.waiting
+                    && let Some(days) = d.grant_days
+                {
+                    d.until = Some(now + u64::from(days) * 86_400);
+                }
                 d.waiting = false;
             }
         });
@@ -407,6 +458,7 @@ mod tests {
             }),
             since: None,
             then: crate::proto::Then::Desk,
+            version: None,
         }
     }
 
@@ -548,5 +600,28 @@ mod tests {
         );
         let left = std::fs::read_to_string(home.path().join("devices.json")).unwrap();
         assert_eq!(left, old);
+    }
+
+    #[test]
+    fn approving_a_waiting_device_counts_its_granted_days_from_approval() {
+        let home = tempfile::tempdir().unwrap();
+        let access = Access::new(home.path());
+        let key = Key::generate();
+        let code = access.code(Grant {
+            scope: Scope::Read,
+            days: Some(7),
+            ask: true,
+            both: false,
+        });
+        assert_eq!(
+            block(access.admit(&hello(&key, "n1", Some(code)), "n1")),
+            Err(Turned::Waiting)
+        );
+        access.change(|k| k.devices[0].until = Some(100));
+        access.approve(&key.public());
+        let dev = access.device(&key.public()).unwrap();
+        assert!(!dev.waiting);
+        let now = crate::store::secs(std::time::SystemTime::now());
+        assert!(dev.until.is_some_and(|u| u >= now + 6 * 86_400));
     }
 }

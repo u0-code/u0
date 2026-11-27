@@ -53,6 +53,10 @@ pub enum Share {
     Revoke(String),
     /// Let in the device known by this public key, which waits.
     Approve(String),
+    /// Withdraw any unused pairing links without stopping listening.
+    Withdraw,
+    /// Set the icon this machine shows to other devices.
+    Icon(crate::access::MachineIcon),
 }
 
 /// How sharing stands.
@@ -62,11 +66,20 @@ pub struct Shared {
     /// not asked to.
     pub serving: Option<Result<u16, String>>,
     pub tunnel: Tunnel,
+    /// When the running tunnel came up (seconds since 1970).
+    #[serde(default)]
+    pub tunnel_since: Option<u64>,
     /// The named tunnel's address; none, a quick one.
     pub named: Option<String>,
     pub awake: bool,
+    /// The icon this machine shows.
+    #[serde(default)]
+    pub icon: crate::access::MachineIcon,
     /// The devices paired, or why they do not read.
     pub devices: Result<Vec<Device>, String>,
+    /// Public keys of paired devices with an active desk link right now.
+    #[serde(default)]
+    pub linked: Vec<String>,
     /// When the pairing link last made was made (seconds since 1970), and
     /// what it lets in, while it is still good (once, for ten minutes).
     /// Never the link itself: that is told only to whoever made it
@@ -106,10 +119,12 @@ pub struct Sharing {
     /// its certificate; or why not.
     network: Option<Listening>,
     tunnel: Arc<Mutex<Tunnel>>,
+    tunnel_since: Arc<Mutex<Option<u64>>>,
     /// The task that holds cloudflared, and its process.
     cloudflared: Option<(tokio::task::JoinHandle<()>, Pid)>,
     caffeinate: Option<std::process::Child>,
     link: Option<(String, u64, Grant)>,
+    linked: Mutex<Vec<String>>,
 }
 
 impl Drop for Sharing {
@@ -154,10 +169,22 @@ impl Sharing {
             }
         }
         *self.tunnel.lock().expect("tunnel") = Tunnel::Off;
+        *self.tunnel_since.lock().expect("tunnel_since") = None;
     }
 }
 
 impl Server {
+    /// Record that a desk with `key` opened or closed a link.
+    pub(crate) fn set_desk_linked(&self, key: &str, up: bool) {
+        let sharing = self.sharing();
+        let mut linked = sharing.linked.lock().expect("linked");
+        if up {
+            linked.push(key.to_owned());
+        } else if let Some(at) = linked.iter().position(|k| k == key) {
+            linked.remove(at);
+        }
+    }
+
     /// Do what `share` asks, and say how sharing stands.
     pub fn share(self: &Arc<Self>, share: Share) {
         let access = self.access();
@@ -191,6 +218,11 @@ impl Server {
             }
             Share::Revoke(key) => access.revoke(&key),
             Share::Approve(key) => access.approve(&key),
+            Share::Withdraw => {
+                access.withdraw();
+                self.sharing().link = None;
+            }
+            Share::Icon(icon) => access.change(|k| k.icon = icon),
             Share::Link(grant, route) => {
                 self.offer(grant, route);
             }
@@ -422,14 +454,19 @@ impl Server {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
         let state = sharing.tunnel.clone();
+        let since = sharing.tunnel_since.clone();
         *state.lock().expect("tunnel") = Tunnel::Starting;
+        *since.lock().expect("tunnel_since") = None;
         let me = Arc::downgrade(self);
         let mut host = named.map(|n| n.host);
         let pid = Arc::new(Mutex::new(None));
         let its = pid.clone();
         let task = crate::acp::runtime().spawn(async move {
             let say = |now: Tunnel| {
+                let up = matches!(now, Tunnel::Up(_));
                 *state.lock().expect("tunnel") = now;
+                *since.lock().expect("tunnel_since") =
+                    up.then(|| crate::store::secs(std::time::SystemTime::now()));
                 if let Some(server) = me.upgrade() {
                     server.say_shared();
                 }
@@ -501,17 +538,23 @@ impl Server {
                 Some(Err(why)) => Err(why.clone()),
                 _ => Ok((ways.into_iter()).map(|(r, w)| (r, w.host)).collect()),
             };
+            let mut linked = sharing.linked.lock().expect("linked").clone();
+            linked.sort();
+            linked.dedup();
             Shared {
                 bind: kept.as_ref().map(|k| k.bind).unwrap_or_default(),
                 routes,
                 serving: (sharing.listening.as_ref())
                     .map(|l| l.as_ref().map(|(_, port)| *port).map_err(Clone::clone)),
                 tunnel: sharing.tunnel.lock().expect("tunnel").clone(),
+                tunnel_since: *sharing.tunnel_since.lock().expect("tunnel_since"),
                 named: (kept.as_ref().ok())
                     .and_then(|k| k.named.as_ref())
                     .map(|n| n.host.clone()),
                 awake: kept.as_ref().is_ok_and(|k| k.awake),
+                icon: kept.as_ref().map(|k| k.icon).unwrap_or_default(),
                 devices: kept.map(|k| k.devices),
+                linked,
                 // Only while its code is good: not once used, or past its
                 // ten minutes.
                 offer: (sharing.link.as_ref())

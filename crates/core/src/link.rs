@@ -427,9 +427,10 @@ where
     Err(why.to_owned())
 }
 
-/// What `server` says to a device let in with `scope`, as it is: to be
+/// What `server` says to `device`, let in with `scope`, as it is: to be
 /// filled in with what the link resumes.
-fn welcome(server: &Server, scope: Scope) -> Welcome {
+fn welcome(server: &Server, device: &str, scope: Scope) -> Welcome {
+    let kept = server.access().device(device);
     Welcome {
         boot: server.outbox().boot,
         name: server_name(server.home()),
@@ -443,6 +444,8 @@ fn welcome(server: &Server, scope: Scope) -> Welcome {
         },
         back: None,
         scope,
+        label: kept.as_ref().map(|d| d.label.clone()),
+        until: kept.and_then(|d| d.until),
     }
 }
 
@@ -506,10 +509,21 @@ impl Drop for Forward {
 const CARRIED: usize = 64;
 
 /// Bring the port `there` of the server `way` here, coming in with the key
-/// kept as `kept`: at the same port where it is free, else at another.
-pub fn forward(way: Way, kept: String, there: u16) -> Result<Forward, String> {
+/// kept as `kept`: at the same port where it is free, else from
+/// `first_port` upward where given, else at a port of the system's choosing.
+pub fn forward(way: Way, kept: String, there: u16, first_port: u16) -> Result<Forward, String> {
     let rt = crate::acp::runtime();
+    let bind_range = || {
+        (first_port > 0)
+            .then(|| {
+                (first_port..=first_port.saturating_add(63))
+                    .find_map(|p| std::net::TcpListener::bind(("127.0.0.1", p)).ok())
+            })
+            .flatten()
+            .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::AddrInUse))
+    };
     let bound = std::net::TcpListener::bind(("127.0.0.1", there))
+        .or_else(|_| bind_range())
         .or_else(|_| std::net::TcpListener::bind(("127.0.0.1", 0)))
         .and_then(|l| l.set_nonblocking(true).map(|()| l))
         .map_err(|e| format!("No port here to bring {there} to: {e}"))?;
@@ -634,6 +648,15 @@ fn cut(why: Turned) -> String {
 /// A WebSocket upgraded from a connection to where u0 listens.
 type Upgraded = Socket<hyper_util::rt::TokioIo<hyper::upgrade::Upgraded>>;
 
+/// Marks a desk link as active on `server` until dropped.
+struct Linked<'a>(&'a Server, String);
+
+impl Drop for Linked<'_> {
+    fn drop(&mut self) {
+        self.0.set_desk_linked(&self.1, false);
+    }
+}
+
 /// One desk's link: its hello, then what it asks and what it is told.
 async fn serve(
     server: &Arc<Server>,
@@ -663,6 +686,13 @@ async fn serve(
         return refuse(ws, &why).await;
     }
     let admitted = server.access().admit(&hello, &nonce).await;
+    let _linked = match (&admitted, hello.then) {
+        (Ok(a), Then::Desk) => {
+            server.set_desk_linked(&a.key, true);
+            Some(Linked(server, a.key.clone()))
+        }
+        _ => None,
+    };
     // Its device is now paired, or last here now, or begins to wait:
     // Settings › Devices shows it so, wherever it is open. One turned
     // away, or that waits still, changed nothing, and is told to no one.
@@ -697,7 +727,7 @@ async fn serve(
     let mut ws =
         WebSocketStream::from_raw_socket(ws.into_inner(), role, Some(server_config(false))).await;
     if hello.then == Then::Tools {
-        let welcome = welcome(server, scope);
+        let welcome = welcome(server, &device, scope);
         let text = serde_json::to_string(&welcome).expect("a welcome serializes");
         ws.send(Message::text(text))
             .await
@@ -715,7 +745,7 @@ async fn serve(
             Ok(near) => near,
             Err(e) => return refuse(ws, &format!("Nothing answers on port {port}: {e}")).await,
         };
-        let welcome = welcome(server, scope);
+        let welcome = welcome(server, &device, scope);
         let text = serde_json::to_string(&welcome).expect("a welcome serializes");
         ws.send(Message::text(text))
             .await
@@ -740,7 +770,7 @@ async fn serve(
         resumed,
         said: at,
         back,
-        ..welcome(server, scope)
+        ..welcome(server, &device, scope)
     };
     let text = serde_json::to_string(&welcome).expect("a welcome serializes");
     let mut ping = tokio::time::interval(PING);
@@ -1018,6 +1048,7 @@ fn hello(
         pair,
         since,
         then,
+        version: Some(crate::update::this_build()),
     }
 }
 
@@ -1663,7 +1694,7 @@ mod tests {
         });
         let mine = kept();
         pair_as(&server, port, &mine, crate::access::Grant::default());
-        let forwarded = forward(here(port), mine, there).unwrap();
+        let forwarded = forward(here(port), mine, there, 0).unwrap();
         let connect = || {
             let c = std::net::TcpStream::connect(("127.0.0.1", forwarded.port)).unwrap();
             c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
@@ -1715,8 +1746,13 @@ mod tests {
         };
         let mine = kept();
         pair_as(&server, port, &mine, crate::access::Grant::default());
-        let forwarded = forward(here(port), mine, there).unwrap();
+        let forwarded = forward(here(port), mine, there, 41873).unwrap();
         assert_ne!(forwarded.port, there, "taken here, so another");
+        assert!(
+            (41873..=41936).contains(&forwarded.port),
+            "bound in configured range: {}",
+            forwarded.port
+        );
         assert_eq!(ask(&forwarded), "hello from there");
         let watcher = kept();
         let read = crate::access::Grant {
@@ -1724,7 +1760,7 @@ mod tests {
             ..crate::access::Grant::default()
         };
         pair_as(&server, port, &watcher, read);
-        let refused = forward(here(port), watcher, there).unwrap();
+        let refused = forward(here(port), watcher, there, 0).unwrap();
         assert_eq!(ask(&refused), "", "nothing is carried for a watcher");
     }
 
@@ -1864,7 +1900,7 @@ esac; done"#;
         let mine = kept();
         pair_as(&server, port, &mine, crate::access::Grant::default());
         let public = key(&mine).public();
-        let forwarded = forward(here(port), mine.clone(), there).unwrap();
+        let forwarded = forward(here(port), mine.clone(), there, 0).unwrap();
         let mut c = std::net::TcpStream::connect(("127.0.0.1", forwarded.port)).unwrap();
         c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
         c.write_all(b"hello").unwrap();
@@ -2316,5 +2352,59 @@ esac; done"#;
         assert_eq!(outbox.resume(Some((outbox.boot + 1, 2))), (3, false));
         outbox.push(&big);
         assert_eq!(outbox.resume(Some((outbox.boot, 0))), (4, false));
+    }
+
+    #[test]
+    fn welcome_reports_the_devices_label_and_expiry_and_shared_tracks_linked_desks() {
+        use crate::{
+            access::{Grant, Scope},
+            share::Share,
+        };
+        let home = tempfile::tempdir().unwrap();
+        let (server, shared) = sharing(home.path());
+        server.share(Share::Serve(true));
+        let Some(Ok(port)) = told(&shared).serving else {
+            panic!("listening")
+        };
+        server.share(Share::Link(
+            Grant {
+                scope: Scope::Read,
+                days: Some(7),
+                ..Grant::default()
+            },
+            None,
+        ));
+        let _ = told(&shared);
+        assert!(server.offered().is_some());
+        server.share(Share::Withdraw);
+        let withdrawn = told(&shared);
+        assert!(withdrawn.offer.is_none() && withdrawn.serving.is_some());
+
+        let guest = kept();
+        let pubkey = key(&guest).public();
+        pair_as(
+            &server,
+            port,
+            &guest,
+            Grant {
+                scope: Scope::Read,
+                days: Some(7),
+                ..Grant::default()
+            },
+        );
+        while shared.try_recv().is_ok() {}
+        let (link, welcome, ..) = desk(port, key(&guest), None).unwrap();
+        assert_eq!(welcome.scope, Scope::Read);
+        assert_eq!(welcome.label.as_deref(), Some(host_name().as_str()));
+        assert!(welcome.until.is_some());
+        let live = told(&shared);
+        assert_eq!(live.linked, [pubkey]);
+        drop(link);
+        std::thread::sleep(Duration::from_millis(100));
+        server.share(Share::Look);
+        let after = std::iter::from_fn(|| shared.recv_timeout(Duration::from_millis(200)).ok())
+            .last()
+            .unwrap();
+        assert!(after.linked.is_empty());
     }
 }

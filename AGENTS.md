@@ -315,20 +315,22 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   workflows so. Workflows are your JSON files in
   `~/.u0/workflows/`, read as they are listed or started; their runs
   are the server's, in `~/.u0/runs.json`.
-- A secret (an agent's variable marked so, a forge's token) is kept in the
+- A secret (an agent's variable marked so, a forge's token, a named secret
+  reference's typed value under `ref/<name>`) is kept in the
   macOS Keychain under the service `u0 <home>`, never in a file (the
   server's TLS certificate and key for a network too, `share/tls`);
-  `settings.json` names it only.
+  `settings.json` and `~/.u0/secrets.json` (project-scoped secret
+  references, `deny_unknown_fields`) name them or `op://` pointers only.
 - `~/.u0/devices.json` (on the server) holds the devices paired and
   how u0 is shared (listening, on which port, on which networks
   (`bind`: on the port after it, with TLS), the tunnel, a named
-  tunnel's token).
-  Each device is `{label, key, scope, until, waiting, paired, seen}`:
+  tunnel's token, `icon`).
+  Each device is `{label, key, scope, until, grant_days, version, waiting, paired, seen}`:
   `key` the public half of its Ed25519 key as `authorized_keys` writes
   it (`ssh-ed25519 AAAA…`), shown by its `SHA256:` fingerprint; `scope`
   `full` or `read`; `until` when its access ends; `waiting` until you
   let it in. `~/.u0/servers.json` (on a desk)
-  holds the servers paired with (`{name, host, key, pin}`, `key` the public
+  holds the servers paired with (`{name, host, key, pin, paired_at}`, `key` the public
   half this Mac made for it, `pin` the SHA-256 of the certificate of one
   reached on a network) and whether this Mac controls others
   (`control`: on, the window holds each of them beside this Mac's own;

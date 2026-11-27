@@ -7,7 +7,8 @@
 //! may call, a folder only where `Tools::folder` lets it. What acts, or
 //! asks you, is for an agent in a session of u0's, asked of you first
 //! in its thread; one that
-//! acts on a session it names (says something in it, stops its turn) is
+//! acts on a session it names (says something in it, stops its turn) or
+//! starts a delegated thread (`delegate_task`) is
 //! also for an agent outside u0 where your settings let it, or on a
 //! device paired of full scope, asked of you first in that session. Each
 //! is asked on the same card an agent's own question is, unless you
@@ -540,10 +541,67 @@ impl Tools {
     /// said at the end.
     #[tool]
     async fn delegate_task(&self, Parameters(ask): Parameters<Delegate>) -> Result<String, String> {
-        let meta = self
-            .allowed("delegate_task", format!("Hand off “{}”", ask.title), &ask)
+        let (agent, project, session, same) = if let Some((id, meta)) = self.session() {
+            self.ask(
+                "delegate_task",
+                format!("Hand off “{}”", ask.title),
+                &ask,
+                &meta.agent,
+                id,
+                false,
+            )
             .await?;
-        let agent = ask.agent.unwrap_or(meta.agent);
+            (
+                ask.agent.unwrap_or(meta.agent),
+                ask.project.unwrap_or(meta.project),
+                None,
+                false,
+            )
+        } else {
+            let settings = Settings::load(&self.shared.home).0;
+            let who = match self.caller() {
+                Some(Caller::Outside) if settings.outside_acts => "An agent outside u0",
+                Some(Caller::Device(Scope::Full)) => "An agent on another device",
+                Some(Caller::Session(_, None)) => return Err(OUTSIDE.into()),
+                _ => return Err(READS.into()),
+            };
+            let project = ask
+                .project
+                .clone()
+                .or_else(|| settings.folders.first().cloned())
+                .ok_or("Name the project folder")?;
+            if !crate::access::within(&self.shared.home, &[&project]) {
+                return Err(NOT_HERE.into());
+            }
+            let agent = ask
+                .agent
+                .clone()
+                .or_else(|| settings.of(&project).default_agent)
+                .or_else(|| settings.enabled.first().cloned())
+                .ok_or("Name the agent")?;
+            let meta = self.shared.open_idle(&agent, &project, &ask.title).await?;
+            let id = meta.id.expect("opened idle session has id");
+            let allowed = self
+                .ask(
+                    "delegate_task",
+                    format!("{who}: Start “{}”", ask.title),
+                    &ask,
+                    &agent,
+                    id.clone(),
+                    true,
+                )
+                .await;
+            if let Err(why) = allowed {
+                self.shared.forget_idle(&agent, &id);
+                return Err(why);
+            }
+            if ask.worktree {
+                self.shared.forget_idle(&agent, &id);
+                (agent, project, None, false)
+            } else {
+                (agent, project, Some(id), true)
+            }
+        };
         let task = Task {
             id: 0,
             title: ask.title,
@@ -551,13 +609,13 @@ impl Tools {
             agent: agent.clone(),
             model: None,
             mode: None,
-            project: ask.project.unwrap_or(meta.project),
+            project,
             schedule: Schedule::Every(0),
             paused: false,
-            same: false,
+            same,
             worktree: ask.worktree,
             workflow: None,
-            session: None,
+            session,
             next: None,
             last: None,
             runs: 0,
@@ -1356,6 +1414,8 @@ esac; done"#;
             "delegate_task",
             &json!({"prompt": "Do it", "title": "It", "agent": "a", "project": "/p"}),
         );
+        assert_eq!(client.result(), (READS.to_owned(), true));
+        client.call("open_pr", &json!({"title": "PR", "body": "Body"}));
         assert_eq!(client.result(), (OUTSIDE.to_owned(), true));
         // Neither a key it was not given, nor the key itself in place of
         // a proof of it, lets anything in.
@@ -1559,7 +1619,7 @@ esac; done"#;
         client.call("interrupt_session", &json!({"agent": "a", "session": "s1"}));
         assert_eq!(client.result(), (READS.to_owned(), true));
         // Let: asked of you in the session it acts on, and turned down.
-        let settings = json!({"enabled": [], "folders": [], "outside_acts": true});
+        let settings = json!({"enabled": ["a"], "folders": [home.path()], "outside_acts": true});
         std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
         let card = |next: &dyn Fn() -> Event| loop {
             if let Event::Said { event, .. } = next()
@@ -1607,6 +1667,19 @@ esac; done"#;
             ends.iter()
                 .any(|m| m["what"] == json!({"turn_ended": "end_turn"})
                     && m["session"] == json!("s1"))
+        );
+        // delegate_task from outside asks once-only too, and runs when allowed.
+        client.call(
+            "delegate_task",
+            &json!({"title": "Fix picker", "prompt": "Fix the date picker"}),
+        );
+        let (request, asked) = card(&next);
+        let offered: Vec<&str> = (asked.options.iter()).map(|o| &*o.option_id.0).collect();
+        assert_eq!(offered, ["once", "no"]);
+        server.handle(answer(request, "once"));
+        assert_eq!(
+            client.result(),
+            ("Thread s1 of a answered:\n\nCarried on.".to_owned(), false)
         );
     }
 

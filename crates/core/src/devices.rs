@@ -231,10 +231,60 @@ pub fn list() -> (Vec<Device>, Vec<String>) {
     (found, missing)
 }
 
+/// Version of a simulator or device helper tool on this machine.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolStatus {
+    pub name: String,
+    pub installed: Option<String>,
+}
+
+/// Inspect helper tools used to drive simulators and emulators here.
+pub fn tools() -> Vec<ToolStatus> {
+    let xcode = xcrun().and_then(|x| {
+        text(&x, &["xcodebuild", "-version"])
+            .ok()
+            .and_then(|s| s.lines().next().map(|l| l.trim().to_owned()))
+    });
+    let axe_ver = axe().and_then(|a| {
+        text(&a, &["--version"])
+            .ok()
+            .and_then(|s| s.lines().next().map(|l| l.trim().to_owned()))
+    });
+    let adb_ver = sdk("platform-tools", "adb").and_then(|a| {
+        text(&a, &["--version"]).ok().and_then(|s| {
+            let first = s.lines().next()?.trim();
+            Some(
+                first
+                    .strip_prefix("Android Debug Bridge version ")
+                    .unwrap_or(first)
+                    .to_owned(),
+            )
+        })
+    });
+    vec![
+        ToolStatus {
+            name: "Xcode".into(),
+            installed: xcode,
+        },
+        ToolStatus {
+            name: "AXe (Homebrew)".into(),
+            installed: axe_ver,
+        },
+        ToolStatus {
+            name: "Android platform-tools (adb)".into(),
+            installed: adb_ver,
+        },
+    ]
+}
+
 /// The devices here, and what is missing, as the server says them.
 pub fn listed() -> crate::proto::Event {
     let (found, missing) = list();
-    crate::proto::Event::Devices { found, missing }
+    crate::proto::Event::Devices {
+        found,
+        missing,
+        tools: tools(),
+    }
 }
 
 fn sim_os(runtime: &str, name: &str) -> String {

@@ -208,7 +208,14 @@ impl Desk {
         };
         match m.forwards.iter().find(|f| f.there == there) {
             Some(f) => cx.open_url(&here_at(&address, f.port)),
-            None => crate::hub::forward(host, server, there, address, self.tx.clone()),
+            None => crate::hub::forward(
+                host,
+                server,
+                there,
+                self.settings.forward_port,
+                address,
+                self.tx.clone(),
+            ),
         }
     }
 

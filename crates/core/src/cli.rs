@@ -361,6 +361,8 @@ fn pair_window(home: &Path) -> Result<(), String> {
             key: key.public(),
             scope: access::Scope::Full,
             until: None,
+            grant_days: None,
+            version: None,
             waiting: false,
             paired: now,
             seen: now,
@@ -374,6 +376,7 @@ fn pair_window(home: &Path) -> Result<(), String> {
                 host: format!("127.0.0.1:{port}"),
                 key: key.public(),
                 pin: None,
+                paired_at: Some(now),
             },
             &key,
         )

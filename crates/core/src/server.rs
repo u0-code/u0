@@ -721,6 +721,66 @@ impl Server {
                 });
             }
             Call::Forges => self.off(|| Event::Forges(crate::forge::seen())),
+            Call::CheckForge(host) => {
+                let send = self.shared.send.clone();
+                self.off(move || {
+                    let checked = crate::forge::check_login(host);
+                    let mut list = crate::forge::seen();
+                    match checked {
+                        Ok(login) => {
+                            if let Some(s) = list.iter_mut().find(|s| s.host == host) {
+                                s.login = Some(login.clone());
+                            }
+                            send(Event::Notice(Ok(format!(
+                                "Signed in to {} as {login}",
+                                host.name()
+                            ))));
+                        }
+                        Err(why) => send(Event::Notice(Err((
+                            format!("{} sign-in check failed", host.name()),
+                            why,
+                        )))),
+                    }
+                    Event::Forges(list)
+                });
+            }
+            Call::Secrets => {
+                let home = self.shared.home.clone();
+                self.off(move || Event::Secrets {
+                    providers: crate::secrets::providers(),
+                    refs: crate::secrets::load_refs(&home),
+                });
+            }
+            Call::SetSecretRef { entry, value } => {
+                let (home, send) = (self.shared.home.clone(), self.shared.send.clone());
+                self.off(move || {
+                    if let Err(why) = crate::secrets::set_ref(&home, entry, value.as_deref()) {
+                        send(Event::Notice(Err((
+                            "Couldn't save secret reference".into(),
+                            why,
+                        ))));
+                    }
+                    Event::Secrets {
+                        providers: crate::secrets::providers(),
+                        refs: crate::secrets::load_refs(&home),
+                    }
+                });
+            }
+            Call::DropSecretRef(name) => {
+                let (home, send) = (self.shared.home.clone(), self.shared.send.clone());
+                self.off(move || {
+                    if let Err(why) = crate::secrets::drop_ref(&home, &name) {
+                        send(Event::Notice(Err((
+                            "Couldn't remove secret reference".into(),
+                            why,
+                        ))));
+                    }
+                    Event::Secrets {
+                        providers: crate::secrets::providers(),
+                        refs: crate::secrets::load_refs(&home),
+                    }
+                });
+            }
             Call::Devices => self.off(crate::devices::listed),
             Call::Device { device, act } => {
                 let send = self.shared.send.clone();

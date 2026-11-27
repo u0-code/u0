@@ -611,6 +611,53 @@ impl Shared {
         });
     }
 
+    /// A new idle session opened for `agent` in `project`, kept in the index
+    /// and announced to the desk so a permission card can be shown in it
+    /// before any prompt or worktree runs.
+    pub(super) async fn open_idle(
+        &self,
+        agent_id: &str,
+        project: &std::path::Path,
+        title: &str,
+    ) -> Result<Meta, String> {
+        let running = self.agent(agent_id).await?;
+        let task = Task {
+            id: 0,
+            title: title.to_owned(),
+            prompt: String::new(),
+            agent: agent_id.to_owned(),
+            model: None,
+            mode: None,
+            project: project.to_path_buf(),
+            schedule: tasks::Schedule::Every(0),
+            paused: false,
+            same: false,
+            worktree: false,
+            workflow: None,
+            session: None,
+            next: None,
+            last: None,
+            runs: 0,
+        };
+        let meta = self.open(&running, &task).await?;
+        (self.send)(Event::TaskTurn {
+            meta: Box::new(meta.clone()),
+            record: None,
+            ended: Some(Ok(StopReason::EndTurn)),
+        });
+        Ok(meta)
+    }
+
+    /// Drop a session opened for an approval that was rejected.
+    pub(super) fn forget_idle(&self, agent: &str, id: &SessionId) {
+        self.change_index(|index| {
+            index
+                .sessions
+                .retain(|m| m.agent != agent || m.id.as_ref() != Some(id));
+        });
+        self.records.forget(agent, id);
+    }
+
     /// A new session for a run of `task`: in its project, or a worktree
     /// of it made for this run; its model and mode chosen; kept in the
     /// index, above the rest.

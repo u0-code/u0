@@ -440,6 +440,18 @@ pub enum Call {
     },
     /// What is known of each forge here (`forge::seen`).
     Forges,
+    /// Check who is signed in to this forge, and list the forges again.
+    CheckForge(crate::forge::Host),
+    /// Secret providers and named secret references on this machine.
+    Secrets,
+    /// Save or update a named secret reference, storing `value` in the
+    /// Keychain when applicable.
+    SetSecretRef {
+        entry: crate::secrets::SecretRef,
+        value: Option<String>,
+    },
+    /// Remove a named secret reference and any Keychain item for it.
+    DropSecretRef(String),
     /// Open the terminal `id` in `dir`, running
     /// `shell` (your login shell when none), `size` rows by columns, `first`
     /// typed into it; one open already is said again.
@@ -621,6 +633,10 @@ impl Call {
             | Self::AnswerFlow { .. }
             | Self::ResumeFlow(_)
             | Self::CancelFlow(_)
+            | Self::CheckForge(_)
+            | Self::Secrets
+            | Self::SetSecretRef { .. }
+            | Self::DropSecretRef(_)
             | Self::NewToolsKey => return None,
         })
     }
@@ -835,6 +851,8 @@ pub enum Event {
     Devices {
         found: Vec<crate::devices::Device>,
         missing: Vec<String>,
+        #[serde(default)]
+        tools: Vec<crate::devices::ToolStatus>,
     },
     /// What the device `id` shows, as a PNG or a JPEG; or why it cannot be
     /// read.
@@ -964,6 +982,11 @@ pub enum Event {
     Tidied(String),
     /// What is known of each forge here.
     Forges(Vec<crate::forge::Seen>),
+    /// Secret providers and named secret references here.
+    Secrets {
+        providers: Vec<crate::secrets::SecretProvider>,
+        refs: Result<Vec<crate::secrets::SecretRef>, String>,
+    },
     /// The terminal `id` opened, called what it is called in its tab, or
     /// why it did not.
     TermOpened {
@@ -1000,6 +1023,10 @@ impl Event {
     pub fn for_reader(&self) -> Option<Self> {
         match self {
             Self::Settings(settings) => Some(Self::Settings(Box::new(settings.for_reader()))),
+            Self::Secrets { .. } => Some(Self::Secrets {
+                providers: Vec::new(),
+                refs: Ok(Vec::new()),
+            }),
             Self::Tasks(Ok(tasks)) => Some(Self::Tasks(Ok((tasks.iter().cloned())
                 .map(|mut t| {
                     if let tasks::Schedule::Hook(hook) = &mut t.schedule {
@@ -1065,6 +1092,9 @@ pub struct Hello {
     pub since: Option<(u64, u64)>,
     /// What the link is for.
     pub then: Then,
+    /// Build version of the desk connecting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 /// What a link is for, once its device is let in.
@@ -1117,6 +1147,12 @@ pub struct Welcome {
     pub back: Option<Result<String, String>>,
     /// What this device may do there.
     pub scope: crate::access::Scope,
+    /// What this device called itself when pairing with this server.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// When this device's access ends (seconds since 1970); none, until revoked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<u64>,
 }
 
 /// What a session loaded or resumed starts with.
@@ -1335,6 +1371,18 @@ mod tests {
                 })),
             },
             Call::Forges,
+            Call::CheckForge(crate::forge::Host::GitHub),
+            Call::Secrets,
+            Call::SetSecretRef {
+                entry: crate::secrets::SecretRef {
+                    name: "STRIPE_KEY".into(),
+                    source: crate::secrets::SecretSource::Keychain,
+                    reference: None,
+                    projects: vec![dir.clone()],
+                },
+                value: Some("sk_test".into()),
+            },
+            Call::DropSecretRef("STRIPE_KEY".into()),
             Call::Devices,
             Call::Device {
                 device: crate::devices::Device {
@@ -1516,7 +1564,22 @@ mod tests {
                 host: crate::forge::Host::GitLab,
                 cli: Some("glab 1.50".into()),
                 token: true,
+                login: Some("octocat".into()),
             }]),
+            Event::Secrets {
+                providers: vec![crate::secrets::SecretProvider {
+                    id: "keychain".into(),
+                    name: "macOS Keychain".into(),
+                    detail: "Built in".into(),
+                    connected: true,
+                }],
+                refs: Ok(vec![crate::secrets::SecretRef {
+                    name: "STRIPE_KEY".into(),
+                    source: crate::secrets::SecretSource::OnePassword,
+                    reference: Some("op://Dev/Stripe/key".into()),
+                    projects: vec![dir.clone()],
+                }]),
+            },
             Event::TermOpened {
                 id: 2,
                 result: Ok("zsh".into()),
@@ -1944,17 +2007,22 @@ mod tests {
             Event::Shared(Box::new(crate::share::Shared {
                 serving: Some(Ok(4317)),
                 tunnel: crate::share::Tunnel::Up("a.trycloudflare.com".into()),
+                tunnel_since: Some(1),
                 named: None,
                 awake: true,
+                icon: crate::access::MachineIcon::Server,
                 devices: Ok(vec![crate::access::Device {
                     label: "laptop".into(),
                     key: "ssh-ed25519 AAAA".into(),
                     scope: crate::access::Scope::Read,
                     until: Some(9),
+                    grant_days: Some(7),
+                    version: Some("0.4.0".into()),
                     waiting: true,
                     paired: 1,
                     seen: 2,
                 }]),
+                linked: vec!["ssh-ed25519 AAAA".into()],
                 offer: Some((1, crate::access::Grant::default())),
                 bind: crate::reach::Bind::Network,
                 routes: Ok(vec![(crate::reach::Route::Lan, "192.168.1.5:4318".into())]),
@@ -1966,6 +2034,10 @@ mod tests {
             Event::Devices {
                 found: Vec::new(),
                 missing: vec!["Xcode, for iOS simulators".into()],
+                tools: vec![crate::devices::ToolStatus {
+                    name: "AXe (Homebrew)".into(),
+                    installed: Some("1.6.0".into()),
+                }],
             },
             Event::Screen {
                 id: "A".into(),

@@ -256,6 +256,7 @@ pub fn forward(
     host: Host,
     server: crate::servers::Server,
     there: u16,
+    first_port: u16,
     address: String,
     tx: Sender,
 ) {
@@ -264,7 +265,7 @@ pub fn forward(
         address,
         result: server
             .reach()
-            .and_then(|(way, key)| link::forward(way, key.kept().to_owned(), there)),
+            .and_then(|(way, key)| link::forward(way, key.kept().to_owned(), there, first_port)),
     });
 }
 

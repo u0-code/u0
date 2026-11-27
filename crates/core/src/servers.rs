@@ -54,6 +54,9 @@ pub struct Server {
     /// and speaks TLS itself (`reach`): that one alone is trusted.
     #[serde(default)]
     pub pin: Option<String>,
+    /// When this Mac paired with it (seconds since 1970).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub paired_at: Option<u64>,
 }
 
 /// Where the private half of the key whose public half is `public` is
@@ -154,6 +157,7 @@ pub async fn pair(
         host: way.host,
         key: key.public(),
         pin: way.pin,
+        paired_at: Some(crate::store::secs(std::time::SystemTime::now())),
     };
     Servers::change(home, |s| s.paired(server, &key))?;
     Ok(paired)
@@ -189,6 +193,7 @@ mod tests {
             host: "studio.example:4317".into(),
             key: "ssh-ed25519 MINE".into(),
             pin: None,
+            paired_at: None,
         };
         let mut servers = Servers {
             servers: vec![mine.clone()],
@@ -227,6 +232,7 @@ mod tests {
             host: "127.0.0.1:1".into(),
             key: key.public(),
             pin: None,
+            paired_at: None,
         };
         let kept = server.clone();
         Servers::change(home.path(), |s| s.paired(kept, &key)).unwrap();

@@ -254,12 +254,15 @@ fn words(search: &str) -> (Option<&'static str>, String) {
 }
 
 /// What is known of a host here: the version of its CLI found on the
-/// PATH, and whether a token of yours is kept for it.
+/// PATH, whether a token of yours is kept for it, and the account login
+/// last checked.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Seen {
     pub host: Host,
     pub cli: Option<String>,
     pub token: bool,
+    #[serde(default)]
+    pub login: Option<String>,
 }
 
 /// What is known of each host here.
@@ -281,8 +284,81 @@ pub fn seen() -> Vec<Seen> {
                     .unwrap_or_else(|| path.display().to_string())
             }),
             token: kept.contains(&host.account()),
+            login: None,
         })
         .collect()
+}
+
+/// Check who is signed in to `host` right now, returning the account login
+/// or why it could not be verified.
+pub fn check_login(host: Host) -> Result<String, String> {
+    let login = match host {
+        Host::GitHub => {
+            if let Ok(gh) = which::which("gh") {
+                let mut cmd = std::process::Command::new(gh);
+                cmd.args(["api", "user", "--jq", ".login"]);
+                if let Some((var, tok)) = Host::token_for("gh") {
+                    cmd.env(var, tok);
+                }
+                let out = cmd.output().map_err(|e| e.to_string())?;
+                if out.status.success() {
+                    let who = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+                    if !who.is_empty() {
+                        return Ok(who);
+                    }
+                }
+            }
+            let v = api(Host::GitHub, "GET", "https://api.github.com/user", None)?;
+            text(&v, "/login")
+        }
+        Host::GitLab => {
+            let v = api(Host::GitLab, "GET", "https://gitlab.com/api/v4/user", None)?;
+            text(&v, "/username")
+        }
+        Host::Bitbucket => {
+            let v = api(
+                Host::Bitbucket,
+                "GET",
+                "https://api.bitbucket.org/2.0/user",
+                None,
+            )?;
+            text(&v, "/username")
+        }
+        Host::Azure => {
+            let v = api(
+                Host::Azure,
+                "GET",
+                "https://app.vssps.visualstudio.com/_apis/profile/profiles/me?api-version=7.1",
+                None,
+            )?;
+            let mail = text(&v, "/emailAddress");
+            if mail.is_empty() {
+                text(&v, "/displayName")
+            } else {
+                mail
+            }
+        }
+        Host::Linear => {
+            let body = serde_json::json!({ "query": "{ viewer { name email } }" });
+            let v = api(
+                Host::Linear,
+                "POST",
+                "https://api.linear.app/graphql",
+                Some(&body),
+            )?;
+            let name = text(&v, "/data/viewer/name");
+            if name.is_empty() {
+                text(&v, "/data/viewer/email")
+            } else {
+                name
+            }
+        }
+    };
+    if login.is_empty() {
+        Err(format!("Not signed in to {}", host.name()))
+    } else {
+        Ok(login)
+    }
 }
 
 /// The agents' own credits, by their address: a co-author line naming one

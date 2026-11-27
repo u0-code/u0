@@ -459,7 +459,8 @@ impl Desk {
             Event::TermClosed { id, busy } => self.terminal_closed(id, busy, cx),
 
             Event::Forges(seen) => self.pages.forges = seen,
-            Event::Devices { found, missing } => self.devices_listed(found, missing),
+            Event::Secrets { .. } => {}
+            Event::Devices { found, missing, .. } => self.devices_listed(found, missing),
             Event::AxeInstalled(result) => self.axe_installed(result),
             Event::Screen { id, picture } => self.device_screen(id, picture),
             Event::Held { folder, held } => {
@@ -799,6 +800,7 @@ impl Desk {
             Event::Sizes(_)
                 | Event::Tidied(_)
                 | Event::Forges(_)
+                | Event::Secrets { .. }
                 | Event::Weighed { .. }
                 | Event::Troubles(_)
                 | Event::Telemetry(_)
