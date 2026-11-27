@@ -22,12 +22,24 @@ const COMMAND_BOX_LEAST: f32 = 32.;
 impl Desk {
     /// The bar over the middle (`TitleBar` + thread/page header).
     pub(crate) fn topbar(&self, faces: &Faces, left_shown: bool, cx: &mut Context<Self>) -> Div {
-        // Where the command box is, once it is drawn; nowhere on a page
-        // without it.
-        self.palette.under.set(None);
-        let mut bar = ui::title_bar(!left_shown);
+        let bar = ui::title_bar(!left_shown);
+        // The title side and the buttons' side, each as wide as the other,
+        // the command box between them (`CommandBox`).
+        let mut left = div()
+            .flex()
+            .flex_1()
+            .flex_basis(px(0.))
+            .items_center()
+            .gap(px(8.));
+        let mut right = div()
+            .flex()
+            .flex_1()
+            .flex_basis(px(0.))
+            .justify_end()
+            .items_center()
+            .gap(px(8.));
         if !left_shown {
-            bar = bar.child(
+            left = left.child(
                 ui::icon_button(
                     "show-sidebar",
                     "sidebar",
@@ -46,27 +58,12 @@ impl Desk {
             .flex_shrink_1()
         };
         if !matches!(self.page, Page::Thread | Page::Workflows | Page::Usage) {
-            bar = bar.child(
+            left = left.child(
                 ui::icon_button("back", "chevron-left", crate::tr("Back · Esc")).on_click(
                     cx.listener(|this, _, window, cx| this.open_page(Page::Thread, window, cx)),
                 ),
             );
         }
-        // The title side and the buttons' side, each as wide as the other,
-        // the command box between them (`CommandBox`).
-        let mut left = div()
-            .flex()
-            .flex_1()
-            .flex_basis(px(0.))
-            .items_center()
-            .gap(px(8.));
-        let mut right = div()
-            .flex()
-            .flex_1()
-            .flex_basis(px(0.))
-            .justify_end()
-            .items_center()
-            .gap(px(8.));
         match &self.page {
             Page::Thread => {
                 if let Some(m) = self.guest_machine() {
@@ -92,21 +89,24 @@ impl Desk {
                     return bar
                         .bg(theme::role(u0ui::tokens::ColorRole::Layer01))
                         .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.))
-                                .text_size(px(12.))
-                                .text_color(theme::role(u0ui::tokens::ColorRole::TextSecondary))
-                                .child(
-                                    u0ui::Icon::named("dns")
-                                        .size_length(px(16.))
-                                        .color(theme::role(u0ui::tokens::ColorRole::IconSecondary))
-                                        .flex_none(),
-                                )
-                                .child(left_label),
+                            left.child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(6.))
+                                    .text_size(px(12.))
+                                    .text_color(theme::role(u0ui::tokens::ColorRole::TextSecondary))
+                                    .child(
+                                        u0ui::Icon::named("dns")
+                                            .size_length(px(16.))
+                                            .color(theme::role(
+                                                u0ui::tokens::ColorRole::IconSecondary,
+                                            ))
+                                            .flex_none(),
+                                    )
+                                    .child(left_label),
+                            ),
                         )
-                        .child(div().flex_1())
                         .child(
                             ui::text(faces, crate::tr_with("u0 on %{name}", &[("name", &on_mac)]))
                                 .text_size(px(12.))
@@ -216,10 +216,11 @@ impl Desk {
                     Some(Stage::Failed(_)) => "Stopped",
                     Some(_) => "Installed",
                 };
-                return bar
-                    .child(ui::mark(faces, &self.mark_of(id), 16.))
-                    .child(title(name))
-                    .child(meta(faces, crate::tr(state)));
+                return bar.child(
+                    left.child(ui::mark(faces, &self.mark_of(id), 16.))
+                        .child(title(name))
+                        .child(meta(faces, crate::tr(state))),
+                );
             }
             Page::Forge(kind) => {
                 left = left.child(title(
@@ -248,8 +249,8 @@ impl Desk {
     }
 
     /// The command box: what the palette (⌘K) looks through, and its key;
-    /// a press opens the palette under it. Where it is drawn is kept, for
-    /// the palette to hang from.
+    /// a press opens the palette under it (⌘K). Its middle is kept, for the
+    /// palette to be centred on.
     fn command_box(&self, cx: &mut Context<Self>) -> gpui::Div {
         let desk = cx.entity();
         let at = self.palette.under.clone();
@@ -261,9 +262,12 @@ impl Desk {
             // move the window.
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
             .child(
-                gpui::canvas(move |bounds, _, _| at.set(Some(bounds)), |_, (), _, _| {})
-                    .absolute()
-                    .size_full(),
+                gpui::canvas(
+                    move |bounds, _, _| at.set(Some(bounds.center().x)),
+                    |_, (), _, _| {},
+                )
+                .absolute()
+                .size_full(),
             )
             .child(
                 u0ui::u0::shell::CommandBox::new(
@@ -273,9 +277,7 @@ impl Desk {
                 .shortcut(crate::keys::written(&crate::keys::keys_of(cx, "palette")))
                 .open(self.palette.open)
                 .on_click(move |window, cx| {
-                    desk.update(cx, |d, cx| {
-                        d.open_palette(crate::desk::palette::Through::Everything, window, cx);
-                    });
+                    desk.update(cx, |d, cx| d.toggle_palette(window, cx));
                 }),
             )
     }

@@ -133,9 +133,10 @@ pub struct Palette {
     /// What it looked through before it was turned to this, while open:
     /// where Escape goes back to.
     pub from: Option<Through>,
-    /// Where the command box in the bar over the thread was drawn last,
-    /// for the palette to hang from; none on a page without it.
-    pub under: std::rc::Rc<std::cell::Cell<Option<gpui::Bounds<gpui::Pixels>>>>,
+    /// The middle of the command box in the bar over the thread, as it
+    /// was last drawn, for the palette to be centred on; none in a frame
+    /// without it.
+    pub under: std::rc::Rc<std::cell::Cell<Option<gpui::Pixels>>>,
 }
 
 impl Palette {
@@ -1295,19 +1296,17 @@ impl Desk {
 /// The palette's width.
 const WIDTH: gpui::Pixels = px(640.);
 
-/// Where the palette hangs in a window `view` wide: 4px under the command
-/// box, centred on it as far as the window lets it (the dialog is centred
-/// in the window, so the shift from there); with no box, under the bar.
-fn hung(
-    under: Option<gpui::Bounds<gpui::Pixels>>,
-    view: gpui::Pixels,
-) -> (gpui::Pixels, gpui::Pixels) {
-    let Some(at) = under else {
-        return (px(super::TOPBAR + 4.), px(0.));
+/// Where the palette hangs in a window `view` wide: 2px under the bar
+/// (`Palette` board: `top: 40px`), centred on the command box at `under`
+/// as far as the window lets it (the dialog is centred in the window, so
+/// the shift from there); with no box, in the middle.
+fn hung(under: Option<gpui::Pixels>, view: gpui::Pixels) -> (gpui::Pixels, gpui::Pixels) {
+    let top = px(super::TOPBAR + 2.);
+    let Some(x) = under else {
+        return (top, px(0.));
     };
     let most = ((view - WIDTH) / 2. - px(8.)).max(px(0.));
-    let shift = (at.center().x - view / 2.).clamp(-most, most);
-    (at.bottom() + px(4.), shift)
+    (top, (x - view / 2.).clamp(-most, most))
 }
 
 /// How words are looked for (⇧⌘F): in their case, whole, as a pattern;
@@ -1559,21 +1558,14 @@ mod tests {
 
     #[test]
     fn the_palette_hangs_under_the_command_box_centred_on_it_within_the_window() {
-        let at = |x: f32, w: f32| {
-            Some(gpui::Bounds::new(
-                gpui::point(px(x), px(5.)),
-                gpui::size(px(w), px(28.)),
-            ))
-        };
-        // A box centred at 848 in a 1440 window: 128 right, 4 under it.
-        assert_eq!(hung(at(648., 400.), px(1440.)), (px(37.), px(128.)));
+        // The board's palette: 40px down, under the 38px bar.
+        let top = px(40.);
+        // A box centred at 848 in a 1440 window: 128 right of the middle.
+        assert_eq!(hung(Some(px(848.)), px(1440.)), (top, px(128.)));
         // Near the edge, as far as the window lets it.
-        assert_eq!(hung(at(900., 100.), px(1000.)), (px(37.), px(172.)));
-        // No box: under the bar, in the middle.
-        assert_eq!(
-            hung(None, px(1440.)),
-            (px(super::super::TOPBAR + 4.), px(0.))
-        );
+        assert_eq!(hung(Some(px(950.)), px(1000.)), (top, px(172.)));
+        // No box: at the same height, in the middle.
+        assert_eq!(hung(None, px(1440.)), (top, px(0.)));
     }
 
     #[test]
