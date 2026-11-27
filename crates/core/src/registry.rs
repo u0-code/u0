@@ -43,8 +43,14 @@ pub struct Registry {
 }
 
 impl Registry {
-    /// Note which of its agents' logos `home` holds.
+    /// Note which of its agents' logos `home` holds, and name each agent
+    /// the way u0 shows it ([`NAMES`]).
     fn with_logos(mut self, home: &Path) -> Self {
+        for e in &mut self.agents {
+            if let Some((_, name)) = NAMES.iter().find(|(id, _)| *id == e.id) {
+                (*name).clone_into(&mut e.name);
+            }
+        }
         self.logos = (self.agents.iter())
             .filter(|e| icon_path(home, &e.id).is_file())
             .map(|e| e.id.clone())
@@ -52,6 +58,10 @@ impl Registry {
         self
     }
 }
+
+/// The agents u0 names otherwise than the registry: it lists Claude Code's
+/// adapter as "Claude Agent", and what that runs is your `claude`.
+const NAMES: [(&str, &str); 1] = [("claude-acp", "Claude Code")];
 
 /// One agent the registry lists.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -756,6 +766,18 @@ mod tests {
         std::fs::write(icon_path(home, "a"), "<svg/>").unwrap();
         let logos = kept(home).expect("kept").logos;
         assert_eq!(logos, ["a".to_owned()].into());
+    }
+
+    #[test]
+    fn claude_code_is_named_claude_code_whatever_the_registry_calls_it() {
+        let home = tempfile::tempdir().unwrap();
+        let home = home.path();
+        std::fs::write(
+            home.join("registry.json"),
+            r#"{"agents":[{"id":"claude-acp","name":"Claude Agent","version":"1","distribution":{}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(kept(home).expect("kept").agents[0].name, "Claude Code");
     }
 
     #[test]

@@ -1207,8 +1207,9 @@ impl Desk {
         } else {
             theme::faint()
         };
+        // The agent is its logo at the head of the line; its name is in the tip.
+        let has_meta = meta_override.is_some() || !(s.state == State::Draft && s.items.is_empty());
         let meta_text = meta_override.or_else(|| self.thread_meta_line(s));
-        let has_meta = meta_text.as_ref().is_some_and(|m| !m.is_empty());
 
         let title_str = s.shown_title().to_owned();
         let title_color = if highlighted || unread {
@@ -1367,14 +1368,25 @@ impl Desk {
                         .min_w(px(0.))
                         .gap(px(2.))
                         .child(title_el)
-                        .children(meta_text.filter(|m| !m.is_empty()).map(|m| {
-                            ui::text(faces, m)
-                                .min_w(px(0.))
-                                .truncate()
-                                .text_size(px(crate::style::CAPTION))
-                                .line_height(px(16.))
-                                .text_color(meta_color)
-                        })),
+                        .when(has_meta, |d| {
+                            d.child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(6.))
+                                    .min_w(px(0.))
+                                    .h(px(16.))
+                                    .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 12.))
+                                    .children(meta_text.filter(|m| !m.is_empty()).map(|m| {
+                                        ui::text(faces, m)
+                                            .min_w(px(0.))
+                                            .truncate()
+                                            .text_size(px(crate::style::CAPTION))
+                                            .line_height(px(16.))
+                                            .text_color(meta_color)
+                                    })),
+                            )
+                        }),
                 )
                 .child(
                     div()
@@ -1453,12 +1465,6 @@ impl Desk {
             return None;
         }
         let mut parts: Vec<String> = Vec::new();
-        let agent = self.name_of(&s.meta.agent);
-        let short_agent = agent
-            .strip_suffix(" Code")
-            .or_else(|| agent.strip_suffix(" CLI"))
-            .unwrap_or(&agent);
-        parts.push(short_agent.to_owned());
         if let Some(server) = self.server_chip(s.host).filter(|_| s.host != Host::HERE) {
             parts.push(server.to_owned());
         }
