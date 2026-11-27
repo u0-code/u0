@@ -96,7 +96,7 @@ pub struct Held {
 
 /// The branch of `folder`, where the session `key` works, whether it is in
 /// a repository (else the repositories it holds), and the scripts its
-/// `ghost.json` names.
+/// `u0.json` names.
 pub fn look(key: u64, folder: PathBuf) -> Event {
     let root = git::root(&folder);
     Event::Looked {
@@ -115,12 +115,12 @@ pub fn look(key: u64, folder: PathBuf) -> Event {
     }
 }
 
-/// Put `script` at `at` in the `ghost.json` of the repository at `dir`, or
+/// Put `script` at `at` in the `u0.json` of the repository at `dir`, or
 /// take the one at `at` away; then the session `key`'s folder, read again.
 pub fn save_script(dir: PathBuf, at: Option<usize>, script: Option<Script>, key: u64) -> Event {
     match scripts::write_script(&dir, at, script) {
         Ok(()) => look(key, dir),
-        Err(why) => Event::Notice(Err(("Couldn't write ghost.json".into(), why))),
+        Err(why) => Event::Notice(Err(("Couldn't write u0.json".into(), why))),
     }
 }
 
@@ -194,7 +194,7 @@ pub fn scope_diff(
 
 /// Make a worktree in `under` for the session `key`, about `about`,
 /// on a branch beginning with `prefix`, its submodules checked out as
-/// `submodules` says; only the files `ghost.json` asks for where it names
+/// `submodules` says; only the files `u0.json` asks for where it names
 /// sparse-checkout patterns.
 pub fn make_worktree(
     dir: &Path,
@@ -225,21 +225,21 @@ pub fn make_worktree(
     Event::Worktree { key, result }
 }
 
-/// The sparse-checkout patterns `ghost.json` points to, both read as the
+/// The sparse-checkout patterns `u0.json` points to, both read as the
 /// commit `from` of the repository at `dir` has them: none where it names
 /// none, and refused where the file it names is not there, rather than
 /// every file checked out.
 fn sparse(dir: &Path, from: &str) -> Result<Option<String>, String> {
-    let Ok(text) = git::show(dir, from, "ghost.json") else {
+    let Ok(text) = git::show(dir, from, "u0.json") else {
         return Ok(None);
     };
     let config: scripts::Config =
-        serde_json::from_str(&text).map_err(|e| format!("ghost.json in {from}: {e}"))?;
+        serde_json::from_str(&text).map_err(|e| format!("u0.json in {from}: {e}"))?;
     config
         .sparse
         .map(|path| {
             git::show(dir, from, &path).map_err(|_| {
-                format!("{path}, which ghost.json names for a sparse checkout, is not in {from}")
+                format!("{path}, which u0.json names for a sparse checkout, is not in {from}")
             })
         })
         .transpose()

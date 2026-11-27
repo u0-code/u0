@@ -1,4 +1,4 @@
-//! The Ghost protocol: what the desk asks of the server (a [`Call`]) and
+//! The u0 protocol: what the desk asks of the server (a [`Call`]) and
 //! what the server says back (an [`Event`]): each answer, and what an agent
 //! says on its own. Serde types and nothing else.
 //!
@@ -72,7 +72,7 @@ pub enum Call {
         also: Vec<PathBuf>,
     },
     /// The sessions `agent` keeps in each of the projects `places` and in
-    /// Ghost's worktrees of them, those in `under`.
+    /// u0's worktrees of them, those in `under`.
     List {
         agent: String,
         places: Vec<PathBuf>,
@@ -161,17 +161,17 @@ pub enum Call {
     SignOut {
         agent: String,
     },
-    /// Ghost's processes, and which are the agents running.
+    /// u0's processes, and which are the agents running.
     Weigh,
     /// Something of telemetry: a count from the window, or what is sent.
     Telemetry(crate::telemetry::Ask),
-    /// Send the process `pid`, one of Ghost's, the signal `signal` (TERM,
+    /// Send the process `pid`, one of u0's, the signal `signal` (TERM,
     /// KILL); answered as a `Notice`.
     Signal {
         pid: u32,
         signal: String,
     },
-    /// The warnings and errors in Ghost's log, newest first.
+    /// The warnings and errors in u0's log, newest first.
     Troubles,
     /// What of each of `agents` is here.
     Here {
@@ -191,7 +191,7 @@ pub enum Call {
     Watch,
     /// Keep these settings in the server's home.
     SaveSettings(Box<crate::settings::Settings>),
-    /// Something of sharing this Ghost with other machines.
+    /// Something of sharing this u0 with other machines.
     Share(crate::share::Share),
     /// These sessions' metas are now as given (each by its agent and id).
     Keep(Vec<store::Meta>),
@@ -247,7 +247,7 @@ pub enum Call {
         key: u64,
         folder: PathBuf,
     },
-    /// Put `script` at `at` in the `ghost.json` of the repository at `dir`
+    /// Put `script` at `at` in the `u0.json` of the repository at `dir`
     /// (none: take the one at `at` away), then look again.
     SaveScript {
         dir: PathBuf,
@@ -415,7 +415,7 @@ pub enum Call {
     /// Install `AXe` with Homebrew, as you asked in the Devices tab; then
     /// the devices, listed again.
     InstallAxe,
-    /// How much each part of Ghost's home takes, its worktrees those in
+    /// How much each part of u0's home takes, its worktrees those in
     /// `worktrees`.
     Sizes {
         worktrees: Vec<PathBuf>,
@@ -462,7 +462,7 @@ pub enum Call {
     /// Say `prompt` to `agent` in its session `session` (its next turn,
     /// the one going on let end first), or in a new one in `project`:
     /// answered, under `tag`, as the session is known and as its turn
-    /// ends, with [`Event::Turned`]. What `ghost thread` asks.
+    /// ends, with [`Event::Turned`]. What `u0 thread` asks.
     Say {
         tag: u64,
         agent: String,
@@ -489,14 +489,14 @@ pub enum Call {
     /// Take the paused run up again, at the step it stopped at.
     ResumeFlow(u64),
     CancelFlow(u64),
-    /// Give agents outside Ghost a new key to its tools (`mcp.json`): the
+    /// Give agents outside u0 a new key to its tools (`mcp.json`): the
     /// old one lets no one in. Answered as a `Notice`.
     NewToolsKey,
 }
 
 impl Call {
     /// Where it only reads, what of the disk it reads (nothing but
-    /// Ghost's own index, records and registry: none); `None` where it
+    /// u0's own index, records and registry: none); `None` where it
     /// changes something, runs a program, or acts as you anywhere. Each
     /// call is named here, so that a new one is placed as it is added: a
     /// device that may only read is let make those that read
@@ -716,13 +716,13 @@ pub enum Event {
         agent: String,
         result: Result<(), String>,
     },
-    /// Ghost's processes (`diagnostics`), and the agents running among
+    /// u0's processes (`diagnostics`), and the agents running among
     /// them: each one's id and process id.
     Weighed {
         agents: Vec<(String, u32)>,
         processes: crate::diagnostics::Processes,
     },
-    /// The warnings and errors in Ghost's log, newest first.
+    /// The warnings and errors in u0's log, newest first.
     Troubles(Vec<String>),
     /// The batch of telemetry that goes next, as JSON, or why none does.
     Telemetry(String),
@@ -736,10 +736,10 @@ pub enum Event {
     /// The index of the sessions kept, or why it does not read: then
     /// nothing is saved over it.
     Index(Result<store::Index, String>),
-    /// How sharing this Ghost stands.
+    /// How sharing this u0 stands.
     Shared(Box<crate::share::Shared>),
     /// The settings as the server keeps them now, changed there by one of
-    /// Ghost's tools (a project added), not by the desk.
+    /// u0's tools (a project added), not by the desk.
     Settings(Box<crate::settings::Settings>),
     /// The scheduled tasks as they are now, or why `tasks.json` does not
     /// read.
@@ -751,7 +751,7 @@ pub enum Event {
         runs: Result<Vec<workflows::Run>, String>,
     },
     /// What an agent asked in the session `session` of `agent` under
-    /// `request` was answered with `option` by one of Ghost's tools, as
+    /// `request` was answered with `option` by one of u0's tools, as
     /// you allowed: the desk marks its card so.
     Answered {
         agent: String,
@@ -759,7 +759,7 @@ pub enum Event {
         request: u64,
         option: agent_client_protocol::v1::schema::PermissionOption,
     },
-    /// A session organised by one of Ghost's tools (pinned, archived,
+    /// A session organised by one of u0's tools (pinned, archived,
     /// renamed, tagged), as the index keeps it now: the desk takes those
     /// of it as if you changed them there.
     Organized(Box<store::Meta>),
@@ -799,7 +799,7 @@ pub enum Event {
     Used(Vec<(u64, Vec<crate::usage::Used>)>),
     /// What git says of `folder`, where the session `key` works: its
     /// branch, whether it is in a repository, and the scripts the
-    /// repository's `ghost.json` names.
+    /// repository's `u0.json` names.
     Looked {
         key: u64,
         folder: PathBuf,
@@ -900,7 +900,7 @@ pub enum Event {
         result: Result<(), String>,
     },
     /// A worktree was made for the session, with the scripts its
-    /// `ghost.json` names, or could not be.
+    /// `u0.json` names, or could not be.
     Worktree {
         key: u64,
         result: Result<(git::Worktree, Vec<Script>), String>,
@@ -938,7 +938,7 @@ pub enum Event {
         key: u64,
         starts: Vec<(ToolCallId, Vec<Option<usize>>)>,
     },
-    /// How much each part of Ghost's home takes, and what a tidying did.
+    /// How much each part of u0's home takes, and what a tidying did.
     Sizes(Vec<(String, u64)>),
     Tidied(String),
     /// What is known of each forge here.
@@ -1055,7 +1055,7 @@ pub enum Then {
     /// server's), its bytes carried both ways: for a device of full
     /// scope.
     Forward(u16),
-    /// Ghost's tools, MCP carried both ways (`ghost --mcp --on`): an
+    /// u0's tools, MCP carried both ways (`u0 --mcp --on`): an
     /// agent on the device reads, and acts as its scope lets it.
     Tools,
 }
@@ -1080,7 +1080,7 @@ pub struct Welcome {
     pub name: String,
     /// The build it runs, as `update::this_build` says it.
     pub version: String,
-    /// Ghost's home there: where its worktrees and scratch folders are.
+    /// u0's home there: where its worktrees and scratch folders are.
     pub home: PathBuf,
     /// All said since the desk's `since` follows; else what it had of
     /// this server is gone, and it begins again.
@@ -1163,7 +1163,7 @@ mod tests {
             "path": "a.rs", "added": 1, "gone": 1, "patch": "--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,2 @@\n-a\n+b\n c\n",
         }));
         let script: Script = of(json!({"name": "dev", "command": "make dev", "worktree": true}));
-        let worktree: git::Worktree = of(json!({"repo": "/p", "path": "/w", "branch": "ghost/a"}));
+        let worktree: git::Worktree = of(json!({"repo": "/p", "path": "/w", "branch": "u0/a"}));
         let call: ToolCallId = of(json!("c1"));
         let calls = vec![
             Call::Look {
@@ -1254,7 +1254,7 @@ mod tests {
                 dir: dir.clone(),
                 about: "fix it".into(),
                 under: dir.join("w"),
-                prefix: "ghost/".into(),
+                prefix: "u0/".into(),
                 from: Some(Begin::Pr(7, "Fix".into())),
                 submodules: crate::settings::Submodules::Top,
                 key: 1,
@@ -1283,7 +1283,7 @@ mod tests {
             Call::Git {
                 dir: dir.clone(),
                 action: GitAction::RemoveWorktree(worktree.clone()),
-                prefix: "ghost/".into(),
+                prefix: "u0/".into(),
                 left_out: vec!["b.rs".into()],
                 key: 1,
             },
@@ -1362,7 +1362,7 @@ mod tests {
                     icon: Some(dir.join("icon.png")),
                 },
             },
-            Event::Notice(Err(("Couldn't write ghost.json".into(), "no".into()))),
+            Event::Notice(Err(("Couldn't write u0.json".into(), "no".into()))),
             Event::Uncommitted {
                 key: 1,
                 result: Ok(vec![diff.clone()]),
@@ -1882,7 +1882,7 @@ mod tests {
             },
             Event::Index(Ok(index)),
             Event::Offered {
-                link: "ghost://pair?host=a#c".into(),
+                link: "u0://pair?host=a#c".into(),
                 made: 1,
                 grant: crate::access::Grant::default(),
             },

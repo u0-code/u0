@@ -1,10 +1,10 @@
-//! Ghost: one desktop app for the coding agents you already use.
+//! u0: one desktop app for the coding agents you already use.
 //!
 //! Down the left, your projects, each with its sessions, and the agents
 //! switched on (Claude Code, Codex, Antigravity, or any other the ACP
 //! registry lists). In the middle, the session on screen: talk to the agent and give it work, drawn
 //! the same way whichever agent it is. Down the right, what the session has
-//! come to. Ghost has no agent of its own: each agent runs as its own
+//! come to. u0 has no agent of its own: each agent runs as its own
 //! program, with its own tools and its own sign-in, spoken to over the
 //! Agent Client Protocol.
 
@@ -32,17 +32,17 @@ mod thread;
 mod ui;
 mod voice;
 
-// What needs no window is ghost-core's. Named here, `crate::git` and the
+// What needs no window is u0-core's. Named here, `crate::git` and the
 // rest name it alike in every module of the desk.
-use ghost_core::{
-    access, acp, devices, diagnostics, forge, git, github, key, link, path, policy, proto, reach,
-    registry, repo, review, scripts, secrets, server, servers, session, settings, share, store,
-    tasks, telemetry, tidy, update, usage, when, whole, workflows, writer,
-};
 use i18n::{tr, tr_with};
 use keys::{
     About, BringAllToFront, CheckForUpdates, Hide, HideOthers, Minimize, NewSession, OpenSettings,
     Quit, ShowAll, Stop, ToggleSidebar, ZoomWindow,
+};
+use u0_core::{
+    access, acp, devices, diagnostics, forge, git, github, key, link, path, policy, proto, reach,
+    registry, repo, review, scripts, secrets, server, servers, session, settings, share, store,
+    tasks, telemetry, tidy, update, usage, when, whole, workflows, writer,
 };
 
 use gpui::{
@@ -50,21 +50,21 @@ use gpui::{
     TitlebarOptions, WindowBounds, WindowOptions, point, px, size,
 };
 
-/// When Ghost was launched: how long it took to open is counted from it.
+/// When u0 was launched: how long it took to open is counted from it.
 static LAUNCHED: std::sync::LazyLock<std::time::Instant> =
     std::sync::LazyLock::new(std::time::Instant::now);
 
 fn main() {
     std::sync::LazyLock::force(&LAUNCHED);
-    // The command's words (`ghost serve`, `ghost service`, ...) and
-    // Ghost's tools as an agent starts them (`--mcp`): no window.
-    ghost_core::cli::when_asked();
+    // The command's words (`u0 serve`, `u0 service`, ...) and
+    // u0's tools as an agent starts them (`--mcp`): no window.
+    u0_core::cli::when_asked();
     // Before any thread starts, since it changes the environment.
     path::widen();
     let kept = settings::Settings::load(&settings::home()).0;
-    ghost_core::logs::start(kept.log_days);
+    u0_core::logs::start(kept.log_days);
 
-    // The links and folders macOS opens Ghost with (`ghost://`, `ghost
+    // The links and folders macOS opens u0 with (`u0://`, `u0
     // <folder>`), held until the window is up to take them.
     let (to_desk, mut for_desk) = tokio::sync::mpsc::unbounded_channel::<Vec<String>>();
     let app = gpui::application().with_assets(assets::Assets);
@@ -81,8 +81,8 @@ fn main() {
         // Exit Full Screen to the View menu, and the window list to
         // the Window menu, by itself.
         cx.set_menus(vec![
-            Menu::new(crate::tr("Ghost")).items(vec![
-                MenuItem::action(crate::tr("About Ghost"), About),
+            Menu::new(crate::tr("u0")).items(vec![
+                MenuItem::action(crate::tr("About u0"), About),
                 MenuItem::action(crate::tr("Check for Updates…"), CheckForUpdates),
                 MenuItem::separator(),
                 MenuItem::action(crate::tr("Settings…"), OpenSettings),
@@ -91,11 +91,11 @@ fn main() {
                 MenuItem::separator(),
                 MenuItem::os_submenu(crate::tr("Services"), SystemMenuType::Services),
                 MenuItem::separator(),
-                MenuItem::action(crate::tr("Hide Ghost"), Hide),
+                MenuItem::action(crate::tr("Hide u0"), Hide),
                 MenuItem::action(crate::tr("Hide Others"), HideOthers),
                 MenuItem::action(crate::tr("Show All"), ShowAll),
                 MenuItem::separator(),
-                MenuItem::action(crate::tr("Quit Ghost"), Quit),
+                MenuItem::action(crate::tr("Quit u0"), Quit),
             ]),
             Menu::new(crate::tr("File")).items(vec![
                 MenuItem::action(crate::tr("New Session"), NewSession),
@@ -157,7 +157,7 @@ fn main() {
             )]),
         ]);
 
-        // Where the window was as Ghost last quit, while that is on a
+        // Where the window was as u0 last quit, while that is on a
         // display; else in the middle of the main one.
         let bounds = (kept.frame)
             .map(|[x, y, w, h]| {
@@ -175,7 +175,7 @@ fn main() {
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
-                title: Some("Ghost".into()),
+                title: Some("u0".into()),
                 appears_transparent: true,
                 // The lights share a line with the controls beside them, the
                 // middle of the 44-pixel top row, 18 in from the edge.
@@ -185,7 +185,7 @@ fn main() {
             ..Default::default()
         };
         let (window, desk) = gpui::open_window(options, cx, |window, cx| {
-            // Closed, the window hides: Ghost and its agents go on, and the
+            // Closed, the window hides: u0 and its agents go on, and the
             // Dock's icon brings it back.
             window.on_window_should_close(cx, |_, cx| {
                 cx.hide();
@@ -221,11 +221,11 @@ fn main() {
 mod tests {
     /// A test of the desk has no home of yours, so it never reads or
     /// writes there, and keeps its secrets in memory: macOS never asks you
-    /// to let a test binary into Ghost's Keychain. Both hold only where the
-    /// desk's tests build `ghost-core` with its feature `test`.
+    /// to let a test binary into u0's Keychain. Both hold only where the
+    /// desk's tests build `u0-core` with its feature `test`.
     #[test]
     fn a_desk_test_reaches_neither_your_home_nor_your_keychain() {
-        let yours = std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join(".ghost"));
+        let yours = std::env::var_os("HOME").map(|h| std::path::Path::new(&h).join(".u0"));
         if let Ok(home) = std::panic::catch_unwind(crate::settings::home) {
             assert_ne!(Some(home), yours, "a test may not have your home");
         }

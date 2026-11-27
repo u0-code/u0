@@ -1,12 +1,12 @@
-//! How an agent reaches Ghost's tools (`tools`), and who it is there.
+//! How an agent reaches u0's tools (`tools`), and who it is there.
 //! The server listens on 127.0.0.1 alone, on two ports `mcp.json` names
 //! (the same at each start, where they are free) with a key only that
 //! file and the Keychain hold, kept until you ask for a new one: one
-//! where `ghost --mcp` pipes MCP once it proves it holds a key (an HMAC
+//! where `u0 --mcp` pipes MCP once it proves it holds a key (an HMAC
 //! of the server's nonce, `mcp::proof`), and one that
 //! speaks MCP's streamable HTTP
 //! (rmcp's, one request a turn, no session kept), the key its bearer
-//! token. A session Ghost opens is given a key of its own; a device
+//! token. A session u0 opens is given a key of its own; a device
 //! paired reaches them over its link, signed in as a desk is (`link`).
 
 use std::{
@@ -36,17 +36,17 @@ pub(super) struct Called {
     pub always: Arc<Mutex<HashSet<&'static str>>>,
 }
 
-/// Who calls Ghost's tools, and so what it may do.
+/// Who calls u0's tools, and so what it may do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Caller {
-    /// An agent outside Ghost, by the key in `mcp.json`: it reads, and
+    /// An agent outside u0, by the key in `mcp.json`: it reads, and
     /// acts on a session only where your settings let it
     /// (`outside_acts`), asked of you in that session.
     Outside,
     /// An agent on a device paired, over its link: it reads, and one of
     /// full scope acts on a session, asked of you in that session.
     Device(Scope),
-    /// An agent in a session of Ghost's (its agent, and its id once it
+    /// An agent in a session of u0's (its agent, and its id once it
     /// has one): what acts is asked of you in its own session.
     Session(String, Option<SessionId>),
 }
@@ -63,10 +63,10 @@ const KEY_WAIT: std::time::Duration = mcp::WAIT;
 /// closed.
 const CALLS: usize = 64;
 
-/// Where the key agents outside Ghost come in by is kept (`secrets`).
+/// Where the key agents outside u0 come in by is kept (`secrets`).
 const OUTSIDE_KEY: &str = "mcp/key";
 
-/// The key agents outside Ghost come in by: the one kept, unless `anew`;
+/// The key agents outside u0 come in by: the one kept, unless `anew`;
 /// else a new one, kept from now on. Where nothing can be kept (a system
 /// without the Keychain), one for as long as this server runs.
 fn outside_key(anew: bool) -> String {
@@ -75,7 +75,7 @@ fn outside_key(anew: bool) -> String {
     }
     let key = crate::access::random::<32>();
     if let Err(why) = crate::secrets::set(OUTSIDE_KEY, Some(&key)) {
-        tracing::warn!("the key for agents outside Ghost lasts until Ghost stops: {why}");
+        tracing::warn!("the key for agents outside u0 lasts until u0 stops: {why}");
     }
     key
 }
@@ -136,7 +136,7 @@ impl Shared {
         (self.callers.lock().expect("callers")).insert(key, called);
     }
 
-    /// Listen for agents calling Ghost's tools, from now on: at the ports
+    /// Listen for agents calling u0's tools, from now on: at the ports
     /// the door names where it was written before and they are free (said
     /// where one is not), by the key kept; the door written in the home,
     /// each one let in by its key and served on a task of its own.
@@ -148,17 +148,17 @@ impl Shared {
             let ((pipe, moved), (http, moved_too)) = match (bind(ports.0).await, bind(ports.1).await) {
                 (Ok(pipe), Ok(http)) => (pipe, http),
                 (Err(e), _) | (_, Err(e)) => {
-                    tracing::warn!("Ghost's tools are not served: {e}");
+                    tracing::warn!("u0's tools are not served: {e}");
                     return;
                 }
             };
             // An HTTP client sends its key to whatever listens at the
             // address it was given: one that held the port remembered
-            // while Ghost was down may have heard it, so it is made anew.
+            // while u0 was down may have heard it, so it is made anew.
             let anew = moved_too.is_some();
             for moved in [moved, moved_too].into_iter().flatten() {
-                tracing::warn!("Ghost's tools moved: port {moved}");
-                let what = "Ghost's tools moved to another port".to_owned();
+                tracing::warn!("u0's tools moved: port {moved}");
+                let what = "u0's tools moved to another port".to_owned();
                 let and_key = if anew { " and key" } else { "" };
                 let why = format!("Port {moved}: an app set up with their old address needs the new one{and_key} in mcp.json");
                 (this.send)(Event::Notice(Err((what, why))));
@@ -173,7 +173,7 @@ impl Shared {
                 key,
             };
             if let Err(e) = mcp::open(&this.home, &door) {
-                tracing::warn!("Ghost's tools are not served: {e}");
+                tracing::warn!("u0's tools are not served: {e}");
                 return;
             }
             acp::runtime().spawn(this.clone().serve_http(http));
@@ -249,9 +249,8 @@ impl Shared {
                             .and_then(bearer)
                             .unwrap_or_default();
                         let Some(tools) = Tools::of(&this, key) else {
-                            let mut refused = hyper::Response::new(
-                                Full::new("Not a key of Ghost's".into()).boxed(),
-                            );
+                            let mut refused =
+                                hyper::Response::new(Full::new("Not a key of u0's".into()).boxed());
                             *refused.status_mut() = hyper::StatusCode::UNAUTHORIZED;
                             return Ok::<_, std::convert::Infallible>(refused);
                         };
@@ -276,7 +275,7 @@ impl Shared {
         }
     }
 
-    /// Ghost's tools, for a session of `agent` (its id where it has one):
+    /// u0's tools, for a session of `agent` (its id where it has one):
     /// the key it calls with, and the server to give it as it is opened;
     /// none where you switched them off for that agent.
     pub(super) fn tools(&self, agent: &str, id: Option<SessionId>) -> (String, Vec<McpServer>) {
@@ -289,17 +288,17 @@ impl Shared {
             return (String::new(), Vec::new());
         }
         let key = self.let_in(Caller::Session(agent.to_owned(), id));
-        let program = std::env::current_exe().unwrap_or_else(|_| "ghost".into());
-        let server = McpServerStdio::new("ghost", program)
+        let program = std::env::current_exe().unwrap_or_else(|_| "u0".into());
+        let server = McpServerStdio::new("u0", program)
             .args(vec!["--mcp".into()])
             .env(vec![
-                EnvVariable::new("GHOST_HOME", self.home.display().to_string()),
+                EnvVariable::new("U0_HOME", self.home.display().to_string()),
                 EnvVariable::new(mcp::KEY, key.clone()),
             ]);
         (key, vec![McpServer::Stdio(server)])
     }
 
-    /// Give agents outside Ghost a new key, kept from now on and written
+    /// Give agents outside u0 a new key, kept from now on and written
     /// in the door: the old one lets no one in (a connection made with it
     /// calls nothing more, `Tools::call_tool`), and its "allowed" go with
     /// it.
@@ -307,7 +306,7 @@ impl Shared {
         let mut door = match mcp::door(&self.home) {
             Ok(door) => door,
             Err(why) => {
-                let what = "Ghost's tools are not served here".to_owned();
+                let what = "u0's tools are not served here".to_owned();
                 (self.send)(Event::Notice(Err((what, why))));
                 return;
             }
@@ -316,7 +315,7 @@ impl Shared {
         (self.callers.lock().expect("callers")).retain(|_, c| c.who != Caller::Outside);
         self.let_in_by(door.key.clone(), Caller::Outside);
         (self.send)(Event::Notice(match mcp::open(&self.home, &door) {
-            Ok(()) => Ok("Agents outside Ghost have a new key: the old one lets no one in".into()),
+            Ok(()) => Ok("Agents outside u0 have a new key: the old one lets no one in".into()),
             Err(e) => Err(("The new key was not written".into(), e.to_string())),
         }));
     }
@@ -335,7 +334,7 @@ impl Shared {
 }
 
 impl Server {
-    /// Serve Ghost's tools over `io` to an agent on a device of `scope`,
+    /// Serve u0's tools over `io` to an agent on a device of `scope`,
     /// come in over its link, until either ends.
     pub(crate) async fn tools_for<IO>(&self, scope: Scope, io: IO)
     where

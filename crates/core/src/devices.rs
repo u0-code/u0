@@ -134,7 +134,7 @@ fn run(program: &PathBuf, args: &[&str]) -> Result<Vec<u8>, String> {
 /// where a booted simulator is touched without `AXe`; or say why it cannot
 /// be, and what to do.
 fn open_simulator(xcode: Option<&std::path::Path>) -> Result<(), String> {
-    const AXE: &str = "install AXe (brew install cameroncooke/axe/axe) to touch it in Ghost";
+    const AXE: &str = "install AXe (brew install cameroncooke/axe/axe) to touch it in u0";
     let app = xcode
         .map(|d| d.join("Applications/Simulator.app"))
         .filter(|app| app.exists())
@@ -318,7 +318,7 @@ pub fn act(device: &Device, act: &Act) -> Result<(), String> {
             } => Err("An iOS simulator has no such key.".into()),
             _ => {
                 let axe = axe().ok_or(
-                    "An iOS simulator is touched in Ghost with AXe (brew install cameroncooke/axe/axe), else in Simulator.",
+                    "An iOS simulator is touched in u0 with AXe (brew install cameroncooke/axe/axe), else in Simulator.",
                 )?;
                 touch(&axe, id, act)
             }

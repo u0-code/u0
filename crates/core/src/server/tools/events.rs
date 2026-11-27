@@ -1,6 +1,6 @@
-//! What happened in the sessions Ghost runs (`happened`), as its tools
+//! What happened in the sessions u0 runs (`happened`), as its tools
 //! tell it: the `events` tool, filtered by agent, session or project, and
-//! the resource `ghost://events`, whose subscribers (MCP's
+//! the resource `u0://events`, whose subscribers (MCP's
 //! `subscriptions/listen`) are told each time something happens, so an
 //! agent need not ask again and again.
 
@@ -17,7 +17,7 @@ use crate::server::happened::Milestone;
 
 /// The resource that stands for what happened: read, it is the latest of
 /// it; subscribed to, each new thing says it changed.
-pub(super) const EVENTS: &str = "ghost://events";
+pub(super) const EVENTS: &str = "u0://events";
 
 #[derive(Deserialize, schemars::JsonSchema)]
 struct Since {
@@ -47,7 +47,7 @@ impl Tools {
             })
     }
 
-    /// The latest of what happened, as `ghost://events` reads.
+    /// The latest of what happened, as `u0://events` reads.
     pub(super) fn latest(&self) -> rmcp::model::ReadResourceResult {
         let kept = self.shared.happened.subscribe();
         let latest: Vec<Milestone> = kept
@@ -95,13 +95,13 @@ impl Tools {
 
 #[tool_router(router = event_router, vis = "pub(super)")]
 impl Tools {
-    /// What happened in the sessions Ghost runs after a number (a turn
+    /// What happened in the sessions u0 runs after a number (a turn
     /// ended, an agent asks the user), the latest last, each numbered;
     /// only that of an `agent`, a `session` or a `project` where one is
     /// named. Call again with `last` to follow on; with `seconds`, it
     /// waits that long for something the filters let through. `missed`
     /// says some of what happened since is no longer kept. Subscribed to,
-    /// the resource `ghost://events` says each time something happens.
+    /// the resource `u0://events` says each time something happens.
     #[tool]
     async fn events(&self, Parameters(ask): Parameters<Since>) -> Result<String, String> {
         self.while_let_in(self.happened_since(ask)).await?

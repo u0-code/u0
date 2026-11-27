@@ -27,7 +27,7 @@ pub enum Within {
 /// What stands for the `n`th value while the command is parsed: text that
 /// is a plain word in every context, and no part of a name.
 pub fn mark(n: usize) -> String {
-    format!("%ghost:{n}%")
+    format!("%u0:{n}%")
 }
 
 /// The builtins a value may be an argument of: they print it or change
@@ -222,7 +222,7 @@ impl Walk {
             })
             .collect();
         let first = words.first().copied().unwrap_or_default();
-        if name == "printf" && (first.starts_with('-') || first.contains("%ghost:")) {
+        if name == "printf" && (first.starts_with('-') || first.contains("%u0:")) {
             return Some(());
         }
         for word in words {

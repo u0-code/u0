@@ -1163,7 +1163,7 @@ struct Facts {
     folder: String,
     branch: Option<String>,
     id: Option<String>,
-    /// The `ghost://` link that opens it.
+    /// The `u0://` link that opens it.
     link: Option<String>,
 }
 

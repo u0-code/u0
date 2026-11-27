@@ -515,7 +515,7 @@ pub fn terms(query: &Query, name: &str, keywords: &[&str], typos: bool) -> Optio
 }
 
 /// A session, by its title, its pull request, its branch (without the
-/// prefix Ghost gives a worktree's) and its project's name; lifted by how
+/// prefix u0 gives a worktree's) and its project's name; lifted by how
 /// lately you used it.
 pub fn session(
     query: &Query,
@@ -528,7 +528,7 @@ pub fn session(
     typos: bool,
 ) -> Option<Found> {
     let pr = pr.map(|n| format!("#{n}")).unwrap_or_default();
-    let branch = branch.map_or("", |b| b.strip_prefix("ghost/").unwrap_or(b));
+    let branch = branch.map_or("", |b| b.strip_prefix("u0/").unwrap_or(b));
     let fields = [
         Field {
             text: title,

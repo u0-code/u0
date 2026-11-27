@@ -1,5 +1,5 @@
 //! The agents as the desk sees them: each one's slot and where it stands.
-//! The agent itself, once started, is the server's (`ghost_core::server`);
+//! The agent itself, once started, is the server's (`u0_core::server`);
 //! the desk names it by its id.
 
 use agent_client_protocol::v1::schema::{
@@ -148,7 +148,7 @@ impl Slot {
         self.known.as_ref().map(|k| &k.agent_capabilities)
     }
 
-    /// The ways it offers, while it runs, to sign in that Ghost can take:
+    /// The ways it offers, while it runs, to sign in that u0 can take:
     /// done by the agent itself, or typed in a terminal.
     pub fn sign_ins(&self) -> impl Iterator<Item = &AuthMethod> {
         (self.known.as_ref())

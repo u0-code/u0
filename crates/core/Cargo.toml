@@ -1,6 +1,6 @@
 [package]
-name = "ghost-core"
-description = "Ghost without its window: agents over ACP, the registry, git, the store, sessions and a terminal's process."
+name = "u0-core"
+description = "u0 without its window: agents over ACP, the registry, git, the store, sessions and a terminal's process."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

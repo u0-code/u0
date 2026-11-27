@@ -2,7 +2,7 @@
 //! on, in the order they are listed, and the projects: the folders work is
 //! done in.
 //!
-//! The home is `GHOST_HOME`, or `~/.ghost`. It holds this file
+//! The home is `U0_HOME`, or `~/.u0`. It holds this file
 //! (`settings.json`), the last registry read (`registry.json`) and the
 //! agents installed from archives (`agents/`). Each agent keeps its own
 //! sign-in and its own sessions where its CLI always does; the desk keeps
@@ -15,24 +15,24 @@ use serde::{Deserialize, Serialize};
 /// The desk's home.
 ///
 /// A test (this crate's, or the desk's, which build it with the feature
-/// `test`) has no home but the one `GHOST_HOME` names, and never yours:
+/// `test`) has no home but the one `U0_HOME` names, and never yours:
 /// one that asks for it otherwise panics, before it reads or writes there.
 pub fn home() -> PathBuf {
     let yours = std::env::var_os("HOME")
         .map_or_else(|| PathBuf::from("."), PathBuf::from)
-        .join(".ghost");
-    let named = std::env::var_os("GHOST_HOME")
+        .join(".u0");
+    let named = std::env::var_os("U0_HOME")
         .filter(|d| !d.is_empty())
         .map(PathBuf::from);
     if cfg!(any(test, feature = "test")) {
-        return named.filter(|d| *d != yours).expect(
-            "a test reached Ghost's home: give it a temporary GHOST_HOME, or pass it a folder",
-        );
+        return named
+            .filter(|d| *d != yours)
+            .expect("a test reached u0's home: give it a temporary U0_HOME, or pass it a folder");
     }
     named.unwrap_or(yours)
 }
 
-/// Make Ghost's home `home` and its `logs/`, each readable and enterable
+/// Make u0's home `home` and its `logs/`, each readable and enterable
 /// by you alone (0700) whatever it was: what is in them (a log, a
 /// session's record, a token) is yours.
 pub fn keep_private(home: &std::path::Path) -> std::io::Result<()> {
@@ -83,7 +83,7 @@ pub struct Settings {
     #[serde(default)]
     pub favourites: Vec<Favourite>,
     /// What macOS says when a session ends a turn or needs you, while
-    /// Ghost is not in front.
+    /// u0 is not in front.
     #[serde(default)]
     pub notify: Notify,
     /// Which of what a session does is told.
@@ -128,10 +128,10 @@ pub struct Settings {
     /// Dark, light, or as the system is.
     #[serde(default)]
     pub look: Look,
-    /// The theme the dark look is drawn in, by name; none, Ghost's own.
+    /// The theme the dark look is drawn in, by name; none, u0's own.
     #[serde(default)]
     pub theme_dark: Option<String>,
-    /// The theme the light look is drawn in, by name; none, Ghost's own.
+    /// The theme the light look is drawn in, by name; none, u0's own.
     #[serde(default)]
     pub theme_light: Option<String>,
     /// A picture drawn faintly under the thread.
@@ -188,7 +188,7 @@ pub struct Settings {
     /// TeX in what an agent says (`$…$`, `$$…$$`) is set as formulas.
     #[serde(default)]
     pub math: bool,
-    /// The language Ghost speaks, by locale (`en`, `zh-CN`); none, the
+    /// The language u0 speaks, by locale (`en`, `zh-CN`); none, the
     /// system's.
     #[serde(default)]
     pub language: Option<String>,
@@ -203,13 +203,13 @@ pub struct Settings {
     /// it (`feat/`, `fix/`) instead of the prefix.
     #[serde(default)]
     pub branch_kind: bool,
-    /// Who writes what Ghost has written for you.
+    /// Who writes what u0 has written for you.
     #[serde(default)]
     pub writer: Writer,
     /// What you say into the composer, heard on this Mac.
     #[serde(default)]
     pub voice: Voice,
-    /// Which builds Ghost updates to.
+    /// Which builds u0 updates to.
     #[serde(default)]
     pub channel: crate::update::Channel,
     /// How a pull request is merged from the column beside.
@@ -218,21 +218,21 @@ pub struct Settings {
     /// A squash takes the agents' credits out of its message.
     #[serde(default)]
     pub uncredit: bool,
-    /// How many days of Ghost's log are kept in its home (`logs/`).
+    /// How many days of u0's log are kept in its home (`logs/`).
     #[serde(default = "fortnight")]
     pub log_days: u16,
     /// The ACP registry is read again each hour, for agents' newer
     /// versions.
     #[serde(default = "yes")]
     pub check_agents: bool,
-    /// Ghost looks for an update as it starts and every four hours.
+    /// u0 looks for an update as it starts and every four hours.
     #[serde(default = "yes")]
     pub check_updates: bool,
-    /// Where the window was, and how large, as Ghost last quit: x, y,
+    /// Where the window was, and how large, as u0 last quit: x, y,
     /// width and height in points; none, centred.
     #[serde(default)]
     pub frame: Option<[i32; 4]>,
-    /// What Ghost asks before it does it.
+    /// What u0 asks before it does it.
     #[serde(default)]
     pub confirm: Confirm,
     /// Where new worktrees are made; none, the home's `worktrees`.
@@ -241,7 +241,7 @@ pub struct Settings {
     /// How far a new worktree's submodules are checked out.
     #[serde(default)]
     pub submodules: Submodules,
-    /// The folder new and cloned projects go in; none, ~/Documents/Ghost.
+    /// The folder new and cloned projects go in; none, ~/Documents/u0.
     #[serde(default)]
     pub projects_in: Option<PathBuf>,
     /// A clone goes in `<host>/<owner>/<repo>` under that folder, as ghq
@@ -252,10 +252,10 @@ pub struct Settings {
     /// "5pm", "tomorrow"), as t3code's snooze presets.
     #[serde(default = "snoozes")]
     pub snoozes: Vec<String>,
-    /// The agents whose sessions are not given Ghost's tools, by id.
+    /// The agents whose sessions are not given u0's tools, by id.
     #[serde(default)]
     pub no_tools: Vec<String>,
-    /// Whether an agent outside Ghost (`ghost --mcp`, or the tools over
+    /// Whether an agent outside u0 (`u0 --mcp`, or the tools over
     /// HTTP, by the key in `mcp.json`) may ask to act on a session: say
     /// something in it, stop its turn; each asked of you in that session.
     /// Off, it only reads.
@@ -274,8 +274,8 @@ pub struct Settings {
     /// How the sidebar orders a project's sessions, and the projects.
     #[serde(default)]
     pub sort: Sort,
-    /// How much Ghost tells the people who make it (`telemetry`): a level
-    /// from 0 to 3; none until you chose one, as Ghost first opens.
+    /// How much u0 tells the people who make it (`telemetry`): a level
+    /// from 0 to 3; none until you chose one, as u0 first opens.
     #[serde(default)]
     pub telemetry: Option<crate::telemetry::Level>,
     /// The PRs and Issues pages' views you saved, as t3code's saved views.
@@ -325,7 +325,7 @@ pub enum Submodules {
     Skip,
 }
 
-/// What Ghost asks before it does it, as t3code's confirmations: each
+/// What u0 asks before it does it, as t3code's confirmations: each
 /// action that can be taken back asks only if you want it to.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -376,7 +376,7 @@ pub enum Quit {
     Double,
 }
 
-/// The writer: the agent that writes what Ghost has written for you, and
+/// The writer: the agent that writes what u0 has written for you, and
 /// the model it writes with.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -388,7 +388,7 @@ pub struct Writer {
     #[serde(default)]
     pub model: Option<String>,
     /// Your instructions for commit messages and pull requests, over
-    /// Ghost's.
+    /// u0's.
     #[serde(default)]
     pub changes: String,
     /// Your instructions for sessions' titles.
@@ -742,7 +742,7 @@ pub fn next_scale(now: u16, larger: bool) -> u16 {
 }
 
 fn prefix() -> String {
-    "ghost/".into()
+    "u0/".into()
 }
 
 /// What you set for one project.
@@ -763,7 +763,7 @@ pub struct Prefs {
     /// is a repository; unset, the last choice made anywhere.
     #[serde(default)]
     pub worktree: Option<bool>,
-    /// Its default branch is pulled as Ghost starts and each fetch, when
+    /// Its default branch is pulled as u0 starts and each fetch, when
     /// it is checked out with nothing changed.
     #[serde(default)]
     pub pull: bool,
@@ -1024,7 +1024,7 @@ impl Settings {
         }
     }
 
-    /// The folders Ghost's worktrees are in, in the home `home`: where new
+    /// The folders u0's worktrees are in, in the home `home`: where new
     /// ones are made first, then the home's own, where those made before
     /// another was chosen stay.
     pub fn worktree_folders(&self, home: &Path) -> Vec<PathBuf> {
@@ -1047,10 +1047,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn ghost_s_home_and_its_logs_are_yours_alone_whatever_they_were() {
+    fn u0_s_home_and_its_logs_are_yours_alone_whatever_they_were() {
         use std::os::unix::fs::PermissionsExt as _;
         let parent = tempfile::tempdir().unwrap();
-        let home = parent.path().join(".ghost");
+        let home = parent.path().join(".u0");
         let mode = |d: &std::path::Path| std::fs::metadata(d).unwrap().permissions().mode() & 0o777;
         keep_private(&home).unwrap();
         assert_eq!((mode(&home), mode(&home.join("logs"))), (0o700, 0o700));
@@ -1167,7 +1167,7 @@ mod tests {
 
     #[test]
     fn a_settings_file_in_another_form_is_refused_not_replaced() {
-        let dir = std::env::temp_dir().join(format!("ghost-settings-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("u0-settings-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("settings.json"), r#"{"who":"me"}"#).unwrap();
         let (s, why) = Settings::load(&dir);

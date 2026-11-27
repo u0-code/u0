@@ -265,7 +265,7 @@ pub fn read(path: &Path) -> Option<Vec<Event>> {
     )
 }
 
-/// Whether a record ends in a turn it never saw end: Ghost stopped before
+/// Whether a record ends in a turn it never saw end: u0 stopped before
 /// the rest was written, and resuming would leave that rest out for good.
 pub fn cut_short(events: &[Event]) -> bool {
     events
@@ -299,7 +299,7 @@ pub fn queue(job: Job) {
     let tx = WRITER.get_or_init(|| {
         let (tx, rx) = mpsc::channel::<Job>();
         std::thread::Builder::new()
-            .name("ghost-store".into())
+            .name("u0-store".into())
             .spawn(move || {
                 for job in rx {
                     let done = match job {
@@ -351,7 +351,7 @@ mod tests {
 
     #[test]
     fn a_record_reads_back_in_order_and_a_line_cut_short_loses_only_itself() {
-        let dir = std::env::temp_dir().join(format!("ghost-store-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("u0-store-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = record_path(&dir, "claude-acp", "a/b");
         assert!(path.ends_with("claude-acp/a_b.jsonl"));
@@ -445,7 +445,7 @@ mod tests {
 
     #[test]
     fn an_index_in_another_form_is_refused_not_replaced() {
-        let dir = std::env::temp_dir().join(format!("ghost-index-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("u0-index-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(index_path(&dir), r#"{"threads":[]}"#).unwrap();
         assert!(load(&dir).unwrap_err().contains("Move it away"));

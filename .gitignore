@@ -4,7 +4,7 @@
 .claude/
 # Design documents and write-ups stay on the machine they were written on.
 /docs/
-# Left on this machine from before Ghost was an agent manager: a character's
+# Left on this machine from before u0 was an agent manager: a character's
 # journal and its runs. Not part of the app; move them away when done.
 /ghosts/
 /run

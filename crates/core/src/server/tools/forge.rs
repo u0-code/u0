@@ -1,4 +1,4 @@
-//! Ghost's tools for a project's pull requests and their checks, from
+//! u0's tools for a project's pull requests and their checks, from
 //! the host of its remote as the PRs page has them (`forge::answer`, what
 //! `Call::Forge` asks): listed and read, reviewed and merged, their
 //! conversations answered and resolved, a check's failed run read and
@@ -150,7 +150,7 @@ fn merge(ask: &MergePr, settings: &Settings) -> Act {
 }
 
 /// The pull request `number` of `folder`'s host, as it is now: what its
-/// card names. Asked only of an agent in a session of Ghost's, for none
+/// card names. Asked only of an agent in a session of u0's, for none
 /// other may act.
 async fn about(tools: &Tools, folder: PathBuf, number: u64) -> Result<Item, String> {
     Ok(viewed(tools, folder, number).await?.item)
@@ -497,7 +497,7 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_outside_ghost_reads_your_projects_pull_requests_alone_and_merges_none() {
+    fn an_agent_outside_u0_reads_your_projects_pull_requests_alone_and_merges_none() {
         let home = tempfile::tempdir().unwrap();
         let (project, elsewhere) = (home.path().join("p"), home.path().join("q"));
         repo_at(&project, &[("a.txt", "a")]);

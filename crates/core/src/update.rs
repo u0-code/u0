@@ -1,13 +1,13 @@
-//! Ghost's own updates: the builds on the repository's GitHub releases,
+//! u0's own updates: the builds on the repository's GitHub releases,
 //! as the Homebrew casks install them. Stable is the newest release tagged
 //! `v<version>`; Nightly is the `nightly` prerelease, rebuilt from each
 //! push to main. An update downloads the release's zip, unpacks its
-//! Ghost.app, and puts it in place of the one running, which is opened
-//! again once Ghost has quit.
+//! u0.app, and puts it in place of the one running, which is opened
+//! again once u0 has quit.
 //!
-//! Before it is put in place, the Ghost.app downloaded must be sealed by
-//! its signature, whole and unchanged, and be Ghost (`codesign --verify
-//! --deep --strict`, against Ghost's identifier).
+//! Before it is put in place, the u0.app downloaded must be sealed by
+//! its signature, whole and unchanged, and be u0 (`codesign --verify
+//! --deep --strict`, against u0's identifier).
 //!
 //! The updater crates were weighed: `self_update` replaces a lone binary,
 //! not an app bundle, and `cargo-packager-updater` needs a signed manifest
@@ -29,9 +29,9 @@ const RELEASES: &str = "https://api.github.com/repos/u0-code/u0/releases";
 /// What the macOS build is called among a release's files.
 const ASSET: &str = "macos-arm64.zip";
 
-/// The identifier Ghost.app is signed with (`bundle.sh`'s
+/// The identifier u0.app is signed with (`bundle.sh`'s
 /// `CFBundleIdentifier`).
-pub(crate) const IDENTIFIER: &str = "local.ghost.desk";
+pub(crate) const IDENTIFIER: &str = "local.u0.desk";
 
 /// This build's version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -44,13 +44,13 @@ pub const DIRTY: bool = matches!(env!("VERGEN_GIT_DIRTY").as_bytes(), b"true");
 
 /// Which builds this one is among: `stable` (a release), `nightly` (main,
 /// built by CI) or `dev` (built by hand).
-pub const BUILT_AS: &str = env!("GHOST_CHANNEL");
+pub const BUILT_AS: &str = env!("U0_CHANNEL");
 
-/// This build, as a person reads it and copies it: `Ghost 0.2.0 (abc1234,
+/// This build, as a person reads it and copies it: `u0 0.2.0 (abc1234,
 /// nightly)`, `-dirty` after the commit when the tree had changes.
 pub fn this_build() -> String {
     let dirty = if DIRTY { "-dirty" } else { "" };
-    format!("Ghost {VERSION} ({}{dirty}, {BUILT_AS})", short(COMMIT))
+    format!("u0 {VERSION} ({}{dirty}, {BUILT_AS})", short(COMMIT))
 }
 
 /// A commit's first seven characters, as git shows it.
@@ -58,14 +58,14 @@ pub fn short(commit: &str) -> &str {
     &commit[..commit.len().min(7)]
 }
 
-/// Which builds Ghost updates to.
+/// Which builds u0 updates to.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Channel {
-    /// Releases, as the `ghost` cask installs them.
+    /// Releases, as the `u0` cask installs them.
     #[default]
     Stable,
-    /// What main is now, as the `ghost@nightly` cask installs it.
+    /// What main is now, as the `u0@nightly` cask installs it.
     Nightly,
 }
 
@@ -141,7 +141,7 @@ fn found(release: &Release, name: String) -> Option<Found> {
     })
 }
 
-/// The Ghost.app this process runs from; none when it runs outside one
+/// The u0.app this process runs from; none when it runs outside one
 /// (from cargo).
 pub fn running_app() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
@@ -149,7 +149,7 @@ pub fn running_app() -> Option<PathBuf> {
     (app.extension()? == "app").then(|| app.to_path_buf())
 }
 
-/// Download `found` into `home` and put its Ghost.app in place of `app`;
+/// Download `found` into `home` and put its u0.app in place of `app`;
 /// the app that was there is put back if the new one cannot be. Blocking.
 pub fn install(
     found: &Found,
@@ -161,7 +161,7 @@ pub fn install(
     let dir = home.join("update");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let zip = dir.join("Ghost.zip");
+    let zip = dir.join("u0.zip");
     crate::http::download(&found.url, &zip, say, stop)?;
     say("Unpacking", None);
     run(Command::new("ditto")
@@ -169,21 +169,21 @@ pub fn install(
         .arg("-k")
         .arg(&zip)
         .arg(&dir))?;
-    let new = dir.join("Ghost.app");
-    if !new.join("Contents/MacOS/ghost-desk").is_file() {
-        return Err("the download holds no Ghost.app".to_owned());
+    let new = dir.join("u0.app");
+    if !new.join("Contents/MacOS/u0-desk").is_file() {
+        return Err("the download holds no u0.app".to_owned());
     }
     say("Checking its signature", None);
     run(Command::new("codesign")
         .args(["--verify", "--deep", "--strict"])
         .arg(format!("-R=identifier \"{IDENTIFIER}\""))
         .arg(&new))
-    .map_err(|e| format!("the download is not a Ghost.app sealed by its signature: {e}"))?;
-    let old = dir.join("Ghost before.app");
+    .map_err(|e| format!("the download is not a u0.app sealed by its signature: {e}"))?;
+    let old = dir.join("u0 before.app");
     std::fs::rename(app, &old).map_err(|e| format!("{} could not be moved: {e}", app.display()))?;
     if let Err(e) = std::fs::rename(&new, app) {
         let _ = std::fs::rename(&old, app);
-        return Err(format!("the new Ghost.app could not be put in place: {e}"));
+        return Err(format!("the new u0.app could not be put in place: {e}"));
     }
     let _ = std::fs::remove_dir_all(&dir);
     Ok(())
@@ -197,13 +197,13 @@ mod tests {
         serde_json::from_str(
             r#"[
               {"tag_name":"nightly","target_commitish":"b086a33aaaa","body":"Built from main.",
-               "assets":[{"name":"Ghost-macos-arm64.zip","browser_download_url":"https://n/zip"}]},
+               "assets":[{"name":"u0-macos-arm64.zip","browser_download_url":"https://n/zip"}]},
               {"tag_name":"v0.2.0","target_commitish":"main","body":"Two.",
-               "assets":[{"name":"Ghost-0.2.0-macos-arm64.zip","browser_download_url":"https://s/2"}]},
+               "assets":[{"name":"u0-0.2.0-macos-arm64.zip","browser_download_url":"https://s/2"}]},
               {"tag_name":"v0.3.0","target_commitish":"main","draft":true,
-               "assets":[{"name":"Ghost-0.3.0-macos-arm64.zip","browser_download_url":"https://s/3"}]},
+               "assets":[{"name":"u0-0.3.0-macos-arm64.zip","browser_download_url":"https://s/3"}]},
               {"tag_name":"v0.1.0-pre.1","target_commitish":"main",
-               "assets":[{"name":"Ghost-0.1.0-pre.1-macos-arm64.zip","browser_download_url":"https://s/1"}]}
+               "assets":[{"name":"u0-0.1.0-pre.1-macos-arm64.zip","browser_download_url":"https://s/1"}]}
             ]"#,
         )
         .expect("the fixture reads")

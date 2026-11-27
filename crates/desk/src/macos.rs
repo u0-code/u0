@@ -1,11 +1,11 @@
-//! What Ghost asks of macOS: its icon, the Dock's badge, dictation, a
+//! What u0 asks of macOS: its icon, the Dock's badge, dictation, a
 //! notification's sound, a Terminal window.
 //!
-//! The app's own icon is the ghost, on the body macOS app icons sit on. A
-//! bundle built with `bundle.sh` carries it as `Ghost.icns`, and Finder,
+//! The app's own icon is its mark, on the body macOS app icons sit on. A
+//! bundle built with `bundle.sh` carries it as `u0.icns`, and Finder,
 //! Launchpad and the Dock read it from there. Run straight from cargo there
 //! is no bundle, so the desk hands `AppKit` the same picture as it starts,
-//! and the Dock shows the ghost either way. The picture is
+//! and the Dock shows the mark either way. The picture is
 //! `assets/app/icon.png`, rendered from `assets/app/icon.svg`.
 
 /// The 1024-pixel picture, built into the binary.

@@ -1,24 +1,24 @@
-//! What Ghost logs, and where.
+//! What u0 logs, and where.
 
-/// What Ghost logs goes to stderr and to a file a day in its home's
+/// What u0 logs goes to stderr and to a file a day in its home's
 /// `logs/`, of which the last `days` are kept.
 pub fn start(days: u16) {
     use tracing_subscriber::{fmt, layer::SubscriberExt as _, util::SubscriberInitExt as _};
     if let Err(e) = crate::settings::keep_private(&crate::settings::home()) {
-        eprintln!("Ghost's home is not kept private: {e}");
+        eprintln!("u0's home is not kept private: {e}");
     }
     let file = tracing_appender::rolling::Builder::new()
         .rotation(tracing_appender::rolling::Rotation::DAILY)
-        .filename_prefix("ghost")
+        .filename_prefix("u0")
         .filename_suffix("log")
         .max_log_files(usize::from(days.max(1)))
         .build(crate::settings::home().join("logs"))
-        .map_err(|e| eprintln!("Ghost keeps no log file: {e}"))
+        .map_err(|e| eprintln!("u0 keeps no log file: {e}"))
         .ok();
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "ghost_desk=info,ghost_core=info".into()),
+                .unwrap_or_else(|_| "u0_desk=info,u0_core=info".into()),
         )
         .with(fmt::layer().with_writer(std::io::stderr))
         .with(file.map(|file| fmt::layer().with_ansi(false).with_writer(file)))

@@ -71,7 +71,7 @@ fn glassy(colour: Hsla) -> Hsla {
 }
 
 /// The colours of a theme of yours, for the look now drawn, as the
-/// functions below give Ghost's own: each read from what gpui-kit made of
+/// functions below give u0's own: each read from what gpui-kit made of
 /// the theme.
 #[derive(Clone, Copy)]
 struct Palette {
@@ -126,7 +126,7 @@ impl Palette {
     }
 }
 
-/// The colours of the theme of yours drawn now; none, Ghost's own.
+/// The colours of the theme of yours drawn now; none, u0's own.
 static THEMED: std::sync::RwLock<Option<Palette>> = std::sync::RwLock::new(None);
 
 /// A colour of the theme of yours drawn now, where there is one.
@@ -135,7 +135,7 @@ fn themed(of: fn(&Palette) -> Hsla) -> Option<Hsla> {
 }
 
 /// The themes chosen for the dark look and the light, by name; none,
-/// Ghost's own.
+/// u0's own.
 static CHOSEN: std::sync::Mutex<(Option<String>, Option<String>)> =
     std::sync::Mutex::new((None, None));
 
@@ -301,8 +301,8 @@ pub fn brand(id: &str) -> Hsla {
 }
 
 /// gpui-kit's theme, in the desk's look: its components take their
-/// colours, faces and corners from here, as Ghost's own draws do from the
-/// functions above. Set as Ghost starts and whenever the look changes.
+/// colours, faces and corners from here, as u0's own draws do from the
+/// functions above. Set as u0 starts and whenever the look changes.
 pub fn kit(cx: &mut App) {
     use gpui::component::theme::{Theme, ThemeMode};
     let faces = crate::fonts::faces(cx).clone();

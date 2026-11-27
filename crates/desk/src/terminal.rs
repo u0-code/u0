@@ -1,5 +1,5 @@
 //! A terminal of yours in the drawer under the thread, as t3code's: a real
-//! shell in a pseudo-terminal, run by the server (ghost-core's
+//! shell in a pseudo-terminal, run by the server (u0-core's
 //! `terminals`), in the session's folder, whose screen is kept here by a
 //! VT parser and drawn by the desk. What you type goes to it as a
 //! terminal sends keys (a `Call::TermInput`); what it prints comes back
@@ -462,13 +462,13 @@ mod tests {
         let send: Arc<dyn Fn(crate::proto::Event) + Send + Sync> = Arc::new(move |e| {
             let _ = tx.send(e);
         });
-        let shells = ghost_core::terminals::Terminals::default();
+        let shells = u0_core::terminals::Terminals::default();
         let at = (std::env::temp_dir(), None);
-        let first = Some("echo ghost-$((40+2))".to_owned());
+        let first = Some("echo u0-$((40+2))".to_owned());
         shells.open(1, at.clone(), first.clone(), (6, 40), send.clone());
         let mut t = Terminal::new(1, 1, (6, 40));
-        assert!(until(&mut t, &rx, "ghost-42"), "{}", t.text());
-        assert_eq!(t.title, "echo ghost-$((40+2))");
+        assert!(until(&mut t, &rx, "u0-42"), "{}", t.text());
+        assert_eq!(t.title, "echo u0-$((40+2))");
         // The answer's own line, chosen with the mouse, is its text.
         let row = t
             .rows()
@@ -479,13 +479,13 @@ mod tests {
                     .map(|s| s.text.as_str())
                     .collect::<String>()
                     .trim_end()
-                    == "ghost-42"
+                    == "u0-42"
             })
             .expect("the answer on a line of its own");
         let row = u16::try_from(row).expect("a row on the screen");
-        t.selection = Some(((row, 7), (row, 0)));
-        assert_eq!(t.chosen_text().as_deref(), Some("ghost-42"));
-        assert_eq!(t.word_at((row, 3)), ((row, 0), (row, 7)));
+        t.selection = Some(((row, 4), (row, 0)));
+        assert_eq!(t.chosen_text().as_deref(), Some("u0-42"));
+        assert_eq!(t.word_at((row, 3)), ((row, 0), (row, 4)));
         let typed = t.send(b" ".to_vec());
         assert!(matches!(typed, Call::TermInput { id: 1, .. }));
         assert_eq!(t.chosen(), None);
@@ -495,7 +495,7 @@ mod tests {
         // Opened again (a desk come back), it shows what it printed.
         shells.open(1, at, first, (6, 40), send);
         let mut again = Terminal::new(1, 1, (6, 40));
-        assert!(until(&mut again, &rx, "ghost-42"), "{}", again.text());
+        assert!(until(&mut again, &rx, "u0-42"), "{}", again.text());
         assert!(!shells.close(1, false), "the shell waits again: it closes");
     }
 }

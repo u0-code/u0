@@ -1,7 +1,7 @@
-//! Text Ghost has written for you. Ghost has no model of its own: each
+//! Text u0 has written for you. u0 has no model of its own: each
 //! piece is asked of the writer, an agent of yours (the one you chose for
 //! it, with its model, or the session's own), in a session opened for that
-//! alone in a folder of Ghost's and let go once it answers. What each kind
+//! alone in a folder of u0's and let go once it answers. What each kind
 //! asks, and what of the answer is kept, is said here once.
 
 use std::path::{Path, PathBuf};
@@ -37,7 +37,7 @@ pub enum Ask {
 
 /// What a writer is asked to write for the session `key`: by `agent`,
 /// with `model` (its value in the agent's model option) where one is
-/// named, and `yours` (your instructions) after Ghost's; in a session
+/// named, and `yours` (your instructions) after u0's; in a session
 /// opened in `dir` for that alone, deleted (or closed) once it answers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Order {
@@ -96,7 +96,7 @@ const PATCH: usize = 40_000;
 const SAID: usize = 6_000;
 
 impl Ask {
-    /// What the writer is told: Ghost's instructions for this kind, then
+    /// What the writer is told: u0's instructions for this kind, then
     /// `yours`, then what it is written from. It reads git: it is made off
     /// the window's thread.
     pub fn prompt(&self, yours: &str) -> Result<String, String> {

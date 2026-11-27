@@ -341,7 +341,7 @@ mod tests {
     use super::*;
     use crate::hub::{Slot, Stage};
     use crate::session::Item;
-    use ghost_core::records::Records;
+    use u0_core::records::Records;
 
     /// Sessions of the agents `a` and `b`, each open as `s1`, under keys
     /// 1 and 2.

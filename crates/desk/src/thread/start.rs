@@ -58,7 +58,7 @@ impl Desk {
                 )
         };
         let mut steps: Vec<ListItem> = Vec::new();
-        // Settings that did not read, as Ghost started: read again once
+        // Settings that did not read, as u0 started: read again once
         // the file is mended or moved away.
         if self.settings_refused.is_some() {
             steps.push(

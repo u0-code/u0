@@ -1,6 +1,6 @@
 [package]
-name = "ghost-desk"
-description = "Ghost: one desktop app for the coding agents you already use (Claude Code, Codex, Antigravity, ...), driven over the Agent Client Protocol."
+name = "u0-desk"
+description = "u0: one desktop app for the coding agents you already use (Claude Code, Codex, Antigravity, ...), driven over the Agent Client Protocol."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,7 +9,7 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-ghost-core.workspace = true
+u0-core.workspace = true
 gpui.workspace = true
 agent-client-protocol.workspace = true
 anyhow.workspace = true
@@ -44,7 +44,7 @@ qrcode = { workspace = true, features = ["svg"] }
 tempfile.workspace = true
 # A test of the desk has no home but a temporary one, and keeps its secrets
 # in memory: never yours, never your Keychain.
-ghost-core = { workspace = true, features = ["test"] }
+u0-core = { workspace = true, features = ["test"] }
 
 # To give the running app its icon in the Dock, and begin dictation: AppKit,
 # by way of the same crates GPUI uses for it.

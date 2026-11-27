@@ -1,14 +1,14 @@
-//! Ghost's tools: the one MCP server Ghost gives agents (rmcp's), over
+//! u0's tools: the one MCP server u0 gives agents (rmcp's), over
 //! what the server already does for the desk, reached as `door` says.
 //!
 //! What only reads (the sessions, what was said in one, a diff, what
 //! happened; your projects and what is found in them, their pull
 //! requests, checks and issues, the workflows, tasks and worktrees) any caller
 //! may call, a folder only where `Tools::folder` lets it. What acts, or
-//! asks you, is for an agent in a session of Ghost's, asked of you first
+//! asks you, is for an agent in a session of u0's, asked of you first
 //! in its thread; one that
 //! acts on a session it names (says something in it, stops its turn) is
-//! also for an agent outside Ghost where your settings let it, or on a
+//! also for an agent outside u0 where your settings let it, or on a
 //! device paired of full scope, asked of you first in that session. Each
 //! is asked on the same card an agent's own question is, unless you
 //! allowed it always.
@@ -76,7 +76,7 @@ impl Shared {
     }
 }
 
-/// One agent's connection to Ghost's tools.
+/// One agent's connection to u0's tools.
 #[derive(Clone)]
 pub(super) struct Tools {
     shared: Shared,
@@ -90,8 +90,9 @@ pub(super) struct Tools {
     heard: tokio::sync::watch::Receiver<std::collections::VecDeque<super::happened::Milestone>>,
 }
 
-/// Why a tool that acts, or asks you, is not for an agent outside Ghost.
-const OUTSIDE: &str = "Only an agent in a session of Ghost's can do this: Ghost asks you first there. Start one in Ghost.";
+/// Why a tool that acts, or asks you, is not for an agent outside u0.
+const OUTSIDE: &str =
+    "Only an agent in a session of u0's can do this: u0 asks you first there. Start one in u0.";
 
 /// The tools asked of you each time, never allowed always: what they do
 /// cannot be undone, and what they are given can be steered by text an
@@ -106,8 +107,8 @@ const EACH_TIME: [&str; 6] = [
     "resolve_thread",
 ];
 
-/// What Ghost's MCP server says it is, to an agent that connects.
-const INSTRUCTIONS: &str = "Ghost, the app this agent may be running in: the sessions it keeps of your agents, your projects and what is found in them, their diffs, worktrees, pull requests, checks and issues, its workflows and scheduled tasks, the simulators and emulators where it runs; and the user, asked in this session's thread. Subscribe to ghost://events to be told when something happens in the sessions, then call events.";
+/// What u0's MCP server says it is, to an agent that connects.
+const INSTRUCTIONS: &str = "u0, the app this agent may be running in: the sessions it keeps of your agents, your projects and what is found in them, their diffs, worktrees, pull requests, checks and issues, its workflows and scheduled tasks, the simulators and emulators where it runs; and the user, asked in this session's thread. Subscribe to u0://events to be told when something happens in the sessions, then call events.";
 
 /// Why a call is not made: the key it came in with lets no one in now.
 const LET_GO: &str =
@@ -117,7 +118,7 @@ const LET_GO: &str =
 const NOT_HERE: &str = "Only a project of yours, or a worktree of one, is read here";
 
 /// Why a tool that acts is not for this caller: it may only read.
-const READS: &str = "This agent may only read here: let agents outside Ghost act on a session in Settings › Agents, or start one in Ghost.";
+const READS: &str = "This agent may only read here: let agents outside u0 act on a session in Settings › Agents, or start one in u0.";
 
 impl Tools {
     /// The tools for the caller `key` lets in; none where it lets no one.
@@ -135,7 +136,7 @@ impl Tools {
     }
 
     /// The session it calls from, and how the index keeps it; none for an
-    /// agent outside Ghost.
+    /// agent outside u0.
     fn session(&self) -> Option<(SessionId, Meta)> {
         let caller = self.caller()?;
         let Caller::Session(agent, Some(id)) = caller else {
@@ -171,7 +172,7 @@ impl Tools {
     }
 
     /// Whether it may only read, as a device of read scope does: an agent
-    /// outside Ghost, or on such a device. It is told what would let it
+    /// outside u0, or on such a device. It is told what would let it
     /// act as such a device is (`Event::for_reader`).
     fn reads_only(&self) -> bool {
         !matches!(
@@ -196,9 +197,9 @@ impl Tools {
     /// Ask you whether `tool` may do what `title` says to the session
     /// `on` of `agent`, `title` given how that session is named on the
     /// card: in the session it calls from, for one in a session of
-    /// Ghost's, which names the other by its title, agent and project and
+    /// u0's, which names the other by its title, agent and project and
     /// is asked each time (a yes for always there would be a yes to any
-    /// session); for one outside Ghost where your settings let it act, or
+    /// session); for one outside u0 where your settings let it act, or
     /// on another device, in the session it acts on ("this session").
     /// That session, as kept.
     async fn allowed_on(
@@ -209,7 +210,7 @@ impl Tools {
         agent: &str,
         on: &SessionId,
     ) -> Result<Meta, String> {
-        let meta = (self.shared.meta(agent, on)).ok_or("Ghost keeps no such session")?;
+        let meta = (self.shared.meta(agent, on)).ok_or("u0 keeps no such session")?;
         let (card, title) = match self.caller() {
             Some(Caller::Session(from, Some(own))) if from == agent && own == *on => {
                 (None, title("this session"))
@@ -225,7 +226,7 @@ impl Tools {
             }
             Some(Caller::Outside) if Settings::load(&self.shared.home).0.outside_acts => (
                 None,
-                format!("An agent outside Ghost: {}", title("this session")),
+                format!("An agent outside u0: {}", title("this session")),
             ),
             Some(Caller::Device(Scope::Full)) => (
                 None,
@@ -257,7 +258,7 @@ impl Tools {
         if !once && self.always.lock().expect("always").contains(tool) {
             return Ok(());
         }
-        // Every agent outside Ghost comes in by the one key `mcp.json`
+        // Every agent outside u0 comes in by the one key `mcp.json`
         // holds: a yes for always would be a yes to each of them; and
         // some tools are asked each time whoever calls (`EACH_TIME`).
         let each_time = once || self.caller() == Some(Caller::Outside) || EACH_TIME.contains(&tool);
@@ -280,7 +281,7 @@ impl Tools {
         .flatten()
         .collect();
         let call = ToolCallUpdate::new(
-            format!("ghost-{tool}-{}", crate::access::number()),
+            format!("u0-{tool}-{}", crate::access::number()),
             ToolCallUpdateFields::new()
                 .title(title)
                 .raw_input(serde_json::to_value(input).ok()),
@@ -316,7 +317,7 @@ impl Tools {
     }
 
     /// `folder`, or where the session it calls from works.
-    /// One not in a session of Ghost's (outside Ghost, on a device) reads
+    /// One not in a session of u0's (outside u0, on a device) reads
     /// only in a project of yours or a worktree, as a device that may only
     /// read does (`access::within`).
     fn folder(&self, folder: Option<PathBuf>) -> Result<PathBuf, String> {
@@ -495,7 +496,7 @@ struct AskUser {
 
 #[tool_router]
 impl Tools {
-    /// The sessions Ghost keeps, the latest first: each one's agent, id,
+    /// The sessions u0 keeps, the latest first: each one's agent, id,
     /// title, project and the folder it works in.
     #[tool]
     async fn list_sessions(
@@ -516,7 +517,7 @@ impl Tools {
             .said_in(&ask.agent, &SessionId::new(ask.session), false)
             .await;
         if said.is_empty() {
-            "Nothing was said in it, or Ghost does not keep it.".into()
+            "Nothing was said in it, or u0 does not keep it.".into()
         } else {
             said
         }
@@ -534,7 +535,7 @@ impl Tools {
         })
     }
 
-    /// Hand a task to an agent in a new session of Ghost's, which you can
+    /// Hand a task to an agent in a new session of u0's, which you can
     /// watch there, and wait for its answer: its session's id and what it
     /// said at the end.
     #[tool]
@@ -600,7 +601,7 @@ impl Tools {
     }
 
     /// Schedule a prompt to be said to an agent, in a new session each
-    /// time: once, some minutes from now, or every so many minutes. Ghost
+    /// time: once, some minutes from now, or every so many minutes. u0
     /// lists it with the scheduled tasks, where it can be paused or taken
     /// away.
     #[tool]
@@ -638,7 +639,7 @@ impl Tools {
         Ok(format!("“{}” is scheduled.", ask.title))
     }
 
-    /// Say something in a session Ghost keeps, as its next turn (one going
+    /// Say something in a session u0 keeps, as its next turn (one going
     /// on is let end first, never stopped); with `wait`, give back what
     /// its agent answered. You are asked first.
     #[tool]
@@ -786,7 +787,7 @@ impl ServerHandler for Tools {
             .build();
         rmcp::model::ServerConfig::new(can)
             .with_server_info(rmcp::model::Implementation::new(
-                "ghost",
+                "u0",
                 env!("CARGO_PKG_VERSION"),
             ))
             .with_instructions(INSTRUCTIONS.to_owned())
@@ -798,7 +799,7 @@ impl ServerHandler for Tools {
         _: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<rmcp::model::ListResourcesResult, rmcp::ErrorData> {
         let events = rmcp::model::Resource::new(events::EVENTS, "events").with_description(
-            "What happened in the sessions Ghost runs; subscribed to, it says each time something does",
+            "What happened in the sessions u0 runs; subscribed to, it says each time something does",
         );
         Ok(rmcp::model::ListResourcesResult::with_all_items(vec![
             events,
@@ -891,7 +892,7 @@ pub(super) mod tests {
 
     impl Client {
         /// In at the door of the server of `home` with `key` (none, the
-        /// door's own: an agent outside Ghost), and past MCP's hello.
+        /// door's own: an agent outside u0), and past MCP's hello.
         pub(in crate::server) fn new(home: &std::path::Path, key: Option<&str>) -> Self {
             let mut client = Self::keyed(home, key);
             let hello = json!({"protocolVersion": "2025-06-18", "capabilities": {},
@@ -1050,7 +1051,7 @@ esac; done"#;
     pub(in crate::server) fn repo_at(dir: &std::path::Path, files: &[(&str, &str)]) {
         std::fs::create_dir_all(dir).unwrap();
         let git = |args: &[&str]| {
-            let named = ["-c", "user.name=Ghost", "-c", "user.email=ghost@localhost"];
+            let named = ["-c", "user.name=u0", "-c", "user.email=u0@localhost"];
             crate::git::yours(dir, "git", &[&named[..], args].concat()).unwrap();
         };
         git(&["init", "-q", "-b", "main"]);
@@ -1063,7 +1064,7 @@ esac; done"#;
         git(&["commit", "-q", "-m", "first"]);
     }
 
-    /// Answer the next permission card Ghost raises with `chosen`
+    /// Answer the next permission card u0 raises with `chosen`
     /// (`once`, `always`, `no`): its title.
     pub(in crate::server) fn answer_card(
         server: &std::sync::Arc<crate::server::Server>,
@@ -1071,10 +1072,10 @@ esac; done"#;
         chosen: &str,
     ) -> String {
         let (request, asked) = loop {
-            // Ghost's own cards, not those its agents raise.
+            // u0's own cards, not those its agents raise.
             if let Event::Said { event, .. } = said.recv_timeout(Duration::from_secs(10)).unwrap()
                 && let acp::Event::Permission { id, request } = *event
-                && request.tool_call.tool_call_id.0.starts_with("ghost-")
+                && request.tool_call.tool_call_id.0.starts_with("u0-")
             {
                 break (id, request);
             }
@@ -1148,10 +1149,10 @@ esac; done"#;
         let (port, http) = (free(), free());
         let was = json!({"port": port, "http": http, "key": "from before"});
         std::fs::write(mcp::path(home.path()), was.to_string()).unwrap();
-        let (ghost, _said) = server(home.path());
+        let (u0, _said) = server(home.path());
         let door = door_once(home.path(), |d| d.key != "from before");
         assert_eq!((door.port, door.http), (port, http), "the same ports again");
-        // Another Ghost finding them taken listens elsewhere, and says so.
+        // Another u0 finding them taken listens elsewhere, and says so.
         let other = tempfile::tempdir().unwrap();
         std::fs::copy(mcp::path(home.path()), mcp::path(other.path())).unwrap();
         let (_other, said) = server(other.path());
@@ -1173,7 +1174,7 @@ esac; done"#;
         let mut waiting = Client::new(home.path(), None);
         waiting.call("events", &json!({"after": 1000, "seconds": 600}));
         std::thread::sleep(Duration::from_millis(300));
-        ghost.handle(Call::NewToolsKey);
+        u0.handle(Call::NewToolsKey);
         let began = std::time::Instant::now();
         assert_eq!(waiting.result(), (LET_GO.to_owned(), true));
         assert!(began.elapsed() < Duration::from_secs(5));
@@ -1205,7 +1206,7 @@ esac; done"#;
             "clientInfo": {"name": "stand-in", "version": "1"}}});
         let (status, body) = over_http(home.path(), &key, &hello);
         assert!(status.contains("200"), "{status} {body}");
-        assert!(body.contains("\"ghost\""), "{body}");
+        assert!(body.contains("\"u0\""), "{body}");
         let list = json!({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
             "params": {"name": "list_sessions", "arguments": {}}});
         let (_, body) = over_http(home.path(), &key, &list);
@@ -1227,7 +1228,7 @@ esac; done"#;
     }
 
     #[test]
-    fn an_agent_outside_ghost_reads_a_diff_of_your_projects_alone() {
+    fn an_agent_outside_u0_reads_a_diff_of_your_projects_alone() {
         let home = tempfile::tempdir().unwrap();
         let (project, elsewhere) = (home.path().join("p"), tempfile::tempdir().unwrap());
         std::fs::create_dir(&project).unwrap();
@@ -1290,7 +1291,7 @@ esac; done"#;
     }
 
     #[test]
-    fn an_agent_outside_ghost_reads_the_sessions_kept_but_may_not_act() {
+    fn an_agent_outside_u0_reads_the_sessions_kept_but_may_not_act() {
         let home = tempfile::tempdir().unwrap();
         let (server, _said) = server(home.path());
         server.handle(Call::Keep(vec![meta(home.path(), "Fix the build")]));
@@ -1415,13 +1416,13 @@ esac; done"#,
         });
         assert!(matches!(next(), Event::Opened { result: Ok(_), .. }));
         server.handle(Call::Keep(vec![meta(home.path(), "t")]));
-        // It was given Ghost's tools: this program, started with --mcp and
+        // It was given u0's tools: this program, started with --mcp and
         // a key of its own.
         let asked: Value = opened(0);
         let given = &asked["params"]["mcpServers"][0];
         assert_eq!(
             (&given["name"], &given["args"]),
-            (&json!("ghost"), &json!(["--mcp"]))
+            (&json!("u0"), &json!(["--mcp"]))
         );
         let key = (given["env"].as_array().unwrap().iter())
             .find(|v| v["name"] == mcp::KEY)
@@ -1517,7 +1518,7 @@ esac; done"#,
     }
 
     #[test]
-    fn an_agent_outside_ghost_acts_on_a_session_only_where_let_and_as_you_allow_it_each_time() {
+    fn an_agent_outside_u0_acts_on_a_session_only_where_let_and_as_you_allow_it_each_time() {
         let home = tempfile::tempdir().unwrap();
         // An agent that opens s1 and answers each prompt in the session it
         // was said in.
@@ -1579,10 +1580,10 @@ esac; done"#;
         assert_eq!(asked.session_id, SessionId::new("s1"));
         let title = asked.tool_call.fields.title.unwrap_or_default();
         assert!(
-            title.starts_with("An agent outside Ghost: Say “Go on”"),
+            title.starts_with("An agent outside u0: Say “Go on”"),
             "{title}"
         );
-        // Each agent outside Ghost has the one key: none is let always.
+        // Each agent outside u0 has the one key: none is let always.
         let offered: Vec<&str> = (asked.options.iter()).map(|o| &*o.option_id.0).collect();
         assert_eq!(offered, ["once", "no"]);
         server.handle(answer(request, "no"));
@@ -1618,20 +1619,20 @@ esac; done"#;
             "io.modelcontextprotocol/clientCapabilities": {}});
         listener.ask(
             "subscriptions/listen",
-            &json!({"_meta": hello, "notifications": {"resourceSubscriptions": ["ghost://events"]}}),
+            &json!({"_meta": hello, "notifications": {"resourceSubscriptions": ["u0://events"]}}),
         );
         let heard = listener.told("notifications/subscriptions/acknowledged");
         assert_eq!(
             heard["params"]["notifications"]["resourceSubscriptions"],
-            json!(["ghost://events"])
+            json!(["u0://events"])
         );
         let asks = crate::server::happened::Happened::asks("May I?");
         (server.shared.happened).happened("a", &SessionId::new("s1"), asks);
         let updated = listener.told("notifications/resources/updated");
-        assert_eq!(updated["params"]["uri"], json!("ghost://events"));
+        assert_eq!(updated["params"]["uri"], json!("u0://events"));
         // Read, it is the latest of what happened.
         let mut reader = Client::new(home.path(), None);
-        reader.ask("resources/read", &json!({"uri": "ghost://events"}));
+        reader.ask("resources/read", &json!({"uri": "u0://events"}));
         let read = reader.reply();
         let text = read["result"]["contents"][0]["text"].as_str().unwrap();
         assert!(text.contains("May I?"), "{text}");

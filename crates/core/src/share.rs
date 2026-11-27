@@ -1,4 +1,4 @@
-//! Sharing this Ghost with desks on other machines: listening on
+//! Sharing this u0 with desks on other machines: listening on
 //! 127.0.0.1 (`link`), a cloudflared tunnel that brings the world to it,
 //! the links a device pairs with and the devices paired (`access`), and
 //! keeping the Mac awake while it serves. What Settings › Devices shows
@@ -32,17 +32,17 @@ use crate::{
 pub enum Share {
     /// How it stands: answered, as each change is, with [`Event::Shared`].
     Look,
-    /// Listen, now and each time Ghost starts; or stop, cutting off each
+    /// Listen, now and each time u0 starts; or stop, cutting off each
     /// device linked.
     Serve(bool),
     /// A new pairing link, for a device as the grant says, naming the
     /// route given (none: the tunnel once it is up, else the first there
     /// is of Tailscale, the local network and 127.0.0.1).
     Link(Grant, Option<Route>),
-    /// Listen on a network too, or no longer, now and each time Ghost
+    /// Listen on a network too, or no longer, now and each time u0
     /// starts.
     Bind(Bind),
-    /// Run the tunnel, or stop it, now and each time Ghost starts.
+    /// Run the tunnel, or stop it, now and each time u0 starts.
     Tunnel(bool),
     /// The named tunnel to run; none, a quick one.
     Named(Option<Named>),
@@ -207,7 +207,7 @@ impl Server {
 
     /// Offer a new pairing link letting in what `grant` says, naming
     /// `route` (none: the tunnel once it is up, else Tailscale, the local
-    /// network, 127.0.0.1, the first there is); none where Ghost does not
+    /// network, 127.0.0.1, the first there is); none where u0 does not
     /// listen, or not that way.
     pub fn offer(&self, grant: Grant, route: Option<Route>) -> Option<String> {
         let ways = self.ways();
@@ -233,7 +233,7 @@ impl Server {
         self.sharing().link.clone()
     }
 
-    /// Each way this Ghost is reached, as it listens now: 127.0.0.1, each
+    /// Each way this u0 is reached, as it listens now: 127.0.0.1, each
     /// address on a network it listens on (its certificate pinned), the
     /// tunnel once it is up.
     pub(crate) fn ways(&self) -> Vec<(Route, Way)> {
@@ -312,7 +312,7 @@ impl Server {
         Ok(public)
     }
 
-    /// Share as Ghost was last left sharing; `serve`, listen whatever it
+    /// Share as u0 was last left sharing; `serve`, listen whatever it
     /// was left at.
     pub fn share_as_kept(self: &Arc<Self>, serve: bool) {
         let kept = self.access().kept().unwrap_or_default();
@@ -321,7 +321,7 @@ impl Server {
         }
     }
 
-    /// Stop sharing, as Ghost quits: cloudflared is not left behind.
+    /// Stop sharing, as u0 quits: cloudflared is not left behind.
     pub fn unshare(&self) {
         let mut sharing = self.sharing();
         sharing.stop_tunnel();
@@ -338,7 +338,7 @@ impl Server {
         let bound = crate::policy::allows(crate::policy::Limit::Remote).and_then(|()| {
             std::net::TcpListener::bind(("127.0.0.1", port))
                 .and_then(|l| l.set_nonblocking(true).map(|()| l))
-                .map_err(|e| format!("Ghost could not listen on 127.0.0.1:{port}: {e}"))
+                .map_err(|e| format!("u0 could not listen on 127.0.0.1:{port}: {e}"))
         });
         let listening = bound.and_then(|l| {
             let port = l.local_addr().map_err(|e| e.to_string())?.port();
@@ -384,7 +384,7 @@ impl Server {
             let (tls, pin) = reach::acceptor()?;
             let l = std::net::TcpListener::bind((ip, port))
                 .and_then(|l| l.set_nonblocking(true).map(|()| l))
-                .map_err(|e| format!("Ghost could not listen on {ip}:{port}: {e}"))?;
+                .map_err(|e| format!("u0 could not listen on {ip}:{port}: {e}"))?;
             let port = l.local_addr().map_err(|e| e.to_string())?.port();
             let _in_runtime = crate::acp::runtime().enter();
             let l = tokio::net::TcpListener::from_std(l).map_err(|e| e.to_string())?;

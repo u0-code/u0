@@ -93,7 +93,7 @@ impl Composer {
 }
 
 /// What was put aside (⌘S): its text, kept between runs (see
-/// `store::Index`), and what was attached to it, kept while Ghost runs.
+/// `store::Index`), and what was attached to it, kept while u0 runs.
 #[derive(Debug, Clone)]
 pub struct Stashed {
     pub text: String,
@@ -381,7 +381,7 @@ fn next_item(line: &str) -> Option<Item> {
 }
 
 /// Something offered as you type.
-/// Ghost's own commands after `/`, beside the agent's: done at once.
+/// u0's own commands after `/`, beside the agent's: done at once.
 const OWN: [(&str, &str); 5] = [
     ("clear", "Begin afresh: a new session here"),
     ("usage-limits", "What sessions cost, as agents said"),
@@ -396,7 +396,7 @@ pub enum Offer {
         name: String,
         about: String,
     },
-    /// One of Ghost's own commands (see `OWN`).
+    /// One of u0's own commands (see `OWN`).
     Own {
         name: &'static str,
         about: &'static str,
@@ -607,7 +607,7 @@ impl Desk {
             self.set_option(config.clone(), value.clone(), cx);
             return;
         }
-        // One of Ghost's own is done, not written.
+        // One of u0's own is done, not written.
         if let Offer::Own { name, .. } = offer {
             self.put_line("", window, cx);
             let key = self.current;
@@ -987,14 +987,14 @@ impl Desk {
                 Offer::Session { key, title } => {
                     if let Some(other) = self.sessions.at(*key) {
                         blocks.push(text_resource(
-                            &format!("ghost://session/{key}"),
+                            &format!("u0://session/{key}"),
                             &format!("The session “{title}”:\n\n{}", said_in(other)),
                         ));
                     }
                 }
                 Offer::Pr { number, .. } => {
                     if let Some(t) = &m.text {
-                        blocks.push(text_resource(&format!("ghost://pr/{number}"), t));
+                        blocks.push(text_resource(&format!("u0://pr/{number}"), t));
                     }
                 }
                 Offer::Command { .. } | Offer::Own { .. } | Offer::Model { .. } => {}

@@ -1,7 +1,7 @@
-//! The `ghost` command's words, as t3code's `t3` has them: Ghost's server
+//! The `u0` command's words, as t3code's `t3` has them: u0's server
 //! with no window (`serve`), kept running from login by launchd
 //! (`service`), and what this home holds (`status`, `sessions`, `tasks`).
-//! A folder named opens in Ghost. One parser (clap's) reads them all:
+//! A folder named opens in u0. One parser (clap's) reads them all:
 //! the script the desk puts on the PATH hands it everything, marked as a
 //! terminal's (`--shell`), and an agent's `--mcp` is read here too.
 
@@ -18,14 +18,14 @@ use crate::{access, key::Key, servers, settings, store, tasks, when};
 mod doctor;
 mod threads;
 
-/// The `ghost` command, as clap reads it: its words, or folders to open.
+/// The `u0` command, as clap reads it: its words, or folders to open.
 #[derive(Debug, clap::Parser)]
 #[command(
-    name = "ghost",
-    about = "Ghost from a terminal: each folder named opens in Ghost, as a project (none: this one); or one of these words."
+    name = "u0",
+    about = "u0 from a terminal: each folder named opens in u0, as a project (none: this one); or one of these words."
 )]
 struct Cli {
-    /// Ghost's tools on the standard input and output, for an agent.
+    /// u0's tools on the standard input and output, for an agent.
     #[arg(long, hide = true)]
     mcp: bool,
     /// With --mcp: the tools of the server this Mac is paired with by
@@ -37,13 +37,13 @@ struct Cli {
     shell: bool,
     #[command(subcommand)]
     word: Option<Word>,
-    /// Folders to open in Ghost, as projects.
+    /// Folders to open in u0, as projects.
     folders: Vec<PathBuf>,
 }
 
 #[derive(Debug, clap::Subcommand)]
 enum Word {
-    /// Ghost's server with no window, for desks elsewhere to pair with.
+    /// u0's server with no window, for desks elsewhere to pair with.
     Serve,
     /// That server run from login by launchd, the window opening on it.
     Service {
@@ -52,7 +52,7 @@ enum Word {
     },
     /// This home: the agents on, the server, the tasks, the service.
     Status,
-    /// What of this home is not as Ghost needs it, and what to do.
+    /// What of this home is not as u0 needs it, and what to do.
     Doctor,
     /// The scheduled tasks, and when each runs next.
     Tasks,
@@ -130,7 +130,7 @@ enum Service {
 pub fn when_asked() {
     use clap::{CommandFactory as _, FromArgMatches as _};
     let command = Cli::command()
-        .bin_name("ghost")
+        .bin_name("u0")
         .version(crate::update::this_build());
     let shell = std::env::args().any(|a| a == "--shell");
     let cli = match command
@@ -185,8 +185,8 @@ pub fn when_asked() {
     }
 }
 
-/// Open each of `folders` (none: this one) in Ghost, as a project, through
-/// macOS, which hands it to the Ghost running or starts one.
+/// Open each of `folders` (none: this one) in u0, as a project, through
+/// macOS, which hands it to the u0 running or starts one.
 fn open(folders: &[PathBuf]) -> Result<(), String> {
     let here = [PathBuf::from(".")];
     for folder in if folders.is_empty() {
@@ -206,19 +206,19 @@ fn open(folders: &[PathBuf]) -> Result<(), String> {
     Ok(())
 }
 
-/// The launchd label of the service of `home`: Ghost's own, or one of
-/// its own for another home, so two Ghosts on one Mac keep apart.
+/// The launchd label of the service of `home`: u0's own, or one of
+/// its own for another home, so two u0s on one Mac keep apart.
 pub fn label(home: &Path) -> String {
-    let default = std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".ghost"));
+    let default = std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".u0"));
     if default.as_deref() == Some(home) {
-        return "local.ghost.server".into();
+        return "local.u0.server".into();
     }
     let hash = Sha256::digest(home.as_os_str().as_encoded_bytes());
     let short = u32::from_be_bytes([hash[0], hash[1], hash[2], hash[3]]);
-    format!("local.ghost.server.{short:08x}")
+    format!("local.u0.server.{short:08x}")
 }
 
-/// What the window calls the service, its way to this Mac's own Ghost.
+/// What the window calls the service, its way to this Mac's own u0.
 const SERVICE: &str = "This Mac's service";
 
 fn plist_of(label: &str) -> Result<PathBuf, String> {
@@ -249,7 +249,7 @@ fn agent_plist(label: &str, exe: &Path, home: &Path, log: &Path) -> Vec<u8> {
     let agent = Agent {
         label,
         program_arguments: [exe, Path::new("serve")],
-        environment_variables: [("GHOST_HOME", home)].into(),
+        environment_variables: [("U0_HOME", home)].into(),
         run_at_load: true,
         keep_alive: true,
         process_type: "Background",
@@ -293,7 +293,7 @@ fn standing(label: &str) -> Option<String> {
 
 fn service(home: &Path, what: &Service) -> Result<(), String> {
     if !cfg!(target_os = "macos") {
-        return Err("The service is launchd's, on macOS; elsewhere run `ghost serve` under your own supervisor (systemd, ...).".into());
+        return Err("The service is launchd's, on macOS; elsewhere run `u0 serve` under your own supervisor (systemd, ...).".into());
     }
     let label = label(home);
     let plist = plist_of(&label)?;
@@ -308,7 +308,7 @@ fn service(home: &Path, what: &Service) -> Result<(), String> {
             let _ = launchctl(&["bootout", &format!("{}/{label}", domain())]);
             launchctl(&["bootstrap", &domain(), &plist.display().to_string()])?;
             println!(
-                "Ghost's server runs from login as {label}; the window opens on it.\nIts log: {}",
+                "u0's server runs from login as {label}; the window opens on it.\nIts log: {}",
                 log.display()
             );
             Ok(())
@@ -342,7 +342,7 @@ fn service(home: &Path, what: &Service) -> Result<(), String> {
 /// Pair the window of `home` with its service, as a desk pairs with any
 /// server, but through the files the service has not opened yet: a key
 /// for the window let in (`devices.json`), the service kept as the way
-/// to this Mac's Ghost (`servers.json`, the private half in the Keychain;
+/// to this Mac's u0 (`servers.json`, the private half in the Keychain;
 /// `Servers::service`), and the server listening.
 fn pair_window(home: &Path) -> Result<(), String> {
     let access = access::Access::new(home);
@@ -394,7 +394,7 @@ fn unpair_window(home: &Path) -> Result<(), String> {
 /// What this home holds, in a few lines.
 fn status(home: &Path) -> Result<String, String> {
     let (kept, refused) = settings::Settings::load(home);
-    let mut out = format!("Ghost's home: {}\n", home.display());
+    let mut out = format!("u0's home: {}\n", home.display());
     if let Some(why) = refused {
         let _ = writeln!(out, "settings.json does not read: {why}");
     }
@@ -414,7 +414,7 @@ fn status(home: &Path) -> Result<String, String> {
     let service = match standing(&label) {
         Some(state) => format!("{label}, {state}"),
         None if plist_of(&label).is_ok_and(|p| p.is_file()) => format!("{label}, not loaded"),
-        None => "not installed (ghost service install)".into(),
+        None => "not installed (u0 service install)".into(),
     };
     let _ = writeln!(out, "Service: {service}");
     let list = tasks::load(home).map(|t| t.tasks).unwrap_or_default();
@@ -427,7 +427,7 @@ fn status(home: &Path) -> Result<String, String> {
     Ok(out)
 }
 
-/// What `ghost thread` asks.
+/// What `u0 thread` asks.
 fn thread(home: &Path, what: Thread) -> Result<String, String> {
     let here = |p: PathBuf| std::fs::canonicalize(&p).map_err(|e| format!("{}: {e}", p.display()));
     match what {
@@ -459,7 +459,7 @@ fn thread(home: &Path, what: Thread) -> Result<String, String> {
             let project = (index.sessions.iter())
                 .find(|m| m.agent == agent && m.id.as_ref().is_some_and(|id| *id.0 == *session))
                 .map(|m| m.project.clone())
-                .ok_or_else(|| format!("Ghost keeps no session {session} of {agent}"))?;
+                .ok_or_else(|| format!("u0 keeps no session {session} of {agent}"))?;
             threads::say(
                 home,
                 on.as_deref(),
@@ -501,9 +501,8 @@ mod tests {
     #[test]
     fn one_parser_reads_the_words_the_folders_and_an_agents_mcp() {
         use clap::Parser as _;
-        let read = |args: &[&str]| {
-            Cli::try_parse_from(std::iter::once("ghost").chain(args.iter().copied()))
-        };
+        let read =
+            |args: &[&str]| Cli::try_parse_from(std::iter::once("u0").chain(args.iter().copied()));
         let cli = read(&["--shell", "service", "install"]).unwrap();
         assert!(
             cli.shell
@@ -550,11 +549,11 @@ mod tests {
     #[test]
     fn each_home_has_a_service_of_its_own() {
         let (a, b) = (label(Path::new("/tmp/a")), label(Path::new("/tmp/b")));
-        assert!(a.starts_with("local.ghost.server."));
+        assert!(a.starts_with("local.u0.server."));
         assert_ne!(a, b);
         let p = String::from_utf8(agent_plist(
             &a,
-            Path::new("/Applications/Ghost.app/x"),
+            Path::new("/Applications/u0.app/x"),
             Path::new("/h&o"),
             Path::new("/l"),
         ))

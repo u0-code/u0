@@ -1,4 +1,4 @@
-//! What Ghost keeps on this machine, measured and tidied, as t3code's
+//! What u0 keeps on this machine, measured and tidied, as t3code's
 //! storage cleanup: the records of sessions it no longer lists, the
 //! worktrees no session works in (one with changes not committed is left),
 //! the checkpoints of sessions gone.
@@ -25,7 +25,7 @@ pub struct Kept {
     pub records: Vec<(String, String)>,
     /// The worktrees sessions work in.
     pub worktrees: Vec<PathBuf>,
-    /// The folders Ghost's worktrees are in.
+    /// The folders u0's worktrees are in.
     pub under: Vec<PathBuf>,
     /// The projects (those in a repository are tidied), and the checkpoint
     /// names of the sessions kept.

@@ -1,6 +1,6 @@
 //! What you say, heard on this Mac by gpui-kit's speech: the system's
 //! speech recognition, on the device alone, so nothing is sent away. It is
-//! the system's, not a model of Ghost's own. Here, what you asked of what
+//! the system's, not a model of u0's own. Here, what you asked of what
 //! is heard (your dictionary, the fillers left out), the languages it
 //! hears; and text read aloud with the system's voice.
 
@@ -158,11 +158,11 @@ mod tests {
     #[test]
     fn a_dictionary_line_with_an_equals_sign_writes_what_is_heard_otherwise() {
         let (words, aliases) = dictionary(&[
-            "Ghost".to_owned(),
+            "u0".to_owned(),
             " gpui kit = gpui-kit ".to_owned(),
             String::new(),
         ]);
-        assert_eq!(words, ["Ghost", "gpui-kit"]);
+        assert_eq!(words, ["u0", "gpui-kit"]);
         assert_eq!(aliases, [("gpui kit".to_owned(), "gpui-kit".to_owned())]);
         let v = voice(&["gpui kit = gpui-kit"], false);
         assert_eq!(

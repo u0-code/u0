@@ -6,7 +6,7 @@
 //! with the answers. The desk names an agent by its id and never holds its
 //! connection: what it asks comes in as a [`Call`], to [`Server::handle`].
 //!
-//! The server is also the one writer of what Ghost keeps of sessions
+//! The server is also the one writer of what u0 keeps of sessions
 //! (`store`): the index, changed by the metas the desk sends, and each
 //! session's record (`records`): what an agent says in a session open with
 //! it is written here and sent on as [`Event::Appended`].
@@ -100,7 +100,7 @@ struct Shared {
     /// What each watched pull request last stood at, by its session's
     /// agent and id (`scheduled::Shared::watch_prs`).
     watched: Arc<Mutex<HashMap<(String, SessionId), String>>>,
-    /// Who each key lets in to Ghost's tools (`tools`).
+    /// Who each key lets in to u0's tools (`tools`).
     callers: door::Callers,
     /// What is counted, and sent as far as you let it.
     telemetry: Arc<crate::telemetry::Telemetry>,
@@ -183,7 +183,7 @@ impl Shared {
                         serde_json::json!({"air": {"version": 1, "capabilities": ["asyncTasks"]}}),
                     )])),
             )
-            .client_info(Implementation::new("ghost", env!("CARGO_PKG_VERSION")));
+            .client_info(Implementation::new("u0", env!("CARGO_PKG_VERSION")));
         let init = running.request(hello).await?;
         let pid = running.pid();
         let running = Arc::new(running);
@@ -224,7 +224,7 @@ async fn choose_model(
 const PAGES: usize = 50;
 
 impl Server {
-    /// A server for Ghost's home `home`, saying what it has to say to
+    /// A server for u0's home `home`, saying what it has to say to
     /// `send`, shared as it was left.
     pub fn new(
         home: PathBuf,
@@ -310,7 +310,7 @@ impl Server {
         }
     }
 
-    /// Wait until what was asked to be written is written: as Ghost quits.
+    /// Wait until what was asked to be written is written: as u0 quits.
     pub fn settle() {
         store::settle();
     }
@@ -903,7 +903,7 @@ impl Server {
     }
 
     /// The sessions the agent `id` keeps in each of the projects `places`
-    /// and in Ghost's worktrees of them, those in `under`, each with the
+    /// and in u0's worktrees of them, those in `under`, each with the
     /// project it belongs to.
     fn list(&self, id: &str, places: Vec<PathBuf>, under: Vec<PathBuf>) {
         let Some(agent) = self.running(id) else {
@@ -916,7 +916,7 @@ impl Server {
         );
         acp::runtime().spawn(async move {
             let mut all: Vec<(PathBuf, PathBuf)> = Vec::new();
-            // Each project's folder, and Ghost's worktrees of it.
+            // Each project's folder, and u0's worktrees of it.
             for project in places {
                 all.push((project.clone(), project.clone()));
                 let p = project.clone();
@@ -950,7 +950,7 @@ impl Server {
                 }
             }
             // The folders it has sessions in that are not projects (nor
-            // Ghost's own), each with how many: what could be added.
+            // u0's own), each with how many: what could be added.
             let known: Vec<PathBuf> = found.iter().map(|(_, s)| s.cwd.clone()).collect();
             let mut elsewhere = BTreeMap::<PathBuf, usize>::default();
             let mut cursor = None;
@@ -1297,7 +1297,7 @@ impl Server {
         });
     }
 
-    /// What Ghost runs (`diagnostics`), and which are the agents running:
+    /// What u0 runs (`diagnostics`), and which are the agents running:
     /// each one's id and process id.
     fn weigh(&self) {
         let running: Vec<(String, u32)> = (self.shared.agents.lock().expect("agents").iter())

@@ -49,7 +49,7 @@ use crate::{
 /// What the pages hold as you use them: whether the settings are open,
 /// their tab, what is looked for among the settings and among the
 /// registry's agents, what worktree branches begin with as you write it,
-/// the action whose keys are being recorded, how much each part of Ghost's
+/// the action whose keys are being recorded, how much each part of u0's
 /// home takes and what the last tidying did; on an agent's page, the
 /// command of yours that starts it and a model id to add.
 pub struct Pages {
@@ -96,13 +96,13 @@ pub struct Pages {
     pub tokens: [Entity<InputState>; 5],
     /// Themes of yours that did not read, each said.
     pub themes_refused: Vec<String>,
-    /// What Ghost runs (the agents among it, by id and process id), and
+    /// What u0 runs (the agents among it, by id and process id), and
     /// the warnings and errors in its log: Settings › Diagnostics.
     pub processes: (Vec<(String, u32)>, crate::diagnostics::Processes),
     /// Those processes as gpui-kit's tree.
     pub process_tree: Entity<gpui::component::tree::TreeState>,
     pub troubles: Vec<String>,
-    /// How sharing this Ghost stands, as its server last said.
+    /// How sharing this u0 stands, as its server last said.
     pub shared: Option<crate::share::Shared>,
     /// The named tunnel's address and token as you write them.
     pub named_host: Entity<InputState>,
@@ -136,7 +136,7 @@ impl Pages {
             .detach();
         let prefix = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("ghost/")
+                .placeholder("u0/")
                 .default_value(settings.branch_prefix.clone())
         });
         cx.subscribe(&prefix, |this, input, e: &InputEvent, cx| {
@@ -204,7 +204,7 @@ impl Pages {
             }),
             on: crate::hub::Host::HERE,
             shared: None,
-            named_host: field("ghost.example.com", window, cx),
+            named_host: field("u0.example.com", window, cx),
             named_token: cx.new(|cx| {
                 InputState::new(window, cx)
                     .placeholder(crate::tr("Tunnel token"))
@@ -217,7 +217,7 @@ impl Pages {
                 cx,
             ),
             sent: None,
-            pair_link: field("ghost://pair?host=…", window, cx),
+            pair_link: field("u0://pair?host=…", window, cx),
             pairing: false,
             grant: crate::access::Grant::default(),
             offered: None,
@@ -293,7 +293,7 @@ fn dictionary_field(
     let input = cx.new(|cx| {
         TextareaState::new(window, cx)
             .auto_grow(2, 8)
-            .placeholder(crate::tr("Ghost\ngpui kit = gpui-kit"))
+            .placeholder(crate::tr("u0\ngpui kit = gpui-kit"))
             .default_value(now.join("\n"))
     });
     cx.subscribe(&input, |this, input, e: &InputEvent, cx| {
@@ -437,10 +437,9 @@ impl Desk {
                 ),
             },
             Way::Runner { runner, .. } => match &installed {
-                Some(v) if *v == entry.version => crate::tr_with(
-                    "%{name} %{v} installed in Ghost",
-                    &[("name", &name), ("v", v)],
-                ),
+                Some(v) if *v == entry.version => {
+                    crate::tr_with("%{name} %{v} installed in u0", &[("name", &name), ("v", v)])
+                }
                 Some(v) => available(v),
                 None => crate::tr_with(
                     "Install %{name} %{latest} with %{runner}",
@@ -735,7 +734,7 @@ impl Desk {
                             ui::text(
                                 faces,
                                 crate::tr_with(
-                                    "Ghost runs %{name}'s own agent and shows its work here. Its account, models and billing stay with %{name}; Ghost never sees its sign-in.",
+                                    "u0 runs %{name}'s own agent and shows its work here. Its account, models and billing stay with %{name}; u0 never sees its sign-in.",
                                     &named,
                                 ),
                             )
@@ -754,7 +753,7 @@ impl Desk {
 
     /// What you set for an agent: a command line of your own that starts
     /// it, and model ids of your own beside those it lists; and a warning
-    /// where it speaks another version of ACP than Ghost.
+    /// where it speaks another version of ACP than u0.
     fn agent_own(
         &self,
         faces: &Faces,
@@ -774,10 +773,10 @@ impl Desk {
                 div()
                     .flex()
                     .items_center()
-                    .child(ui::label(faces, &crate::tr("Ghost's tools")).flex_1())
+                    .child(ui::label(faces, &crate::tr("u0's tools")).flex_1())
                     .child(
                         gpui::component::switch::Switch::new("agent-tools")
-                            .accessibility_label(crate::tr("Ghost's tools"))
+                            .accessibility_label(crate::tr("u0's tools"))
                             .small()
                             .checked(tools)
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -793,7 +792,7 @@ impl Desk {
             )
             .child(ui::fine(
                 faces,
-                crate::tr("Each new session of it is given Ghost's tools, as an MCP server: the sessions Ghost keeps, a diff, a task handed to another session, a pull request, a task scheduled, a question put to you. What acts asks you here first."),
+                crate::tr("Each new session of it is given u0's tools, as an MCP server: the sessions u0 keeps, a diff, a task handed to another session, a pull request, a task scheduled, a question put to you. What acts asks you here first."),
             ))
             .child(ui::label(faces, &crate::tr("Your own")))
             .child(
@@ -866,13 +865,13 @@ impl Desk {
         ));
         own = own.child(self.agent_vars(faces, host, id, cx));
         own = own.child(self.agent_accounts(faces, host, id, cx));
-        // The version of ACP it speaks, where it is not Ghost's.
+        // The version of ACP it speaks, where it is not u0's.
         if let Stage::Running { .. } = stage
             && let Some(init) = self.slot(host, id).and_then(|s| s.known.as_ref())
             && init.protocol_version != agent_client_protocol::schema::ProtocolVersion::V1
         {
             own = own.child(ui::trouble(crate::tr_with(
-                "It speaks ACP version %{version}; Ghost speaks version 1. Some of what it says may not show.",
+                "It speaks ACP version %{version}; u0 speaks version 1. Some of what it says may not show.",
                 &[("version", &format!("{:?}", init.protocol_version))],
             )));
         }
@@ -881,7 +880,7 @@ impl Desk {
 
     /// The accounts of the agent `id`: each signs in apart, its CLI's
     /// settings in a folder of its own; a line to add one. None where
-    /// Ghost does not know where its CLI keeps them.
+    /// u0 does not know where its CLI keeps them.
     fn agent_accounts(&self, faces: &Faces, host: Host, id: &str, cx: &mut Context<Self>) -> Div {
         let agent = crate::registry::instance(id).0.to_owned();
         if crate::registry::known(&agent).and_then(|k| k.4).is_none() {
@@ -1058,7 +1057,7 @@ impl Desk {
             )
             .child(ui::fine(
                 faces,
-                crate::tr("Set in the agent's environment as it starts. A secret one is kept in the macOS Keychain, never in Ghost's files; a value may be a 1Password reference, read by op as it starts."),
+                crate::tr("Set in the agent's environment as it starts. A secret one is kept in the macOS Keychain, never in u0's files; a value may be a 1Password reference, read by op as it starts."),
             ))
     }
 }

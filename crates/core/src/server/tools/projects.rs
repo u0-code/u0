@@ -1,5 +1,5 @@
-//! Ghost's tools for your projects: listed and added, as the sidebar
-//! has them; and what is in them found, as Ghost finds it: the sessions
+//! u0's tools for your projects: listed and added, as the sidebar
+//! has them; and what is in them found, as u0 finds it: the sessions
 //! kept (`Call::Search`), a file by its letters (`repo::paths`), words in
 //! the files git sees (`Call::Grep`).
 
@@ -28,7 +28,7 @@ struct SearchSessions {
 struct FindFiles {
     /// The folder; none, where this session works.
     folder: Option<PathBuf>,
-    /// Letters of the path, in order, as typed to Ghost's file finder
+    /// Letters of the path, in order, as typed to u0's file finder
     /// (`smr` finds `src/main.rs`).
     query: String,
 }
@@ -51,23 +51,23 @@ struct SearchCode {
 }
 
 /// Why a folder is not added as a project.
-const TOO_WIDE: &str = "That folder is too wide to be a project: not the root, your home folder or a folder holding it, nor Ghost's own";
+const TOO_WIDE: &str = "That folder is too wide to be a project: not the root, your home folder or a folder holding it, nor u0's own";
 
 /// Whether `folder`, as it really is, is too wide to be made a project by
-/// an agent: a project is read by agents outside Ghost and devices that
+/// an agent: a project is read by agents outside u0 and devices that
 /// may only read, so it is never the root, your home folder or one that
-/// holds it, nor Ghost's home (`ghost`: its keys and records) or a folder
+/// holds it, nor u0's home (`u0`: its keys and records) or a folder
 /// in it or holding it.
-fn too_wide(folder: &std::path::Path, ghost: &std::path::Path) -> bool {
+fn too_wide(folder: &std::path::Path, u0: &std::path::Path) -> bool {
     let real = |p: &std::path::Path| std::fs::canonicalize(p).ok();
     let Some(folder) = real(folder) else {
         return true;
     };
     let yours = std::env::var_os("HOME").and_then(|h| real(h.as_ref()));
-    let ghost = real(ghost);
+    let u0 = real(u0);
     folder.parent().is_none()
         || yours.is_some_and(|h| h.starts_with(&folder))
-        || ghost.is_some_and(|g| g.starts_with(&folder) || folder.starts_with(&g))
+        || u0.is_some_and(|g| g.starts_with(&folder) || folder.starts_with(&g))
 }
 
 /// The settings kept, or why they are not read (then none are written).
@@ -80,13 +80,13 @@ fn settings(home: &std::path::Path) -> Result<Settings, String> {
 
 #[tool_router(router = project_router, vis = "pub(super)")]
 impl Tools {
-    /// Your projects in Ghost: their folders, as its sidebar lists them.
+    /// Your projects in u0: their folders, as its sidebar lists them.
     #[tool]
     async fn list_projects(&self) -> Result<String, String> {
         said(&settings(&self.shared.home)?.folders)
     }
 
-    /// Make a folder one of your projects in Ghost, first in its list.
+    /// Make a folder one of your projects in u0, first in its list.
     /// You are asked first.
     #[tool]
     async fn add_project(&self, Parameters(ask): Parameters<AddProject>) -> Result<String, String> {
@@ -109,7 +109,7 @@ impl Tools {
         Ok(format!("{shown} is a project now."))
     }
 
-    /// The sessions Ghost keeps whose title, or what was said in them,
+    /// The sessions u0 keeps whose title, or what was said in them,
     /// holds `query` (case aside), the latest first; as `list_sessions`
     /// gives them.
     #[tool]
@@ -179,7 +179,7 @@ mod tests {
     use crate::{proto::Call, server::tests::server};
 
     #[test]
-    fn an_agent_outside_ghost_finds_in_your_projects_alone_and_adds_none() {
+    fn an_agent_outside_u0_finds_in_your_projects_alone_and_adds_none() {
         let home = tempfile::tempdir().unwrap();
         let (project, elsewhere) = (home.path().join("p"), home.path().join("q"));
         repo_at(&project, &[("src/main.rs", "fn main() { build(); }\n")]);

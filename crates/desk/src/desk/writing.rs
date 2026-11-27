@@ -1,4 +1,4 @@
-//! What Ghost has an agent write for you (`writer`): asked, on the server
+//! What u0 has an agent write for you (`writer`): asked, on the server
 //! the session is on, of the writer chosen in that server's settings, or
 //! else of the session's own agent, and put where it was asked for when it
 //! comes back: a session's title, its worktree's branch, a commit message,

@@ -1,6 +1,6 @@
 # Contributing
 
-Ghost is a small codebase with a few rules it holds to. This page is the
+u0 is a small codebase with a few rules it holds to. This page is the
 whole of the process.
 
 ## Setting up
@@ -43,7 +43,7 @@ type(scope): what changed, in plain words
 - Say what is now true, not what you did: "a stalled answer no longer holds
   a run past its time", not "fix timeout bug".
 - `!` after the scope, and a `BREAKING CHANGE:` footer, for a change someone
-  using Ghost has to act on.
+  using u0 has to act on.
 
 The body says why. What the code does is in the diff; what made you write it
 is not. If something was measured, give the number.
@@ -53,12 +53,12 @@ on every commit.
 
 ## What will not be merged
 
-- **An agent of Ghost's own.** Ghost runs other agents; it has no model
+- **An agent of u0's own.** u0 runs other agents; it has no model
   client and no prompts, and gives them no tools but its one MCP server
   (`server/tools.rs`).
 - **A second copy of what the protocol or the registry says.** Wire shapes
   are the ACP schema crate's; the list of agents is the registry's.
-- **A secret in a tracked file**, or Ghost reading an agent's credentials.
+- **A secret in a tracked file**, or u0 reading an agent's credentials.
 - **Tests that only show the code runs.** A test here says something that
   would be false if the behaviour were wrong, in words a person can read:
   look at the names of the ones that are there.
@@ -82,7 +82,7 @@ agent working here is told.
 
 ## Licence
 
-Ghost is under [Apache-2.0](LICENSE). What you contribute is offered under
+u0 is under [Apache-2.0](LICENSE). What you contribute is offered under
 the same licence, as its section 5 says, with nothing to sign.
 
 ## Security

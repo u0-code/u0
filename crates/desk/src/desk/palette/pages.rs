@@ -82,7 +82,7 @@ fn split_path(typed: &str, home: &Path) -> (PathBuf, String) {
 
 impl Desk {
     /// Your home on the server a project is added on: on another server,
-    /// the folder Ghost's home there is in, as the desk knows no other.
+    /// the folder u0's home there is in, as the desk knows no other.
     fn palette_home(&self) -> PathBuf {
         match self.palette.on {
             crate::hub::Host::HERE => Desk::home_path().unwrap_or_default(),

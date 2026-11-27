@@ -1,4 +1,4 @@
-//! The writer's tab: which agent, with which model, writes what Ghost has
+//! The writer's tab: which agent, with which model, writes what u0 has
 //! written for you, and your instructions for each kind of text.
 
 use agent_client_protocol::v1::schema::SessionConfigOptionCategory as Category;
@@ -76,9 +76,9 @@ impl Desk {
             ),
         ];
         SettingPage::new(super::Tab::Writing.title())
-            .description(
-                crate::tr("Ghost has no model of its own: an agent of yours writes what Ghost writes for you."),
-            )
+            .description(crate::tr(
+                "u0 has no model of its own: an agent of yours writes what u0 writes for you.",
+            ))
             .group(group(crate::tr("The writer"), writer))
             .group(group(crate::tr("Your instructions"), yours))
     }

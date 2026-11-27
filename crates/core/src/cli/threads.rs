@@ -1,4 +1,4 @@
-//! The `ghost` words that ask a server, as a desk asks it: `thread` and
+//! The `u0` words that ask a server, as a desk asks it: `thread` and
 //! `workflow`. What only reads is read from this home; what acts goes
 //! over a link to a server this Mac is paired with (`--on`, or this
 //! Mac's service), signed in by this Mac's key as the window is, and is
@@ -25,7 +25,7 @@ fn server(home: &Path, on: Option<&str>) -> Result<(crate::reach::Way, crate::ke
     found
         .ok_or_else(|| match on {
             Some(name) => format!("This Mac is not paired with {name}"),
-            None => "Name a server this Mac is paired with (--on), or run `ghost service install`: the window's own server is not reached from a terminal.".into(),
+            None => "Name a server this Mac is paired with (--on), or run `u0 service install`: the window's own server is not reached from a terminal.".into(),
         })?
         .reach()
 }
@@ -72,7 +72,7 @@ pub fn list(home: &Path) -> Result<String, String> {
 /// What was said in the session `id` of `agent`, as its record has it.
 pub fn show(home: &Path, agent: &str, id: &str) -> Result<String, String> {
     let record = store::read(&store::record_path(home, agent, id))
-        .ok_or_else(|| format!("Ghost keeps no record of {agent} {id}"))?;
+        .ok_or_else(|| format!("u0 keeps no record of {agent} {id}"))?;
     Ok(crate::session::said(record, false))
 }
 

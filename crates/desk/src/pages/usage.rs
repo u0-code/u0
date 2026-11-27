@@ -2,7 +2,7 @@
 //! said it and read back from the records (`usage::used`): what they cost
 //! and the tokens they took, by agent, by model and by session; where each
 //! account stands against its limits; and the context each open one holds
-//! (what runs is in Diagnostics). ⇧⌘1 to ⇧⌘5 choose the period. Ghost
+//! (what runs is in Diagnostics). ⇧⌘1 to ⇧⌘5 choose the period. u0
 //! prices and counts nothing itself: what an agent does not say is not
 //! shown.
 
@@ -331,7 +331,7 @@ impl Desk {
             agents.push(item(
                 w,
                 crate::tr("Nothing said"),
-                crate::tr("No agent said what a session cost or took in this time. Not every agent says; Ghost does not guess."),
+                crate::tr("No agent said what a session cost or took in this time. Not every agent says; u0 does not guess."),
                 |_, _, _| div().into_any_element(),
             ));
         }

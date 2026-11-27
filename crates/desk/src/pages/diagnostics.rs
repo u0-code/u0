@@ -1,7 +1,7 @@
-//! Settings › Diagnostics, as t3code's: the processes Ghost runs, as a
+//! Settings › Diagnostics, as t3code's: the processes u0 runs, as a
 //! tree (agents, what they started, your terminals) with their CPU and
 //! memory and this Mac's load, each stopped from here; and the warnings
-//! and errors in Ghost's log.
+//! and errors in u0's log.
 
 use gpui::component::button::ButtonVariants as _;
 use gpui::component::{
@@ -44,13 +44,13 @@ pub(crate) fn process_tree(procs: &[Proc]) -> Vec<TreeItem> {
 }
 
 impl Desk {
-    /// The Diagnostics tab: this Mac, Ghost's processes, the log's troubles.
+    /// The Diagnostics tab: this Mac, u0's processes, the log's troubles.
     pub(super) fn diagnostics(&self, w: &WeakEntity<Desk>) -> Vec<SettingGroup> {
         let processes = &self.pages.processes.1;
         let memory = crate::tidy::shown(processes.memory);
         let held = crate::tidy::shown(processes.procs.iter().map(|p| p.kb * 1024).sum());
         let mac = crate::tr_with(
-            "Load %{load} on %{cores} cores, %{memory} of memory; Ghost's processes hold %{held}.",
+            "Load %{load} on %{cores} cores, %{memory} of memory; u0's processes hold %{held}.",
             &[
                 ("load", &processes.load),
                 ("cores", &processes.cores),
@@ -63,7 +63,7 @@ impl Desk {
             item(
                 w,
                 crate::tr("Processes"),
-                crate::tr("Ghost runs nothing else now."),
+                crate::tr("u0 runs nothing else now."),
                 |_, _, _| div().into_any_element(),
             )
         } else {
@@ -96,7 +96,7 @@ impl Desk {
         };
         vec![
             group(
-                crate::tr("Ghost"),
+                crate::tr("u0"),
                 vec![
                     item(
                         w,
@@ -108,7 +108,7 @@ impl Desk {
                                 .into_any_element()
                         },
                     ),
-                    item(w, crate::tr("Ghost"), mac, |_, _, cx| {
+                    item(w, crate::tr("u0"), mac, |_, _, cx| {
                         ui::button(
                             "diagnostics-read",
                             crate::tr("Read again"),
@@ -124,7 +124,7 @@ impl Desk {
         ]
     }
 
-    /// Ghost's processes as gpui-kit's tree: each with its CPU and memory,
+    /// u0's processes as gpui-kit's tree: each with its CPU and memory,
     /// an agent let go and any other stopped.
     fn processes(&self, faces: &Faces, cx: &mut Context<Self>) -> impl IntoElement {
         let desk = cx.entity();

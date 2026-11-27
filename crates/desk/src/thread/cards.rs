@@ -566,7 +566,7 @@ impl Desk {
                 ui::text(
                     faces,
                     crate::tr_with(
-                        "%{name} signs in with its own account; Ghost never sees it. What you said is sent once you are in.",
+                        "%{name} signs in with its own account; u0 never sees it. What you said is sent once you are in.",
                         &[("name", &name)],
                     ),
                 )

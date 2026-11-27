@@ -186,7 +186,7 @@ impl Desk {
         }
     }
 
-    /// Open a terminal on the server `host`, in Ghost's home there, beside
+    /// Open a terminal on the server `host`, in u0's home there, beside
     /// the session on screen; `first` is typed into it: a sign-in there.
     pub(crate) fn terminal_on(&mut self, host: Host, first: &str, cx: &mut Context<Self>) {
         let Some(key) = self.current else {
@@ -601,7 +601,7 @@ impl Desk {
         cx.notify();
     }
 
-    /// Keep the script being written in `ghost.json`, or (`keep` false)
+    /// Keep the script being written in `u0.json`, or (`keep` false)
     /// take it away.
     pub fn save_script(&mut self, keep: bool, cx: &mut Context<Self>) {
         let (Some(w), Some((host, key, dir))) = (

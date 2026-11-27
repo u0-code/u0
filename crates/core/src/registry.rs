@@ -306,7 +306,7 @@ impl Entry {
                     d.uvx.as_ref()
                 }
                 .expect("the package the way names");
-                // Installed in Ghost's folder, it starts from there.
+                // Installed in u0's folder, it starts from there.
                 let installed = self
                     .installed(home)
                     .and_then(|v| self.program_in(&self.dir_of(home, &v)));
@@ -393,7 +393,7 @@ pub fn fetch(home: &Path) -> Result<Registry, String> {
 /// The file in a package's install folder that names its program.
 const PROGRAM: &str = "program";
 
-/// What Ghost knows of an agent that the registry does not say, by its id;
+/// What u0 knows of an agent that the registry does not say, by its id;
 /// the one list of agents in code. Each row is:
 ///
 /// - the CLI its adapter drives, and the variable that points the adapter
@@ -447,7 +447,7 @@ pub const KNOWN: [Known; 6] = [
     ),
 ];
 
-/// What Ghost knows of the agent with this id (or an account of it), if
+/// What u0 knows of the agent with this id (or an account of it), if
 /// anything.
 pub fn known(id: &str) -> Option<&'static Known> {
     KNOWN.iter().find(|k| k.0 == instance(id).0)
@@ -488,7 +488,7 @@ fn installer(runner: &str) -> &'static str {
     if runner == "npx" { "npm" } else { "uv" }
 }
 
-/// Install `entry`'s package at its version into Ghost's folder, with npm
+/// Install `entry`'s package at its version into u0's folder, with npm
 /// (an npx package) or uv (a uvx one): it then starts from there, with
 /// nothing fetched each time, and is updated as an archive is.
 fn install_package(entry: &Entry, home: &Path, say: Say, stop: &AtomicBool) -> Result<(), String> {
@@ -738,7 +738,7 @@ mod tests {
         );
         let home = Path::new("/h");
         assert_eq!(work.dir(home), registry.agents[0].dir(home));
-        // Its CLI keeps its sign-in where the variable Ghost knows points.
+        // Its CLI keeps its sign-in where the variable u0 knows points.
         assert_eq!(known(&id).and_then(|k| k.4), Some("CLAUDE_CONFIG_DIR"));
         assert!(entry_of(&registry, "codex-acp+x").is_none());
     }

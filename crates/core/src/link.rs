@@ -1,4 +1,4 @@
-//! Ghost reached from elsewhere: a desk on another machine asks this
+//! u0 reached from elsewhere: a desk on another machine asks this
 //! server what the desk in this process would (each [`Call`]), and is told
 //! what it says (each [`Event`]), as JSON over a WebSocket.
 //!
@@ -208,7 +208,7 @@ pub async fn listen(
     }
 }
 
-/// The next connection `listener` takes. Where it can take none (Ghost
+/// The next connection `listener` takes. Where it can take none (u0
 /// out of file descriptors, say), it waits a moment before it tries
 /// again, rather than trying again at once, for ever.
 pub(crate) async fn next(listener: &TcpListener) -> TcpStream {
@@ -299,8 +299,8 @@ async fn respond(
     answer
 }
 
-/// Serve the Ghost in this machine's home to desks elsewhere, with no
-/// window, until stopped: what `ghost-server` and `ghost-desk --serve` do.
+/// Serve the u0 in this machine's home to desks elsewhere, with no
+/// window, until stopped: what `u0-server` and `u0-desk --serve` do.
 /// It says where it serves as it starts, and at a terminal a pairing link
 /// for the first desk.
 pub fn serve_here() -> Result<(), String> {
@@ -331,7 +331,7 @@ pub fn serve_here() -> Result<(), String> {
 /// would keep a link that lets anyone who reads it in.
 fn greeting(server: &Arc<Server>, terminal: bool) -> String {
     let urls: Vec<String> = (server.ways().into_iter()).map(|(_, w)| w.url()).collect();
-    let whereabouts = format!("Ghost serves on {}", urls.join(", "));
+    let whereabouts = format!("u0 serves on {}", urls.join(", "));
     if !terminal {
         return format!(
             "{whereabouts}\nPair a desk with it from a window on this Mac, under Settings › Devices."
@@ -631,7 +631,7 @@ fn cut(why: Turned) -> String {
     }
 }
 
-/// A WebSocket upgraded from a connection to where Ghost listens.
+/// A WebSocket upgraded from a connection to where u0 listens.
 type Upgraded = Socket<hyper_util::rt::TokioIo<hyper::upgrade::Upgraded>>;
 
 /// One desk's link: its hello, then what it asks and what it is told.
@@ -657,7 +657,7 @@ async fn serve(
     };
     if hello.protocol != PROTOCOL {
         let why = format!(
-            "This Ghost speaks protocol {PROTOCOL} and yours {}: update the older",
+            "This u0 speaks protocol {PROTOCOL} and yours {}: update the older",
             hello.protocol
         );
         return refuse(ws, &why).await;
@@ -808,11 +808,11 @@ pub fn host_name() -> String {
         .unwrap_or_else(|| "this machine".into())
 }
 
-/// What the Ghost in `home` calls itself to a desk: its machine's name,
-/// and for a home other than `~/.ghost` that home's folder too, so that a
-/// desk holding two Ghosts of one machine tells them apart.
+/// What the u0 in `home` calls itself to a desk: its machine's name,
+/// and for a home other than `~/.u0` that home's folder too, so that a
+/// desk holding two u0s of one machine tells them apart.
 fn server_name(home: &std::path::Path) -> String {
-    let default = std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".ghost"));
+    let default = std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".u0"));
     match home.file_name() {
         Some(folder) if default.as_deref() != Some(home) => {
             format!("{} · {}", host_name(), folder.to_string_lossy())
@@ -862,7 +862,7 @@ impl Link {
         self.again.notify_one();
     }
 
-    /// Wait, a few seconds at most, until all asked has gone: as Ghost
+    /// Wait, a few seconds at most, until all asked has gone: as u0
     /// quits.
     pub fn settle(&self) {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -1051,7 +1051,7 @@ async fn answer<T: serde::de::DeserializeOwned>(ws: &mut Client) -> Result<T, Di
     match tokio::time::timeout(WAIT, ws.next()).await {
         Ok(Some(Ok(Message::Text(t)))) => serde_json::from_str(&t).map_err(|e| {
             Dial::Refused(format!(
-                "The server answered in another form ({e}): update the older Ghost"
+                "The server answered in another form ({e}): update the older u0"
             ))
         }),
         Ok(Some(Ok(Message::Close(Some(f))))) if f.code == CloseCode::Policy => {
@@ -2047,7 +2047,7 @@ esac; done"#;
         assert!(mine.control && theirs.control);
         assert_ne!(
             name, theirs.servers[0].name,
-            "two Ghosts of one machine, told apart"
+            "two u0s of one machine, told apart"
         );
         assert!(open(home_b.path(), &name).is_ok(), "B opens A");
         assert!(
@@ -2070,11 +2070,8 @@ esac; done"#;
         let (server, _) = sharing(home.path());
         server.serve().unwrap();
         let logged = greeting(&server, false);
-        assert!(
-            logged.contains("Ghost serves on ws://127.0.0.1:"),
-            "{logged}"
-        );
-        assert!(!logged.contains("ghost://"), "{logged}");
+        assert!(logged.contains("u0 serves on ws://127.0.0.1:"), "{logged}");
+        assert!(!logged.contains("u0://"), "{logged}");
         assert!(server.offered().is_none());
         assert!(server.access().kept().is_ok_and(|k| k.devices.is_empty()));
         let shown = greeting(&server, true);

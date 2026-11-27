@@ -218,7 +218,7 @@ impl Desk {
         rows.push(item(
             w,
             crate::tr("Pull its default branch"),
-            crate::tr("As Ghost starts and each time it fetches, while it is checked out with nothing changed, and only where it moves straight on."),
+            crate::tr("As u0 starts and each time it fetches, while it is checked out with nothing changed, and only where it moves straight on."),
             switch("project-pull", |p| p.pull, |d, f, _, cx| {
                 d.set_prefs(f, cx, |p| p.pull = !p.pull);
             }),
@@ -346,7 +346,7 @@ impl Desk {
             .into_any_element()
     }
 
-    /// Where the project is checked out: its folder, and each of Ghost's
+    /// Where the project is checked out: its folder, and each of u0's
     /// worktrees of it, with the sessions in it, each one removable.
     fn checkouts(&self, w: &WeakEntity<Desk>, folder: &Place) -> Vec<SettingItem> {
         let mut worktrees: Vec<(crate::git::Worktree, u64, usize)> = Vec::new();
@@ -502,7 +502,7 @@ impl Desk {
             &[("name", &self.project_name(folder)), ("n", &n)],
         );
         let said = crate::tr_with(
-            "Path: %{path}\nGhost forgets these sessions and their records. Each agent keeps its own sessions.\nFiles on disk are not touched.\nThis cannot be undone.",
+            "Path: %{path}\nu0 forgets these sessions and their records. Each agent keeps its own sessions.\nFiles on disk are not touched.\nThis cannot be undone.",
             &[("path", &Desk::shown(&folder.folder))],
         );
         let (desk, folder) = (cx.entity(), folder.clone());

@@ -1,9 +1,9 @@
 //! The policy on a Mac: what a configuration profile (from MDM, or
-//! installed by hand) sets in Ghost's preference domain, read as macOS
+//! installed by hand) sets in u0's preference domain, read as macOS
 //! apps read managed preferences, with `CFPreferencesCopyAppValue`. A key
 //! counts only where `CFPreferencesAppValueIsForced` says a profile
 //! forces it: one written with `defaults write` is no policy.
-//! `policy/ghost.mobileconfig` is the example, every key in it.
+//! `policy/u0.mobileconfig` is the example, every key in it.
 
 use core_foundation::{
     array::CFArray,
@@ -21,9 +21,9 @@ use serde_json::Value;
 
 use super::Policy;
 
-/// Ghost's preference domain: Ghost.app's `CFBundleIdentifier`, as
+/// u0's preference domain: u0.app's `CFBundleIdentifier`, as
 /// bundle.sh writes it.
-const DOMAIN: &str = "local.ghost.desk";
+const DOMAIN: &str = "local.u0.desk";
 
 /// A policy's keys, `Policy`'s fields: each is asked for by name, since
 /// the managed values of a domain are not listed.
@@ -138,8 +138,8 @@ mod tests {
     }
 
     #[test]
-    fn the_example_profile_sets_every_key_in_ghosts_domain_and_reads() {
-        let profile = plist(include_str!("../../../../policy/ghost.mobileconfig")).unwrap();
+    fn the_example_profile_sets_every_key_in_u0s_domain_and_reads() {
+        let profile = plist(include_str!("../../../../policy/u0.mobileconfig")).unwrap();
         let content = profile["PayloadContent"][0].as_object().unwrap();
         assert_eq!(content["PayloadType"], DOMAIN);
         let keys: Vec<_> = (content.keys())

@@ -1,4 +1,4 @@
-//! What happens in the sessions the server runs, as Ghost's tools tell
+//! What happens in the sessions the server runs, as u0's tools tell
 //! it: the turns going on, to be waited on, and the last of what happened
 //! (a turn ended, an agent asks you), numbered, for an agent to follow
 //! without reading each session again.
@@ -24,11 +24,11 @@ pub(super) struct Milestone {
     pub agent: String,
     pub session: SessionId,
     pub what: Happened,
-    /// In a turn Ghost began on its own (a task's, a workflow's, one an
+    /// In a turn u0 began on its own (a task's, a workflow's, one an
     /// agent said something in): no task runs on it, so none runs on its
     /// own runs. A turn of yours in the same session is yours.
     #[serde(skip)]
-    pub by_ghost: bool,
+    pub by_u0: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -75,23 +75,23 @@ pub(super) struct Happenings {
     turning: watch::Sender<HashSet<(String, SessionId)>>,
     /// The last of what happened, the latest last.
     kept: watch::Sender<VecDeque<Milestone>>,
-    /// The sessions whose turn going on Ghost began on its own, by agent
+    /// The sessions whose turn going on u0 began on its own, by agent
     /// and id.
-    ghost: std::sync::Mutex<HashSet<(String, SessionId)>>,
+    u0: std::sync::Mutex<HashSet<(String, SessionId)>>,
 }
 
 impl Happenings {
-    /// A turn begins in the session `id` of `agent`: one Ghost began on
-    /// its own (`by_ghost`), or yours.
-    pub fn begin(&self, agent: &str, id: &SessionId, by_ghost: bool) {
+    /// A turn begins in the session `id` of `agent`: one u0 began on
+    /// its own (`by_u0`), or yours.
+    pub fn begin(&self, agent: &str, id: &SessionId, by_u0: bool) {
         let on = (agent.to_owned(), id.clone());
-        let mut ghost = self.ghost.lock().expect("ghost");
-        if by_ghost {
-            ghost.insert(on.clone());
+        let mut u0 = self.u0.lock().expect("u0");
+        if by_u0 {
+            u0.insert(on.clone());
         } else {
-            ghost.remove(&on);
+            u0.remove(&on);
         }
-        drop(ghost);
+        drop(u0);
         self.turning.send_modify(|t| {
             t.insert(on);
         });
@@ -103,7 +103,7 @@ impl Happenings {
             t.remove(&(agent.to_owned(), id.clone()));
         });
         self.happened(agent, id, Happened::TurnEnded(how));
-        (self.ghost.lock().expect("ghost")).remove(&(agent.to_owned(), id.clone()));
+        (self.u0.lock().expect("u0")).remove(&(agent.to_owned(), id.clone()));
     }
 
     /// What tells each time something happens.
@@ -113,8 +113,7 @@ impl Happenings {
 
     /// `what` happened in the session `id` of `agent`.
     pub fn happened(&self, agent: &str, id: &SessionId, what: Happened) {
-        let by_ghost =
-            (self.ghost.lock().expect("ghost")).contains(&(agent.to_owned(), id.clone()));
+        let by_u0 = (self.u0.lock().expect("u0")).contains(&(agent.to_owned(), id.clone()));
         self.kept.send_modify(|kept| {
             let n = kept.back().map_or(1, |m| m.n + 1);
             kept.push_back(Milestone {
@@ -123,7 +122,7 @@ impl Happenings {
                 agent: agent.to_owned(),
                 session: id.clone(),
                 what,
-                by_ghost,
+                by_u0,
             });
             while kept.len() > KEPT {
                 kept.pop_front();
@@ -194,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn only_a_turn_ghost_began_is_marked_ghosts_and_a_later_one_of_yours_is_not() {
+    fn only_a_turn_u0_began_is_marked_u0s_and_a_later_one_of_yours_is_not() {
         let h = Happenings::default();
         let id = SessionId::new("s1");
         h.begin("a", &id, true);
@@ -203,7 +202,7 @@ mod tests {
         h.begin("a", &id, false);
         h.end("a", &id, "end_turn".into());
         let (said, _) = block(h.after(0, Duration::ZERO));
-        let marked: Vec<bool> = said.iter().map(|m| m.by_ghost).collect();
+        let marked: Vec<bool> = said.iter().map(|m| m.by_u0).collect();
         assert_eq!(marked, [true, true, false]);
     }
 }

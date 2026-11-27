@@ -1,12 +1,12 @@
 name: An idea
-description: Something Ghost should do, or do differently.
+description: Something u0 should do, or do differently.
 labels: [idea]
 body:
   - type: textarea
     id: what
     attributes:
       label: What, and for whom
-      description: What a person running their agents through Ghost would notice.
+      description: What a person running their agents through u0 would notice.
     validations:
       required: true
   - type: textarea

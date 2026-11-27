@@ -1,7 +1,7 @@
 //! What agents say they used, read from the records: what a session cost
 //! (ACP's `usage_update`), the tokens of each turn by model (the end of a
 //! prompt), and the limits of an account (what an adapter adds under
-//! `_meta`). Ghost counts and prices nothing itself: what no agent says is
+//! `_meta`). u0 counts and prices nothing itself: what no agent says is
 //! not shown.
 
 use std::time::{Duration, SystemTime};

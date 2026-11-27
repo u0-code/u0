@@ -1,14 +1,14 @@
-//! Links that open Ghost, as t3code's deep and prompt links: macOS hands
-//! the app each `ghost://` link opened (a click in a browser, `open`), and
-//! each folder opened with it (`ghost <folder>`, a folder dropped on the
+//! Links that open u0, as t3code's deep and prompt links: macOS hands
+//! the app each `u0://` link opened (a click in a browser, `open`), and
+//! each folder opened with it (`u0 <folder>`, a folder dropped on the
 //! Dock's icon), queued until the window is up.
 //!
-//! - `ghost://new?project=<path>&agent=<id>&prompt=<text>`: a new session,
+//! - `u0://new?project=<path>&agent=<id>&prompt=<text>`: a new session,
 //!   what you would write in it written. `&pr=<n>` or `&issue=<n>` begin it
 //!   on a pull request (in a worktree of its own branch) or about an issue.
-//! - `ghost://session/<agent>/<id>?prompt=<text>`: that session, and with
+//! - `u0://session/<agent>/<id>?prompt=<text>`: that session, and with
 //!   a prompt, it written there (asked first over what you were writing).
-//! - `ghost://pair?host=<host>#<code>`: pair with the Ghost there, as
+//! - `u0://pair?host=<host>#<code>`: pair with the u0 there, as
 //!   Settings › Devices made the link; asked first, and whether to pair
 //!   both ways.
 //! - `file:///path/to/folder`: the folder as a project, and a session in it.
@@ -46,13 +46,13 @@ pub enum Link {
 }
 
 impl Link {
-    /// The link `text` says; none where it is not one of Ghost's.
+    /// The link `text` says; none where it is not one of u0's.
     pub fn parse(text: &str) -> Option<Self> {
         let url = url::Url::parse(text).ok()?;
         if url.scheme() == "file" {
             return url.to_file_path().ok().map(Self::Folder);
         }
-        if url.scheme() != "ghost" {
+        if url.scheme() != "u0" {
             return None;
         }
         let query = |name: &str| {
@@ -92,7 +92,7 @@ impl Link {
 
     /// The link to the session `id` of `agent`, as Copy ▸ Link gives it.
     pub fn to_session(agent: &str, id: &str) -> String {
-        let mut url = url::Url::parse("ghost://session/").expect("a link");
+        let mut url = url::Url::parse("u0://session/").expect("a link");
         url.path_segments_mut()
             .expect("a link with a path")
             .pop_if_empty()
@@ -104,7 +104,7 @@ impl Link {
     /// The link to a new session in `project` with `agent`, `prompt`
     /// written in it.
     pub fn to_new(project: &std::path::Path, agent: &str, prompt: &str) -> String {
-        let mut url = url::Url::parse("ghost://new").expect("a link");
+        let mut url = url::Url::parse("u0://new").expect("a link");
         url.query_pairs_mut()
             .append_pair("project", &project.to_string_lossy())
             .append_pair("agent", agent)
@@ -137,7 +137,7 @@ impl Desk {
             match Link::parse(text) {
                 Some(link) => self.open_link(link, window, cx),
                 None => self.trouble(
-                    crate::tr("Ghost doesn't open that link"),
+                    crate::tr("u0 doesn't open that link"),
                     Some(text.clone()),
                     None,
                 ),
@@ -146,7 +146,7 @@ impl Desk {
         cx.notify();
     }
 
-    /// Open `link`: what macOS hands Ghost names this Mac's folders and
+    /// Open `link`: what macOS hands u0 names this Mac's folders and
     /// sessions.
     fn open_link(&mut self, link: Link, window: &mut Window, cx: &mut Context<Self>) {
         let here = |folder| super::Place::new(crate::hub::Host::HERE, folder);
@@ -276,7 +276,7 @@ mod tests {
             })
         );
         assert_eq!(
-            Link::parse("ghost://new?pr=%2312"),
+            Link::parse("u0://new?pr=%2312"),
             Some(Link::New {
                 project: None,
                 agent: None,
@@ -290,7 +290,7 @@ mod tests {
             Some(Link::Folder(PathBuf::from("/tmp/x")))
         );
         assert_eq!(
-            Link::parse("ghost://pair?host=127.0.0.1:4317#c0de"),
+            Link::parse("u0://pair?host=127.0.0.1:4317#c0de"),
             Some(Link::Pair {
                 way: crate::reach::Way {
                     host: "127.0.0.1:4317".into(),
@@ -300,7 +300,7 @@ mod tests {
             })
         );
         assert_eq!(Link::parse("https://example.com"), None);
-        assert_eq!(Link::parse("ghost://elsewhere"), None);
+        assert_eq!(Link::parse("u0://elsewhere"), None);
     }
 
     #[test]
@@ -315,7 +315,7 @@ mod tests {
             })
         );
         assert!(matches!(
-            Link::parse("ghost://session/claude-acp/a+b%2Bc"),
+            Link::parse("u0://session/claude-acp/a+b%2Bc"),
             Some(Link::Session { id, .. }) if id == "a+b+c"
         ));
     }

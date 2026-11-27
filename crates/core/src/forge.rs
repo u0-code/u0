@@ -1,4 +1,4 @@
-//! The hosts a project's code and issues can be on, and what Ghost knows of
+//! The hosts a project's code and issues can be on, and what u0 knows of
 //! each: its name, the CLI it is driven with where it has one, and the
 //! token you gave for it, kept in the Keychain (`secrets`) and handed to
 //! that CLI in the variable it reads.
@@ -46,7 +46,7 @@ impl Host {
         }
     }
 
-    /// The CLI it is driven with, where it has one Ghost uses.
+    /// The CLI it is driven with, where it has one u0 uses.
     pub fn cli(self) -> Option<&'static str> {
         match self {
             Self::GitHub => Some("gh"),
@@ -112,7 +112,7 @@ pub fn answer(dir: &Path, kind: Kind, ask: Ask, linear: Option<&str>) -> Answer 
     }
 }
 
-/// The answer to `ask` from `host`, where Ghost asks it only of GitHub.
+/// The answer to `ask` from `host`, where u0 asks it only of GitHub.
 fn not_here(host: &str, ask: Ask) -> Answer {
     let why = format!("{host} is not asked this here");
     match ask {

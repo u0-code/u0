@@ -1,7 +1,7 @@
-//! The settings that are Ghost's own, a tab each: how it tells you things
+//! The settings that are u0's own, a tab each: how it tells you things
 //! and what it does while you are away; how the thread reads; what you
 //! write while a turn goes on; how new sessions begin; the keys; and what
-//! Ghost is. Each row says what happens, and its control says the choice.
+//! u0 is. Each row says what happens, and its control says the choice.
 
 use gpui::component::button::ButtonGroup;
 use gpui::component::setting::{SettingField, SettingGroup, SettingItem, SettingPage};
@@ -18,7 +18,7 @@ use crate::{
 };
 
 impl Desk {
-    /// The page of the tab `tab`, when it is one of Ghost's own: its
+    /// The page of the tab `tab`, when it is one of u0's own: its
     /// settings, each drawn by `w`, the desk.
     pub(super) fn own_tab(
         &self,
@@ -32,7 +32,7 @@ impl Desk {
         let scoped = self.pages.scope.is_some();
         let (lede, groups) = match tab {
             Tab::General => (
-                "How Ghost tells you things, and what it does while you are away.",
+                "How u0 tells you things, and what it does while you are away.",
                 vec![
                     Self::scope_group(w),
                     group(
@@ -41,7 +41,7 @@ impl Desk {
                             item(
                                 w,
                                 crate::tr("When a session ends a turn or needs you"),
-                                crate::tr("From macOS while Ghost is behind, clicked to go to the session; in Ghost while another is on screen."),
+                                crate::tr("From macOS while u0 is behind, clicked to go to the session; in u0 while another is on screen."),
                                 |d, _, cx| {
                                     Self::pick("notify",
                                         [
@@ -468,7 +468,7 @@ impl Desk {
                             item(
                                 w,
                                 crate::tr("Times"),
-                                crate::tr("When a message was said, and what Ghost says of times."),
+                                crate::tr("When a message was said, and what u0 says of times."),
                                 |d, _, cx| {
                                     Self::pick("twelve",
                                         [(crate::tr("24-hour"), false), (crate::tr("12-hour"), true)],
@@ -685,7 +685,7 @@ impl Desk {
                             item(
                                 w,
                                 crate::tr("Worktree branches begin with"),
-                                crate::tr("Then the name the writer gives the work, as in ghost/retry-s3-uploads."),
+                                crate::tr("Then the name the writer gives the work, as in u0/retry-s3-uploads."),
                                 |d, faces, _| {
                                     div()
                                         .w(px(160.))
@@ -763,7 +763,7 @@ impl Desk {
             ),
             Tab::Keyboard => return Some(keyboard(w)),
             Tab::Writing => return Some(Self::writing_tab(w)),
-            Tab::About => return Some(self.about_ghost(w)),
+            Tab::About => return Some(self.about_u0(w)),
             Tab::SourceControl => return Some(self.source_control(w)),
             _ => return None,
         };
@@ -778,7 +778,7 @@ impl Desk {
     /// sets it with `set` and keeps the settings. `id` is the setting's
     /// key in settings.json (or begins with it, before a `-`): one the
     /// policy locks cannot be chosen, and says who locked it.
-    /// The language of Ghost's window, of those it speaks: as the
+    /// The language of u0's window, of those it speaks: as the
     /// system's (none), or one chosen.
     fn window_language(w: &WeakEntity<Desk>) -> SettingItem {
         let mut choices = vec![(SharedString::default(), crate::tr("As the system"))];
@@ -806,7 +806,7 @@ impl Desk {
             ),
         )
         .description(crate::tr(
-            "The words of Ghost's window; what agents say stays as they say it.",
+            "The words of u0's window; what agents say stays as they say it.",
         ))
     }
 
@@ -837,7 +837,7 @@ impl Desk {
         }
     }
 
-    /// Where new worktrees go: a folder chosen, or Ghost's own again.
+    /// Where new worktrees go: a folder chosen, or u0's own again.
     fn worktree_location(&self, cx: &mut Context<Self>) -> Div {
         fn keep(d: &mut Desk, at: Option<std::path::PathBuf>) {
             d.settings.worktrees = at;
@@ -848,7 +848,7 @@ impl Desk {
             .gap(px(6.))
             .when(self.settings.worktrees.is_some(), |d| {
                 d.child(
-                    ui::button("worktrees-own", crate::tr("Ghost's own"), Weight::Quiet).on_click(
+                    ui::button("worktrees-own", crate::tr("u0's own"), Weight::Quiet).on_click(
                         cx.listener(move |this, _, _, cx| {
                             keep(this, None);
                             cx.notify();
@@ -898,14 +898,14 @@ impl Desk {
         ui::segmented("editor", choices)
     }
 
-    /// What Ghost is, and where it keeps what it keeps.
-    fn about_ghost(&self, w: &WeakEntity<Desk>) -> SettingPage {
+    /// What u0 is, and where it keeps what it keeps.
+    fn about_u0(&self, w: &WeakEntity<Desk>) -> SettingPage {
         let rows = vec![
             item(
                 w,
-                crate::tr("The ghost command"),
+                crate::tr("The u0 command"),
                 crate::tr(
-                    "ghost <folder> in a terminal opens the folder here as a project. It goes in ~/.local/bin.",
+                    "u0 <folder> in a terminal opens the folder here as a project. It goes in ~/.local/bin.",
                 ),
                 |_, _, cx| {
                     ui::button("install-command", crate::tr("Add"), Weight::Quiet)
@@ -915,7 +915,7 @@ impl Desk {
             ),
             item(
                 w,
-                crate::tr("Where Ghost keeps its files"),
+                crate::tr("Where u0 keeps its files"),
                 Desk::shown(&self.home),
                 |d, _, _| {
                     let home = d.home.clone();
@@ -926,7 +926,7 @@ impl Desk {
             ),
             item(
                 w,
-                crate::tr("Ghost's log"),
+                crate::tr("u0's log"),
                 crate::tr(
                     "A file a day in logs/, kept as long as Keep logs says: what to send with a bug.",
                 ),
@@ -940,7 +940,7 @@ impl Desk {
             item(
                 w,
                 crate::tr("Keep logs"),
-                crate::tr("The days of log kept; older files go as Ghost starts."),
+                crate::tr("The days of log kept; older files go as u0 starts."),
                 |d, _, cx| {
                     Self::pick(
                         "log_days",
@@ -1000,7 +1000,7 @@ fn told(
     })
 }
 
-/// Whether Ghost asks before `name` (`about` saying more): the switch for
+/// Whether u0 asks before `name` (`about` saying more): the switch for
 /// it in `settings.confirm`.
 fn asks(
     w: &WeakEntity<Desk>,
@@ -1057,7 +1057,7 @@ fn keyboard(w: &WeakEntity<Desk>) -> SettingPage {
                 .gap(px(10.))
                 .child(ui::fine(
                     &faces,
-                    crate::tr("A rule is { \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }, with \"when\": \"Terminal\" (or \"Composer\", with !, && and ||) for where it holds, \"action\": \"none\" to take a key away, and \"-new_session\" to take it from that action alone; \"script:dev\" runs the script dev. The last rule that holds wins. Ghost reads the file as it starts."),
+                    crate::tr("A rule is { \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }, with \"when\": \"Terminal\" (or \"Composer\", with !, && and ||) for where it holds, \"action\": \"none\" to take a key away, and \"-new_session\" to take it from that action alone; \"script:dev\" runs the script dev. The last rule that holds wins. u0 reads the file as it starts."),
                 ))
                 .child(div().flex().child(
                     ui::button("open-keys", crate::tr("Open keybindings.json"), Weight::Secondary).on_click(
@@ -1072,7 +1072,7 @@ fn keyboard(w: &WeakEntity<Desk>) -> SettingPage {
     })
     .keywords(["keybindings.json"]);
     SettingPage::new(super::Tab::Keyboard.title())
-        .description(crate::tr("The keys as they are now, yours over Ghost's."))
+        .description(crate::tr("The keys as they are now, yours over u0's."))
         .groups(
             groups
                 .into_iter()
@@ -1084,7 +1084,7 @@ fn keyboard(w: &WeakEntity<Desk>) -> SettingPage {
 
 impl Desk {
     /// The keys of the action `name`: a click records new ones, the minus
-    /// takes them away, the arrow gives it back Ghost's.
+    /// takes them away, the arrow gives it back u0's.
     fn keys_of(&self, name: &'static str, cx: &mut Context<Self>) -> Div {
         let faces = crate::fonts::faces(cx).clone();
         let bound = keys::keys_of(cx, name);
@@ -1134,12 +1134,12 @@ impl Desk {
                 ui::icon_button(
                     SharedString::from(format!("unbind-{name}")),
                     "retry",
-                    crate::tr("Back to Ghost's keys"),
+                    crate::tr("Back to u0's keys"),
                 )
                 .size(px(22.))
                 .text_color(theme::faint())
                 .on_click(cx.listener(move |this, _, _, _| {
-                    this.set_keys(name, keys::Keys::Ghosts);
+                    this.set_keys(name, keys::Keys::Defaults);
                 })),
             )
     }

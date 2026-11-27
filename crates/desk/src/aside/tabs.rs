@@ -109,7 +109,7 @@ impl Column {
 }
 
 /// What the Open… menu offers, each with the letter that opens it while the
-/// menu is open: t3code's, for those Ghost has.
+/// menu is open: t3code's, for those u0 has.
 const OFFERS: [(&str, &str, char); 7] = [
     ("Terminal", "terminal", 'T'),
     ("Files", "folder", 'F'),

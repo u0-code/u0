@@ -158,7 +158,7 @@ impl Desk {
             }
             return;
         }
-        // A session in one of Ghost's worktrees works there again.
+        // A session in one of u0's worktrees works there again.
         if s.meta.worktree.is_none()
             && under.iter().any(|u| s.meta.folder.starts_with(u))
             && let Some(branch) = s.branch.clone()

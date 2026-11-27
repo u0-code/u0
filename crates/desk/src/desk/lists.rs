@@ -161,7 +161,7 @@ impl Desk {
         cx.notify();
     }
 
-    /// What one of Ghost's tools changed of a session on `host` (its pin,
+    /// What one of u0's tools changed of a session on `host` (its pin,
     /// archive, title and tags), taken as if you changed it here.
     pub(crate) fn organized(
         &mut self,
@@ -577,7 +577,7 @@ impl Desk {
 
     /// Delete the session `key` now: from its agent too, where it can
     /// (started for it if need be); where it cannot, the agent keeps it and
-    /// Ghost leaves it out of the list from now on.
+    /// u0 leaves it out of the list from now on.
     fn delete_now(&mut self, key: u64, cx: &mut Context<Self>) {
         let Some(s) = self.sessions.at(key) else {
             return;

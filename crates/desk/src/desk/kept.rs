@@ -47,7 +47,7 @@ impl Desk {
                     self.sessions.all.push(Session::stored(key, host, meta));
                     self.subagents_back(key);
                 }
-                // What was settled while Ghost was away has no scripts
+                // What was settled while u0 was away has no scripts
                 // read yet to run.
                 self.settle_idle();
             }
@@ -183,11 +183,13 @@ impl Desk {
     /// Write every record and the index, and wait until they are written:
     /// as the window closes.
     pub(crate) fn keep_all(&mut self) {
-        // A turn going on as Ghost closes may go on in the agent; the
-        // record says where Ghost lost sight of it.
+        // A turn going on as u0 closes may go on in the agent; the
+        // record says where u0 lost sight of it.
         for s in &mut self.sessions.all {
             if matches!(s.state, crate::session::State::Working) {
-                s.note(&crate::tr("Ghost closed while this turn was going on; the agent may have gone on with it."));
+                s.note(&crate::tr(
+                    "u0 closed while this turn was going on; the agent may have gone on with it.",
+                ));
             }
         }
         let keys: Vec<u64> = self.sessions.all.iter().map(|s| s.key).collect();
@@ -322,7 +324,7 @@ impl Desk {
         }
     }
 
-    /// Measure what Ghost keeps on the server the settings are of.
+    /// Measure what u0 keeps on the server the settings are of.
     pub fn measure(&self) {
         let host = self.pages.on;
         self.call(

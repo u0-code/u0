@@ -105,7 +105,7 @@ impl Desk {
     }
 
     /// While an agent works, and you asked for it, the Mac does not sleep
-    /// (`caffeinate`, for as long as Ghost runs); otherwise it may.
+    /// (`caffeinate`, for as long as u0 runs); otherwise it may.
     pub(crate) fn stay_awake(&mut self) {
         let working = self.settings.awake
             && self
@@ -133,7 +133,7 @@ impl Desk {
     // What comes back.
 
     pub(super) fn take(&mut self, msg: Msg, window: &mut Window, cx: &mut Context<Self>) {
-        // No window of Ghost's in front: what needs you is notified.
+        // No window of u0's in front: what needs you is notified.
         self.behind = cx.active_window().is_none();
         match msg {
             Msg::Event(host, e) => self.event(host, e, window, cx),
@@ -429,7 +429,7 @@ impl Desk {
             _ if host != self.pages.on && Self::of_dialog(&event) => {}
             Event::Sizes(sizes) => self.pages.sizes = sizes,
             Event::Tidied(said) => self.pages.tidied = Some(said),
-            // What `ghost thread` waits for: the window shows the turn as
+            // What `u0 thread` waits for: the window shows the turn as
             // any task's (`Event::TaskTurn`).
             Event::Turned { .. } => {}
             Event::Looked {
@@ -652,7 +652,7 @@ impl Desk {
                 self.tasks.list = list;
                 cx.notify();
             }
-            // Changed there by one of Ghost's tools: taken as they are.
+            // Changed there by one of u0's tools: taken as they are.
             Event::Settings(settings) => {
                 *self.settings_on_mut(host) = *settings;
                 if host == Host::HERE {
@@ -670,7 +670,7 @@ impl Desk {
                 ended,
             } => self.task_turn(host, &meta, record, ended, cx),
             Event::Organized(meta) => self.organized(host, &meta, cx),
-            // Answered by one of Ghost's tools, as you allowed.
+            // Answered by one of u0's tools, as you allowed.
             Event::Answered {
                 agent,
                 session,
@@ -749,7 +749,7 @@ impl Desk {
             s.meta.flags.unread = true;
             self.save_index();
         }
-        // With Ghost behind other windows, macOS says so; in front, with
+        // With u0 behind other windows, macOS says so; in front, with
         // another session on screen, a notice leads to it; each as you
         // asked for it.
         let on = &self.settings.notify_on;

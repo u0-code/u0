@@ -194,7 +194,7 @@ pub struct Desk {
     pub dictation: Option<dictation::Dictation>,
     /// The speech recognition it goes through, as your settings say.
     pub speech: Option<dictation::Speech>,
-    /// Where an update of Ghost's own stands.
+    /// Where an update of u0's own stands.
     pub updates: updates::Updates,
     /// What sessions used, by key, as their records say: read for the
     /// usage page.
@@ -253,14 +253,14 @@ pub struct Desk {
         ),
         crate::store::Meta,
     >,
-    /// What Ghost tells you at the foot of the window, the oldest first.
+    /// What u0 tells you at the foot of the window, the oldest first.
     pub notices: Vec<notices::Notice>,
     /// The sessions a notice says ask before they go on, shown till
     /// they no longer do.
     pub asking: std::collections::BTreeSet<u64>,
     pub pages: crate::pages::Pages,
     pub adding: projects::Adding,
-    /// No window of Ghost's is in front.
+    /// No window of u0's is in front.
     pub behind: bool,
     /// What keeps the Mac awake while an agent works, when it is kept so.
     pub awake: Option<std::process::Child>,
@@ -649,7 +649,7 @@ impl Desk {
             machines,
         };
         desk.update_due();
-        // Where the window is, kept as Ghost quits to open it there again.
+        // Where the window is, kept as u0 quits to open it there again.
         cx.observe_window_bounds(window, |this, window, _| {
             let b = window.bounds();
             this.settings.frame = Some(
@@ -733,13 +733,13 @@ impl Desk {
         self.save_settings_on(self.pages.on);
     }
 
-    /// Ghost's home on the server `host`: where its worktrees and scratch
+    /// u0's home on the server `host`: where its worktrees and scratch
     /// folders are.
     pub fn home_on(&self, host: hub::Host) -> &Path {
         self.machine(host).map_or(&self.home, |m| &m.home)
     }
 
-    /// Where Ghost makes worktrees on the server `host`, as its settings
+    /// Where u0 makes worktrees on the server `host`, as its settings
     /// say.
     pub fn worktree_folders(&self, host: hub::Host) -> Vec<PathBuf> {
         self.settings_on(host).worktree_folders(self.home_on(host))
@@ -1337,7 +1337,7 @@ impl Desk {
         .detach();
     }
 
-    /// Whether Ghost may quit now, as `confirm.quit` says of ⌘Q: `held`
+    /// Whether u0 may quit now, as `confirm.quit` says of ⌘Q: `held`
     /// says whether this press is the key held down, and is none for Quit
     /// chosen in the menu, which quits at once.
     pub fn may_quit(&mut self, held: Option<bool>, cx: &gpui::App) -> bool {
@@ -2076,7 +2076,7 @@ impl Desk {
     }
 
     /// Bind the action `name` to `key` in your keybindings.json, or with
-    /// none give it Ghost's keys back, off the window's thread.
+    /// none give it u0's keys back, off the window's thread.
     pub fn set_keys(&self, name: &'static str, keys: crate::keys::Keys) {
         hub::set_keys(self.home.clone(), name, keys, self.tx.clone());
     }
@@ -2086,7 +2086,7 @@ impl Desk {
         hub::write(path, text, self.tx.clone());
     }
 
-    /// Put the `ghost` command where your shell finds it, off the
+    /// Put the `u0` command where your shell finds it, off the
     /// window's thread (`hub::install_command`).
     pub fn install_command(&self) {
         hub::install_command(self.tx.clone());
@@ -2123,7 +2123,7 @@ fn over(column: gpui::Div) -> gpui::Div {
         .shadow_lg()
 }
 
-/// The editors Ghost can open a file in, by their command, and their
+/// The editors u0 can open a file in, by their command, and their
 /// names.
 pub const EDITORS: [(&str, &str); 4] = [
     ("cursor", "Cursor"),
@@ -2133,7 +2133,7 @@ pub const EDITORS: [(&str, &str); 4] = [
 ];
 
 /// Set what the settings say where it is read as the window is drawn,
-/// not from the settings: as Ghost starts and as they change.
+/// not from the settings: as u0 starts and as they change.
 fn mirror(settings: &settings::Settings, cx: &mut gpui::App) {
     theme::set_blue_orange(settings.blue_orange);
     crate::figures::set_math(settings.math);

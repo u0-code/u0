@@ -81,11 +81,11 @@ pub enum Schedule {
     /// none, every day), in this computer's time zone.
     Daily { minute: u16, days: Vec<u8> },
     /// Each time its address is called, as t3code's webhook tasks: a POST
-    /// to `/hook/<its token>` where Ghost listens (and through its tunnel,
-    /// while one is up). Nothing holds a call made while Ghost is not
+    /// to `/hook/<its token>` where u0 listens (and through its tunnel,
+    /// while one is up). Nothing holds a call made while u0 is not
     /// running: the sender has to deliver it again.
     Hook(Hook),
-    /// Each time something happens in a session of yours (not one Ghost
+    /// Each time something happens in a session of yours (not one u0
     /// turns on its own: a task's, a workflow's), in its project alone
     /// where `here`.
     On { moment: Moment, here: bool },
@@ -371,7 +371,7 @@ pub fn path(home: &Path) -> PathBuf {
 /// The tasks kept in `home`; none when there is no file. One that does not
 /// read is refused with why, and nothing is saved over it.
 /// The webhook calls heard (`heard.json`, the server's), so that one sent
-/// again runs nothing, Ghost restarted between or not: each by its task,
+/// again runs nothing, u0 restarted between or not: each by its task,
 /// a mark of it (`Call::marks`), and when, for [`HEARD_FOR`].
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

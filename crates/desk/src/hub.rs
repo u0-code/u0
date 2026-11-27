@@ -1,6 +1,6 @@
 //! The work done off the window's thread, and what comes back of it.
 //!
-//! What touches a machine is its server's (`ghost_core::server`): the
+//! What touches a machine is its server's (`u0_core::server`): the
 //! agents, the store, git and the files of a project. The window holds
 //! several at once, each a [`Machine`]: this Mac's own, and each one
 //! paired with while this Mac controls others. The desk asks one with a
@@ -45,7 +45,7 @@ pub enum Msg {
     /// A picture to go with what you write: a window you chose, captured,
     /// or a file dropped in, read; nothing if you let it be.
     Attached(Option<crate::desk::mention::Attached>),
-    /// Where an update of Ghost's own stands.
+    /// Where an update of u0's own stands.
     Update(crate::desk::updates::Update),
     /// How the link to a server stands.
     Link(Host, link::State),
@@ -95,7 +95,7 @@ pub struct Machine {
     pub name: String,
     pub transport: Transport,
     pub up: Up,
-    /// Ghost's home there: where its worktrees and scratch folders are.
+    /// u0's home there: where its worktrees and scratch folders are.
     pub home: PathBuf,
     /// Its settings, as its home has them, and why they do not read: this
     /// Mac's are the desk's own (`Desk::settings`).
@@ -117,7 +117,7 @@ pub struct Machine {
     pub scope: crate::access::Scope,
     /// Its ports brought here (a dev server's), each while it is held.
     pub forwards: Vec<link::Forward>,
-    /// The build of Ghost it runs, as its welcome said.
+    /// The build of u0 it runs, as its welcome said.
     pub version: Option<String>,
 }
 
@@ -166,7 +166,7 @@ impl Machine {
         std::iter::once(here).chain(others).collect()
     }
 
-    /// Hold as `host` a server in this process, for the Ghost home `home`.
+    /// Hold as `host` a server in this process, for the u0 home `home`.
     fn in_process(host: Host, home: &std::path::Path, tx: &Sender) -> Self {
         let tx = tx.clone();
         let server = Server::new(home.to_path_buf(), move |event| {
@@ -221,7 +221,7 @@ impl Machine {
     }
 
     /// Wait until what the server was asked to write is written, or what
-    /// was asked of one elsewhere has gone to it: as Ghost quits.
+    /// was asked of one elsewhere has gone to it: as u0 quits.
     pub fn settle(&self) {
         match &self.transport {
             Transport::Local(server) => {
@@ -279,7 +279,7 @@ fn off(tx: Sender, work: impl FnOnce() -> Msg + Send + 'static) {
 /// what you write.
 pub fn capture_window(tx: Sender) {
     off(tx, || {
-        let path = std::env::temp_dir().join(format!("ghost-capture-{}.png", std::process::id()));
+        let path = std::env::temp_dir().join(format!("u0-capture-{}.png", std::process::id()));
         let shot = std::process::Command::new("screencapture")
             .args(["-i", "-W", "-x"])
             .arg(&path)
@@ -332,8 +332,7 @@ pub fn read_picture(path: PathBuf, tx: Sender) {
         let mime = picture_kind(&path).unwrap_or(gpui::ImageFormat::Png.mime_type());
         let big = std::fs::metadata(&path).is_ok_and(|m| m.len() > PICTURE);
         let read = if mime == HEIC || big {
-            let out =
-                std::env::temp_dir().join(format!("ghost-picture-{}.jpg", std::process::id()));
+            let out = std::env::temp_dir().join(format!("u0-picture-{}.jpg", std::process::id()));
             let made = std::process::Command::new("sips")
                 .args(["-s", "format", "jpeg", "-Z", "2560"])
                 .arg(&path)
@@ -414,7 +413,7 @@ pub fn edit(
 }
 
 /// Bind the action `name` to `key` in your keybindings.json (none: give
-/// it Ghost's keys back), on the writer, so that two binds made quickly
+/// it u0's keys back), on the writer, so that two binds made quickly
 /// are kept in the order they were made.
 pub fn set_keys(home: PathBuf, name: &'static str, keys: crate::keys::Keys, tx: Sender) {
     crate::store::queue(crate::store::Job::Then(Box::new(move || {
@@ -436,27 +435,27 @@ pub fn write(path: PathBuf, text: String, tx: Sender) {
     });
 }
 
-/// The `ghost` command, as t3code's `t3`: all it is given said to this
+/// The `u0` command, as t3code's `t3`: all it is given said to this
 /// program, marked as a terminal's (`cli`), which reads the words and
 /// opens the folders named.
 fn command(exe: &std::path::Path) -> String {
     format!(
-        "#!/bin/sh\n# Ghost from a terminal: ghost --help.\nexec '{}' --shell \"$@\"\n",
+        "#!/bin/sh\n# u0 from a terminal: u0 --help.\nexec '{}' --shell \"$@\"\n",
         exe.display().to_string().replace('\'', "'\\''")
     )
 }
 
-/// Put the `ghost` command in `~/.local/bin`, and say where it is, or
+/// Put the `u0` command in `~/.local/bin`, and say where it is, or
 /// why it is not.
 pub fn install_command(tx: Sender) {
     off(tx, || {
         let Some(home) = crate::desk::Desk::home_path() else {
             return Msg::Notice(Err((
-                crate::tr("Couldn't add the ghost command").into(),
+                crate::tr("Couldn't add the u0 command").into(),
                 crate::tr("HOME is not set").into(),
             )));
         };
-        let path = home.join(".local/bin/ghost");
+        let path = home.join(".local/bin/u0");
         let shown = crate::desk::Desk::shown(&path);
         let exe = std::env::current_exe().unwrap_or_default();
         let put = crate::whole::write(&path, command(&exe).as_bytes()).and_then(|()| {
@@ -464,8 +463,8 @@ pub fn install_command(tx: Sender) {
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
         });
         Msg::Notice(match put {
-            Ok(()) if which::which("ghost").is_ok_and(|p| p == path) => Ok(crate::tr_with(
-                "ghost <folder> opens it in Ghost: %{shown}",
+            Ok(()) if which::which("u0").is_ok_and(|p| p == path) => Ok(crate::tr_with(
+                "u0 <folder> opens it in u0: %{shown}",
                 &[("shown", &shown)],
             )
             .into()),
@@ -475,14 +474,14 @@ pub fn install_command(tx: Sender) {
             )
             .into()),
             Err(e) => Err((
-                crate::tr("Couldn't add the ghost command").into(),
+                crate::tr("Couldn't add the u0 command").into(),
                 e.to_string(),
             )),
         })
     });
 }
 
-/// Look for a build of Ghost newer than this one on `channel`.
+/// Look for a build of u0 newer than this one on `channel`.
 pub fn check_update(channel: crate::update::Channel, tx: Sender) {
     off(tx, move || {
         Msg::Update(crate::desk::updates::Update::Checked(crate::update::check(

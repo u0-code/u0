@@ -1,4 +1,4 @@
-//! Ghost's one HTTP client (`ureq`), for all it reads from the web: the
+//! u0's one HTTP client (`ureq`), for all it reads from the web: the
 //! registry and the archives it names, the forges' APIs, and the releases
 //! the updater reads. Blocking: each caller is already off the window's
 //! thread. A proxy set in the environment (`https_proxy`, ...) is used, and
@@ -44,7 +44,7 @@ static AGENT: LazyLock<Agent> = LazyLock::new(|| {
                 .root_certs(RootCerts::PlatformVerifier)
                 .build(),
         )
-        .user_agent(concat!("Ghost/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("u0/", env!("CARGO_PKG_VERSION")))
         .timeout_global(Some(QUICK))
         // What a host said went wrong is read from its answer.
         .http_status_as_error(false)

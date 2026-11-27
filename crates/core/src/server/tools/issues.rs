@@ -1,4 +1,4 @@
-//! Ghost's tools for a project's issues, from where the Issues page reads
+//! u0's tools for a project's issues, from where the Issues page reads
 //! them (`forge::answer`, what `Call::Forge` asks): the host of its remote
 //! (GitHub, GitLab, Bitbucket, Azure DevOps), or the Linear team the
 //! project is bound to. Listed and read by any caller where it may read;
@@ -75,7 +75,7 @@ fn team(home: &Path, folder: &Path) -> Option<String> {
 }
 
 /// The issue `number` of the project `folder`, as it is now: what its card
-/// names. Asked only of an agent in a session of Ghost's, for none other
+/// names. Asked only of an agent in a session of u0's, for none other
 /// may act.
 async fn about(tools: &Tools, folder: PathBuf, number: u64) -> Result<Item, String> {
     tools.session().ok_or(super::OUTSIDE)?;
@@ -95,7 +95,7 @@ impl Tools {
 
 #[tool_router(router = issue_router, vis = "pub(super)")]
 impl Tools {
-    /// A project's issues, from where Ghost reads them (the host of its
+    /// A project's issues, from where u0 reads them (the host of its
     /// remote, or its Linear team): each one's number, title, state,
     /// author, labels and address.
     #[tool]
@@ -208,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_outside_ghost_reads_your_projects_issues_alone_and_changes_none() {
+    fn an_agent_outside_u0_reads_your_projects_issues_alone_and_changes_none() {
         let home = tempfile::tempdir().unwrap();
         let (project, elsewhere) = (home.path().join("p"), home.path().join("q"));
         repo_at(&project, &[("a.txt", "a")]);

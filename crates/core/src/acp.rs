@@ -52,7 +52,7 @@ pub fn runtime() -> &'static Runtime {
     RUNTIME.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
-            .thread_name("ghost-acp")
+            .thread_name("u0-acp")
             .enable_all()
             .build()
             .expect("a tokio runtime")
@@ -161,12 +161,12 @@ impl Answer {
     }
 }
 
-/// Where the answer to a question goes back: to the agent, or to Ghost,
+/// Where the answer to a question goes back: to the agent, or to u0,
 /// which asked one of its own in the agent's session.
 enum Waiting {
     Permission(Responder<RequestPermissionResponse, V1>),
     Form(Responder<CreateElicitationResponse, V1>),
-    Ghost(oneshot::Sender<Answer>),
+    U0(oneshot::Sender<Answer>),
 }
 
 /// Questions the agent asked that wait for a person, by the number the desk
@@ -233,7 +233,7 @@ impl Agent {
                 .is_ok_and(|n| n > 0)
             {
                 let text = String::from_utf8_lossy(&line).trim_end().to_owned();
-                debug!(target: "ghost_desk::agent", "{text}");
+                debug!(target: "u0_desk::agent", "{text}");
                 if kept.len() == STDERR_KEPT {
                     kept.pop_front();
                 }
@@ -253,7 +253,7 @@ impl Agent {
         runtime().spawn(async move {
             let _ = Client
                 .v1()
-                .name("ghost")
+                .name("u0")
                 .on_receive_notification(
                     async move |n: UntypedMessage, _| {
                         if n.method == "session/update" {
@@ -331,14 +331,14 @@ impl Agent {
         let _ = self.connection.send_notification(cancel);
     }
 
-    /// A question of Ghost's own in one of the agent's sessions: the number
+    /// A question of u0's own in one of the agent's sessions: the number
     /// it is asked under, counted with the agent's own so that it is
     /// answered as theirs are ([`Agent::respond`]), and where the answer
     /// comes.
     pub fn question(&self) -> (u64, oneshot::Receiver<Answer>) {
         let id = self.ticket.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
-        (self.asked.lock().expect("asked")).insert(id, Waiting::Ghost(tx));
+        (self.asked.lock().expect("asked")).insert(id, Waiting::U0(tx));
         (id, rx)
     }
 
@@ -351,7 +351,7 @@ impl Agent {
     pub fn respond(&self, id: u64, answer: Answer) {
         let waiting = self.asked.lock().expect("asked").remove(&id);
         match (waiting, answer) {
-            (Some(Waiting::Ghost(tx)), answer) => {
+            (Some(Waiting::U0(tx)), answer) => {
                 let _ = tx.send(answer);
             }
             (Some(Waiting::Permission(r)), Answer::Permission(outcome)) => {

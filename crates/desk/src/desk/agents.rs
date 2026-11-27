@@ -33,7 +33,7 @@ impl Desk {
         self.start_again(host, id, cx);
     }
 
-    /// Read this Mac's settings again, where they did not read as Ghost
+    /// Read this Mac's settings again, where they did not read as u0
     /// started: taken, and the agents they switch on started; or why not,
     /// again.
     pub(crate) fn read_settings_again(&mut self, cx: &mut Context<Self>) {
@@ -160,19 +160,19 @@ impl Desk {
         );
     }
 
-    /// Ask what Ghost runs on `host`, and which are the agents, for
+    /// Ask what u0 runs on `host`, and which are the agents, for
     /// Settings › Diagnostics.
     pub(crate) fn weigh_agents(&self, host: Host) {
         self.call(host, Call::Weigh);
     }
 
-    /// Ask what Ghost runs on `host` and what its log says went wrong.
+    /// Ask what u0 runs on `host` and what its log says went wrong.
     pub(crate) fn diagnose(&self, host: Host) {
         self.weigh_agents(host);
         self.call(host, Call::Troubles);
     }
 
-    /// Ask the process `pid`, one Ghost runs on `host`, to stop (TERM),
+    /// Ask the process `pid`, one u0 runs on `host`, to stop (TERM),
     /// and look again.
     pub(crate) fn stop_process(&self, host: Host, pid: u32) {
         self.call(
@@ -389,7 +389,7 @@ impl Desk {
     }
 
     /// Where a session of `agent` on `host` that is not yours is opened,
-    /// while it runs: Ghost's home there, out of every project; and
+    /// while it runs: u0's home there, out of every project; and
     /// whether it can then be deleted, or else closed.
     pub(crate) fn aside_place(&self, host: Host, agent: &str) -> Option<(PathBuf, bool, bool)> {
         let slot = self.slot(host, agent)?;
@@ -403,7 +403,7 @@ impl Desk {
 
     /// Sign in to `agent` on `host` the way it offers: its own method when
     /// it lists one, else its own program in a terminal, where it signs
-    /// in: on this Mac, Terminal's; on another server, one of Ghost's
+    /// in: on this Mac, Terminal's; on another server, one of u0's
     /// there.
     pub fn sign_in_agent(&mut self, host: Host, agent: &str, cx: &mut Context<Self>) {
         let Some(slot) = self.slot(host, agent) else {
@@ -433,7 +433,7 @@ impl Desk {
 
     /// Sign in to `agent` on the server `host`, elsewhere: its own program
     /// there (the CLI its adapter drives, as the server says), run in one
-    /// of Ghost's terminals there, beside the session on screen.
+    /// of u0's terminals there, beside the session on screen.
     pub(crate) fn sign_in_agent_there(&mut self, host: Host, agent: &str, cx: &mut Context<Self>) {
         let cli = self.here_on(host, agent).and_then(|h| h.cli.clone());
         let name = self.name_of(agent);
@@ -444,7 +444,7 @@ impl Desk {
             }
             None => self.trouble(
                 crate::tr_with("Sign in to %{name} on its server", &[("name", &name)]),
-                Some(crate::tr("Ghost there does not know the program it signs in with.").into()),
+                Some(crate::tr("u0 there does not know the program it signs in with.").into()),
                 None,
             ),
         }
@@ -580,7 +580,7 @@ impl Desk {
 
     /// Add another account of `agent` on `host`, named as typed: the agent
     /// switched on once more under an id of its own, its CLI pointed at a
-    /// folder of its own in Ghost's home there (by the variable
+    /// folder of its own in u0's home there (by the variable
     /// `registry::KNOWN` names), so that it signs in apart; it starts with
     /// the variables `agent` has.
     pub fn add_account(

@@ -1,4 +1,4 @@
-//! Ghost's tools for the simulators and emulators of the machine the
+//! u0's tools for the simulators and emulators of the machine the
 //! server runs on (`devices`), as the Devices tab has them: listed, their
 //! screen read, and (asking you first, as every tool that acts does)
 //! started, stopped, touched, swiped, scrolled, turned and typed into.
@@ -37,7 +37,7 @@ async fn found(id: String) -> Result<Device, String> {
 
 #[tool_router(router = device_router, vis = "pub(super)")]
 impl Tools {
-    /// The iOS simulators and Android emulators where Ghost runs: each
+    /// The iOS simulators and Android emulators where u0 runs: each
     /// one's id, name, whether it is Android and whether it runs; and what
     /// is missing to have any.
     #[tool]

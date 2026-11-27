@@ -1,9 +1,9 @@
 //! Themes, in gpui-kit's theme format (a file of one or more, each light or
 //! dark, its colours named as gpui-kit's components read them): those
-//! Ghost brings (`assets/themes/`), and yours in the home's `themes/`,
+//! u0 brings (`assets/themes/`), and yours in the home's `themes/`,
 //! written by hand, duplicated from one here, or imported from a VS Code
 //! theme. The look takes the one chosen for light and the one for dark
-//! (`theme::kit`); with none, Ghost's own.
+//! (`theme::kit`); with none, u0's own.
 
 use std::{
     path::{Path, PathBuf},
@@ -14,7 +14,7 @@ use gpui::component::theme::{ThemeConfig, ThemeSet};
 use gpui::{App, Global};
 use serde_json::{Map, Value, json};
 
-/// The themes Ghost brings.
+/// The themes u0 brings.
 const BUNDLED: [&str; 6] = [
     include_str!("../../../assets/themes/ayu.json"),
     include_str!("../../../assets/themes/catppuccin.json"),
@@ -25,7 +25,7 @@ const BUNDLED: [&str; 6] = [
 ];
 
 /// The themes there are, each with the file of yours it is in (none, one
-/// Ghost brings).
+/// u0 brings).
 #[derive(Default)]
 pub struct Themes(pub Vec<(Rc<ThemeConfig>, Option<PathBuf>)>);
 
@@ -36,12 +36,12 @@ pub fn folder(home: &Path) -> PathBuf {
     home.join("themes")
 }
 
-/// Read the themes again: Ghost's, then yours; what of yours did not read,
+/// Read the themes again: u0's, then yours; what of yours did not read,
 /// each said.
 pub fn load(home: &Path, cx: &mut App) -> Vec<String> {
     let mut all = Vec::new();
     for text in BUNDLED {
-        let set: ThemeSet = serde_json::from_str(text).expect("a theme Ghost brings reads");
+        let set: ThemeSet = serde_json::from_str(text).expect("a theme u0 brings reads");
         all.extend(set.themes.into_iter().map(|t| (Rc::new(t), None)));
     }
     let mut refused = Vec::new();
@@ -87,8 +87,8 @@ pub fn duplicate(home: &Path, config: &ThemeConfig, name: &str) -> (PathBuf, Vec
     file(home, name, &theme)
 }
 
-/// Ghost's own colours for the look drawn now (`dark` or light) as a file
-/// of yours, under `name`, written in the colours Ghost reads from a theme.
+/// u0's own colours for the look drawn now (`dark` or light) as a file
+/// of yours, under `name`, written in the colours u0 reads from a theme.
 pub fn own(home: &Path, name: &str, dark: bool) -> (PathBuf, Vec<u8>) {
     use crate::theme as t;
     use gpui::component::Colorize as _;
@@ -198,7 +198,7 @@ const MAP: [(&str, &[&str]); 18] = [
 ];
 
 /// A VS Code theme (`text`, its JSON with comments as VS Code writes it)
-/// as a theme of yours: its colours put where gpui-kit and Ghost read
+/// as a theme of yours: its colours put where gpui-kit and u0 read
 /// theirs. Its path, its text, and its name.
 pub fn from_vscode(home: &Path, text: &str) -> Result<(PathBuf, Vec<u8>, String), String> {
     let theme: Value =
@@ -233,7 +233,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_theme_ghost_brings_reads() {
+    fn every_theme_u0_brings_reads() {
         for text in BUNDLED {
             let set: ThemeSet = serde_json::from_str(text).unwrap();
             assert!(!set.themes.is_empty());

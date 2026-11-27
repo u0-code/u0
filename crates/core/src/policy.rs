@@ -1,17 +1,17 @@
 //! An organisation's policy for this machine, as t3code's managed policy,
-//! read once as Ghost starts. It names the organisation, and sets
+//! read once as u0 starts. It names the organisation, and sets
 //! settings: a default where you have chosen nothing, or, locked, a value
 //! you cannot change.
 //!
 //! An administrator sets it where only an administrator can: on a Mac,
-//! with a configuration profile (`profile`; `policy/ghost.mobileconfig` is
-//! the example), elsewhere in `/etc/ghost/policy.json`. Both have one
+//! with a configuration profile (`profile`; `policy/u0.mobileconfig` is
+//! the example), elsewhere in `/etc/u0/policy.json`. Both have one
 //! shape:
 //!
 //! ```json
 //! {
 //!   "organization": "Example Corp",
-//!   "support_url": "https://it.example.com/ghost",
+//!   "support_url": "https://it.example.com/u0",
 //!   "settings": {
 //!     "telemetry": { "value": 0, "locked": true },
 //!     "check_updates": { "value": false, "locked": true },
@@ -53,7 +53,7 @@ pub struct Policy {
     pub limits: Limits,
 }
 
-/// What the policy keeps Ghost from doing, as t3code's `limits`.
+/// What the policy keeps u0 from doing, as t3code's `limits`.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Limits {
@@ -106,10 +106,10 @@ pub fn current() -> &'static Result<Option<Policy>, String> {
 #[cfg(target_os = "macos")]
 use profile::read;
 
-/// The policy in `/etc/ghost/policy.json`.
+/// The policy in `/etc/u0/policy.json`.
 #[cfg(not(target_os = "macos"))]
 fn read() -> Result<Option<Policy>, String> {
-    read_file(std::path::Path::new("/etc/ghost/policy.json"))
+    read_file(std::path::Path::new("/etc/u0/policy.json"))
 }
 
 /// The organisation that locks the setting `key`, if one does.
@@ -228,7 +228,7 @@ mod tests {
         assert!(none.allows(Limit::Agent("any")).is_ok() && none.allows(Limit::Tunnel).is_ok());
         let unknown =
             serde_json::from_str::<Policy>(r#"{"organization": "Corp", "limits": {"x": false}}"#);
-        assert!(unknown.is_err(), "a limit Ghost cannot enforce is refused");
+        assert!(unknown.is_err(), "a limit u0 cannot enforce is refused");
     }
 
     #[cfg(not(target_os = "macos"))]

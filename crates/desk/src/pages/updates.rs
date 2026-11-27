@@ -1,5 +1,5 @@
-//! Updates, on the About page: where an update of Ghost stands and what
-//! to do about it, the channel, and whether Ghost looks by itself.
+//! Updates, on the About page: where an update of u0 stands and what
+//! to do about it, the channel, and whether u0 looks by itself.
 
 use gpui::component::{Disableable as _, Sizable as _, setting::SettingGroup, switch::Switch};
 use gpui::{AnyElement, Context, WeakEntity, div, prelude::*, px};
@@ -20,7 +20,7 @@ impl Desk {
     }
 
     /// The updates group: where an update stands and what to do, the
-    /// channel, and whether Ghost looks by itself.
+    /// channel, and whether u0 looks by itself.
     pub(super) fn updates_group(&self, w: &WeakEntity<Desk>) -> SettingGroup {
         let build = update::this_build();
         let said = match &self.updates.now {
@@ -30,16 +30,14 @@ impl Desk {
                 crate::tr_with("This is %{build}. It is the newest.", &[("build", &build)])
             }
             Updating::Found(found) => crate::tr_with(
-                "Ghost %{version} is out. This is %{build}.",
+                "u0 %{version} is out. This is %{build}.",
                 &[("version", &found.name), ("build", &build)],
             ),
             Updating::Installing(what) => format!("{what}…").into(),
-            Updating::Ready => {
-                crate::tr("The update is in place: Ghost runs it once opened again.")
-            }
+            Updating::Ready => crate::tr("The update is in place: u0 runs it once opened again."),
             Updating::Failed(why) => crate::tr_with("Couldn't look: %{why}", &[("why", why)]),
         };
-        let mut items = vec![item(w, crate::tr("Ghost's version"), said, |d, _, cx| {
+        let mut items = vec![item(w, crate::tr("u0's version"), said, |d, _, cx| {
             d.update_button(cx)
         })];
         // What the release says of itself, under it.
@@ -59,7 +57,7 @@ impl Desk {
             item(
                 w,
                 crate::tr("Updates from"),
-                crate::tr("Stable is each release, as the ghost cask installs it; Nightly is what main is now, rebuilt with each change, as ghost@nightly installs it."),
+                crate::tr("Stable is each release, as the u0 cask installs it; Nightly is what main is now, rebuilt with each change, as u0@nightly installs it."),
                 |d, _, cx| {
                     Self::pick("channel",
                         [(crate::tr("Stable"), Channel::Stable), (crate::tr("Nightly"), Channel::Nightly)],
@@ -73,7 +71,7 @@ impl Desk {
             item(
                 w,
                 crate::tr("Look for updates"),
-                crate::tr("As Ghost starts and every four hours; an update is installed only when you say."),
+                crate::tr("As u0 starts and every four hours; an update is installed only when you say."),
                 |d, _, cx| {
                     let switch = Switch::new("check-updates")
                         .accessibility_label(crate::tr("Look for updates"))

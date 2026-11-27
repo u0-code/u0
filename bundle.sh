@@ -1,15 +1,15 @@
 #!/bin/bash
-# Build Ghost.app: the release binary in a macOS bundle with the ghost as its
+# Build u0.app: the release binary in a macOS bundle with the mark as its
 # icon, so that Finder, Launchpad and the Dock show it like any other app.
 #
-#   ./bundle.sh               # -> target/release/Ghost.app
-#   open target/release/Ghost.app
+#   ./bundle.sh               # -> target/release/u0.app
+#   open target/release/u0.app
 #
 # Needs rsvg-convert (brew install librsvg) to draw the icon, and iconutil
 # and codesign, which macOS has.
 #
-# It is signed with GHOST_SIGN_IDENTITY if that is set ("-" for ad hoc),
-# else with a code-signing certificate called "Ghost Dev" in your keychain
+# It is signed with U0_SIGN_IDENTITY if that is set ("-" for ad hoc),
+# else with a code-signing certificate called "u0 Dev" in your keychain
 # if there is one, else ad hoc. Signed with the same identity, a rebuilt app
 # is the same app to macOS and keeps what it was allowed, such as the
 # Desktop folder an agent works in; signed ad hoc, every build is a new
@@ -19,8 +19,8 @@ cd "$(dirname "$0")"
 
 cargo build --release
 
-app=target/release/Ghost.app
-iconset=target/release/Ghost.iconset
+app=target/release/u0.app
+iconset=target/release/u0.iconset
 rm -rf "$app" "$iconset"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$iconset"
 
@@ -31,10 +31,10 @@ for size in 16 32 128 256 512; do
     double=$((size * 2))
     rsvg-convert -w "$double" -h "$double" assets/app/icon.svg -o "$iconset/icon_${size}x${size}@2x.png"
 done
-iconutil -c icns "$iconset" -o "$app/Contents/Resources/Ghost.icns"
+iconutil -c icns "$iconset" -o "$app/Contents/Resources/u0.icns"
 rm -rf "$iconset"
 
-cp target/release/ghost-desk "$app/Contents/MacOS/ghost-desk"
+cp target/release/u0-desk "$app/Contents/MacOS/u0-desk"
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 # The bundle identifier is also the preference domain an organisation's
 # profile sets the policy in (crates/core/src/policy/profile.rs).
@@ -43,11 +43,11 @@ cat > "$app/Contents/Info.plist" <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleName</key><string>Ghost</string>
-    <key>CFBundleDisplayName</key><string>Ghost</string>
-    <key>CFBundleIdentifier</key><string>local.ghost.desk</string>
-    <key>CFBundleExecutable</key><string>ghost-desk</string>
-    <key>CFBundleIconFile</key><string>Ghost</string>
+    <key>CFBundleName</key><string>u0</string>
+    <key>CFBundleDisplayName</key><string>u0</string>
+    <key>CFBundleIdentifier</key><string>local.u0.desk</string>
+    <key>CFBundleExecutable</key><string>u0-desk</string>
+    <key>CFBundleIconFile</key><string>u0</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>${version}</string>
     <key>CFBundleVersion</key><string>${version}</string>
@@ -55,8 +55,8 @@ cat > "$app/Contents/Info.plist" <<EOF
     <key>NSHighResolutionCapable</key><true/>
     <key>CFBundleURLTypes</key>
     <array><dict>
-        <key>CFBundleURLName</key><string>Ghost link</string>
-        <key>CFBundleURLSchemes</key><array><string>ghost</string></array>
+        <key>CFBundleURLName</key><string>u0 link</string>
+        <key>CFBundleURLSchemes</key><array><string>u0</string></array>
     </dict></array>
     <key>CFBundleDocumentTypes</key>
     <array><dict>
@@ -72,11 +72,11 @@ cat > "$app/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
-identity="${GHOST_SIGN_IDENTITY:-}"
+identity="${U0_SIGN_IDENTITY:-}"
 if [ -z "$identity" ]; then
     # Without -v, which lists only identities the system trusts: a
     # self-signed certificate is not, and signs all the same.
-    identity=$(security find-identity -p codesigning 2>/dev/null | awk '/"Ghost Dev"/ { print $2; exit }')
+    identity=$(security find-identity -p codesigning 2>/dev/null | awk '/"u0 Dev"/ { print $2; exit }')
 fi
 identity="${identity:--}"
 codesign --force --sign "$identity" "$app"

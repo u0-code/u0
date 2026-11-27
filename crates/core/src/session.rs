@@ -374,7 +374,7 @@ pub struct Session {
     /// The git branch the folder is on, as last read.
     pub branch: Option<String>,
     /// The branch it was on when you last said something in it, while
-    /// Ghost runs: a turn sent after it changed goes on on another.
+    /// u0 runs: a turn sent after it changed goes on on another.
     pub ran_on: Option<String>,
     /// Whether the folder is in a git repository: then each turn is
     /// checkpointed, and can be undone.
@@ -401,7 +401,7 @@ pub struct Session {
     pub marks: Vec<(usize, MessageId)>,
     /// How much of its thread there was when you last left it.
     pub seen: Option<usize>,
-    /// The scripts run in its new worktree as it was made (ghost.json's),
+    /// The scripts run in its new worktree as it was made (u0.json's),
     /// each in a terminal: said at its head until put away.
     pub setup: Vec<String>,
     /// The terminals of setup scripts its first message waits for.
@@ -448,7 +448,7 @@ pub struct Session {
     pub attached: Vec<ContentBlock>,
     /// What git says where it works, and what you chose of it.
     pub git: git::View,
-    /// The scripts the `ghost.json` of its repository names.
+    /// The scripts the `u0.json` of its repository names.
     pub scripts: Vec<crate::scripts::Script>,
     /// The calls just ended whose diffs are yet to be placed in their
     /// files, each diff's file and new text (see `hub::place`).
@@ -488,7 +488,7 @@ fn file_of(block: &ContentBlock) -> Option<(String, String)> {
 
 /// Text that goes with what you say, as a chip beside the line rather
 /// than in it, named by where it came from: sent as a resource whose
-/// address says that (`ghost://<kind>/<n>`), so the thread names it again.
+/// address says that (`u0://<kind>/<n>`), so the thread names it again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Context {
     /// A paste too long for the line.
@@ -524,12 +524,12 @@ impl Context {
 
     /// The address of the `n`th that goes with what you say.
     pub fn uri(self, n: usize) -> String {
-        format!("ghost://{}/{n}", self.word())
+        format!("u0://{}/{n}", self.word())
     }
 
     /// The kind an address of [`Context::uri`] names.
     pub fn of(uri: &str) -> Option<Self> {
-        let word = uri.strip_prefix("ghost://")?.split('/').next()?;
+        let word = uri.strip_prefix("u0://")?.split('/').next()?;
         Self::ALL.into_iter().find(|c| c.word() == word)
     }
 }
@@ -1587,7 +1587,7 @@ mod tests {
             ))
         };
         let quote = file_of(&sent(Context::Quote.uri(2))).unwrap();
-        assert_eq!(quote, ("Quote".into(), "ghost://quote/2".into()));
+        assert_eq!(quote, ("Quote".into(), "u0://quote/2".into()));
         let terminal = file_of(&sent(Context::Terminal.uri(1))).unwrap();
         assert_eq!(terminal.0, "Terminal output");
         assert!(file_of(&sent("file:///a.txt".into())).is_none());
@@ -1843,13 +1843,13 @@ mod tests {
         let wt = git::Worktree {
             repo: "/r".into(),
             path: "/w/r-1".into(),
-            branch: "ghost/flow".into(),
+            branch: "u0/flow".into(),
             repos: Vec::new(),
         };
         s.into_worktree(wt, Vec::new());
         assert_eq!(s.meta.folder, PathBuf::from("/w/r-1"));
         assert_eq!(s.ran_on, s.branch, "no branch changed under it");
-        assert_eq!(s.ran_on.as_deref(), Some("ghost/flow"));
+        assert_eq!(s.ran_on.as_deref(), Some("u0/flow"));
     }
 
     #[test]
@@ -1980,7 +1980,7 @@ mod tests {
             r#"{"sessionUpdate":"user_message_chunk","content":{"type":"resource_link","name":"a.pdf","uri":"file:///tmp/a.pdf"}}"#,
         ));
         s.apply(update(
-            r#"{"sessionUpdate":"user_message_chunk","content":{"type":"resource","resource":{"uri":"ghost://paste/2","text":"long"}}}"#,
+            r#"{"sessionUpdate":"user_message_chunk","content":{"type":"resource","resource":{"uri":"u0://paste/2","text":"long"}}}"#,
         ));
         assert!(
             matches!(&s.items[1], Item::File { name, uri } if name == "a.pdf" && uri == "file:///tmp/a.pdf")

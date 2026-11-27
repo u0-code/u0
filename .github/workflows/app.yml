@@ -1,4 +1,4 @@
-# Ghost.app, built with bundle.sh and published: each push to main replaces
+# u0.app, built with bundle.sh and published: each push to main replaces
 # the rolling `nightly` prerelease, and each tag v* is released, with the
 # cask for it committed to main. Casks/ installs either with Homebrew.
 name: app
@@ -35,10 +35,10 @@ jobs:
       - name: nightly
         if: github.ref == 'refs/heads/main'
         run: |
-          ditto -c -k --keepParent target/release/Ghost.app Ghost-macos-arm64.zip
+          ditto -c -k --keepParent target/release/u0.app u0-macos-arm64.zip
           gh release delete nightly --cleanup-tag --yes || true
-          gh release create nightly Ghost-macos-arm64.zip --prerelease --target "$GITHUB_SHA" \
-            --title "Ghost nightly ${GITHUB_SHA::7}" \
+          gh release create nightly u0-macos-arm64.zip --prerelease --target "$GITHUB_SHA" \
+            --title "u0 nightly ${GITHUB_SHA::7}" \
             --notes "Built from $GITHUB_SHA on main. Not a release: what main is now."
 
       # A push made with this workflow's token starts no workflow, so the
@@ -48,19 +48,19 @@ jobs:
         run: |
           version=${GITHUB_REF_NAME#v}
           grep -qx "version = \"$version\"" Cargo.toml || { echo "Cargo.toml is not at $version"; exit 1; }
-          zip=Ghost-$version-macos-arm64.zip
-          ditto -c -k --keepParent target/release/Ghost.app "$zip"
+          zip=u0-$version-macos-arm64.zip
+          ditto -c -k --keepParent target/release/u0.app "$zip"
           case $version in *-*) pre=true ;; *) pre=false ;; esac
-          gh release create "$GITHUB_REF_NAME" "$zip" --prerelease="$pre" --title "Ghost $version" --generate-notes
+          gh release create "$GITHUB_REF_NAME" "$zip" --prerelease="$pre" --title "u0 $version" --generate-notes
           git fetch --depth 1 origin main
           git checkout -B main FETCH_HEAD
           sed -i '' -e "s/^  version \".*\"/  version \"$version\"/" \
-            -e "s/^  sha256 \".*\"/  sha256 \"$(shasum -a 256 "$zip" | cut -d ' ' -f 1)\"/" Casks/ghost.rb
+            -e "s/^  sha256 \".*\"/  sha256 \"$(shasum -a 256 "$zip" | cut -d ' ' -f 1)\"/" Casks/u0.rb
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -qam "build: the cask installs Ghost $version"
+            commit -qam "build: the cask installs u0 $version"
           git push origin main
 
-  # ghost-server, the server with no window, for a Linux machine a desk
+  # u0-server, the server with no window, for a Linux machine a desk
   # links to; put beside the app once its release is made. The cask stays
   # macOS's.
   server:
@@ -72,10 +72,10 @@ jobs:
       - uses: actions/checkout@v7
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --release -p ghost-core --bin ghost-server
+      - run: cargo build --release -p u0-core --bin u0-server
       - run: |
-          tar -czf ghost-server-linux-x86_64.tar.gz -C target/release ghost-server
+          tar -czf u0-server-linux-x86_64.tar.gz -C target/release u0-server
           case $GITHUB_REF in
-            refs/heads/main) gh release upload nightly ghost-server-linux-x86_64.tar.gz --clobber ;;
-            refs/tags/v*) gh release upload "$GITHUB_REF_NAME" ghost-server-linux-x86_64.tar.gz --clobber ;;
+            refs/heads/main) gh release upload nightly u0-server-linux-x86_64.tar.gz --clobber ;;
+            refs/tags/v*) gh release upload "$GITHUB_REF_NAME" u0-server-linux-x86_64.tar.gz --clobber ;;
           esac

@@ -1,4 +1,4 @@
-ghost.svg      Ghost's own mark.
+u0.svg      u0's own mark.
 live-dot.svg   Something going on: a dot in a faint ring.
 sidebar.svg, chevron-*.svg, plus.svg, search.svg, laptop.svg,
 server.svg, plug.svg, file.svg, check.svg, pencil.svg, x.svg,

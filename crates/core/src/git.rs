@@ -6,7 +6,7 @@
 //! Everything is the `git` (and `gh`) on this machine, run in the session's
 //! folder. A checkpoint never touches your index or your branch: the files
 //! are staged into an index of the desk's own (`GIT_INDEX_FILE`), written as
-//! a commit no branch points at, and kept under `refs/ghost/checkpoints/`.
+//! a commit no branch points at, and kept under `refs/u0/checkpoints/`.
 //! Every call here blocks; the desk makes them off the window's thread.
 
 use std::{
@@ -20,7 +20,7 @@ use agent_client_protocol::v1::schema::Diff;
 use similar::{ChangeTag, TextDiff};
 
 /// Where the checkpoints of a repository are kept.
-const REFS: &str = "refs/ghost/checkpoints";
+const REFS: &str = "refs/u0/checkpoints";
 
 /// Run git in `dir` with `args`; its output, or what it said went wrong.
 fn git(dir: &Path, args: &[&str], index: Option<&Path>) -> Result<String, String> {
@@ -32,12 +32,12 @@ fn git(dir: &Path, args: &[&str], index: Option<&Path>) -> Result<String, String
         .args(["-c", "core.quotepath=false"])
         .args(args)
         .stdin(Stdio::null())
-        // A checkpoint is the desk's, not yours: it is signed by Ghost and
+        // A checkpoint is the desk's, not yours: it is signed by u0 and
         // needs nothing from your git configuration.
-        .env("GIT_AUTHOR_NAME", "Ghost")
-        .env("GIT_AUTHOR_EMAIL", "ghost@localhost")
-        .env("GIT_COMMITTER_NAME", "Ghost")
-        .env("GIT_COMMITTER_EMAIL", "ghost@localhost");
+        .env("GIT_AUTHOR_NAME", "u0")
+        .env("GIT_AUTHOR_EMAIL", "u0@localhost")
+        .env("GIT_COMMITTER_NAME", "u0")
+        .env("GIT_COMMITTER_EMAIL", "u0@localhost");
     if let Some(index) = index {
         command.env("GIT_INDEX_FILE", index);
     }
@@ -165,7 +165,7 @@ pub struct Worktree {
 }
 
 /// The worktrees of the repository at `repo` that live in one of `under`
-/// (Ghost's own), with the branch each is on.
+/// (u0's own), with the branch each is on.
 pub fn worktrees(repo: &Path, under: &[PathBuf]) -> Vec<Worktree> {
     let Ok(out) = git(repo, &["worktree", "list", "--porcelain"], None) else {
         return Vec::new();
@@ -501,14 +501,14 @@ fn scratch_index(dir: &Path) -> Result<PathBuf, String> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let git_dir = git(dir, &["rev-parse", "--absolute-git-dir"], None)?;
     Ok(PathBuf::from(git_dir).join(format!(
-        "ghost-index-{}-{}",
+        "u0-index-{}-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     )))
 }
 
 /// The files of `dir` as they are now, ignored files left out, written as a
-/// commit kept under `refs/ghost/checkpoints/<name>`; its id. A folder of
+/// commit kept under `refs/u0/checkpoints/<name>`; its id. A folder of
 /// repositories is checkpointed in each: a line `<commit> <its place in the
 /// folder>` each (`points`).
 pub fn checkpoint(dir: &Path, name: &str) -> Result<String, String> {
@@ -980,7 +980,7 @@ pub fn checkpoint_owners(dir: &Path) -> Vec<String> {
     out
 }
 
-/// Take away the checkpoints Ghost kept for the session `uid` in the
+/// Take away the checkpoints u0 kept for the session `uid` in the
 /// repository at `dir`.
 pub fn drop_checkpoints(dir: &Path, uid: &str) {
     let prefix = format!("{REFS}/{uid}/");
@@ -1377,7 +1377,7 @@ mod tests {
             std::fs::create_dir_all(dir.path().join(d)).unwrap();
         }
         let git = |at: &Path, args: &[&str]| {
-            let named = ["-c", "user.name=Ghost", "-c", "user.email=ghost@localhost"];
+            let named = ["-c", "user.name=u0", "-c", "user.email=u0@localhost"];
             let file = ["-c", "protocol.file.allow=always"];
             yours(at, "git", &[&named[..], &file[..], args].concat()).unwrap();
         };
@@ -1460,7 +1460,7 @@ mod tests {
 
     /// A repository in a temporary folder with one committed file.
     fn repo(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("ghost-git-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("u0-git-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         git(&dir, &["init", "-q", "-b", "main"], None).unwrap();
@@ -1473,7 +1473,7 @@ mod tests {
     #[test]
     fn a_refresh_fetches_and_pulls_the_default_branch_only_when_asked() {
         let origin = repo("refresh-origin");
-        let here = std::env::temp_dir().join(format!("ghost-git-refresh-{}", std::process::id()));
+        let here = std::env::temp_dir().join(format!("u0-git-refresh-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&here);
         let at = here.to_string_lossy().into_owned();
         let from = origin.to_string_lossy().into_owned();
@@ -1492,7 +1492,7 @@ mod tests {
 
     #[test]
     fn a_folder_of_repositories_gets_a_worktree_of_each_laid_out_and_checkpointed_in_each() {
-        let top = std::env::temp_dir().join(format!("ghost-git-span-{}", std::process::id()));
+        let top = std::env::temp_dir().join(format!("u0-git-span-{}", std::process::id()));
         let (shop, under) = (top.join("shop"), top.join("worktrees"));
         let _ = std::fs::remove_dir_all(&top);
         std::fs::create_dir_all(shop.join("libs")).unwrap();
@@ -1500,14 +1500,14 @@ mod tests {
             std::fs::rename(made, shop.join(place)).unwrap();
         }
         std::fs::write(shop.join("README.md"), "the shop\n").unwrap();
-        let wt = worktree(&shop, "Fix checkout", &under, "ghost/", "HEAD", None).unwrap();
+        let wt = worktree(&shop, "Fix checkout", &under, "u0/", "HEAD", None).unwrap();
         assert_eq!(
             (wt.path.clone(), wt.branch.as_str()),
-            (under.join("shop/fix-checkout"), "ghost/fix-checkout")
+            (under.join("shop/fix-checkout"), "u0/fix-checkout")
         );
         let (api, web) = (wt.path.join("api"), wt.path.join("libs/web"));
-        assert_eq!(branch(&api).as_deref(), Some("ghost/fix-checkout"));
-        assert_eq!(branch(&web).as_deref(), Some("ghost/fix-checkout"));
+        assert_eq!(branch(&api).as_deref(), Some("u0/fix-checkout"));
+        assert_eq!(branch(&web).as_deref(), Some("u0/fix-checkout"));
         // What is not a repository is the folder's own, linked.
         assert!(
             wt.path
@@ -1568,7 +1568,7 @@ mod tests {
 
     #[test]
     fn a_folder_made_a_repository_has_all_it_held_committed_and_no_upstream() {
-        let dir = std::env::temp_dir().join(format!("ghost-git-init-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("u0-git-init-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("notes.md"), "hi\n").unwrap();
@@ -1611,7 +1611,7 @@ mod tests {
 
     #[test]
     fn a_new_project_is_a_repository_with_its_readme_and_a_clone_says_how_far_it_is() {
-        let base = std::env::temp_dir().join(format!("ghost-new-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("u0-new-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let made = base.join("made");
         if create(&made, "made").is_ok() {
@@ -1655,7 +1655,7 @@ mod tests {
         );
         assert_eq!(default_branch(&dir).as_deref(), Some("main"));
 
-        branch_off(&dir, "ghost/work").unwrap();
+        branch_off(&dir, "u0/work").unwrap();
         std::fs::write(dir.join("b.txt"), "new\n").unwrap();
         git(&dir, &["add", "b.txt"], None).unwrap();
         git(&dir, &["commit", "-q", "-m", "second"], None).unwrap();
@@ -1676,10 +1676,10 @@ mod tests {
             commit_diff(&dir, &commits[1].0, false).unwrap()[0].path,
             "a.txt"
         );
-        assert_eq!(branches(&dir), ["ghost/work", "main"]);
+        assert_eq!(branches(&dir), ["u0/work", "main"]);
 
-        rename_branch(&dir, "ghost/better").unwrap();
-        assert_eq!(branch(&dir).as_deref(), Some("ghost/better"));
+        rename_branch(&dir, "u0/better").unwrap();
+        assert_eq!(branch(&dir).as_deref(), Some("u0/better"));
 
         checkpoint(&dir, "s9/0-before").unwrap();
         drop_checkpoints(&dir, "s9");
@@ -1820,17 +1820,17 @@ mod tests {
     fn a_worktree_gets_a_branch_of_its_own_and_a_second_one_a_number() {
         let dir = repo("worktree");
         let home = dir.join(".home");
-        let a = worktree(&dir, "Retry S3 uploads!", &home, "ghost/", "HEAD", None).unwrap();
-        let b = worktree(&dir, "Retry S3 uploads!", &home, "ghost/", "HEAD", None).unwrap();
-        assert_eq!(a.branch, "ghost/retry-s3-uploads");
-        assert_eq!(b.branch, "ghost/retry-s3-uploads-2");
+        let a = worktree(&dir, "Retry S3 uploads!", &home, "u0/", "HEAD", None).unwrap();
+        let b = worktree(&dir, "Retry S3 uploads!", &home, "u0/", "HEAD", None).unwrap();
+        assert_eq!(a.branch, "u0/retry-s3-uploads");
+        assert_eq!(b.branch, "u0/retry-s3-uploads-2");
         assert!(a.path.join("a.txt").is_file());
-        assert_eq!(branch(&a.path).as_deref(), Some("ghost/retry-s3-uploads"));
+        assert_eq!(branch(&a.path).as_deref(), Some("u0/retry-s3-uploads"));
         remove_worktree(&a).unwrap();
         assert!(!a.path.exists());
         // Taken away, it is checked out again on its branch.
         restore_worktree(&a).unwrap();
-        assert_eq!(branch(&a.path).as_deref(), Some("ghost/retry-s3-uploads"));
+        assert_eq!(branch(&a.path).as_deref(), Some("u0/retry-s3-uploads"));
         let _ = remove_worktree(&a);
         let _ = remove_worktree(&b);
         let _ = std::fs::remove_dir_all(&dir);

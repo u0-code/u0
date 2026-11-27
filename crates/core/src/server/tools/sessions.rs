@@ -1,4 +1,4 @@
-//! Ghost's tools for the sessions Ghost keeps, as you would act on them:
+//! u0's tools for the sessions u0 keeps, as you would act on them:
 //! organised as its sidebar does (pinned or not, archived or restored,
 //! renamed, tagged), each change kept in the index and said to the desk
 //! (`Event::Organized`), which takes it as if you made it there; and what
@@ -144,7 +144,7 @@ impl Tools {
         Ok(told)
     }
 
-    /// Organise a session Ghost keeps: pin it or take its pin off, archive
+    /// Organise a session u0 keeps: pin it or take its pin off, archive
     /// or restore it, rename it, set its tags. You are asked first, in
     /// that session.
     #[tool]
@@ -171,7 +171,7 @@ impl Tools {
             *kept = ask.apply(kept.clone(), pinned.unwrap_or(0));
             changed = Some(kept.clone());
         });
-        let now = changed.ok_or("Ghost keeps no such session now")?;
+        let now = changed.ok_or("u0 keeps no such session now")?;
         let told = format!("“{}” is organised.", now.title);
         (self.shared.send)(Event::Organized(Box::new(now)));
         Ok(told)

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Batch",
-  "description": "A batch of Ghost's telemetry: one of a level, every field of it and\nnothing more. The Worker checks each against its schema,\n`telemetry/batch.schema.json`.",
+  "description": "A batch of u0's telemetry: one of a level, every field of it and\nnothing more. The Worker checks each against its schema,\n`telemetry/batch.schema.json`.",
   "anyOf": [
     {
       "$ref": "#/$defs/Off"

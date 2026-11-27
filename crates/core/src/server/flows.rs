@@ -232,7 +232,7 @@ impl Shared {
         let name = flow.steps[run.done.len()].name().to_owned();
         let out = tokio::task::spawn_blocking(move || {
             std::process::Command::new("/bin/sh")
-                .args(["-c", &line, "ghost"])
+                .args(["-c", &line, "u0"])
                 .args(values)
                 .current_dir(dir)
                 .stdin(std::process::Stdio::null())
@@ -358,7 +358,7 @@ mod tests {
     }
 
     #[test]
-    fn a_turn_of_yours_ending_begins_the_workflow_of_a_task_on_it_and_one_of_ghosts_does_not() {
+    fn a_turn_of_yours_ending_begins_the_workflow_of_a_task_on_it_and_one_of_u0s_does_not() {
         let home = tempfile::tempdir().unwrap();
         let flows = workflows::folder(home.path());
         std::fs::create_dir(&flows).unwrap();
@@ -374,9 +374,9 @@ mod tests {
         let server = Server::new(home.path().to_path_buf(), move |e| {
             let _ = tx.send(e);
         });
-        let (mine, ghosts) = (SessionId::new("s1"), SessionId::new("s2"));
-        server.shared.happened.begin("a", &ghosts, true);
-        server.shared.happened.end("a", &ghosts, "end_turn".into());
+        let (mine, u0s) = (SessionId::new("s1"), SessionId::new("s2"));
+        server.shared.happened.begin("a", &u0s, true);
+        server.shared.happened.end("a", &u0s, "end_turn".into());
         server.shared.happened.end("a", &mine, "end_turn".into());
         let runs = until(&rx, |r| r.state == State::Asking);
         assert_eq!(runs.len(), 1, "one run, for the turn of yours");

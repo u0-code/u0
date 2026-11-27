@@ -31,7 +31,7 @@ impl Key {
             .decode(kept)
             .ok()
             .and_then(|der| Ed25519KeyPair::from_pkcs8(&der).ok())
-            .ok_or("The key kept is not one of Ghost's: pair again")?;
+            .ok_or("The key kept is not one of u0's: pair again")?;
         Ok(Self {
             pair,
             kept: kept.to_owned(),
@@ -66,7 +66,7 @@ impl Key {
 /// What a desk signs to come in: the protocol, and the nonce the server
 /// made for this link.
 fn signed(nonce: &str) -> Vec<u8> {
-    format!("ghost link {PROTOCOL}\n{nonce}").into_bytes()
+    format!("u0 link {PROTOCOL}\n{nonce}").into_bytes()
 }
 
 fn b64() -> base64::engine::GeneralPurpose {

@@ -1,6 +1,6 @@
 //! The settings, a dialog over the window: a column of tabs, and the tab
-//! chosen. Ghost's own settings (`prefs`); agents, which are switched on
-//! and off and installed; sessions archived, and what Ghost keeps on this
+//! chosen. u0's own settings (`prefs`); agents, which are switched on
+//! and off and installed; sessions archived, and what u0 keeps on this
 //! machine.
 
 use std::time::SystemTime;
@@ -109,7 +109,7 @@ impl Tab {
             Self::Keyboard => "keyboard",
             Self::Projects => "folder",
             Self::Usage => "gauge",
-            Self::About => "ghost",
+            Self::About => "u0",
             Self::SourceControl => "branch",
             Self::Diagnostics => "text-search",
             Self::Devices => "laptop",
@@ -119,7 +119,7 @@ impl Tab {
         }
     }
 
-    /// The heading the side list shows it under; Ghost's own tabs have
+    /// The heading the side list shows it under; u0's own tabs have
     /// none.
     fn group(self) -> &'static str {
         match self {
@@ -130,7 +130,7 @@ impl Tab {
             | Self::Workflows
             | Self::Sessions
             | Self::Usage => "Agents",
-            Self::About | Self::Diagnostics | Self::Telemetry => "Ghost",
+            Self::About | Self::Diagnostics | Self::Telemetry => "u0",
             _ => "",
         }
     }
@@ -150,7 +150,7 @@ impl Desk {
                 self.agents(w, cx),
             ),
             Tab::Sessions => paged(
-                "Sessions put away, and what Ghost keeps on this Mac.",
+                "Sessions put away, and what u0 keeps on this Mac.",
                 self.sessions_tab(w),
             ),
             Tab::Usage => paged(
@@ -158,19 +158,19 @@ impl Desk {
                 self.usage(w),
             ),
             Tab::Diagnostics => paged(
-                "What Ghost runs on this Mac, and what went wrong.",
+                "What u0 runs on this Mac, and what went wrong.",
                 self.diagnostics(w),
             ),
             Tab::Tasks => paged(
-                "A prompt said to an agent on a schedule. Ghost's server runs them, so they run while the window is closed; each run's session is in the sidebar.",
+                "A prompt said to an agent on a schedule. u0's server runs them, so they run while the window is closed; each run's session is in the sidebar.",
                 self.tasks(w),
             ),
             Tab::Workflows => paged(
-                "Work in stages, run by Ghost's server as one run that outlives a restart: each step's result is kept as it ends, and a step that fails pauses the run there.",
+                "Work in stages, run by u0's server as one run that outlives a restart: each step's result is kept as it ends, and a step that fails pauses the run there.",
                 self.flows(w),
             ),
             Tab::Telemetry => paged(
-                "What the server these settings are of tells the people who make Ghost, as far as you let it.",
+                "What the server these settings are of tells the people who make u0, as far as you let it.",
                 self.telemetry_tab(w),
             ),
             Tab::Projects => self.projects_tab(w),
@@ -342,11 +342,11 @@ impl Desk {
         let acts = self.settings_on(host).outside_acts;
         head.push(item(
             w,
-            crate::tr("Agents outside Ghost may act"),
-            crate::tr("An agent outside Ghost reaches Ghost's tools by the key in mcp.json (ghost --mcp, or over HTTP on this Mac). Off, it only reads; on, it may say something in a session or stop its turn, each asked of you there."),
+            crate::tr("Agents outside u0 may act"),
+            crate::tr("An agent outside u0 reaches u0's tools by the key in mcp.json (u0 --mcp, or over HTTP on this Mac). Off, it only reads; on, it may say something in a session or stop its turn, each asked of you there."),
             move |_, _, cx| {
                 gpui::component::switch::Switch::new("outside-acts")
-                    .accessibility_label(crate::tr("Agents outside Ghost may act"))
+                    .accessibility_label(crate::tr("Agents outside u0 may act"))
                     .small()
                     .checked(acts)
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -359,8 +359,8 @@ impl Desk {
         ));
         head.push(item(
             w,
-            crate::tr("Key for agents outside Ghost"),
-            crate::tr("An app set up with Ghost's tools (mcp.json's address and key) keeps working across restarts: the key stays until you make a new one, and the old one then lets no one in."),
+            crate::tr("Key for agents outside u0"),
+            crate::tr("An app set up with u0's tools (mcp.json's address and key) keeps working across restarts: the key stays until you make a new one, and the old one then lets no one in."),
             move |_, _, cx| {
                 gpui::component::button::Button::new("new-tools-key")
                     .small()
@@ -398,7 +398,7 @@ impl Desk {
         vec![
             SettingGroup::new().items(head),
             group(crate::tr("Agents"), rows).description(crate::tr_with(
-                "Ghost keeps its settings and the agents it installs in %{home}.",
+                "u0 keeps its settings and the agents it installs in %{home}.",
                 &[("home", &Desk::shown(self.home_on(self.pages.on)))],
             )),
             SettingGroup::new().item(item(w, read, "", |_, _, cx| {
@@ -498,7 +498,7 @@ impl Desk {
             .child(control)
     }
 
-    /// What Ghost keeps on this machine, how much, and tidying it.
+    /// What u0 keeps on this machine, how much, and tidying it.
     fn storage(&self, w: &WeakEntity<Desk>) -> SettingGroup {
         use crate::tidy::Tidy;
         let mut items: Vec<SettingItem> = (self.pages.sizes.iter())
@@ -550,7 +550,7 @@ impl Desk {
                 ui::trouble(refused.clone()).into_any_element()
             }));
         }
-        group(crate::tr("What Ghost keeps"), items).description(crate::tr_with(
+        group(crate::tr("What u0 keeps"), items).description(crate::tr_with(
             "In %{home}. A worktree with changes not committed is left as it is; undo reaches only the turns of this run.",
             &[("home", &Desk::shown(self.home_on(self.pages.on)))],
         ))
@@ -584,7 +584,7 @@ impl Desk {
     }
 
     /// Sessions put away: archived ones, restored or deleted here; and what
-    /// Ghost keeps of them on this machine.
+    /// u0 keeps of them on this machine.
     fn sessions_tab(&self, w: &WeakEntity<Desk>) -> Vec<SettingGroup> {
         let mut list: Vec<SettingItem> = (self.sessions.all.iter())
             .filter(|s| s.meta.flags.archived && !self.deleting(s.key))

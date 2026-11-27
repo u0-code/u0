@@ -1,6 +1,6 @@
-//! How a Ghost is reached from elsewhere, and how a desk reaches it: on
+//! How a u0 is reached from elsewhere, and how a desk reaches it: on
 //! this machine (127.0.0.1, plain), through a cloudflared tunnel (its own
-//! TLS), or straight over the local network or Tailscale, where Ghost
+//! TLS), or straight over the local network or Tailscale, where u0
 //! speaks TLS itself. Its certificate is made once and kept secret
 //! (`secrets`), and a pairing link names it by its SHA-256 (`pin`): a
 //! desk trusts the certificate that link pinned, and no other, so nothing
@@ -17,7 +17,7 @@ use rustls::{
 };
 use serde::{Deserialize, Serialize};
 
-/// Where Ghost listens beyond 127.0.0.1, with TLS of its own, on the port
+/// Where u0 listens beyond 127.0.0.1, with TLS of its own, on the port
 /// after its own (`Kept::port` + 1).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -31,7 +31,7 @@ pub enum Bind {
     Network,
 }
 
-/// A way to this Ghost a pairing link can name.
+/// A way to this u0 a pairing link can name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Route {
     /// 127.0.0.1: this machine, or an `ssh -L` to it.
@@ -95,10 +95,10 @@ fn bare(host: &str) -> Option<String> {
     alone.then(|| url.host_str().map(str::to_owned)).flatten()
 }
 
-/// The way and code of a pairing link, `ghost://pair?host=…&pin=…#code`.
+/// The way and code of a pairing link, `u0://pair?host=…&pin=…#code`.
 pub fn pairing(link: &str) -> Option<(Way, String)> {
     let url = url::Url::parse(link).ok()?;
-    if url.scheme() != "ghost" || url.host_str() != Some("pair") {
+    if url.scheme() != "u0" || url.host_str() != Some("pair") {
         return None;
     }
     let query =
@@ -114,7 +114,7 @@ pub fn pairing(link: &str) -> Option<(Way, String)> {
 
 /// The pairing link for `code` at `way`.
 pub fn pairing_link(way: &Way, code: &str) -> String {
-    let mut url = url::Url::parse("ghost://pair").expect("a link");
+    let mut url = url::Url::parse("u0://pair").expect("a link");
     url.query_pairs_mut().append_pair("host", &way.host);
     if let Some(pin) = &way.pin {
         url.query_pairs_mut().append_pair("pin", pin);
@@ -154,7 +154,7 @@ pub(crate) fn route_of(ip: IpAddr) -> Option<Route> {
 /// Where the certificate and its key are kept.
 const IDENTITY: &str = "share/tls";
 
-/// This Ghost's certificate and its key: made once, then kept; and its
+/// This u0's certificate and its key: made once, then kept; and its
 /// pin.
 fn identity() -> Result<(CertificateDer<'static>, PrivateKeyDer<'static>, String), String> {
     let b64 = base64::engine::general_purpose::STANDARD;
@@ -166,8 +166,8 @@ fn identity() -> Result<(CertificateDer<'static>, PrivateKeyDer<'static>, String
     let (cert, key) = if let Some(kept) = kept.as_deref().and_then(read) {
         kept
     } else {
-        let made = rcgen::generate_simple_self_signed(vec!["ghost".to_owned()])
-            .map_err(|e| e.to_string())?;
+        let made =
+            rcgen::generate_simple_self_signed(vec!["u0".to_owned()]).map_err(|e| e.to_string())?;
         let (cert, key) = (made.cert.der().to_vec(), made.signing_key.serialize_der());
         let kept = format!("{}.{}", b64.encode(&cert), b64.encode(&key));
         crate::secrets::set(IDENTITY, Some(&kept))?;
@@ -184,7 +184,7 @@ fn pin_of(cert: &[u8]) -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest.as_ref())
 }
 
-/// The TLS this Ghost speaks where it listens on a network, and the pin
+/// The TLS this u0 speaks where it listens on a network, and the pin
 /// a link to it names.
 pub(crate) fn acceptor() -> Result<(tokio_rustls::TlsAcceptor, String), String> {
     let (cert, key, pin) = identity()?;
@@ -230,7 +230,7 @@ impl ServerCertVerifier for Pinned {
             Ok(ServerCertVerified::assertion())
         } else {
             Err(rustls::Error::General(
-                "not the Ghost this Mac paired with: its certificate changed".into(),
+                "not the u0 this Mac paired with: its certificate changed".into(),
             ))
         }
     }
@@ -289,13 +289,13 @@ mod tests {
             pin: None,
         };
         assert_eq!(here.url(), "ws://127.0.0.1:4317");
-        assert_eq!(pairing("ghost://pair?host=#x"), None);
-        assert_eq!(pairing("ghost://new?host=h#x"), None);
+        assert_eq!(pairing("u0://pair?host=#x"), None);
+        assert_eq!(pairing("u0://new?host=h#x"), None);
     }
 
     #[test]
     fn a_host_with_a_user_before_it_or_not_as_a_url_writes_it_is_no_way_nor_this_machine() {
-        let link = "ghost://pair?host=127.0.0.1%3A1%40evil.example#c0de";
+        let link = "u0://pair?host=127.0.0.1%3A1%40evil.example#c0de";
         assert_eq!(pairing(link), None);
         for host in [
             "127.0.0.1:1@evil.example",
@@ -306,7 +306,7 @@ mod tests {
             "127.1:4317",
         ] {
             assert_eq!(
-                pairing(&format!("ghost://pair?host={host}#c0de")),
+                pairing(&format!("u0://pair?host={host}#c0de")),
                 None,
                 "{host}"
             );
@@ -321,8 +321,8 @@ mod tests {
             pin: None,
         };
         assert_eq!(here.url(), "ws://127.0.0.1:4317");
-        assert!(pairing("ghost://pair?host=[::1]:4317#c0de").is_some());
-        assert!(pairing("ghost://pair?host=LOCALHOST:4317#c0de").is_some());
+        assert!(pairing("u0://pair?host=[::1]:4317#c0de").is_some());
+        assert!(pairing("u0://pair?host=LOCALHOST:4317#c0de").is_some());
     }
 
     #[test]

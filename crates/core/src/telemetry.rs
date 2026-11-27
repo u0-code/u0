@@ -1,9 +1,9 @@
-//! What Ghost tells the people who make it, as far as you let it
+//! What u0 tells the people who make it, as far as you let it
 //! (`settings.telemetry`), as KDE's `KUserFeedback` does: four levels, each
 //! sending what the one below it sends and more. README.md lists what
 //! each sends. None ever sends what is said to or by an agent, a path, the
 //! name of a project, repository, branch or session, a host, an address, a
-//! token, or the words of an error: only counts, and names Ghost or the
+//! token, or the words of an error: only counts, and names u0 or the
 //! ACP registry gives (an agent's id, a tool's, a page's, a model's).
 //!
 //! The server counts as it goes ([`Counts`]), keeps the day's counts in
@@ -44,7 +44,7 @@ pub fn endpoint(channel: &str) -> Option<&'static str> {
 /// How often the server looks whether a day's batch is due.
 const LOOK: Duration = Duration::from_hours(1);
 
-/// How much Ghost tells, each level all the one below it does and more.
+/// How much u0 tells, each level all the one below it does and more.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(try_from = "u8", into = "u8")]
 pub enum Level {
@@ -76,10 +76,10 @@ impl Level {
                 "Each day: an id made for this install, the agents in use and their versions, the Macs paired, whether others may control this one."
             }
             Self::Usage => {
-                "Also how much each part is used: sessions and turns, worktrees, tasks and workflows run, Ghost's tools called, pages opened, crashes."
+                "Also how much each part is used: sessions and turns, worktrees, tasks and workflows run, u0's tools called, pages opened, crashes."
             }
             Self::Detailed => {
-                "Also how Ghost runs: time to start, memory, the kinds of errors, models chosen, the window's size and zoom, the look and the language."
+                "Also how u0 runs: time to start, memory, the kinds of errors, models chosen, the window's size and zoom, the look and the language."
             }
         }
     }
@@ -113,7 +113,7 @@ pub struct Counts {
     /// Scheduled tasks' turns, and workflows' runs.
     pub tasks: u64,
     pub runs: u64,
-    /// Ghost's tools called, by tool.
+    /// u0's tools called, by tool.
     pub tools: BTreeMap<String, u64>,
     /// The window's panels and pages opened, by name.
     pub opened: BTreeMap<String, u64>,
@@ -345,7 +345,7 @@ struct Use {
     crashes: u64,
 }
 
-/// What Detailed adds: how Ghost runs, and the window.
+/// What Detailed adds: how u0 runs, and the window.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
 struct Detail {
     #[schemars(range(max = MOST))]
@@ -406,7 +406,7 @@ struct Detailed {
     detail: Detail,
 }
 
-/// A batch of Ghost's telemetry: one of a level, every field of it and
+/// A batch of u0's telemetry: one of a level, every field of it and
 /// nothing more. The Worker checks each against its schema,
 /// `telemetry/batch.schema.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, JsonSchema)]
@@ -697,7 +697,7 @@ mod tests {
             {"Prompt": {"agent": "claude-code", "key": 1, "session": "s-private",
                         "content": [{"type": "text", "text": "the secret plan"}]}},
             {"MakeWorktree": {"dir": "/Users/zorblax/secret-project", "about": "secret branch",
-                              "under": "/Users/zorblax/.ghost/worktrees", "prefix": "zorblax/",
+                              "under": "/Users/zorblax/.u0/worktrees", "prefix": "zorblax/",
                               "from": null, "submodules": "skip", "key": 1}},
         ]))
         .expect("the calls read");
@@ -771,7 +771,7 @@ mod tests {
     #[test]
     fn no_path_prompt_name_or_error_text_reaches_a_batch() {
         let sent = sent(Level::Detailed, "id", &used()).to_string();
-        for never in ["/Users", "zorblax", "secret", "s-private", ".ghost"] {
+        for never in ["/Users", "zorblax", "secret", "s-private", ".u0"] {
             assert!(!sent.contains(never), "{never} leaked into {sent}");
         }
     }

@@ -1,5 +1,5 @@
 //! The window's keys: what each does, the keys it is bound to, and those
-//! you bind yourself in `~/.ghost/keybindings.json`, as t3code takes its
+//! you bind yourself in `~/.u0/keybindings.json`, as t3code takes its
 //! keymap from a file:
 //!
 //! ```json
@@ -119,7 +119,7 @@ pub const ACTIONS: [(&str, &str, Make); 52] = [
     }),
     ("settings", "Settings", || Box::new(OpenSettings)),
     ("minimize", "Minimize the window", || Box::new(Minimize)),
-    ("quit", "Quit Ghost", || Box::new(Quit)),
+    ("quit", "Quit u0", || Box::new(Quit)),
     ("review", "Review the changes", || Box::new(Review)),
     ("right_column", "Show or hide the right column", || {
         Box::new(RightColumn)
@@ -405,8 +405,8 @@ pub fn written(keys: &[Keystroke]) -> String {
 
 /// What you set for an action's keys.
 pub enum Keys {
-    /// Ghost's again: yours for it taken away.
-    Ghosts,
+    /// u0's again: yours for it taken away.
+    Defaults,
     /// These ("cmd-shift-k").
     Yours(String),
     /// None: the keys it has now taken from it.
@@ -427,7 +427,7 @@ pub fn set_yours(home: &Path, name: &str, keys: Keys) -> Result<Vec<Binding>, St
         when: None,
     };
     match keys {
-        Keys::Ghosts => {}
+        Keys::Defaults => {}
         Keys::Yours(key) => list.push(bound(key, name)),
         Keys::Off(keys) => list.extend(keys.into_iter().map(|k| bound(k, &off))),
     }
@@ -744,9 +744,13 @@ mod tests {
         // Taken away, its keys go to nothing; given back, nothing of yours is left.
         let list = set_yours(home, "palette", Keys::Off(vec!["cmd-k".into()])).unwrap();
         assert_eq!((list.len(), list[0].action.as_str()), (1, "-palette"));
-        assert!(set_yours(home, "palette", Keys::Ghosts).unwrap().is_empty());
+        assert!(
+            set_yours(home, "palette", Keys::Defaults)
+                .unwrap()
+                .is_empty()
+        );
         std::fs::write(home.join("keybindings.json"), "{ not json").unwrap();
-        assert!(set_yours(home, "palette", Keys::Ghosts).is_err());
+        assert!(set_yours(home, "palette", Keys::Defaults).is_err());
         assert_eq!(
             std::fs::read_to_string(home.join("keybindings.json")).unwrap(),
             "{ not json"

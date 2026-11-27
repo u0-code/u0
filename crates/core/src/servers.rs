@@ -1,4 +1,4 @@
-//! The Ghosts on other machines this Mac has paired with, in
+//! The u0s on other machines this Mac has paired with, in
 //! `servers.json`: each by its name, at the address it was last reached
 //! at, with the public half of the key this Mac made for it (`key`); and
 //! whether this Mac controls others at all: while it does, the window
@@ -35,7 +35,7 @@ impl Host {
 pub struct Servers {
     pub servers: Vec<Server>,
     /// Whether this Mac controls others: until it does, the window holds
-    /// this Mac's own Ghost only.
+    /// this Mac's own u0 only.
     #[serde(default)]
     pub control: bool,
 }
@@ -93,7 +93,7 @@ impl Servers {
     }
 
     /// This Mac's service, where it runs one: the window reaches this
-    /// Mac's own Ghost there rather than running a second on its home.
+    /// Mac's own u0 there rather than running a second on its home.
     pub fn service(&self, port: u16) -> Option<&Server> {
         let service = format!("127.0.0.1:{port}");
         self.servers.iter().find(|s| s.host == service)

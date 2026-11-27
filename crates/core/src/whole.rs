@@ -54,7 +54,7 @@ fn aside(path: &Path, bytes: &[u8]) -> io::Result<NamedTempFile> {
     let prefix = format!(".{}.", name.to_string_lossy());
     let mut made = tempfile::Builder::new();
     made.prefix(&prefix).suffix(".partial");
-    // Readable and writable by you alone, whatever it was: Ghost's files
+    // Readable and writable by you alone, whatever it was: u0's files
     // hold tokens (a named tunnel's, a webhook's address) and what you
     // said.
     #[cfg(unix)]

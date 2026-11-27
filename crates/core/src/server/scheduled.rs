@@ -251,11 +251,11 @@ impl Shared {
     }
 
     /// Run each task, not paused, that runs on what `m` says happened: in
-    /// a turn Ghost did not begin on its own, and in the task's project
+    /// a turn u0 did not begin on its own, and in the task's project
     /// where it says so. Its prompt is told what happened where it says
     /// `{{event}}`, marked as data from outside.
     fn on(&self, m: &Milestone) {
-        if m.by_ghost {
+        if m.by_u0 {
             return;
         }
         let meta = self.meta(&m.agent, &m.session);
@@ -600,7 +600,7 @@ impl Shared {
         error.map_or(Ok(id.clone()), |why| Err(failed(why)))
     }
 
-    /// `events`, what Ghost says in the session `id` (what you said, where
+    /// `events`, what u0 says in the session `id` (what you said, where
     /// a turn ended), written in its record and sent to the desk.
     fn append(&self, agent: &str, id: &SessionId, events: Vec<store::Event>) {
         self.records.append(agent, id, events.clone());

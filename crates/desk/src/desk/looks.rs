@@ -9,7 +9,7 @@ use super::Desk;
 use crate::{store, themes};
 
 impl Desk {
-    /// Draw the dark look (or the light) in the theme `name`; none, Ghost's
+    /// Draw the dark look (or the light) in the theme `name`; none, u0's
     /// own.
     pub(crate) fn choose_theme(
         &mut self,
@@ -45,7 +45,7 @@ impl Desk {
         } else {
             &self.settings.theme_light
         };
-        let name = format!("{} (yours)", chosen.as_deref().unwrap_or("Ghost"));
+        let name = format!("{} (yours)", chosen.as_deref().unwrap_or("u0"));
         let (path, text) = match chosen.as_deref().and_then(|n| themes::find(cx, n)) {
             Some(config) => themes::duplicate(&self.home, &config, &name),
             None => themes::own(&self.home, &name, dark),

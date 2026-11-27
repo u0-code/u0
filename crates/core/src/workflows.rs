@@ -161,7 +161,7 @@ impl Run {
     /// anywhere but as an argument of a plain command is refused
     /// (`shell::place`).
     pub fn command(&self, command: &str) -> Result<(String, Vec<String>), String> {
-        if command.contains("%ghost:") {
+        if command.contains("%u0:") {
             return Err(EVALUATED.to_owned());
         }
         let mut values = Vec::new();
@@ -392,7 +392,7 @@ mod tests {
             "case {{input}} in x) ;; esac",
             "echo ok # it's {{input}}",
             "echo \"not closed {{input}}",
-            "echo %ghost:1% {{input}}",
+            "echo %u0:1% {{input}}",
             "alias e=eval\ne {{input}}",
             "alias e=eval; e {{input}}",
             "sh <<XEOF\nX\\\nEOF\necho {{input}}\nXEOF",
@@ -428,7 +428,7 @@ mod tests {
         for line in ["echo \"${a[$1]}\"", "echo $[ $1 + 1 ]", "declare -i n=$1"] {
             let dir = tempfile::tempdir().unwrap();
             std::process::Command::new("/bin/bash")
-                .args(["-c", line, "ghost", "x[$(touch pwned)]"])
+                .args(["-c", line, "u0", "x[$(touch pwned)]"])
                 .current_dir(dir.path())
                 .output()
                 .unwrap();
@@ -463,7 +463,7 @@ mod tests {
             ] {
                 let (line, values) = run.command(template).unwrap();
                 let out = std::process::Command::new("/bin/sh")
-                    .args(["-c", &line, "ghost"])
+                    .args(["-c", &line, "u0"])
                     .args(values)
                     .current_dir(dir.path())
                     .output()
@@ -497,7 +497,7 @@ mod tests {
             .command("printf '%s|' {{input}} {{notes}} {{later}}")
             .unwrap();
         let out = std::process::Command::new("/bin/sh")
-            .args(["-c", &line, "ghost"])
+            .args(["-c", &line, "u0"])
             .args(values)
             .current_dir(dir.path())
             .output()

@@ -500,7 +500,7 @@ impl Desk {
                     )
                     .child(ui::fine(
                         faces,
-                        crate::tr("In a session of yours, not one Ghost turns on its own (a task's, a workflow's), so that no task runs on its own runs. {{event}} in what it says is what happened, marked as data from outside."),
+                        crate::tr("In a session of yours, not one u0 turns on its own (a task's, a workflow's), so that no task runs on its own runs. {{event}} in what it says is what happened, marked as data from outside."),
                     ))
             }
         };
@@ -636,7 +636,7 @@ impl Desk {
 }
 
 impl Desk {
-    /// Where a webhook task is called: here, while Ghost listens, and
+    /// Where a webhook task is called: here, while u0 listens, and
     /// through the tunnel while one is up; a new address for it; whether a
     /// call must be signed, and by what secret; what a call must be.
     fn hook_addresses(
@@ -660,7 +660,7 @@ impl Desk {
             out = out.child(ui::fine(
                 faces,
                 crate::tr_with(
-                    "%{path}, where Ghost listens: turn listening on in Devices for its address.",
+                    "%{path}, where u0 listens: turn listening on in Devices for its address.",
                     &[("path", &format!("/hook/{token}"))],
                 ),
             ));
@@ -721,7 +721,7 @@ impl Desk {
             ))
             .child(ui::fine(
                 faces,
-                crate::tr("A POST to it runs the task; {{body}}, {{body.<field>}} or {{header.<name>}} in what it says is what was sent, marked as data from outside; it can still try to steer the agent, so read it as you would anything pasted in. A call made while Ghost is not running is not held: the sender has to send it again."),
+                crate::tr("A POST to it runs the task; {{body}}, {{body.<field>}} or {{header.<name>}} in what it says is what was sent, marked as data from outside; it can still try to steer the agent, so read it as you would anything pasted in. A call made while u0 is not running is not held: the sender has to send it again."),
             ))
     }
 }

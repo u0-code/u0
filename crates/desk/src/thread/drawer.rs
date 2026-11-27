@@ -171,7 +171,7 @@ impl Desk {
                 ui::icon_button(
                     "add-script",
                     "file-plus",
-                    crate::tr("Add a script to ghost.json"),
+                    crate::tr("Add a script to u0.json"),
                 )
                 .size(px(24.))
                 .on_click(cx.listener(|this, _, window, cx| this.write_script(None, window, cx))),

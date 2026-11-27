@@ -57,7 +57,7 @@ fn usual(home: Option<&std::path::Path>) -> Vec<PathBuf> {
 /// The PATH a login shell sets up, asked of `$SHELL` with a deadline: a
 /// shell whose profile waits on something must not hold the desk up.
 fn login_path() -> Option<OsString> {
-    const MARK: &str = "__ghost_path__";
+    const MARK: &str = "__u0_path__";
     let shell = std::env::var_os("SHELL").unwrap_or_else(|| "/bin/zsh".into());
     let mut child = Command::new(shell)
         .args(["-l", "-c", &format!("printf '{MARK}%s{MARK}' \"$PATH\"")])

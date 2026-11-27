@@ -1,6 +1,6 @@
 //! What is kept secret: an agent's variable marked secret, a token for a
 //! forge. Each is a password in the macOS Keychain, never in a file of
-//! Ghost's, under a service named for Ghost's home, so that a home made for
+//! u0's, under a service named for u0's home, so that a home made for
 //! a test keeps its own. A value, kept there or written in the settings,
 //! may instead be a 1Password reference (`op://vault/item/field`), which the
 //! `op` CLI reads each time it is used. A test keeps its secrets in
@@ -8,14 +8,14 @@
 
 use std::collections::BTreeMap;
 
-/// The Keychain's service for the home Ghost runs in. A test has no home
+/// The Keychain's service for the home u0 runs in. A test has no home
 /// (`settings::home` refuses it one) and keeps its secrets in memory, under
 /// this one name.
 fn service() -> String {
     if cfg!(any(test, feature = "test")) {
-        return "Ghost test".into();
+        return "u0 test".into();
     }
-    format!("Ghost {}", crate::settings::home().display())
+    format!("u0 {}", crate::settings::home().display())
 }
 
 /// Where an agent's variable `name` is kept.
@@ -75,7 +75,7 @@ pub fn env(
 }
 
 // A test, this crate's or the desk's (the feature `test`), never reaches
-// the Keychain: macOS would ask you to let a test binary read Ghost's.
+// the Keychain: macOS would ask you to let a test binary read u0's.
 #[cfg(not(any(test, feature = "test")))]
 use keychain as store;
 #[cfg(any(test, feature = "test"))]
@@ -199,13 +199,13 @@ mod tests {
         assert_eq!(resolve("op".into()).unwrap(), "op");
     }
 
-    /// Run by hand (`cargo test -p ghost-core -- --ignored keychain`): it
+    /// Run by hand (`cargo test -p u0-core -- --ignored keychain`): it
     /// writes, reads and removes one item in the login Keychain, under a
     /// service of its own.
     #[test]
     #[ignore = "touches the login Keychain"]
     fn a_secret_kept_reads_back_and_is_gone_once_removed() {
-        let service = format!("Ghost test {}", std::process::id());
+        let service = format!("u0 test {}", std::process::id());
         keychain::set(&service, "env/a/KEY", "s3cret").unwrap();
         assert_eq!(
             keychain::get(&service, "env/a/KEY").unwrap().as_deref(),

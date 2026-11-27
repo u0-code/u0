@@ -2,7 +2,7 @@
 //! for the session and its files, then what it has come to (the files it
 //! changed, its plan, the commands it ran, how full its context is); a
 //! changed file opens here whole. For an agent's page: what it is and how
-//! Ghost runs it.
+//! u0 runs it.
 
 mod diff;
 mod files;
@@ -939,7 +939,7 @@ impl Desk {
         sec
     }
 
-    /// An agent's page's right column: what it is and how Ghost runs it.
+    /// An agent's page's right column: what it is and how u0 runs it.
     pub(crate) fn about(&self, faces: &Faces, id: &str, cx: &mut Context<Self>) -> Div {
         let head = top()
             .px(px(16.))
@@ -1015,13 +1015,13 @@ impl Desk {
                     .on_click(cx.listener(move |_, _, _, cx| cx.open_url(&link))),
             ));
         }
-        let what = section(faces, crate::tr("What Ghost does with it"), None)
+        let what = section(faces, crate::tr("What u0 does with it"), None)
             .border_b_0()
             .child(
                 ui::text(
                     faces,
                     crate::tr_with(
-                        "Starts %{name} in the session's folder, sends what you say, and draws what it reports. Edits, commands and permissions are %{name}'s own; Ghost only asks you when it asks.",
+                        "Starts %{name} in the session's folder, sends what you say, and draws what it reports. Edits, commands and permissions are %{name}'s own; u0 only asks you when it asks.",
                         &[("name", &name)],
                     ),
                 )

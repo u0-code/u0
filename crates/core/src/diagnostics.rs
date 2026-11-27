@@ -1,4 +1,4 @@
-//! What Ghost can say of itself: the processes it runs, as a tree under
+//! What u0 can say of itself: the processes it runs, as a tree under
 //! its own (agents, what they started, terminals), each with its CPU and
 //! memory, and this Mac's load; a signal sent to one of them; and what
 //! went wrong, as its log says.
@@ -11,7 +11,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 use sysinfo::{CpuRefreshKind, Pid, ProcessRefreshKind, ProcessesToUpdate, Signal, System};
 
-/// One process under Ghost's: its id, how deep under Ghost's it is (1, a
+/// One process under u0's: its id, how deep under u0's it is (1, a
 /// child), its CPU in percent of one core, its memory, and its program.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Proc {
@@ -22,7 +22,7 @@ pub struct Proc {
     pub name: String,
 }
 
-/// Ghost's processes, and this Mac: its load over one, five and fifteen
+/// u0's processes, and this Mac: its load over one, five and fifteen
 /// minutes, its cores and its memory in bytes.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Processes {
@@ -105,7 +105,7 @@ fn walk(all: &[Read], at: u32, depth: usize, out: &mut Vec<Proc>) {
 /// one of those under `root`; what was done, or why not.
 pub fn signal(root: u32, pid: u32, signal: &str) -> Result<String, String> {
     if !processes(root).procs.iter().any(|p| p.pid == pid) {
-        return Err(format!("{pid} is not one of Ghost's processes"));
+        return Err(format!("{pid} is not one of u0's processes"));
     }
     let sent = match signal {
         "KILL" => Signal::Kill,
@@ -118,7 +118,7 @@ pub fn signal(root: u32, pid: u32, signal: &str) -> Result<String, String> {
     }
 }
 
-/// Ask the process `pid`, one Ghost started, to end (TERM).
+/// Ask the process `pid`, one u0 started, to end (TERM).
 pub fn terminate(pid: u32) {
     send(pid, Signal::Term);
 }
@@ -137,7 +137,7 @@ fn send(pid: u32, sent: Signal) -> bool {
     system.process(pid).and_then(|p| p.kill_with(sent)) == Some(true)
 }
 
-/// What went wrong lately, as Ghost's log in `home` says: its warnings
+/// What went wrong lately, as u0's log in `home` says: its warnings
 /// and errors, the last `most`, newest first.
 pub fn troubles(home: &Path, most: usize) -> Vec<String> {
     let mut files: Vec<_> = std::fs::read_dir(home.join("logs"))
@@ -169,11 +169,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_processes_under_ghost_are_listed_each_after_its_parent() {
+    fn the_processes_under_u0_are_listed_each_after_its_parent() {
         let read = |pid, parent, cpu, kb, name: &str| (pid, parent, cpu, kb, name.to_owned());
         let all = [
             read(1, 0, 0.1, 100, "launchd"),
-            read(10, 1, 2.0, 2048, "ghost-desk"),
+            read(10, 1, 2.0, 2048, "u0-desk"),
             read(20, 10, 12.5, 4096, "claude-agent-acp"),
             read(30, 20, 0.0, 512, "node"),
             read(40, 10, 0.3, 256, "zsh"),
@@ -209,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn a_signal_is_refused_for_a_process_not_ghosts() {
+    fn a_signal_is_refused_for_a_process_not_u0s() {
         assert!(signal(std::process::id(), 1, "TERM").is_err());
     }
 
@@ -218,8 +218,8 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         std::fs::create_dir(home.path().join("logs")).unwrap();
         std::fs::write(
-            home.path().join("logs/ghost.2026-11-25.log"),
-            "t1  INFO ghost: started\nt2  WARN ghost: slow\nt3 ERROR ghost: broke\n",
+            home.path().join("logs/u0.2026-11-25.log"),
+            "t1  INFO u0: started\nt2  WARN u0: slow\nt3 ERROR u0: broke\n",
         )
         .unwrap();
         let t = troubles(home.path(), 10);

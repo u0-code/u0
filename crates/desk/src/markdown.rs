@@ -1,6 +1,6 @@
 //! What an agent says, drawn the way it was written: gpui-kit's Markdown
 //! view reads it, sets it, colours its code and lets its words be chosen
-//! and copied. Ghost adds what only the desk can say: where a link may go,
+//! and copied. u0 adds what only the desk can say: where a link may go,
 //! that a name in code which reads as a file opens it in your editor (its
 //! menu copies where it is), GitHub's alerts (`> [!NOTE]`) set apart, and
 //! what the buttons on a code block and a table do.

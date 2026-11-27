@@ -1,5 +1,5 @@
 //! Settings › Appearance › Themes: the theme for the dark look and the
-//! one for the light, chosen from Ghost's own, those it brings and yours;
+//! one for the light, chosen from u0's own, those it brings and yours;
 //! yours made, imported, changed and removed; and a picture under the
 //! thread.
 
@@ -33,7 +33,7 @@ impl Desk {
                 w,
                 crate::tr("Dark theme"),
                 crate::tr(
-                    "What the dark look is drawn in: Ghost's own, one it brings, or one of yours.",
+                    "What the dark look is drawn in: u0's own, one it brings, or one of yours.",
                 ),
                 |d, _, cx| d.theme_pick(true, cx).into_any_element(),
             ),
@@ -184,7 +184,7 @@ impl Desk {
             )
             .collect();
         let desk = cx.entity();
-        let label = chosen.clone().unwrap_or_else(|| "Ghost".into());
+        let label = chosen.clone().unwrap_or_else(|| "u0".into());
         Button::new(if dark { "theme-dark" } else { "theme-light" })
             .outline()
             .small()
@@ -194,7 +194,7 @@ impl Desk {
                     let (desk, name) = (desk.clone(), name.clone());
                     let on = chosen.as_deref() == name.as_deref();
                     menu = menu.item(
-                        PopupMenuItem::new(name.clone().unwrap_or_else(|| "Ghost".into()))
+                        PopupMenuItem::new(name.clone().unwrap_or_else(|| "u0".into()))
                             .checked(on)
                             .on_click(move |_, _, cx| {
                                 let name = name.as_ref().map(ToString::to_string);

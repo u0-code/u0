@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: A vulnerability
-    url: https://github.com/HappyFox001/Ghost/security/advisories/new
+    url: https://github.com/u0-code/u0/security/advisories/new
     about: Report it privately, not as an issue.

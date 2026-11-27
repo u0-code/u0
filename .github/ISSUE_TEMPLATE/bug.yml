@@ -1,5 +1,5 @@
 name: Something is wrong
-description: Ghost did something it should not have, or showed an agent wrongly.
+description: u0 did something it should not have, or showed an agent wrongly.
 labels: [bug]
 body:
   - type: textarea
@@ -13,7 +13,7 @@ body:
     id: agent
     attributes:
       label: Which agent
-      description: Its name and version, as its page in Ghost shows them.
+      description: Its name and version, as its page in u0 shows them.
   - type: input
     id: version
     attributes:
@@ -25,5 +25,5 @@ body:
     id: log
     attributes:
       label: Log
-      description: "`RUST_LOG=ghost_desk=debug` output around the moment, with anything private removed."
+      description: "`RUST_LOG=u0_desk=debug` output around the moment, with anything private removed."
       render: text

@@ -1,5 +1,5 @@
-//! Settings › Telemetry, and the sheet that asks as Ghost first opens: how
-//! much the server the settings are of tells the people who make Ghost
+//! Settings › Telemetry, and the sheet that asks as u0 first opens: how
+//! much the server the settings are of tells the people who make u0
 //! (`telemetry`), on gpui-kit's slider, a step a level; the batch that
 //! would go next, shown exactly; and a new id for this install.
 
@@ -97,7 +97,7 @@ impl Desk {
         let mut items = vec![
             item(
                 w,
-                crate::tr("What Ghost tells"),
+                crate::tr("What u0 tells"),
                 crate::tr(
                     "Each level sends what the one before it does, and more; none sends what you or an agent wrote, a path, a name of yours or an error's words. README.md lists every field.",
                 ),
@@ -139,7 +139,7 @@ impl Desk {
         vec![group(crate::tr("Telemetry"), items)]
     }
 
-    /// Ask, as Ghost first opens, how much it may tell: Share at the level
+    /// Ask, as u0 first opens, how much it may tell: Share at the level
     /// the slider stands at, or Don't share (Escape too), which is Off;
     /// nothing above Off goes until Share is pressed.
     pub(crate) fn ask_telemetry(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -156,7 +156,7 @@ impl Desk {
                 .gap(px(12.))
                 .child(ui::text(
                     &faces,
-                    crate::tr("Ghost can send its makers counts of how it is used, never what you or your agents write, nor paths or names. Choose how much; Settings › Telemetry changes it later."),
+                    crate::tr("u0 can send its makers counts of how it is used, never what you or your agents write, nor paths or names. Choose how much; Settings › Telemetry changes it later."),
                 ))
                 .child(levels(&state, &faces, cx));
             let choose = |desk: Entity<Desk>, level: Option<Level>| {
@@ -171,7 +171,7 @@ impl Desk {
                 }
             };
             alert
-                .title(crate::tr("Help make Ghost better?"))
+                .title(crate::tr("Help make u0 better?"))
                 .description(about)
                 .show_cancel(true)
                 .cancel_text(crate::tr("Don't share"))

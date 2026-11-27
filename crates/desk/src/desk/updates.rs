@@ -1,6 +1,6 @@
-//! Ghost's own updates, as the window has them: looked for as Ghost
+//! u0's own updates, as the window has them: looked for as u0
 //! starts and every four hours where you let it, and from Check for
-//! Updates…; downloaded and put in place on Install; Ghost opened again on
+//! Updates…; downloaded and put in place on Install; u0 opened again on
 //! Restart.
 
 use std::time::{Duration, Instant};
@@ -10,7 +10,7 @@ use gpui::{Context, Window};
 use super::{Desk, notices::Way};
 use crate::{hub, pages::Tab, update};
 
-/// How often Ghost looks for an update by itself.
+/// How often u0 looks for an update by itself.
 const EVERY: Duration = Duration::from_hours(4);
 
 /// Where an update stands.
@@ -24,7 +24,7 @@ pub enum Updating {
     Found(update::Found),
     /// Downloading or putting it in place: what it is doing.
     Installing(String),
-    /// In place: Ghost runs it once opened again.
+    /// In place: u0 runs it once opened again.
     Ready,
     Failed(String),
 }
@@ -54,7 +54,7 @@ impl Default for Updates {
 }
 
 impl Desk {
-    /// Look for an update where it is due: as Ghost starts, then every
+    /// Look for an update where it is due: as u0 starts, then every
     /// four hours, unless you said not to.
     pub(crate) fn update_due(&mut self) {
         let channel = self.settings.channel;
@@ -85,7 +85,7 @@ impl Desk {
         hub::check_update(self.settings.channel, self.tx.clone());
     }
 
-    /// Ghost › Check for Updates…: the About page, where it says.
+    /// u0 › Check for Updates…: the About page, where it says.
     pub(crate) fn check_update_shown(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open_tab(Tab::About, window, cx);
         self.check_update(true);
@@ -98,7 +98,7 @@ impl Desk {
             Update::Checked(Ok(Some(found))) => {
                 if self.updates.now != Updating::Found(found.clone()) && !asked {
                     self.done(
-                        crate::tr_with("Ghost %{version} is out", &[("version", &found.name)]),
+                        crate::tr_with("u0 %{version} is out", &[("version", &found.name)]),
                         Some(Way::Update),
                     );
                 }
@@ -109,23 +109,23 @@ impl Desk {
             Update::Doing(what) => Updating::Installing(what),
             Update::Installed(Ok(())) => Updating::Ready,
             Update::Installed(Err(why)) => {
-                self.trouble(crate::tr("Ghost couldn't update"), Some(why.clone()), None);
+                self.trouble(crate::tr("u0 couldn't update"), Some(why.clone()), None);
                 Updating::Failed(why)
             }
         };
         cx.notify();
     }
 
-    /// Download the update found and put it in place of this Ghost.app.
+    /// Download the update found and put it in place of this u0.app.
     pub(crate) fn install_update(&mut self, cx: &mut Context<Self>) {
         let Updating::Found(found) = &self.updates.now else {
             return;
         };
         let Some(app) = update::running_app() else {
             self.trouble(
-                crate::tr("Ghost updates itself only as Ghost.app"),
+                crate::tr("u0 updates itself only as u0.app"),
                 Some(
-                    crate::tr("This Ghost runs outside an app bundle: build it with bundle.sh.")
+                    crate::tr("This u0 runs outside an app bundle: build it with bundle.sh.")
                         .into(),
                 ),
                 None,
@@ -137,8 +137,8 @@ impl Desk {
         cx.notify();
     }
 
-    /// Quit, and open Ghost again once this one has gone: the updated
-    /// Ghost.app. Run outside an app, the program itself is run again, as
+    /// Quit, and open u0 again once this one has gone: the updated
+    /// u0.app. Run outside an app, the program itself is run again, as
     /// it was.
     pub(crate) fn reopen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let (again, what) = match update::running_app() {
@@ -147,7 +147,7 @@ impl Desk {
                 Ok(exe) => ("exec \"$1\"", exe),
                 Err(e) => {
                     return self.trouble(
-                        crate::tr("Ghost couldn't restart"),
+                        crate::tr("u0 couldn't restart"),
                         Some(e.to_string()),
                         None,
                     );
@@ -164,11 +164,7 @@ impl Desk {
             .spawn();
         match waiting {
             Ok(_) => window.dispatch_action(Box::new(crate::keys::Quit), cx),
-            Err(e) => self.trouble(
-                crate::tr("Ghost couldn't restart"),
-                Some(e.to_string()),
-                None,
-            ),
+            Err(e) => self.trouble(crate::tr("u0 couldn't restart"), Some(e.to_string()), None),
         }
     }
 }

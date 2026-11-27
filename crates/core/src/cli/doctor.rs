@@ -1,4 +1,4 @@
-//! `ghost doctor`: what of this home is not as Ghost needs it, each
+//! `u0 doctor`: what of this home is not as u0 needs it, each
 //! thing looked at said in a line, with what to do where it is not.
 
 use std::{fmt::Write as _, path::Path};
@@ -43,12 +43,12 @@ pub fn doctor(home: &Path) -> (String, bool) {
     // A server runs with this home where its tools' door answers.
     let door = mcp::door(home).ok();
     check(
-        "Ghost running",
+        "u0 running",
         match door {
             Some(d) if std::net::TcpStream::connect(("127.0.0.1", d.port)).is_ok() => {
                 Ok(format!("its tools at 127.0.0.1:{} and :{}", d.port, d.http))
             }
-            _ => Err("No Ghost runs with this home: open Ghost, or `ghost serve`.".into()),
+            _ => Err("No u0 runs with this home: open u0, or `u0 serve`.".into()),
         },
     );
     let known = registry::kept(home);
@@ -57,7 +57,7 @@ pub fn doctor(home: &Path) -> (String, bool) {
         check(
             &format!("agent {agent}"),
             found.map_or_else(
-                || Err("Not in the registry kept: open Ghost to read it again.".into()),
+                || Err("Not in the registry kept: open u0 to read it again.".into()),
                 |e| Ok(format!("{} {}", e.name, e.version)),
             ),
         );

@@ -74,14 +74,14 @@ pub fn monogram(name: &str) -> String {
     text.to_uppercase()
 }
 
-/// Where a project made or cloned in Ghost goes unless you choose
-/// another folder: ~/Documents/Ghost, as Codex keeps its own in
+/// Where a project made or cloned in u0 goes unless you choose
+/// another folder: ~/Documents/u0, as Codex keeps its own in
 /// ~/Documents/Codex. It is made with the first project.
 fn made_here() -> PathBuf {
     std::env::var_os("HOME")
         .map_or_else(|| PathBuf::from("/"), PathBuf::from)
         .join("Documents")
-        .join("Ghost")
+        .join("u0")
 }
 
 /// Adding a project from the palette: a clone going on, from the address
@@ -286,7 +286,7 @@ impl Desk {
     }
 
     /// The folder new and cloned projects go in on `host`, as its settings
-    /// say; none said, ~/Documents/Ghost there (beside Ghost's home, on
+    /// say; none said, ~/Documents/u0 there (beside u0's home, on
     /// another server, whose own home the desk does not know).
     pub fn projects_in(&self, host: Host) -> PathBuf {
         let said = self.settings_on(host).projects_in.clone();
@@ -295,7 +295,7 @@ impl Desk {
             _ => (self.home_on(host).parent())
                 .unwrap_or(std::path::Path::new("/"))
                 .join("Documents")
-                .join("Ghost"),
+                .join("u0"),
         })
     }
 
@@ -463,7 +463,7 @@ impl Desk {
     }
 
     /// Where scratch sessions are begun on `host`: one folder each, under
-    /// Ghost's home there.
+    /// u0's home there.
     pub fn scratch_dir(&self, host: Host) -> PathBuf {
         self.home_on(host).join("scratch")
     }
@@ -502,7 +502,7 @@ impl Desk {
     }
 
     /// Make a scratch folder on `host`, there, listed as Scratch: none
-    /// before Ghost's home there is known.
+    /// before u0's home there is known.
     pub(crate) fn scratch(&mut self, host: Host) -> Option<Place> {
         if self.home_on(host).as_os_str().is_empty() {
             return None;

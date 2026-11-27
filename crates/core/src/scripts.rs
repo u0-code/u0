@@ -1,4 +1,4 @@
-//! A repository's own commands, named in `ghost.json` at its root:
+//! A repository's own commands, named in `u0.json` at its root:
 //!
 //! ```json
 //! { "scripts": [ { "name": "dev", "command": "npm run dev" },
@@ -22,7 +22,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-/// A repository's own commands, from `ghost.json` at its root.
+/// A repository's own commands, from `u0.json` at its root.
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -62,11 +62,11 @@ pub struct Script {
     pub preview: Option<String>,
 }
 
-/// Put `script` at `at` in `ghost.json` of the repository at `dir` (a new
+/// Put `script` at `at` in `u0.json` of the repository at `dir` (a new
 /// one at the end), or take the one at `at` away when `script` is none.
 pub fn write_script(dir: &Path, at: Option<usize>, script: Option<Script>) -> Result<(), String> {
     let root = crate::git::root(dir).ok_or("the folder is not in a git repository")?;
-    let path = root.join("ghost.json");
+    let path = root.join("u0.json");
     let mut config: Config = crate::whole::read_json(&path)?;
     match (at, script) {
         (Some(at), Some(script)) if at < config.scripts.len() => config.scripts[at] = script,
@@ -74,18 +74,18 @@ pub fn write_script(dir: &Path, at: Option<usize>, script: Option<Script>) -> Re
             config.scripts.remove(at);
         }
         (None, Some(script)) => config.scripts.push(script),
-        _ => return Err("the script is no longer in ghost.json".into()),
+        _ => return Err("the script is no longer in u0.json".into()),
     }
     let mut text = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
     text.push('\n');
     crate::whole::write(&path, text.as_bytes()).map_err(|e| e.to_string())
 }
 
-/// The commands `ghost.json` names in the repository whose root is `root`;
+/// The commands `u0.json` names in the repository whose root is `root`;
 /// none where there is no such file, and none (said once in the log) where
 /// it does not read.
 pub fn config(root: &Path) -> Config {
-    crate::whole::read_json(&root.join("ghost.json")).unwrap_or_else(|e| {
+    crate::whole::read_json(&root.join("u0.json")).unwrap_or_else(|e| {
         tracing::warn!("{e}");
         Config::default()
     })
@@ -96,7 +96,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_script_written_is_kept_in_ghost_json_and_one_that_does_not_read_is_left_alone() {
+    fn a_script_written_is_kept_in_u0_json_and_one_that_does_not_read_is_left_alone() {
         let dir = tempfile::tempdir().unwrap();
         let dir = dir.path();
         let git = |args: &[&str]| {
@@ -119,12 +119,12 @@ mod tests {
         write_script(dir, Some(0), None).expect("taken away");
         let names: Vec<_> = config(dir).scripts.into_iter().map(|s| s.name).collect();
         assert_eq!(names, ["dev"]);
-        let text = std::fs::read_to_string(dir.join("ghost.json")).expect("file");
+        let text = std::fs::read_to_string(dir.join("u0.json")).expect("file");
         assert!(text.contains("\"wait\": true"), "{text}");
-        std::fs::write(dir.join("ghost.json"), "{ not json").expect("broken");
+        std::fs::write(dir.join("u0.json"), "{ not json").expect("broken");
         assert!(write_script(dir, None, Some(script("x"))).is_err());
         assert_eq!(
-            std::fs::read_to_string(dir.join("ghost.json")).expect("kept"),
+            std::fs::read_to_string(dir.join("u0.json")).expect("kept"),
             "{ not json"
         );
     }

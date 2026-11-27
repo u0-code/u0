@@ -1,5 +1,5 @@
-//! Ghost's tools for the worktrees it makes of your projects: listed as
-//! the Storage page measures them (`git::worktrees` in Ghost's folders),
+//! u0's tools for the worktrees it makes of your projects: listed as
+//! the Storage page measures them (`git::worktrees` in u0's folders),
 //! made as a session's is (`Call::MakeWorktree`), and taken away as tidying
 //! takes one (`git::remove_worktree`), never one a session works in.
 
@@ -33,7 +33,7 @@ struct RemoveWorktree {
 
 #[tool_router(router = worktree_router, vis = "pub(super)")]
 impl Tools {
-    /// The worktrees Ghost made of a project, in its worktrees' folders:
+    /// The worktrees u0 made of a project, in its worktrees' folders:
     /// each one's repository, path and branch.
     #[tool]
     async fn list_worktrees(
@@ -78,7 +78,7 @@ impl Tools {
         }
     }
 
-    /// Take away a worktree Ghost made, where no session of Ghost's works
+    /// Take away a worktree u0 made, where no session of u0's works
     /// in it and nothing in it is uncommitted (git keeps it, and says so);
     /// its branch stays. You are asked first.
     #[tool]
@@ -89,7 +89,7 @@ impl Tools {
         let in_use = (self.shared.index.lock().expect("index").as_ref())
             .is_ok_and(|i| i.sessions.iter().any(|m| m.folder.starts_with(&ask.path)));
         if in_use {
-            return Err("A session of Ghost's works in it: archive and tidy it instead".into());
+            return Err("A session of u0's works in it: archive and tidy it instead".into());
         }
         let home = self.shared.home.clone();
         let (path, projects) = (ask.path.clone(), Settings::load(&home).0.folders);
@@ -100,7 +100,7 @@ impl Tools {
                 .find(|wt| wt.path == path)
         })
         .await?
-        .ok_or("No worktree Ghost made of a project of yours is there")?;
+        .ok_or("No worktree u0 made of a project of yours is there")?;
         let title = format!("Take away the worktree {}", ask.path.display());
         self.allowed("remove_worktree", title, &ask).await?;
         off(move || git::remove_worktree(&found)).await??;
@@ -148,6 +148,6 @@ mod tests {
         assert_eq!(client.result(), ("Taken away.".to_owned(), false));
         assert!(!path.exists());
         client.call("remove_worktree", &json!({"path": project}));
-        assert!(client.result().1, "a project is no worktree of Ghost's");
+        assert!(client.result().1, "a project is no worktree of u0's");
     }
 }

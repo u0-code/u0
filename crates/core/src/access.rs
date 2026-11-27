@@ -1,4 +1,4 @@
-//! Who may reach this Ghost from elsewhere (`link`), and how (`share`):
+//! Who may reach this u0 from elsewhere (`link`), and how (`share`):
 //! the devices paired with it, each by the public half of its key
 //! (`key`), kept in `devices.json` with how it is shared, as
 //! `authorized_keys` keeps them; and the one-time codes that let a new key
@@ -35,15 +35,15 @@ const CODE_LIFE: Duration = Duration::from_mins(10);
 #[serde(deny_unknown_fields)]
 pub struct Kept {
     pub devices: Vec<Device>,
-    /// The port Ghost listens on, on 127.0.0.1: another for a second
-    /// Ghost on one machine, each with a home of its own.
+    /// The port u0 listens on, on 127.0.0.1: another for a second
+    /// u0 on one machine, each with a home of its own.
     #[serde(default = "port")]
     pub port: u16,
     /// A named tunnel of yours (cloudflared), to be reached by the same
     /// address each time; none, a quick one with an address of its own.
     #[serde(default)]
     pub named: Option<Named>,
-    /// Whether Ghost listens, and runs the tunnel, each time it starts,
+    /// Whether u0 listens, and runs the tunnel, each time it starts,
     /// and keeps the Mac awake while it does.
     #[serde(default)]
     pub serve: bool,
@@ -75,7 +75,7 @@ impl Default for Kept {
     }
 }
 
-/// A device paired with this Ghost.
+/// A device paired with this u0.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Device {
@@ -164,7 +164,7 @@ pub struct Access {
 }
 
 impl Access {
-    /// The access kept in Ghost's home `home`.
+    /// The access kept in u0's home `home`.
     pub fn new(home: &Path) -> Self {
         let path = home.join("devices.json");
         let kept = whole::read_json(&path).map_err(|e| {
@@ -319,7 +319,7 @@ impl Access {
         let kept = kept.as_ref().map_err(|why| Turned::Away(why.clone()))?;
         let d = (kept.devices.iter())
             .find(|d| d.key == key)
-            .ok_or_else(|| Turned::Away("This device is not paired with this Ghost".into()))?;
+            .ok_or_else(|| Turned::Away("This device is not paired with this u0".into()))?;
         let now = std::time::SystemTime::now();
         if let Some(until) = d.until.filter(|u| *u <= crate::store::secs(now)) {
             let ended = crate::when::said_at(crate::store::time(until), now, false);
@@ -333,10 +333,10 @@ impl Access {
         Ok(d.scope)
     }
 
-    /// Whether a device of `scope` may make `call` here, in Ghost's home
+    /// Whether a device of `scope` may make `call` here, in u0's home
     /// `home`: one of full scope anything; one that may only read, a call
     /// that only reads, of what lies in a project of yours or a worktree
-    /// of Ghost's, by their real paths, so that no `..` or link leads out.
+    /// of u0's, by their real paths, so that no `..` or link leads out.
     pub fn allows(scope: Scope, call: &crate::proto::Call, home: &Path) -> bool {
         if scope == Scope::Full {
             return true;
@@ -349,7 +349,7 @@ impl Access {
 }
 
 /// Whether each of `paths` lies, by its real path (so that no `..` or link
-/// leads out), in a project of yours or a worktree of Ghost's home `home`:
+/// leads out), in a project of yours or a worktree of u0's home `home`:
 /// all that one who may only read is let read.
 pub fn within(home: &Path, paths: &[&Path]) -> bool {
     if paths.is_empty() {

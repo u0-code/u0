@@ -1,5 +1,5 @@
 //! A repository's pull requests on Bitbucket Cloud, over its REST API.
-//! Bitbucket keeps no issues Ghost reads: a project's issues there come
+//! Bitbucket keeps no issues u0 reads: a project's issues there come
 //! from Linear, where it is bound to a team.
 
 use std::fmt::Write as _;

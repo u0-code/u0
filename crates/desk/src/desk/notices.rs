@@ -1,7 +1,7 @@
-//! What Ghost tells you outside the thread, as gpui-kit's notifications at
+//! What u0 tells you outside the thread, as gpui-kit's notifications at
 //! the window's top right: a thing you asked for that did not happen, and
 //! why; a thing done, with the way on from it (a pull request, a session);
-//! what can still be taken back. While Ghost is behind other windows, what
+//! what can still be taken back. While u0 is behind other windows, what
 //! a session did goes to macOS's notification centre instead, and a click
 //! there brings the window up on that session. The thread keeps only what
 //! happened in its session.
@@ -49,7 +49,7 @@ pub enum Way {
     Asks(u64),
     /// What was just done to sessions, to take it back.
     Undo,
-    /// An update of Ghost's own, to see and install.
+    /// An update of u0's own, to see and install.
     Update,
     /// A clone that failed, of the address into the folder, to try again.
     Clone(String, super::Place),

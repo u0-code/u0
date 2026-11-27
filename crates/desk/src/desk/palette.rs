@@ -473,7 +473,7 @@ impl Desk {
         }
     }
 
-    /// What can be done now, in t3code's order, then Ghost's own.
+    /// What can be done now, in t3code's order, then u0's own.
     fn actions(&self, cx: &gpui::App) -> Vec<Row> {
         let key = |name: &'static str, title: &str| Row {
             keys: crate::keys::keys_of(cx, name),
@@ -607,7 +607,7 @@ impl Desk {
                 .sub(name),
             );
         }
-        // Ghost's own, which t3code has no row for.
+        // u0's own, which t3code has no row for.
         let listed = [
             "palette",
             "minimize",

@@ -862,7 +862,7 @@ impl Desk {
                     let (icon, name, about) = match offer {
                         Offer::Command { name, about } => ("terminal", format!("/{name}"), about),
                         Offer::Own { name, about } => {
-                            ("ghost", format!("/{name}"), crate::tr(about).to_string())
+                            ("u0", format!("/{name}"), crate::tr(about).to_string())
                         }
                         Offer::Model { label, .. } => (
                             "sliders",

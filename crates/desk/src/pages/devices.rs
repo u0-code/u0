@@ -1,8 +1,8 @@
-//! Settings › Devices: Ghost used from one Mac on another, each way, a
+//! Settings › Devices: u0 used from one Mac on another, each way, a
 //! switch for each at the top. "Let other devices control this Mac": its
 //! server reached from elsewhere (listening, the tunnel, the pairing link
 //! and its QR code, the devices paired and their keys), the server's the
-//! settings are of. "Control other Macs": the Ghosts elsewhere this Mac
+//! settings are of. "Control other Macs": the u0s elsewhere this Mac
 //! has paired with, which the window holds beside its own, the key it made
 //! for each and how each stands, and pairing with a link. And the sheet
 //! that asks before pairing, which can pair both ways.
@@ -163,7 +163,7 @@ impl Desk {
         );
         let mut page = SettingPage::new(crate::tr("Devices"))
             .description(
-                crate::tr("Use Ghost on one Mac from another: its agents, sessions, files and terminals, as there. Each device comes in by a key of its own, made as it pairs: its private half stays in that device's Keychain, and only the public half, shown by its fingerprint, is sent."),
+                crate::tr("Use u0 on one Mac from another: its agents, sessions, files and terminals, as there. Each device comes in by a key of its own, made as it pairs: its private half stays in that device's Keychain, and only the public half, shown by its fingerprint, is sent."),
             )
             .group(SettingGroup::new().items(
                 std::iter::once(serve)
@@ -504,7 +504,7 @@ impl Desk {
             w,
             crate::tr("Listen on"),
             crate::tr(
-                "Beyond this Mac and its tunnel: Tailscale, or every network it is on, Tailscale too. There Ghost speaks TLS itself, on the port after its own; a device pairs with a link that pins its certificate.",
+                "Beyond this Mac and its tunnel: Tailscale, or every network it is on, Tailscale too. There u0 speaks TLS itself, on the port after its own; a device pairs with a link that pins its certificate.",
             ),
             move |_, _, cx| {
                 let pick = |to: Bind, cx: &mut Context<Desk>| -> ui::Pick {
@@ -804,7 +804,7 @@ impl Desk {
             Some((way, code)) => Self::ask_pair(way, code, window, cx),
             None => self.trouble(
                 crate::tr("That is not a pairing link"),
-                Some(crate::tr("It begins ghost://pair").into()),
+                Some(crate::tr("It begins u0://pair").into()),
                 None,
             ),
         }

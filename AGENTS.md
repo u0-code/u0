@@ -5,14 +5,14 @@ this repository. [CONTRIBUTING.md](CONTRIBUTING.md) applies in full; this file
 adds the rules that are easy to break. Keep it current: a change that alters a
 rule, path or command stated here updates this file in the same commit.
 
-## What Ghost is
+## What u0 is
 
 A desktop app (GPUI, macOS first) that runs other coding agents over the
 Agent Client Protocol. It has no agent, model client or prompt of its own:
-a feature that needs Ghost to think asks one of your agents (the writer).
-Ghost may give an agent tools, as one MCP server of its own (an existing
+a feature that needs u0 to think asks one of your agents (the writer).
+u0 may give an agent tools, as one MCP server of its own (an existing
 MCP crate over `proto::Call`) attached to a session through ACP's
-`mcpServers`, and the same server for agents outside Ghost.
+`mcpServers`, and the same server for agents outside u0.
 
 ## Definition of done
 
@@ -62,7 +62,7 @@ change is held to these rules.
 
 ## Components
 
-What is drawn is native GPUI, on every platform Ghost runs on: no web view,
+What is drawn is native GPUI, on every platform u0 runs on: no web view,
 no HTML rendered from what an agent says (Markdown is the thread's format).
 
 - UI components come from, in this order of preference: `gpui-kit`,
@@ -70,16 +70,16 @@ no HTML rendered from what an agent says (Markdown is the thread's format).
   means (a button is a button, a dialog a dialog), not for how it happens to
   look.
 - Nothing is drawn by hand that one of them can draw: a hand-made widget in
-  Ghost is replaced by the library's when one exists.
+  u0 is replaced by the library's when one exists.
 - Where none of them has what is needed, or one gets it wrong, the component
   is written once in `gpui-kit-material` (the owner's repository,
-  `mizorewww/gpui-kit-material`), not inside Ghost:
-  - it follows Material 3; what Ghost needs beyond M3 is added as a variant
+  `mizorewww/gpui-kit-material`), not inside u0:
+  - it follows Material 3; what u0 needs beyond M3 is added as a variant
     of the M3 component, not as a component of its own;
   - the change goes in as a pull request (`gh pr create`), merged at once
-    (`gh pr merge`); Ghost uses it from git until a release is cut;
+    (`gh pr merge`); u0 uses it from git until a release is cut;
   - releases are published to crates.io by that repository's GitHub
-    Actions, when its components have settled; Ghost then moves back to
+    Actions, when its components have settled; u0 then moves back to
     the crates.io version.
   - A component that is not Material at all goes in a crate and repository
     of its own, the same way.
@@ -89,17 +89,17 @@ no HTML rendered from what an agent says (Markdown is the thread's format).
   library: it fixes a bug that gets in the way of using it, or it adds what
   everyone needs. A new API argues why everyone needs it. Never "an app
   needs it". The pull request carries screenshots of the component, before
-  and after where it shows. Meanwhile Ghost takes the fix from a fork through
+  and after where it shows. Meanwhile u0 takes the fix from a fork through
   `[patch.crates-io]`, and drops the patch once upstream releases it.
 - gpui is GPUI Fast (`longbridge/gpui-fast`, through gpui-kit's
   `gpui-fast` feature), a fork of Zed's gpui. It takes performance work and
   fixes of bugs, its own or upstream gpui's, and never a feature: only such
   a fix goes there by pull request, by its CONTRIBUTING.md (the logic in
   `src/fast/<topic>.rs`, upstream's files holding only hooks that name
-  `fast`, `script/check-upstream` green). A feature Ghost needs of gpui (a
+  `fast`, `script/check-upstream` green). A feature u0 needs of gpui (a
   window's zoom, the system's spell checker) is written the same way and
   stays on the owner's fork (`mizorewww/gpui-fast`), its `ghost` branch;
-  Ghost patches the gpui-fast crates from `ghost-release`, that branch
+  u0 patches the gpui-fast crates from `ghost-release`, that branch
   built as a release is (`script/prepare-release.ts`). gpui-pre, the
   snapshots of Zed's gpui, is never patched, and `zed-industries/zed` is
   never sent a pull request.
@@ -108,9 +108,9 @@ no HTML rendered from what an agent says (Markdown is the thread's format).
 
 ## Map
 
-Two crates. `crates/core` (`ghost-core`) is what touches the machine and
-builds without GPUI; `crates/desk` (`ghost-desk`, the app) draws it. Nothing
-in core may depend on gpui: `cargo tree -p ghost-core | grep gpui` finds
+Two crates. `crates/core` (`u0-core`) is what touches the machine and
+builds without GPUI; `crates/desk` (`u0-desk`, the app) draws it. Nothing
+in core may depend on gpui: `cargo tree -p u0-core | grep gpui` finds
 nothing. The desk names core's modules at its root, so `crate::git` is
 core's `git` there too.
 
@@ -120,14 +120,14 @@ crates/core/src/
   registry.rs   the ACP registry, installing an agent, starting one
   server.rs     the agents running, held by id; the store's one writer; each Call
                 handled, answered as Events; server/scheduled: the scheduled tasks run;
-                server/flows: the workflows' runs, step by step; server/tools: Ghost's
+                server/flows: the workflows' runs, step by step; server/tools: u0's
                 tools, the one MCP server (rmcp), given to each session it opens (by
                 subject in server/tools/: devices, projects, forge, flows,
                 worktrees); server/happened: the turns
                 going on and what happened, for the tools; server/door: how agents
                 reach the tools (a pipe, HTTP, a link), who calls
   mcp.rs        how an agent reaches the tools: `--mcp`, the pipe to them; mcp.json
-  proto.rs      the Ghost protocol: Call (desk to server), Event (server to desk);
+  proto.rs      the u0 protocol: Call (desk to server), Event (server to desk);
                 Hello and Welcome, which begin a link
   link.rs       a server reached from elsewhere: a WebSocket upgraded from hyper, what
                 it said numbered and kept for a desk that comes back; the desk's end
@@ -135,14 +135,14 @@ crates/core/src/
   reach.rs      the ways to a server (127.0.0.1, a network, a tunnel); pairing links;
                 its TLS on a network, its certificate pinned by the link
   key.rs        a desk's Ed25519 key (OpenSSH's form): signing, verifying, fingerprints
-  share.rs      sharing this Ghost: listening, the cloudflared tunnel, pairing links,
+  share.rs      sharing this u0: listening, the cloudflared tunnel, pairing links,
                 the link a desk gives for its server to pair back with
   servers.rs    the servers elsewhere this Mac is paired with (servers.json),
                 pairing with one; whether this Mac controls others at all;
                 `Host`, which of a window's servers something is on
-  logs.rs       what Ghost logs, and where
-  bin/          ghost-server: the server with no window
-  cli.rs        the `ghost` command, read by clap: serve, service (a launchd agent per
+  logs.rs       what u0 logs, and where
+  bin/          u0-server: the server with no window
+  cli.rs        the `u0` command, read by clap: serve, service (a launchd agent per
                 home, the window paired with it), status, doctor, tasks, thread, workflow
                 (what acts over a link, `link::ask`); --mcp; folders
   records.rs    the record of each session open with its agent, written as it comes
@@ -152,7 +152,7 @@ crates/core/src/
   pty.rs        a shell in a pseudo-terminal: its process, input and size
   terminals.rs  your terminals by id, each a pty and the last 256 KiB it printed
   session.rs    a session: its thread built from session/update; its turns' checkpoints
-  git.rs        worktrees, checkpoints (shadow index, refs/ghost/checkpoints), diffs, commit/push/PR;
+  git.rs        worktrees, checkpoints (shadow index, refs/u0/checkpoints), diffs, commit/push/PR;
                 the repositories a folder of them holds, a worktree and checkpoint of each
   github.rs     a project's pull requests and issues as gh lists, reads and changes them
                 (their conversations on lines, reviews with comments on lines)
@@ -160,8 +160,8 @@ crates/core/src/
   http.rs       the one HTTP client (ureq): the registry, its archives, the forges, updates
   forge.rs      the hosts of code and issues: their CLIs, your tokens for them, credits on merge
   forge/        GitLab, Bitbucket and Azure DevOps over their APIs; Linear's issues
-  settings.rs   ~/.ghost/settings.json and the home
-  policy.rs     an organisation's policy (/etc/ghost/policy.json): settings set as
+  settings.rs   ~/.u0/settings.json and the home
+  policy.rs     an organisation's policy (/etc/u0/policy.json): settings set as
                 defaults or locked; limits the server enforces
   policy/       profile: on a Mac, the policy a configuration profile forces (CFPreferences)
   secrets.rs    what is kept secret: in the macOS Keychain, or a 1Password reference
@@ -171,16 +171,16 @@ crates/core/src/
                 their runs (runs.json)
   whole.rs      a file written whole; a JSON file read back
   writer.rs     text an agent writes for you: what each kind asks, what is kept
-  tidy.rs       what Ghost keeps here, measured and tidied
+  tidy.rs       what u0 keeps here, measured and tidied
   devices.rs    iOS simulators and Android emulators: listed, started, their screen
                 streamed, touched
                 (xcrun simctl, adb, emulator; AXe for an iOS one, where installed)
-  diagnostics.rs  the processes Ghost runs, as a tree with CPU and memory; its log's troubles
+  diagnostics.rs  the processes u0 runs, as a tree with CPU and memory; its log's troubles
   path.rs       the PATH your shell sets up, for an app opened from the Dock
-  scripts.rs    a repository's own commands, in its ghost.json
-  telemetry.rs  what Ghost tells its makers, by level (0-3): the counts, the daily batch
+  scripts.rs    a repository's own commands, in its u0.json
+  telemetry.rs  what u0 tells its makers, by level (0-3): the counts, the daily batch
   when.rs       times as read
-  update.rs     Ghost's own updates: the GitHub releases the casks install, put in place
+  update.rs     u0's own updates: the GitHub releases the casks install, put in place
   usage.rs      what agents say they used, read from the records: cost, tokens by
                 model, an account's limits and when a refused turn may go on
   fixtures/     answers recorded from real agents
@@ -193,19 +193,19 @@ crates/desk/src/
                 own work, back as Msg
   hub/          agent (each agent's slot, as the desk sees it)
   sessions.rs   the sessions on the desk, by key and by the agent's id; what agents say of them
-  macos.rs      what Ghost asks of macOS: icon, badge, dictation, a notification's
+  macos.rs      what u0 asks of macOS: icon, badge, dictation, a notification's
                 sound, the Keychain
   voice.rs      what you say, heard by gpui-kit's speech (the system's recognizer, on
                 this Mac alone): your dictionary, the fillers; text read aloud
-  keys.rs       the window's actions and keys; ~/.ghost/keybindings.json
+  keys.rs       the window's actions and keys; ~/.u0/keybindings.json
   desk.rs       the window's state, actions and layout
   desk/         by subject: kept, lists, projects, mention, gitview, runs,
                 palette (its pages: a new session in, the look, adding a
                 project), rank (what is typed, found), agents, send, turns,
                 replies, notices, writing, dictation, updates, forge (the
                 PRs and Issues pages), pr (a pull request reviewed: files
-                viewed, ~/.ghost/viewed.json; lines commented; its guide), links (the ghost:// links and folders
-                macOS opens Ghost with), looks (themes chosen, made, removed),
+                viewed, ~/.u0/viewed.json; lines commented; its guide), links (the u0:// links and folders
+                macOS opens u0 with), looks (themes chosen, made, removed),
                 tasks (the scheduled tasks, the one written, a task's turn),
                 flows (the workflows and their runs)
   sidebar.rs, thread.rs, aside.rs, pages.rs   what is drawn
@@ -227,7 +227,7 @@ crates/desk/src/
                 tasks: Scheduled tasks, scope: the project a page's choices are
                 set for,
                 flows: Workflows, telemetry: Telemetry, and the sheet that asks
-                as Ghost first opens),
+                as u0 first opens),
                 the PRs and Issues pages drawn (forge, its menus forge/menus;
                 a pull request reviewed, pr)
   i18n.rs       the desk's words in your language (rust-i18n, as gpui-kit): `tr`, the
@@ -236,10 +236,10 @@ crates/desk/src/
   figures.rs    what Markdown shows as a picture: Mermaid (mermaid-rs-renderer) and
                 TeX (ratex), drawn natively as SVG
   ui.rs, theme.rs, style.rs
-  themes.rs     themes in gpui-kit's format: Ghost's, yours, a VS Code theme imported
+  themes.rs     themes in gpui-kit's format: u0's, yours, a VS Code theme imported
   fonts.rs, assets.rs   faces, icons
 assets/         fonts, the desk's own icons and the themes it brings, built into the app
-policy/         ghost.mobileconfig: the example profile, every policy key; read by a core test
+policy/         u0.mobileconfig: the example profile, every policy key; read by a core test
 website/        the user guide (Docusaurus): docs/ in English, i18n/zh-Hans/ in
                 Simplified Chinese; published on GitHub Pages
 telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf deploy`;
@@ -255,7 +255,7 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 | Which server something is on | `Session::host`, `Slot::host`, `desk::Place` (a folder on a server); a server's settings `Desk::settings_on`, the settings dialog's `Desk::edited` |
 | Work off the window's thread | what touches the machine (agents, store, git, files, the home): a `proto::Call`, answered as a `proto::Event`; the window's own (pictures, your editor, key bindings, terminals) a function in `hub.rs` that returns a `Msg` |
 | Atomic file write | `whole::write`, off the window's thread: `store::queue(Job::Write)` for the desk's own files |
-| Where Ghost keeps its files | `settings::home()` |
+| Where u0 keeps its files | `settings::home()` |
 | A program on the PATH | `which::which` (the `which` crate) |
 | Anything over HTTP | `http::get`, `http::call`, `http::download` (ureq), off the window's thread |
 | An agent's logo | `Desk::mark_of` and `ui::mark` |
@@ -274,31 +274,31 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 
 ## Data
 
-- Every file Ghost writes whole (`whole::write`) is yours alone (0600):
+- Every file u0 writes whole (`whole::write`) is yours alone (0600):
   several hold tokens.
-- `~/.ghost/settings.json` and `~/.ghost/sessions.json` are the files
-  Ghost writes that a person may care about. Their fields are
+- `~/.u0/settings.json` and `~/.u0/sessions.json` are the files
+  u0 writes that a person may care about. Their fields are
   `deny_unknown_fields`; a file that does not read is left alone and
   nothing is saved over it. A project's `prefs` hold its own settings
   (`over`, a sparse settings.json of the keys `Settings::PROJECT` names;
   any other key refuses the file) and what its new sessions of each agent
   begin with (`last`: the options and mode last chosen).
-- `~/.ghost/viewed.json` (the desk's) holds the files of each pull
+- `~/.u0/viewed.json` (the desk's) holds the files of each pull
   request you marked viewed, by its address, each with a mark of its
   changes (`review::File::mark`): a file that changes since shows unviewed.
 - An administrator's policy (`policy.rs`), one shape from either source:
   on a Mac the values a configuration profile forces in the preference
-  domain `local.ghost.desk` (Ghost.app's bundle identifier; read with
+  domain `local.u0.desk` (u0.app's bundle identifier; read with
   `CFPreferencesCopyAppValue`, counted only where
-  `CFPreferencesAppValueIsForced`), elsewhere `/etc/ghost/policy.json`.
-  `policy/ghost.mobileconfig` is the example profile, read back by a test.
+  `CFPreferencesAppValueIsForced`), elsewhere `/etc/u0/policy.json`.
+  `policy/u0.mobileconfig` is the example profile, read back by a test.
   It sets top-level keys of `settings.json` as defaults or locked, applied in `Settings::load`; a
   locked control is disabled and says who manages it. One that does not
   read keeps the settings from loading, as a settings file that does not.
   Its `limits` (agents allowed, remote, tunnel, webhooks) are checked
   with `policy::allows` where the server does the thing: an agent
   launched, listening, the tunnel, a webhook run.
-- `~/.ghost/tasks.json` holds the scheduled tasks; the server writes it
+- `~/.u0/tasks.json` holds the scheduled tasks; the server writes it
   and runs them (`Call::SetTask`, `Event::Tasks`), each run a session kept
   in the index like any other. A task on a webhook (`Schedule::Hook`) runs
   when `POST /hook/<token>` reaches the link's listener (and its tunnel),
@@ -308,35 +308,35 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   Keychain; else 401), hold `only` rules (`at` is one of `is`; else 204),
   and runs each delivery its sender names, and each signed body (by its
   SHA-256), once (200 again): what was heard is kept a month in
-  `~/.ghost/heard.json` (`tasks::Heard`), so a restart forgets none;
+  `~/.u0/heard.json` (`tasks::Heard`), so a restart forgets none;
   `Call::RotateHook` gives it a new token, its secret moved. Nothing holds
   a call made while no server runs. A task on an event (`Schedule::On`)
   runs as a turn ends, or an agent asks you, on a turn of yours: not
-  one Ghost began on its own (`Happenings::begin`, `by_ghost`), so that
+  one u0 began on its own (`Happenings::begin`, `by_u0`), so that
   no task runs on its own runs. A task with a `workflow` begins a run of it, its
   filled prompt the input: schedules, webhooks and events start
   workflows so. Workflows are your JSON files in
-  `~/.ghost/workflows/`, read as they are listed or started; their runs
-  are the server's, in `~/.ghost/runs.json`.
+  `~/.u0/workflows/`, read as they are listed or started; their runs
+  are the server's, in `~/.u0/runs.json`.
 - A secret (an agent's variable marked so, a forge's token) is kept in the
-  macOS Keychain under the service `Ghost <home>`, never in a file (the
+  macOS Keychain under the service `u0 <home>`, never in a file (the
   server's TLS certificate and key for a network too, `share/tls`);
   `settings.json` names it only.
-- `~/.ghost/devices.json` (on the server) holds the devices paired and
-  how Ghost is shared (listening, on which port, on which networks
+- `~/.u0/devices.json` (on the server) holds the devices paired and
+  how u0 is shared (listening, on which port, on which networks
   (`bind`: on the port after it, with TLS), the tunnel, a named
   tunnel's token).
   Each device is `{label, key, scope, until, waiting, paired, seen}`:
   `key` the public half of its Ed25519 key as `authorized_keys` writes
   it (`ssh-ed25519 AAAA…`), shown by its `SHA256:` fingerprint; `scope`
   `full` or `read`; `until` when its access ends; `waiting` until you
-  let it in. `~/.ghost/servers.json` (on a desk)
+  let it in. `~/.u0/servers.json` (on a desk)
   holds the servers paired with (`{name, host, key, pin}`, `key` the public
   half this Mac made for it, `pin` the SHA-256 of the certificate of one
   reached on a network) and whether this Mac controls others
   (`control`: on, the window holds each of them beside this Mac's own;
   off, this Mac's alone). One at `127.0.0.1` on this home's own port is
-  this Mac's service (`ghost service`), the way to this Mac's own Ghost
+  this Mac's service (`u0 service`), the way to this Mac's own u0
   rather than a server beside it. Each private half is a secret
   (`server/<its fingerprint>`, PKCS#8). The desk and the server (pairing back) both
   change it through `Servers::change`. Both are
@@ -344,7 +344,7 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   before keys is refused with a word to pair again.
 - A desk comes in by signature, never by a secret: the server's first
   word on each link is a nonce (`Challenge`), and the desk signs
-  `ghost link <PROTOCOL>\n<nonce>` with its key for that server. A
+  `u0 link <PROTOCOL>\n<nonce>` with its key for that server. A
   pairing code (128 bits, ten minutes, once) is what lets a new key in,
   as its `Grant` says: its scope, its days, and whether it waits for you
   (closed with 1013 and the server's name until then). Each `Call` on a
@@ -385,8 +385,8 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   of a server's own show, while the window's own (its look, its keys)
   are this Mac's. What an agent needs before it starts is the server's
   to say (`Event::Here`).
-- Ghost's tools (`server/tools`) listen on `127.0.0.1` at two ports
-  `~/.ghost/mcp.json` names (`port`, the pipe of `--mcp`: the server says
+- u0's tools (`server/tools`) listen on `127.0.0.1` at two ports
+  `~/.u0/mcp.json` names (`port`, the pipe of `--mcp`: the server says
   a nonce first, and the pipe answers with `mcp::proof`, an HMAC of it and
   the port by its key, so the key never crosses the wire; `http`, MCP's
   streamable HTTP, the key as a bearer token, no session kept), with a
@@ -401,8 +401,8 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   agent there reads, and acts as its device's scope lets it. A session (of an agent not in
   `settings.no_tools`, its page's switch) is given them through
   ACP's `mcpServers` as this program run with `--mcp`, with a key of its
-  own (`GHOST_MCP_KEY`) that says which session calls; an agent outside
-  Ghost runs `--mcp` with none, and the file's key lets it in to read,
+  own (`U0_MCP_KEY`) that says which session calls; an agent outside
+  u0 runs `--mcp` with none, and the file's key lets it in to read,
   and to act on a session it names only where `settings.outside_acts`
   lets it, asked of you in that session.
   What acts, or asks you, asks on the session's permission card
@@ -413,15 +413,15 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   id) goes once ever, as a home first runs; from 1 up, one batch a day,
   each level adding to the one below as README.md lists, to
   `telemetry::ENDPOINT`, the Worker in `telemetry/`. The day's counts are
-  kept in `~/.ghost/telemetry.json` (with the install's random id, from
+  kept in `~/.u0/telemetry.json` (with the install's random id, from
   level 1); a batch that does not go is dropped. Only counts and names
-  Ghost or the registry gives go: never what is written, a path, a name of
+  u0 or the registry gives go: never what is written, a path, a name of
   yours, a host or an error's words. The tests send nowhere.
-- `~/.ghost/registry.json`, `icons/` and `agents/` are rebuilt from the
-  registry. `logs/` is Ghost's own log, a file a day, the last
+- `~/.u0/registry.json`, `icons/` and `agents/` are rebuilt from the
+  registry. `logs/` is u0's own log, a file a day, the last
   `log_days` kept.
 - Sessions belong to each agent, which lists them (`session/list`, by
-  project). Ghost keeps an index of those it has seen (`sessions.json`:
+  project). u0 keeps an index of those it has seen (`sessions.json`:
   title, pins, archive, worktree, the pull requests and issues linked,
   tags) and a record of each
   (`transcripts/<agent>/<id>.jsonl`), so the list and a thread show at
@@ -436,9 +436,9 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   (sent with `Call::Append` before the agent is asked anything more). The
   desk's thread is built from those lines by the reducer the server's is
   (`Session::replay`), so a record read back is the thread you saw.
-- In a repository Ghost writes commits no branch points at, under
-  `refs/ghost/checkpoints/<session>/`, and worktrees under
-  `~/.ghost/worktrees/`, or the folder `settings.worktrees` names
+- In a repository u0 writes commits no branch points at, under
+  `refs/u0/checkpoints/<session>/`, and worktrees under
+  `~/.u0/worktrees/`, or the folder `settings.worktrees` names
   (`Settings::worktree_folders`, sent with each call that makes, lists or
   tidies them). It never changes your index or branch except when you
   press Commit. The server takes away an archived session's worktree once
@@ -448,18 +448,18 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 
 ## Local environment
 
-- Never point a test or experiment at `~/.ghost`: set `GHOST_HOME` to a
+- Never point a test or experiment at `~/.u0`: set `U0_HOME` to a
   temporary directory.
-- Two Ghosts on one machine each take a `GHOST_HOME` of their own, and
+- Two u0s on one machine each take a `U0_HOME` of their own, and
   a `port` of their own in its `devices.json` (4317 unless set). A test
   of the Keychain uses a service of its own and removes what it kept;
   the unit tests keep secrets in memory, never in the Keychain, and
-  have no home but a temporary `GHOST_HOME` (`settings::home` panics
-  otherwise). The desk's tests get both by building `ghost-core` with its
+  have no home but a temporary `U0_HOME` (`settings::home` panics
+  otherwise). The desk's tests get both by building `u0-core` with its
   feature `test`.
 - Agents do not launch the GUI. A check against a real agent drives
   `acp.rs` and `registry.rs` from a test run by hand with a temporary
-  `GHOST_HOME`, and sends no prompt unless the user asked: a prompt spends
+  `U0_HOME`, and sends no prompt unless the user asked: a prompt spends
   the user's subscription.
 
 ## Tests
@@ -474,11 +474,11 @@ test for the behaviour it proves.
 `README.md`, `AGENTS.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `SECURITY.md` and
 the user guide in `website/` (https://u0-code.github.io/u0/).
 
-- The guide is written from the code: it describes what Ghost does now,
+- The guide is written from the code: it describes what u0 does now,
   never what it is meant to do. Work not yet on `main` is at most a short
   "Coming" note.
 - A change to what a person sees or does (a setting, a key, a label, a
-  command, a file Ghost keeps, what is sent) updates the guide's page for
+  command, a file u0 keeps, what is sent) updates the guide's page for
   it, in English and in `website/i18n/zh-Hans/`, in the same commit. The
   reference pages (`reference/settings.md`, `keybindings.md`, `cli.md`,
   `policy.md`) list every key, action and word; they stay complete.
@@ -491,12 +491,12 @@ the user guide in `website/` (https://u0-code.github.io/u0/).
 Changes are committed straight to `main`, one change per commit, and pushed;
 there are no pull requests, and no CI checks a change. `just check` before
 each commit is what stands in for both. CI only builds: each push to `main`
-has `.github/workflows/app.yml` build Ghost.app with `bundle.sh` and replace
-the `nightly` prerelease with it, which `Casks/ghost@nightly.rb` installs;
-then it builds `ghost-server` on Linux and puts it beside the app.
+has `.github/workflows/app.yml` build u0.app with `bundle.sh` and replace
+the `nightly` prerelease with it, which `Casks/u0@nightly.rb` installs;
+then it builds `u0-server` on Linux and puts it beside the app.
 A push to `main` that changes `website/` has `.github/workflows/docs.yml`
 build the guide and deploy it to GitHub Pages.
 A tag `v<version>` (the version in Cargo.toml) is released the same way, and
-the workflow commits `Casks/ghost.rb` at that version to `main`. The subject follows CONTRIBUTING.md and is checked
+the workflow commits `Casks/u0.rb` at that version to `main`. The subject follows CONTRIBUTING.md and is checked
 by `scripts/check-subject.sh` (`just hooks` installs it as a commit hook).
 The body states what changed and why, and the net line change.

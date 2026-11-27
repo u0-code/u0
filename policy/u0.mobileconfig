@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Ghost's policy for the Macs of an organisation, as a configuration profile.
+  u0's policy for the Macs of an organisation, as a configuration profile.
 
   Change the values below, give the profile identifiers and UUIDs of your
   own, and deploy it from your MDM (as a custom profile, or as a "Custom
-  Settings" payload for the domain local.ghost.desk), or install it by hand
-  in System Settings > General > Device Management. Ghost reads it as it
+  Settings" payload for the domain local.u0.desk), or install it by hand
+  in System Settings > General > Device Management. u0 reads it as it
   starts, through CFPreferences: only values a profile forces count, so
   nobody sets a policy with `defaults write`.
 
-  A profile that does not read (a value of the wrong kind, a setting Ghost
-  does not have, a limit it does not know) keeps Ghost's settings from
+  A profile that does not read (a value of the wrong kind, a setting u0
+  does not have, a limit it does not know) keeps u0's settings from
   loading until it is put right: nothing runs half governed.
 -->
 <plist version="1.0">
@@ -19,17 +19,17 @@
   <key>PayloadContent</key>
   <array>
     <dict>
-      <!-- The preference domain Ghost reads: Ghost.app's bundle identifier. -->
+      <!-- The preference domain u0 reads: u0.app's bundle identifier. -->
       <key>PayloadType</key>
-      <string>local.ghost.desk</string>
+      <string>local.u0.desk</string>
       <key>PayloadIdentifier</key>
-      <string>com.example.ghost.policy.local.ghost.desk</string>
+      <string>com.example.u0.policy.local.u0.desk</string>
       <key>PayloadUUID</key>
       <string>68B26282-094B-42B0-99A7-1E5B4E034581</string>
       <key>PayloadVersion</key>
       <integer>1</integer>
       <key>PayloadDisplayName</key>
-      <string>Ghost</string>
+      <string>u0</string>
 
       <!-- Who sets the policy (required): said beside each setting it locks. -->
       <key>organization</key>
@@ -37,10 +37,10 @@
 
       <!-- Where to ask about it (optional). -->
       <key>support_url</key>
-      <string>https://it.example.com/ghost</string>
+      <string>https://it.example.com/u0</string>
 
       <!--
-        settings (optional): top-level keys of ~/.ghost/settings.json, each a
+        settings (optional): top-level keys of ~/.u0/settings.json, each a
         dict of
           value   the setting's value, of its own kind (true or false, an
                   integer, a string, an array, a dict);
@@ -51,7 +51,7 @@
       -->
       <key>settings</key>
       <dict>
-        <!-- How much Ghost tells the people who make it; 0 is nothing. -->
+        <!-- How much u0 tells the people who make it; 0 is nothing. -->
         <key>telemetry</key>
         <dict>
           <key>value</key>
@@ -59,7 +59,7 @@
           <key>locked</key>
           <true/>
         </dict>
-        <!-- Whether Ghost looks for its own updates. -->
+        <!-- Whether u0 looks for its own updates. -->
         <key>check_updates</key>
         <dict>
           <key>value</key>
@@ -67,7 +67,7 @@
           <key>locked</key>
           <true/>
         </dict>
-        <!-- What the branches Ghost makes begin with. -->
+        <!-- What the branches u0 makes begin with. -->
         <key>branch_prefix</key>
         <dict>
           <key>value</key>
@@ -78,7 +78,7 @@
       </dict>
 
       <!--
-        limits (optional): what no setting undoes, each enforced by Ghost's
+        limits (optional): what no setting undoes, each enforced by u0's
         server where the thing is done. A limit left out limits nothing.
       -->
       <key>limits</key>
@@ -89,7 +89,7 @@
           <string>claude-acp</string>
           <string>codex-acp</string>
         </array>
-        <!-- false: no other device links to this Mac (Ghost does not listen). -->
+        <!-- false: no other device links to this Mac (u0 does not listen). -->
         <key>remote</key>
         <false/>
         <!-- false: no cloudflared tunnel reaches this Mac. -->
@@ -102,11 +102,11 @@
     </dict>
   </array>
   <key>PayloadDisplayName</key>
-  <string>Ghost policy</string>
+  <string>u0 policy</string>
   <key>PayloadDescription</key>
-  <string>Settings and limits for Ghost, set by your organisation.</string>
+  <string>Settings and limits for u0, set by your organisation.</string>
   <key>PayloadIdentifier</key>
-  <string>com.example.ghost.policy</string>
+  <string>com.example.u0.policy</string>
   <key>PayloadOrganization</key>
   <string>Example Corp</string>
   <key>PayloadScope</key>

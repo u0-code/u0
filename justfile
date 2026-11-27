@@ -50,6 +50,6 @@ hooks:
     ln -sf ../../scripts/commit-msg .git/hooks/commit-msg
     @echo "commit subjects are now checked by scripts/check-subject.sh"
 
-# Ghost.app, signed, in target/release.
+# u0.app, signed, in target/release.
 bundle:
     ./bundle.sh

@@ -1,4 +1,4 @@
-//! Ghost's tools for what runs on its own: the workflows and their runs
+//! u0's tools for what runs on its own: the workflows and their runs
 //! (`Call::Workflows`, `Call::StartFlow`), and the scheduled tasks
 //! (`Event::Tasks` as a device that may only read hears it; `SetTask`,
 //! `RunTask`, `DropTask`).
@@ -39,7 +39,7 @@ struct ChangeTask {
 
 #[tool_router(router = flow_router, vis = "pub(super)")]
 impl Tools {
-    /// The workflows (your files in Ghost's `workflows` folder): each
+    /// The workflows (your files in u0's `workflows` folder): each
     /// one's name, what it is for and its steps, or why its file does
     /// not read; and their runs, each one's id, input, state and the
     /// steps it has done. To one that may only read, no step's command

@@ -18,6 +18,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         r if r == "refs/heads/main" => "nightly",
         _ => "dev",
     };
-    println!("cargo:rustc-env=GHOST_CHANNEL={channel}");
+    println!("cargo:rustc-env=U0_CHANNEL={channel}");
     Ok(())
 }
