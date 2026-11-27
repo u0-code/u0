@@ -588,7 +588,7 @@ impl Desk {
         ))
     }
 
-    /// Background subagents and commands (`ThreadDetailsSection`).
+    /// Background subagents (`ThreadDetailsSection`).
     fn background(
         &self,
         faces: &Faces,
@@ -602,22 +602,13 @@ impl Desk {
             .iter()
             .filter(|c| c.parent == Some(family))
             .collect();
-        let tasks: Vec<(u64, &crate::session::Task)> = self
-            .sessions
-            .all
-            .iter()
-            .filter(|c| c.key == family || c.parent == Some(family))
-            .flat_map(|c| c.tasks.iter().map(move |t| (c.key, t)))
-            .collect();
-        if kids.is_empty() && tasks.is_empty() {
+        if kids.is_empty() {
             return None;
         }
         let live = |c: &Session| c.sub.working() || c.sub.needs_you;
-        let going = kids.iter().filter(|c| live(c)).count()
-            + tasks.iter().filter(|(_, t)| t.ended.is_none()).count();
-        let over = kids.iter().filter(|c| !live(c)).count()
-            + tasks.iter().filter(|(_, t)| t.ended.is_some()).count();
-        let total = kids.len() + tasks.len();
+        let going = kids.iter().filter(|c| live(c)).count();
+        let over = kids.len() - going;
+        let total = kids.len();
         let fold = format!("background-{family}");
         let open = self.expanded.contains(&fold);
         let row_of = |id: SharedString| {
@@ -656,51 +647,12 @@ impl Desk {
                     this.show(key, window, cx);
                 }))
         };
-        let task_row = |at: u64, t: &crate::session::Task, cx: &mut Context<Self>| {
-            let (id, running) = (t.id.clone(), t.ended.is_none());
-            let time = match &t.ended {
-                Some((_, took)) => crate::when::took(*took),
-                None => crate::when::took(t.since.elapsed().unwrap_or_default()),
-            };
-            row_of(SharedString::from(format!("bg-task-{at}-{}", t.id)))
-                .child(
-                    div()
-                        .size(px(16.))
-                        .flex()
-                        .flex_none()
-                        .items_center()
-                        .justify_center()
-                        .child(if running {
-                            ui::live_dot().into_any_element()
-                        } else {
-                            Icon::carbon(CarbonIcon::Terminal)
-                                .size_length(px(14.))
-                                .color(match t.ended.as_ref().map(|(how, _)| how.as_str()) {
-                                    Some("failed") => theme::role(ColorRole::SupportError),
-                                    _ => theme::role(ColorRole::IconSecondary),
-                                })
-                                .into_any_element()
-                        }),
-                )
-                .child(title(&t.name))
-                .child(fine(faces, time))
-                .when(running && t.stoppable, |d| {
-                    d.child(
-                        stop(SharedString::from(format!("bg-task-stop-{at}-{}", t.id))).on_click(
-                            cx.listener(move |this, _, _, cx| this.stop_task(at, id.clone(), cx)),
-                        ),
-                    )
-                })
-        };
         let mut list = div().flex().flex_col();
         for c in kids.iter().filter(|c| c.sub.needs_you) {
             list = list.child(sub_row(c, cx));
         }
         for c in kids.iter().filter(|c| c.sub.working() && !c.sub.needs_you) {
             list = list.child(sub_row(c, cx));
-        }
-        for (at, t) in tasks.iter().filter(|(_, t)| t.ended.is_none()) {
-            list = list.child(task_row(*at, t, cx));
         }
         if over > 0 {
             let toggle = fold.clone();
@@ -730,9 +682,6 @@ impl Desk {
             if open {
                 for c in kids.iter().filter(|c| !live(c)) {
                     list = list.child(sub_row(c, cx));
-                }
-                for (at, t) in tasks.iter().filter(|(_, t)| t.ended.is_some()) {
-                    list = list.child(task_row(*at, t, cx));
                 }
             }
         }

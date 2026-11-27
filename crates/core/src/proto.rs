@@ -119,13 +119,6 @@ pub enum Call {
         session: SessionId,
         content: Vec<ContentBlock>,
     },
-    /// Stop a task going on in the background, as the `JetBrains`
-    /// extension of ACP asks it.
-    StopTask {
-        agent: String,
-        session: SessionId,
-        task: String,
-    },
     /// Stop the turn going on in `session`.
     Cancel {
         agent: String,
@@ -600,7 +593,6 @@ impl Call {
             | Self::Delete { .. }
             | Self::Write(_)
             | Self::Prompt { .. }
-            | Self::StopTask { .. }
             | Self::Cancel { .. }
             | Self::Answer { .. }
             | Self::SetMode { .. }
@@ -1747,11 +1739,6 @@ mod tests {
                 delete: true,
                 close: false,
             }),
-            Call::StopTask {
-                agent: "a".into(),
-                session: session.clone(),
-                task: "t1".into(),
-            },
             Call::Cancel {
                 agent: "a".into(),
                 session: session.clone(),
@@ -2198,13 +2185,6 @@ mod tests {
             acp::Event::Exited {
                 pid: Some(42),
                 why: "killed".into(),
-            },
-            acp::Event::Task {
-                session: "s1".into(),
-                task: acp::Task::Ended {
-                    id: "t1".into(),
-                    state: "completed".into(),
-                },
             },
         ];
         let names: BTreeSet<String> = said.iter().map(round_trip).collect();

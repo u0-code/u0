@@ -2,7 +2,7 @@
 //! stands, and every message from the agents and the work done off the
 //! window's thread, each from the server it came from.
 
-use agent_client_protocol::v1::schema::{ElicitationScope, SessionId, SessionUpdate};
+use agent_client_protocol::v1::schema::{ElicitationScope, SessionUpdate};
 use gpui::{Context, Window};
 
 use super::Desk;
@@ -1111,11 +1111,6 @@ impl Desk {
             slot.used = std::time::Instant::now();
         }
         match event {
-            acp::Event::Task { session, task } => {
-                if let Some(s) = self.sessions.by_id(host, agent, &SessionId::new(session)) {
-                    s.task(task);
-                }
-            }
             // Said in no session open with it: the probe's, which lists the
             // commands the agent takes.
             acp::Event::Update(n) => {

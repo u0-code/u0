@@ -161,38 +161,39 @@ impl Shared {
             }
         })
         .await?;
-        let hello = InitializeRequest::new(ProtocolVersion::V1)
-            .client_capabilities(
-                ClientCapabilities::new()
-                    .subagents(SubagentCapabilities::new())
-                    // What it asks for is a form filled in over the
-                    // composer, or a page opened.
-                    .elicitation(
-                        ElicitationCapabilities::new()
-                            .form(ElicitationFormCapabilities::new())
-                            .url(ElicitationUrlCapabilities::new()),
-                    )
-                    // Notices, and the context compacted, are said in the
-                    // thread.
-                    .session(
-                        ClientSessionCapabilities::new()
-                            .notices(NoticeCapabilities::new())
-                            .compaction(CompactionCapabilities::new()),
-                    )
-                    // Tasks left going in the background (a command), as
-                    // the JetBrains extension says them, are shown.
-                    .meta(serde_json::Map::from_iter([(
-                        "jetbrains".into(),
-                        serde_json::json!({"air": {"version": 1, "capabilities": ["asyncTasks"]}}),
-                    )])),
-            )
-            .client_info(Implementation::new("u0", env!("CARGO_PKG_VERSION")));
-        let init = running.request(hello).await?;
+        let init = running.request(hello()).await?;
         let pid = running.pid();
         let running = Arc::new(running);
         (self.agents.lock().expect("agents")).insert(agent.to_owned(), running.clone());
         Ok((running, (pid, Box::new(init))))
     }
+}
+
+/// What u0 says of itself as it begins with an agent: what it can show.
+fn hello() -> InitializeRequest {
+    InitializeRequest::new(ProtocolVersion::V1)
+        .client_capabilities(
+            ClientCapabilities::new()
+                .subagents(SubagentCapabilities::new())
+                // What it asks for is a form filled in over the
+                // composer, or a page opened.
+                .elicitation(
+                    ElicitationCapabilities::new()
+                        .form(ElicitationFormCapabilities::new())
+                        .url(ElicitationUrlCapabilities::new()),
+                )
+                // Notices, and the context compacted, are said in the
+                // thread.
+                .session(
+                    ClientSessionCapabilities::new()
+                        .notices(NoticeCapabilities::new())
+                        .compaction(CompactionCapabilities::new()),
+                ), // Nothing in `_meta`: one there that says u0 is
+                   // JetBrains' AIR has Claude Code's and Codex's adapters
+                   // speak AIR's own forms, subagents among them, not the
+                   // schema's.
+        )
+        .client_info(Implementation::new("u0", env!("CARGO_PKG_VERSION")))
 }
 
 /// What an agent started says of itself: its process, and its hello.
@@ -383,11 +384,6 @@ impl Server {
                 content,
             } => self.prompt(&agent, key, session, content),
             Call::Write(order) => self.write(order),
-            Call::StopTask {
-                agent,
-                session,
-                task,
-            } => self.stop_task(&agent, session, task),
             Call::Cancel { agent, session } => self.cancel(&agent, session),
             Call::Answer {
                 agent,
@@ -1304,25 +1300,6 @@ impl Server {
         });
     }
 
-    /// Stop the task `task` going on in the background in the session
-    /// `session`, as the `JetBrains` extension of ACP asks it.
-    fn stop_task(&self, id: &str, session: SessionId, task: String) {
-        let Some(agent) = self.running(id) else {
-            return;
-        };
-        acp::runtime().spawn(async move {
-            let _ = agent
-                .request(
-                    agent_client_protocol::UntypedMessage::new(
-                        "_session/async_task/stop",
-                        serde_json::json!({"sessionId": session.0, "asyncTaskId": task}),
-                    )
-                    .expect("a JSON object"),
-                )
-                .await;
-        });
-    }
-
     /// Stop the turn going on in `session`.
     fn cancel(&self, id: &str, session: SessionId) {
         if let Some(agent) = self.running(id) {
@@ -1574,6 +1551,17 @@ mod tests {
             Event::Record { key: 9, events } => events,
             other => panic!("not a record: {other:?}"),
         }
+    }
+
+    /// Claude Code's adapter (0.113.0) and Codex's speak AIR's own forms
+    /// (`subagent_spawned`, not `subagent_update`) to a client whose
+    /// capabilities carry `_meta.jetbrains.air`, whatever else they say.
+    #[test]
+    fn u0_asks_for_subagents_as_the_schema_has_them_and_says_it_is_no_air_client() {
+        let said = serde_json::to_value(hello()).unwrap();
+        let can = &said["clientCapabilities"];
+        assert_eq!(can["subagents"], serde_json::json!({}));
+        assert!(can.get("_meta").is_none(), "{can}");
     }
 
     #[test]

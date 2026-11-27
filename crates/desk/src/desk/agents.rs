@@ -241,8 +241,7 @@ impl Desk {
             s.of(host, agent)
                 && (matches!(s.state, State::Working | State::Opening | State::SignIn)
                     || s.asks()
-                    || (s.state != State::Closed
-                        && (s.sub.working() || s.tasks.iter().any(|t| t.ended.is_none()))))
+                    || (s.state != State::Closed && s.sub.working()))
         })
     }
 

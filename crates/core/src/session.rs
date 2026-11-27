@@ -368,57 +368,6 @@ pub struct Turn {
     pub checkpoint_error: Option<String>,
 }
 
-/// A task the agent left going in the background (a command), and how
-/// it stands: going since when, or over, how, and after how long.
-#[derive(Debug, Clone)]
-pub struct Task {
-    pub id: String,
-    pub name: String,
-    pub since: SystemTime,
-    /// completed, failed, stopped; none while it goes on.
-    pub ended: Option<(String, std::time::Duration)>,
-    pub stoppable: bool,
-}
-
-impl Session {
-    /// Take in what the agent says of a task in the background.
-    pub fn task(&mut self, update: crate::acp::Task) {
-        use crate::acp::Task as T;
-        match update {
-            T::Spawned {
-                id,
-                name,
-                description,
-                can_stop,
-            } => {
-                if !self.tasks.iter().any(|t| t.id == id) {
-                    self.tasks.push(Task {
-                        name: description.or(name).unwrap_or_else(|| "A command".into()),
-                        id,
-                        since: SystemTime::now(),
-                        ended: None,
-                        stoppable: can_stop,
-                    });
-                }
-            }
-            T::Progress { id, description } => {
-                if let (Some(t), Some(d)) =
-                    (self.tasks.iter_mut().find(|t| t.id == id), description)
-                {
-                    t.name = d;
-                }
-            }
-            T::Ended { id, state } => {
-                if let Some(t) = self.tasks.iter_mut().find(|t| t.id == id)
-                    && matches!(state.as_str(), "completed" | "failed" | "stopped")
-                {
-                    t.ended = Some((state, t.since.elapsed().unwrap_or_default()));
-                }
-            }
-        }
-    }
-}
-
 /// What a subagent is doing, as its parent's agent says (ACP's
 /// subagent state): at work since when, how long its last work took,
 /// whether it waits on you, how its last work ended, and whether its work
@@ -562,8 +511,6 @@ pub struct Session {
     pub parent: Option<u64>,
     /// A subagent's work, as its parent's agent tells it.
     pub sub: Sub,
-    /// The tasks its agent left going in the background: commands.
-    pub tasks: Vec<Task>,
     /// What it works towards across turns, set with `/goal`: the
     /// agent's own command (Claude Code's, Codex's), which it keeps
     /// working on until it judges it met.
@@ -1087,7 +1034,6 @@ impl Session {
             marks: Vec::new(),
             parent: None,
             sub: Sub::default(),
-            tasks: Vec::new(),
             goal: None,
             beside: None,
             setup: Vec::new(),

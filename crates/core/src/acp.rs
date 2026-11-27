@@ -92,10 +92,6 @@ pub enum Event {
     /// The process `pid` stopped, with the last of what it wrote to its
     /// standard error.
     Exited { pid: Option<u32>, why: String },
-    /// A task it set going in the background in the session `session` (a
-    /// command left running), as the `JetBrains` extension of ACP says it:
-    /// not in the schema.
-    Task { session: String, task: Task },
 }
 
 /// Who asks a permission question: the agent itself, by ACP's
@@ -123,46 +119,6 @@ pub const EACH_TIME: [&str; 6] = [
     "answer_request",
     "resolve_thread",
 ];
-
-/// What the `JetBrains` extension of ACP (`air`, `asyncTasks`) says of a
-/// task going on in the background: begun, under way, or over.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "sessionUpdate")]
-pub enum Task {
-    #[serde(rename = "async_task_spawned")]
-    Spawned {
-        #[serde(rename = "asyncTaskId")]
-        id: String,
-        #[serde(default)]
-        name: Option<String>,
-        #[serde(default)]
-        description: Option<String>,
-        #[serde(default, rename = "canStop")]
-        can_stop: bool,
-    },
-    #[serde(rename = "async_task_progress")]
-    Progress {
-        #[serde(rename = "asyncTaskId")]
-        id: String,
-        #[serde(default)]
-        description: Option<String>,
-    },
-    #[serde(rename = "async_task_state_update")]
-    Ended {
-        #[serde(rename = "asyncTaskId")]
-        id: String,
-        /// completed, failed, stopped; anything else is still going.
-        state: String,
-    },
-}
-
-/// A task's update and the session it is in, as the notification has them.
-#[derive(serde::Deserialize)]
-struct TaskNote {
-    #[serde(rename = "sessionId")]
-    session: String,
-    update: Task,
-}
 
 /// How many lines of an agent's standard error are kept to say why it
 /// stopped.
@@ -437,22 +393,12 @@ fn signal(pid: Option<u32>, signal: i32) {
     }
 }
 
-/// A `session/update`: one the schema has, or a task in the background,
-/// which it does not; any other kind the desk does not know yet is skipped,
-/// and the session goes on.
+/// A `session/update`: one the schema has; any other kind the desk does
+/// not know yet is skipped, and the session goes on.
 fn update(params: serde_json::Value, said: &dyn Fn(Event)) {
-    match serde_json::from_value(params.clone()) {
+    match serde_json::from_value(params) {
         Ok(update) => said(Event::Update(update)),
-        Err(e) => {
-            if let Ok(n) = serde_json::from_value::<TaskNote>(params) {
-                said(Event::Task {
-                    session: n.session,
-                    task: n.update,
-                });
-            } else {
-                debug!("skipped an update the desk does not read: {e}");
-            }
-        }
+        Err(e) => debug!("skipped an update the desk does not read: {e}"),
     }
 }
 
@@ -460,7 +406,7 @@ fn update(params: serde_json::Value, said: &dyn Fn(Event)) {
 mod tests {
     use super::*;
     use agent_client_protocol::v1::schema::NewSessionRequest;
-    use serde_json::{Value, json};
+    use serde_json::json;
     use tokio::sync::mpsc;
 
     /// A shell script that speaks to the desk the way an agent would; `id`
@@ -483,36 +429,6 @@ mod tests {
             }))
             .unwrap();
         (agent, rx)
-    }
-
-    #[test]
-    fn a_task_in_the_background_is_read_as_the_jetbrains_extension_says_it() {
-        let note = |update: Value| -> TaskNote {
-            serde_json::from_value(json!({"sessionId": "s1", "update": update})).unwrap()
-        };
-        let begun = note(
-            json!({"sessionUpdate": "async_task_spawned", "asyncTaskId": "b1", "name": "Bash", "description": "make all", "taskType": "local_bash", "showInTranscript": true, "canStop": true, "toolCallId": "t1"}),
-        );
-        assert_eq!(begun.session, "s1");
-        assert_eq!(
-            begun.update,
-            Task::Spawned {
-                id: "b1".into(),
-                name: Some("Bash".into()),
-                description: Some("make all".into()),
-                can_stop: true
-            }
-        );
-        let over = note(
-            json!({"sessionUpdate": "async_task_state_update", "asyncTaskId": "b1", "state": "completed", "summary": "done"}),
-        );
-        assert_eq!(
-            over.update,
-            Task::Ended {
-                id: "b1".into(),
-                state: "completed".into()
-            }
-        );
     }
 
     #[test]

@@ -442,20 +442,6 @@ impl Desk {
         cx.notify();
     }
 
-    /// Stop the task `task` the agent left going in the session `key`.
-    pub fn stop_task(&mut self, key: u64, task: String, cx: &mut Context<Self>) {
-        let id = self.sessions.at(key).and_then(|s| s.meta.id.clone());
-        if let (Some((host, agent)), Some(id)) = (self.running(key), id) {
-            let call = Call::StopTask {
-                agent,
-                session: id,
-                task,
-            };
-            self.call(host, call);
-        }
-        cx.notify();
-    }
-
     /// Stop the work of the subagent `key`, where its agent lets it be.
     pub fn stop_sub(&mut self, key: u64, cx: &mut Context<Self>) {
         let id = self.sessions.at(key).and_then(|c| c.meta.id.clone());
