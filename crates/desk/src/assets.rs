@@ -1,8 +1,9 @@
-//! The icons. The desk's own are built into the binary so that it runs
-//! from anywhere (`assets/icons/CREDITS.txt` says where each came from).
-//! An agent's logo is the one the ACP registry publishes for it, read with
-//! the registry into the home's `icons/`, and asked for as
-//! `agent/<id>.svg`.
+//! Application assets beyond `u0ui::Assets` (which serves Material Symbols
+//! Sharp and Carbon custom glyphs): u0's own mark (`icons/u0.svg`), the
+//! breathing activity indicator (`icons/live-dot.svg`), any legacy
+//! `icons/<name>.svg` resolved through [`crate::ui::icon_path`], and an
+//! agent's logo read from the ACP registry into the home's `icons/`
+//! (`agent/<id>.svg`).
 
 use std::borrow::Cow;
 
@@ -10,73 +11,15 @@ use gpui::{AssetSource, SharedString};
 
 pub struct Assets;
 
-macro_rules! icons {
-    ($($name:literal),* $(,)?) => {
-        &[$((concat!("icons/", $name, ".svg"), include_bytes!(concat!("../../../assets/icons/", $name, ".svg")) as &[u8])),*]
-    };
-}
-
-const FILES: &[(&str, &[u8])] = icons![
-    "u0",
-    "dots",
-    "pin",
-    "archive",
-    "clock",
-    "branch",
-    "mic",
-    "sliders",
-    "reply",
-    "arrow-down",
-    "expand",
-    "camera",
-    "sidebar",
-    "chevron-left",
-    "chevron-right",
-    "chevron-down",
-    "plus",
-    "search",
-    "laptop",
-    "server",
-    "plug",
-    "file",
-    "folder",
-    "alert",
-    "minus",
-    "check",
-    "pencil",
-    "x",
-    "retry",
-    "power",
-    "bell",
-    "terminal",
-    "book",
-    "user",
-    "panel-right",
-    "copy",
-    "image-off",
-    "arrow-right",
-    "settings",
-    "list",
-    "file-plus",
-    "trash",
-    "globe",
-    "bulb",
-    "square",
-    "arrow-up",
-    "keyboard",
-    "sun",
-    "square-pen",
-    "square-dashed",
-    "text-search",
-    "folder-plus",
-    "undo-2",
-    "arrow-left",
-    "diff",
-    "pull-request",
-    "list-plus",
-    "corner-up-right",
-    "circle-dot",
-    "gauge",
+const FILES: &[(&str, &[u8])] = &[
+    (
+        "icons/u0.svg",
+        include_bytes!("../../../assets/icons/u0.svg"),
+    ),
+    (
+        "icons/live-dot.svg",
+        include_bytes!("../../../assets/icons/live-dot.svg"),
+    ),
 ];
 
 impl AssetSource for Assets {
@@ -88,12 +31,10 @@ impl AssetSource for Assets {
             let file = crate::registry::icon_path(&crate::settings::home(), id);
             return Ok(std::fs::read(file).ok().map(Cow::Owned));
         }
-        // gpui-kit's components ask for icons the desk does not draw (a
-        // close mark, a pair of chevrons): those are gpui-kit's own.
-        match FILES.iter().find(|(name, _)| *name == path) {
-            Some((_, bytes)) => Ok(Some(Cow::Borrowed(*bytes))),
-            None => gpui::assets::Assets.load(path),
+        if let Some((_, bytes)) = FILES.iter().find(|(name, _)| *name == path) {
+            return Ok(Some(Cow::Borrowed(*bytes)));
         }
+        gpui::assets::Assets.load(path)
     }
 
     fn list(&self, path: &str) -> anyhow::Result<Vec<SharedString>> {

@@ -67,12 +67,14 @@ fn main() {
     // The links and folders macOS opens u0 with (`u0://`, `u0
     // <folder>`), held until the window is up to take them.
     let (to_desk, mut for_desk) = tokio::sync::mpsc::unbounded_channel::<Vec<String>>();
-    let app = gpui::application().with_assets(assets::Assets);
+    let app = gpui::application().with_assets(u0ui::Assets::with(assets::Assets));
     app.on_open_urls(move |urls| {
         let _ = to_desk.send(urls);
     });
     app.run(move |cx: &mut App| {
+        cx.set_global(u0ui::theme::ActiveTheme(u0ui::CarbonTheme::G100));
         gpui::init(cx);
+        u0ui::init(cx);
         fonts::load(cx);
         macos::set();
         keys::bind(cx, &keys::yours(&settings::home()));
@@ -177,11 +179,17 @@ fn main() {
             titlebar: Some(TitlebarOptions {
                 title: Some("u0".into()),
                 appears_transparent: true,
-                // The lights share a line with the controls beside them, the
-                // middle of the 44-pixel top row, 18 in from the edge.
-                traffic_light_position: Some(point(px(18.), px(16.))),
+                // Traffic lights centred vertically in the 38px unified title
+                // bar (`traffic-light-start` 14px, `traffic-light-offset-y` 19px).
+                traffic_light_position: Some(point(
+                    px(style::TRAFFIC_LIGHT_START),
+                    px(style::TRAFFIC_LIGHT_OFFSET_Y - 6.),
+                )),
             }),
-            window_min_size: Some(size(px(800.), px(520.))),
+            window_min_size: Some(size(
+                px(style::WINDOW_MIN_WIDTH),
+                px(style::WINDOW_MIN_HEIGHT),
+            )),
             ..Default::default()
         };
         let (window, desk) = gpui::open_window(options, cx, |window, cx| {

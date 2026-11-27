@@ -27,7 +27,7 @@ use crate::{
 
 /// How tall the settings dialog stands in `window`.
 pub fn height(window: &Window) -> Pixels {
-    (window.viewport_size().height - px(80.)).min(px(820.))
+    (window.viewport_size().height - px(80.)).min(px(crate::style::SETTINGS_DIALOG_MAX_HEIGHT))
 }
 
 /// A tab of the settings.
@@ -201,7 +201,7 @@ impl Desk {
         // The tabs under their headings, a heading where the group changes.
         let mut settings = Settings::new("settings")
             .state(&self.pages.settings)
-            .sidebar_width(px(232.));
+            .sidebar_width(px(crate::style::SETTINGS_NAV_WIDTH));
         let mut heading = "";
         for tab in Tab::ALL {
             if tab.group() != heading {

@@ -1,5 +1,5 @@
-//! The small pieces every page is built from: mono labels, dots, panels,
-//! buttons, section heads. None of them knows about agents.
+//! Shared UI helpers built over `u0ui` (Material Symbols Sharp icons, Carbon
+//! tokens and square geometry) and `gpui-kit`.
 
 use std::path::Path;
 
@@ -12,6 +12,7 @@ use gpui::component::{
 use gpui::{
     AnyElement, AnyView, App, Div, Hsla, SharedString, Svg, Window, div, prelude::*, px, svg,
 };
+use u0ui::icons::{CarbonIcon, Icon as CarbonGlyph};
 use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr as _;
 
@@ -22,21 +23,94 @@ use crate::{
     theme,
 };
 
-/// A line icon by name, in the current text colour.
+/// Resolve a desk icon name to its `u0ui` Material Symbols Sharp asset path
+/// (or u0's own mark for `"u0"` and `"live-dot"`).
+pub fn icon_path(name: &str) -> SharedString {
+    match name {
+        "u0" => return "icons/u0.svg".into(),
+        "live-dot" => return "icons/live-dot.svg".into(),
+        _ => {}
+    }
+    let glyph = match name {
+        "dots" => CarbonGlyph::carbon(CarbonIcon::OverflowMenuHorizontal),
+        "pin" => CarbonGlyph::carbon(CarbonIcon::Pin),
+        "archive" => CarbonGlyph::carbon(CarbonIcon::Archive),
+        "clock" => CarbonGlyph::carbon(CarbonIcon::Time),
+        "branch" => CarbonGlyph::carbon(CarbonIcon::Branch),
+        "mic" => CarbonGlyph::carbon(CarbonIcon::Microphone),
+        "sliders" => CarbonGlyph::named("tune"),
+        "reply" => CarbonGlyph::carbon(CarbonIcon::Reply),
+        "arrow-down" => CarbonGlyph::carbon(CarbonIcon::ArrowDown),
+        "expand" => CarbonGlyph::carbon(CarbonIcon::Maximize),
+        "camera" => CarbonGlyph::carbon(CarbonIcon::Camera),
+        "sidebar" => CarbonGlyph::carbon(CarbonIcon::SidePanelOpen),
+        "chevron-left" => CarbonGlyph::carbon(CarbonIcon::ChevronLeft),
+        "chevron-right" => CarbonGlyph::carbon(CarbonIcon::ChevronRight),
+        "chevron-down" => CarbonGlyph::carbon(CarbonIcon::ChevronDown),
+        "plus" => CarbonGlyph::carbon(CarbonIcon::Add),
+        "search" => CarbonGlyph::carbon(CarbonIcon::Search),
+        "laptop" => CarbonGlyph::carbon(CarbonIcon::Laptop),
+        "server" => CarbonGlyph::named("dns"),
+        "plug" => CarbonGlyph::carbon(CarbonIcon::Plug),
+        "file" => CarbonGlyph::carbon(CarbonIcon::Document),
+        "folder" => CarbonGlyph::carbon(CarbonIcon::Folder),
+        "alert" => CarbonGlyph::carbon(CarbonIcon::Warning),
+        "minus" => CarbonGlyph::carbon(CarbonIcon::Subtract),
+        "check" => CarbonGlyph::carbon(CarbonIcon::Checkmark),
+        "pencil" => CarbonGlyph::carbon(CarbonIcon::Edit),
+        "x" => CarbonGlyph::carbon(CarbonIcon::Close),
+        "retry" => CarbonGlyph::carbon(CarbonIcon::Renew),
+        "power" => CarbonGlyph::named("power_settings_new"),
+        "bell" => CarbonGlyph::carbon(CarbonIcon::Notification),
+        "terminal" => CarbonGlyph::carbon(CarbonIcon::Terminal),
+        "book" => CarbonGlyph::carbon(CarbonIcon::Book),
+        "user" => CarbonGlyph::carbon(CarbonIcon::User),
+        "panel-right" => CarbonGlyph::carbon(CarbonIcon::RightPanelOpen),
+        "copy" => CarbonGlyph::carbon(CarbonIcon::Copy),
+        "image-off" => CarbonGlyph::named("hide_image"),
+        "arrow-right" => CarbonGlyph::carbon(CarbonIcon::ArrowRight),
+        "settings" => CarbonGlyph::carbon(CarbonIcon::Settings),
+        "list" => CarbonGlyph::carbon(CarbonIcon::List),
+        "file-plus" => CarbonGlyph::carbon(CarbonIcon::DocumentAdd),
+        "trash" => CarbonGlyph::carbon(CarbonIcon::TrashCan),
+        "globe" => CarbonGlyph::carbon(CarbonIcon::Globe),
+        "bulb" => CarbonGlyph::carbon(CarbonIcon::Idea),
+        "square" => CarbonGlyph::carbon(CarbonIcon::StopFilled),
+        "arrow-up" => CarbonGlyph::carbon(CarbonIcon::ArrowUp),
+        "keyboard" => CarbonGlyph::carbon(CarbonIcon::Keyboard),
+        "sun" => CarbonGlyph::carbon(CarbonIcon::Sun),
+        "square-pen" => CarbonGlyph::named("edit_square"),
+        "square-dashed" => CarbonGlyph::carbon(CarbonIcon::CircleDash),
+        "text-search" => CarbonGlyph::named("manage_search"),
+        "folder-plus" => CarbonGlyph::carbon(CarbonIcon::FolderAdd),
+        "undo-2" => CarbonGlyph::carbon(CarbonIcon::Undo),
+        "arrow-left" => CarbonGlyph::carbon(CarbonIcon::ArrowLeft),
+        "diff" => CarbonGlyph::named("difference"),
+        "pull-request" => CarbonGlyph::carbon(CarbonIcon::PullRequest),
+        "list-plus" => CarbonGlyph::named("playlist_add"),
+        "corner-up-right" => CarbonGlyph::carbon(CarbonIcon::Redo),
+        "circle-dot" => CarbonGlyph::carbon(CarbonIcon::RadioButtonChecked),
+        "gauge" => CarbonGlyph::carbon(CarbonIcon::Analytics),
+        "play" => CarbonGlyph::carbon(CarbonIcon::Play),
+        other => CarbonGlyph::named(other),
+    };
+    glyph.asset_path()
+}
+
+/// A sharp icon by name at `size` px, in `icon-secondary` (`theme::muted()`).
 pub fn icon(name: &str, size: f32) -> Svg {
     svg()
-        .path(format!("icons/{name}.svg"))
+        .path(icon_path(name))
         .size(px(size))
         .text_color(theme::muted())
 }
 
-/// A line icon by name, as gpui-kit's components take one.
+/// A sharp icon by name, as `gpui-kit`'s components take one.
 pub fn glyph(name: &str) -> Icon {
-    Icon::empty().path(format!("icons/{name}.svg"))
+    Icon::empty().path(icon_path(name))
 }
 
-/// An icon of a menu's item: every menu's the same, gpui-kit's 16 beside
-/// the item's 13.
+/// An icon of a menu item (16px).
 pub fn menu_glyph(name: &str) -> Icon {
     glyph(name).with_size(gpui::component::Size::Medium)
 }
@@ -50,7 +124,7 @@ pub fn mono(faces: &Faces, text: impl Into<SharedString>) -> Div {
         .child(text.into())
 }
 
-/// Body text in the interface face.
+/// Body text in the interface face (`IBM Plex Sans`).
 pub fn text(faces: &Faces, text: impl Into<SharedString>) -> Div {
     div()
         .font_family(faces.ui.clone())
@@ -68,7 +142,7 @@ pub enum Mark {
 }
 
 /// An agent's mark at `size`: its logo in its brand's colour, or its letter
-/// on a neutral tile.
+/// on a Carbon 4px-radius neutral tile.
 pub fn mark(faces: &Faces, mark: &Mark, size: f32) -> AnyElement {
     match mark {
         Mark::Logo(id) => svg()
@@ -83,8 +157,8 @@ pub fn mark(faces: &Faces, mark: &Mark, size: f32) -> AnyElement {
             .items_center()
             .justify_center()
             .size(px(size))
-            .rounded(px(size / 4.))
-            .bg(theme::border2())
+            .rounded(px(u0ui::t3::shell::TILE_RADIUS))
+            .bg(theme::panel2())
             .font_family(faces.mono.clone())
             .text_size(px(size * 0.62))
             .line_height(px(size))
@@ -94,10 +168,8 @@ pub fn mark(faces: &Faces, mark: &Mark, size: f32) -> AnyElement {
     }
 }
 
-/// A raised panel with a soft edge, over the page, for what floats but
-/// opens from no trigger: the composer's offers, what a terminal's chosen
-/// cells offer. A menu that opens from a
-/// trigger is a `PopupMenu` (`Desk::menu`).
+/// A floating Carbon layer (`layer-01`, 1px `border-subtle-01`, square
+/// corners, shadow), for autocomplete offers and terminal cell actions.
 pub fn menu(id: impl Into<gpui::ElementId>) -> gpui::Stateful<Div> {
     div()
         .id(id)
@@ -105,26 +177,21 @@ pub fn menu(id: impl Into<gpui::ElementId>) -> gpui::Stateful<Div> {
         .flex()
         .bg(theme::panel())
         .border_1()
-        .border_color(theme::border2())
-        .rounded(px(12.))
-        .shadow_lg()
+        .border_color(theme::border())
+        .rounded_none()
+        .shadow_md()
         .overflow_hidden()
 }
 
 /// How much a button asks to be pressed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Weight {
-    /// The one that does what the page is for: light on the dark ground,
-    /// its word in the ground's colour. One to a card at most.
     Primary,
-    /// Beside it: an outline.
     Secondary,
-    /// A way out, such as Cancel: only its word.
     Quiet,
 }
 
-/// A button, the same everywhere in the desk: gpui-kit's, small, its
-/// weight said by its variant.
+/// A compact button, weighted as Carbon primary / secondary / ghost.
 pub fn button(
     id: impl Into<gpui::ElementId>,
     label: impl Into<SharedString>,
@@ -133,7 +200,7 @@ pub fn button(
     led_button(id, None, label, weight)
 }
 
-/// A button with something before its word: an agent's mark, an icon.
+/// A button with a leading mark or icon.
 pub fn led_button(
     id: impl Into<gpui::ElementId>,
     lead: Option<AnyElement>,
@@ -156,19 +223,16 @@ pub fn led_button(
     }
 }
 
-/// The head of a section, in the side columns and on pages: in sentence
-/// case and muted, as gpui-kit's settings set a group's title, so a head
-/// reads the same wherever it is.
+/// Section heading (`label-01` / `heading-compact-01`, sentence case, muted).
 pub fn label(faces: &Faces, text: &str) -> Div {
     self::text(faces, text.to_owned())
-        .text_size(px(crate::style::LABEL))
-        .line_height(px(18.))
-        .weight(gpui::FontWeight::MEDIUM)
+        .text_size(px(CAPTION))
+        .line_height(px(16.))
+        .weight(gpui::FontWeight::SEMIBOLD)
         .text_color(theme::muted())
 }
 
-/// Something gone wrong, said where it happened (in a thread, on a page):
-/// gpui-kit's error alert, tinted for trouble.
+/// Inline error notification.
 pub fn trouble(words: impl Into<SharedString>) -> Alert {
     Alert::error("trouble", words.into())
 }
@@ -176,9 +240,7 @@ pub fn trouble(words: impl Into<SharedString>) -> Alert {
 /// What a choice of a [`segmented`] control does when picked.
 pub type Pick = Box<dyn Fn(&Vec<usize>, &mut Window, &mut App)>;
 
-/// A few choices side by side in one frame, each a word, the one chosen
-/// lit: gpui-kit's button group, a button to each choice, the chosen one
-/// primary so it stands out from the ground in both looks.
+/// A compact segmented control.
 pub fn segmented(id: &str, choices: Vec<(impl Into<SharedString>, bool, Pick)>) -> ButtonGroup {
     let (buttons, picks): (Vec<Button>, Vec<Pick>) = choices
         .into_iter()
@@ -200,23 +262,23 @@ pub fn segmented(id: &str, choices: Vec<(impl Into<SharedString>, bool, Pick)>) 
         })
 }
 
-/// Small print: a count, a time, a word beside a name.
+/// Small print (`label-01`, 12/16): a count, a time, a word beside a name.
 pub fn fine(faces: &Faces, words: impl Into<SharedString>) -> Div {
     small(text(faces, words))
 }
 
-/// Small print in mono: a hash, a count.
+/// Small print in mono (`code-01`, 12/16): a hash, a count.
 pub fn fine_mono(faces: &Faces, words: impl Into<SharedString>) -> Div {
     small(mono(faces, words))
 }
 
 fn small(d: Div) -> Div {
-    d.text_size(px(crate::style::CAPTION))
+    d.text_size(px(CAPTION))
         .line_height(px(16.))
         .text_color(theme::faint())
 }
 
-/// Lines added and lines gone, `+3 −1`, in their colours, at `size`.
+/// Lines added and lines gone, `+3 −1`, in their Carbon diff colours.
 pub fn counts(faces: &Faces, added: usize, gone: usize, size: f32) -> Div {
     let count =
         |words: String, color: Hsla| mono(faces, words).text_size(px(size)).text_color(color);
@@ -232,8 +294,7 @@ pub fn counts(faces: &Faces, added: usize, gone: usize, size: f32) -> Div {
         })
 }
 
-/// What a menu's item says when one line is not enough: its name, and
-/// under it, fainter, what it does.
+/// Menu item with a description underneath.
 pub fn described(
     faces: &Faces,
     label: impl Into<SharedString>,
@@ -246,19 +307,17 @@ pub fn described(
         .child(text(faces, label).text_size(px(crate::style::LABEL)))
         .children(about.map(|a| {
             text(faces, a)
-                .text_size(px(crate::style::CAPTION))
+                .text_size(px(CAPTION))
                 .text_color(theme::faint())
         }))
 }
 
-/// What opens a menu where it is not an icon (a chip, a line): gpui-kit's
-/// quiet button, small, holding what it says; lit while its menu is open.
+/// Quiet menu trigger button.
 pub fn opener(id: impl Into<gpui::ElementId>) -> Button {
     Button::new(id).ghost().small()
 }
 
-/// An icon button: gpui-kit's, quiet until hovered, its tip said on
-/// hover.
+/// Ghost icon button with accessible label and tooltip.
 pub fn icon_button(
     id: impl Into<gpui::ElementId>,
     icon_name: &str,
@@ -272,21 +331,18 @@ pub fn icon_button(
         .tooltip(tip_text)
 }
 
-/// A short note shown on hover, for `.tooltip`: gpui-kit's tooltip, which
-/// wraps a column wide rather than across the window.
+/// Hover tooltip capped at 320px wide.
 pub fn tip(text: impl Into<SharedString>) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
     let text = text.into();
     move |window, cx| Tooltip::new(text.clone()).max_w(px(320.)).build(window, cx)
 }
 
-/// A six-pixel dot: a state.
+/// Six-pixel status disc.
 pub fn dot(color: Hsla) -> Div {
     div().size(px(6.)).rounded_full().bg(color).flex_none()
 }
 
-/// Something going on now: the amber dot in a faint ring of its own colour,
-/// breathing slowly, from full down to a third and back. The breath is the
-/// GPU's, moving the drawn dot's alpha: nothing is laid out again for it.
+/// Breathing status indicator for an active turn.
 pub fn live_dot() -> Svg {
     use gpui::{Easing, TimedTransformation, Transformation};
     svg()
@@ -304,29 +360,19 @@ pub fn live_dot() -> Svg {
         )
 }
 
-/// A piece of text that stays on one line. It is as wide as it may be: in
-/// a row, what its siblings leave; in a column, the column. What is wider
-/// trails off in an ellipsis where GPUI measured it would not fit, so the
-/// cut falls between characters, Chinese or Latin, never through one.
+/// Single-line truncated text.
 pub fn one_line(d: Div) -> Div {
     d.w_full().truncate()
 }
 
-/// `text` on one line in at most `cols` columns, a wide character
-/// (Chinese, Japanese, Korean, an emoji) taking two: its runs of space and
-/// its line breaks each one space, and ending in "…" when it is cut.
-///
-/// For text that is kept or said somewhere else (a title made from what
-/// you wrote, a notification), or a label that nothing clips held to a
-/// length (a chip, a tab, a menu's line); never to make text fit a box:
-/// what a box clips trails off in [`one_line`], measured.
+/// Fit `text` on one line in at most `cols` display columns (CJK = 2), ending
+/// in `…` when truncated.
 pub fn fit(text: &str, cols: usize) -> String {
     let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
     if flat.width() <= cols {
         return flat;
     }
     let mut out = String::new();
-    // The ellipsis takes a column of its own.
     let mut used = 1;
     for g in flat.graphemes(true) {
         if used + g.width() > cols {
@@ -335,15 +381,12 @@ pub fn fit(text: &str, cols: usize) -> String {
         used += g.width();
         out.push_str(g);
     }
-    // Not a space and then the ellipsis.
     let mut out = out.trim_end().to_owned();
     out.push('…');
     out
 }
 
-/// A path as a person writes it: your home as `~`, and when it is long,
-/// only its first and last two directories, so that the end, which says
-/// what it is, survives a narrow column.
+/// Abbreviate a path with `~` and middle `…` when deeper than 3 components.
 pub fn short_path(path: &Path, home: Option<&Path>) -> String {
     let (lead, rest) = match home.and_then(|h| path.strip_prefix(h).ok()) {
         Some(rest) => ("~".to_owned(), rest.to_path_buf()),
@@ -369,12 +412,94 @@ pub fn short_path(path: &Path, home: Option<&Path>) -> String {
     format!("{lead}/{}", shown.join("/"))
 }
 
-/// How long one breath of something going on takes.
 const BREATH: std::time::Duration = std::time::Duration::from_millis(2400);
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui::AssetSource as _;
+
+    #[test]
+    fn every_desk_icon_resolves_through_u0ui_assets() {
+        let assets = u0ui::Assets::with(crate::assets::Assets);
+        let names = [
+            "u0",
+            "live-dot",
+            "dots",
+            "pin",
+            "archive",
+            "clock",
+            "branch",
+            "mic",
+            "sliders",
+            "reply",
+            "arrow-down",
+            "expand",
+            "camera",
+            "sidebar",
+            "chevron-left",
+            "chevron-right",
+            "chevron-down",
+            "plus",
+            "search",
+            "laptop",
+            "server",
+            "plug",
+            "file",
+            "folder",
+            "alert",
+            "minus",
+            "check",
+            "pencil",
+            "x",
+            "retry",
+            "power",
+            "bell",
+            "terminal",
+            "book",
+            "user",
+            "panel-right",
+            "copy",
+            "image-off",
+            "arrow-right",
+            "settings",
+            "list",
+            "file-plus",
+            "trash",
+            "globe",
+            "bulb",
+            "square",
+            "arrow-up",
+            "keyboard",
+            "sun",
+            "square-pen",
+            "square-dashed",
+            "text-search",
+            "folder-plus",
+            "undo-2",
+            "arrow-left",
+            "diff",
+            "pull-request",
+            "list-plus",
+            "corner-up-right",
+            "circle-dot",
+            "gauge",
+            "play",
+        ];
+        for name in names {
+            let path = icon_path(name);
+            let bytes = assets
+                .load(&path)
+                .unwrap()
+                .unwrap_or_else(|| panic!("missing SVG for {name} ({path})"));
+            assert!(bytes.starts_with(b"<svg"), "{name} ({path}) is not SVG");
+        }
+        assert!(
+            CarbonGlyph::carbon(CarbonIcon::Add)
+                .asset_path()
+                .contains("add")
+        );
+    }
 
     #[test]
     fn a_line_too_long_is_cut_with_an_ellipsis_counting_chinese_as_two() {
@@ -398,9 +523,6 @@ mod tests {
         for line in lines {
             for cols in 0..=line.width() + 2 {
                 let cut = fit(line, cols);
-                // Every grapheme of what is kept is one of the line's:
-                // nothing is split, an accent stays on its letter and a
-                // skin tone on its hand.
                 let kept = cut.strip_suffix('…').unwrap_or(&cut);
                 let n = kept.graphemes(true).count();
                 assert!(

@@ -383,6 +383,9 @@ impl Desk {
                                 |d, _, cx| {
                                     Self::pick("mono",
                                         [
+                                            (crate::tr("IBM Plex Mono"),
+                                                crate::settings::CodeFont::PlexMono,
+                                            ),
                                             (crate::tr("JetBrains Mono"),
                                                 crate::settings::CodeFont::JetBrains,
                                             ),

@@ -103,13 +103,13 @@ Each entry of `prefs`:
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `look` | `"dark"`, `"light"`, `"system"` | `"dark"` | Dark, light, or as the system is. |
-| `theme_dark`, `theme_light` | theme name or `null` | `null` | The theme each look is drawn in. `null`: u0's own. |
+| `theme_dark`, `theme_light` | theme name or `null` | `null` | The theme each look is drawn in (`"g100"` / `"g90"` for dark, `"white"` / `"g10"` for light, or a theme in `themes/`). `null`: Carbon G100 for dark, Carbon White for light. |
 | `backdrop` | path or `null` | `null` | A picture drawn faintly under the thread. |
 | `scale` | `80`, `90`, `100`, `110`, `125`, `150`, `175`, `200` | `100` | How large the window is drawn, in percent. ⌘+ and ⌘− step through these. |
 | `contrast` | bool | `false` | Draw less important text and edges stronger. |
 | `glass` | bool | `false` | Let the desktop show through the window, blurred. |
-| `mono` | `"jet_brains"`, `"sf_mono"`, `"menlo"` | `"jet_brains"` | The font for code and numbers. |
-| `width` | `"comfortable"`, `"wide"`, `"full"` | `"comfortable"` | How wide the thread and composer read (680 pt, 880 pt, or the whole pane). |
+| `mono` | `"plex_mono"`, `"jet_brains"`, `"sf_mono"`, `"menlo"` | `"plex_mono"` | The font for code and numbers. |
+| `width` | `"comfortable"`, `"wide"`, `"full"` | `"comfortable"` | How wide the thread and composer read (720 pt, 880 pt, or the whole pane). |
 | `blue_orange` | bool | `false` | Lines added and removed in blue and orange, not green and red. |
 | `twelve` | bool | `false` | Times on a twelve-hour clock. |
 | `language` | `"en"`, `"zh-CN"`, `"de"`, `"es"`, `"fr"`, `"ja"`, `"ko"`, `"pt-BR"`, `"ru"`, `"sv"` or `null` | `null` | The window's language. `null`: the system's where u0 has it, else English. |

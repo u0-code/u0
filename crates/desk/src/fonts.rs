@@ -1,27 +1,15 @@
-//! Two faces: a sans for the interface and what an agent says, and a mono
-//! for code and every number.
+//! Font tokens and CJK fallbacks, backed by `u0ui`'s bundled IBM Plex
+//! faces (`IBM Plex Sans`, `IBM Plex Mono`, `IBM Plex Serif` and
+//! `u0 Inline Mono`, registered by `u0ui::init`).
 //!
-//! They are the faces of the thread's design: `Inter` and `JetBrains
-//! Mono`, open fonts shipped in `assets/fonts/` as static
-//! instances (GPUI does not set a variable font's weight). They are built
-//! into the binary, so that the app reads nothing from the checkout as it
-//! opens: when the checkout is under a folder macOS guards, such as the
-//! Desktop, a read there waits on the system asking whether it may, and
-//! the window would wait with it. If a face cannot be added, each falls
-//! back to a face macOS always has.
-//!
-//! None of them has Chinese, and what is said often is. Each falls back
-//! to `PingFang SC` for it, at the weight of the text around it, the face macOS sets Chinese in, rather than to
-//! whatever the system's cascade finds first for the language you set,
-//! which can be a Japanese face with other shapes for the same characters.
-//! The window's text carries the fallbacks, so every face under it has
-//! them; a run of text set with a font of its own is given them too.
-
-use std::borrow::Cow;
+//! Chinese and Japanese text falls back through Carbon's stack (`PingFang SC`
+//! at the weight of the surrounding run, then `Hiragino Sans GB` and
+//! `Noto Sans CJK SC`, and `Apple Color Emoji`).
 
 use gpui::{App, FontFallbacks, FontWeight, Global, SharedString, Styled};
+use u0ui::tokens::FontFamilyKey;
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Faces {
     pub ui: SharedString,
     pub mono: SharedString,
@@ -29,48 +17,20 @@ pub struct Faces {
 
 impl Global for Faces {}
 
-macro_rules! shipped {
-    ($($name:literal),* $(,)?) => {
-        &[$(($name, include_bytes!(concat!("../../../assets/fonts/", $name)) as &[u8])),*]
-    };
-}
-
-/// Every face in `assets/fonts/`, by its file's name.
-const SHIPPED: &[(&str, &[u8])] = shipped![
-    "Inter-400.ttf",
-    "Inter-500.ttf",
-    "Inter-600.ttf",
-    "JetBrainsMono-400.ttf",
-];
-
-/// Add what is shipped, then pick a face for each voice.
+/// Install the default Carbon font families (`IBM Plex Sans` and
+/// `IBM Plex Mono`). Call after `u0ui::init(cx)` has registered the bundled
+/// font files.
 pub fn load(cx: &mut App) {
-    let shipped = SHIPPED
-        .iter()
-        .map(|(_, bytes)| Cow::Borrowed(*bytes))
-        .collect();
-    let _ = cx.text_system().add_fonts(shipped);
-    let names = cx.text_system().all_font_names();
-    let pick = |wanted: &[&str]| -> SharedString {
-        wanted
-            .iter()
-            .find(|w| names.iter().any(|n| n == *w))
-            .map_or_else(
-                || (*wanted.last().unwrap_or(&"Helvetica")).to_owned().into(),
-                |w| (*w).to_owned().into(),
-            )
-    };
     cx.set_global(Faces {
-        ui: pick(&["Inter", ".SystemUIFont", "Helvetica Neue"]),
-        mono: pick(&["JetBrains Mono", "SF Mono", "Menlo"]),
+        ui: FontFamilyKey::Sans.primary().into(),
+        mono: FontFamilyKey::Mono.primary().into(),
     });
 }
 
-/// The faces a character none of ours has is looked for in, in order:
-/// Chinese in `PingFang SC` at the weight the text is set in (or, on a
-/// system without it, `Hiragino Sans GB`), and emoji in colour. The weight
-/// is named because macOS takes a fallback by its name alone: given the
-/// family, a heading's Chinese came out as thin as the body's.
+/// The fallback stack for characters outside IBM Plex: Chinese in
+/// `PingFang SC` at the weight of the surrounding text (so semibold headings
+/// keep semibold CJK glyphs on macOS), then `Hiragino Sans GB`,
+/// `Noto Sans CJK SC` and `Apple Color Emoji`.
 pub fn fallbacks(weight: FontWeight) -> FontFallbacks {
     let pingfang = if weight.0 >= FontWeight::SEMIBOLD.0 {
         "PingFangSC-Semibold"
@@ -82,17 +42,18 @@ pub fn fallbacks(weight: FontWeight) -> FontFallbacks {
     FontFallbacks::from_fonts(vec![
         pingfang.to_owned(),
         "Hiragino Sans GB".to_owned(),
+        "Noto Sans CJK SC".to_owned(),
         "Apple Color Emoji".to_owned(),
     ])
 }
 
-/// `el`, with the fallbacks for everything set in it.
+/// `el`, with the CJK and emoji fallbacks set on it.
 pub fn with_fallbacks<E: Styled>(mut el: E) -> E {
     el.text_style().font_fallbacks = Some(fallbacks(FontWeight::NORMAL));
     el
 }
 
-/// Setting text's weight sets its Chinese's weight with it.
+/// Setting text's weight sets its CJK fallback weight with it.
 pub trait Weighted: Styled + Sized {
     fn weight(mut self, weight: FontWeight) -> Self {
         let style = self.text_style();
@@ -104,20 +65,24 @@ pub trait Weighted: Styled + Sized {
 
 impl<E: Styled> Weighted for E {}
 
-/// Set code in `mono`, where this Mac has it; else as it was.
+/// Set code in `mono`, where this Mac has it (bundled `IBM Plex Mono` is
+/// always registered by `u0ui::init`); else keep `IBM Plex Mono`.
 pub fn set_mono(cx: &mut App, mono: crate::settings::CodeFont) {
     let wanted = mono.family();
-    if !cx
-        .text_system()
-        .all_font_names()
-        .iter()
-        .any(|n| n == wanted)
+    let chosen = if wanted == FontFamilyKey::Mono.primary()
+        || cx
+            .text_system()
+            .all_font_names()
+            .iter()
+            .any(|n| n == wanted)
     {
-        return;
-    }
-    let mut faces = faces(cx).clone();
-    faces.mono = wanted.into();
-    cx.set_global(faces);
+        wanted
+    } else {
+        FontFamilyKey::Mono.primary()
+    };
+    let mut current = faces(cx).clone();
+    current.mono = chosen.into();
+    cx.set_global(current);
 }
 
 pub fn faces(cx: &App) -> &Faces {
@@ -129,21 +94,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_face_in_the_fonts_folder_is_built_in() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fonts");
-        let mut on_disk: Vec<String> = std::fs::read_dir(dir)
-            .unwrap()
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| {
-                p.extension()
-                    .is_some_and(|e| e.eq_ignore_ascii_case("ttf") || e.eq_ignore_ascii_case("otf"))
-            })
-            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
-            .collect();
-        on_disk.sort();
-        let mut built_in: Vec<String> = SHIPPED.iter().map(|(n, _)| (*n).to_owned()).collect();
-        built_in.sort();
-        assert_eq!(built_in, on_disk);
+    fn carbon_plex_families_and_cjk_fallbacks_are_configured() {
+        assert_eq!(FontFamilyKey::Sans.primary(), "IBM Plex Sans");
+        assert_eq!(FontFamilyKey::Mono.primary(), "IBM Plex Mono");
+        assert_eq!(u0ui::typography::FONT_FILES.len(), 8);
+        let bold = fallbacks(FontWeight::SEMIBOLD);
+        assert_eq!(bold.fallback_list()[0], "PingFangSC-Semibold");
+        let normal = fallbacks(FontWeight::NORMAL);
+        assert_eq!(normal.fallback_list()[0], "PingFangSC-Regular");
     }
 }

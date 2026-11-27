@@ -1,20 +1,5 @@
-u0.svg      u0's own mark.
+u0.svg         u0's own mark.
 live-dot.svg   Something going on: a dot in a faint ring.
-sidebar.svg, chevron-*.svg, plus.svg, search.svg, laptop.svg,
-server.svg, plug.svg, file.svg, check.svg, pencil.svg, x.svg,
-retry.svg, power.svg, bell.svg, terminal.svg, book.svg, user.svg,
-panel-right.svg, copy.svg, alert.svg, minus.svg, image-off.svg,
-arrow-right.svg, folder.svg, settings.svg, list.svg, file-plus.svg,
-trash.svg, globe.svg, bulb.svg, square.svg, arrow-up.svg, dots.svg,
-pin.svg, archive.svg, clock.svg, branch.svg, mic.svg, play.svg,
-sliders.svg, reply.svg, arrow-down.svg, expand.svg, camera.svg,
-keyboard.svg, sun.svg, diff.svg, pull-request.svg
-               Line icons drawn for the desk.
-square-pen.svg, square-dashed.svg, text-search.svg, folder-plus.svg,
-undo-2.svg, arrow-left.svg, list-plus.svg, corner-up-right.svg,
-circle-dot.svg, gauge.svg
-               Lucide's (lucide.dev, ISC licence), drawn at the desk's
-               1.5 stroke.
 
-An agent's logo is not here: it is the one the ACP registry publishes for
-that agent, and belongs to its company.
+UI icons come from u0ui (Material Symbols Sharp under Carbon names). An
+agent's logo is the one the ACP registry publishes for that agent.

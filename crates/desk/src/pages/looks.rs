@@ -165,8 +165,8 @@ impl Desk {
         group(crate::tr("Themes"), rows)
     }
 
-    /// The theme for the dark look (or the light), and a menu of those
-    /// there are for it.
+    /// The theme for the dark look (or the light), and a menu of Carbon's
+    /// built-in themes and yours for that look.
     fn theme_pick(&self, dark: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let chosen = if dark {
             &self.settings.theme_dark
@@ -174,33 +174,51 @@ impl Desk {
             &self.settings.theme_light
         }
         .clone();
-        let names: Vec<Option<SharedString>> = std::iter::once(None)
-            .chain(
-                cx.try_global::<Themes>()
-                    .into_iter()
-                    .flat_map(|t| t.0.iter())
-                    .filter(|(t, _)| t.mode.is_dark() == dark)
-                    .map(|(t, _)| Some(t.name.clone())),
-            )
+        let builtins = if dark {
+            crate::theme::DARK_CARBON
+        } else {
+            crate::theme::LIGHT_CARBON
+        };
+        let mut items: Vec<(Option<String>, SharedString)> = builtins
+            .into_iter()
+            .enumerate()
+            .map(|(ix, t)| {
+                let saved = (ix > 0).then(|| t.id().to_owned());
+                (saved, crate::tr(crate::theme::carbon_label(t)))
+            })
             .collect();
+        items.extend(
+            cx.try_global::<Themes>()
+                .into_iter()
+                .flat_map(|t| t.0.iter())
+                .filter(|(t, _)| t.mode.is_dark() == dark)
+                .map(|(t, _)| (Some(t.name.to_string()), t.name.clone())),
+        );
+        let active_carbon = crate::theme::carbon_for(dark, chosen.as_deref());
+        let label = match (&chosen, active_carbon) {
+            (_, Some(c)) => crate::tr(crate::theme::carbon_label(c)),
+            (Some(name), None) => SharedString::from(name.clone()),
+            (None, None) => crate::tr(crate::theme::carbon_label(builtins[0])),
+        };
         let desk = cx.entity();
-        let label = chosen.clone().unwrap_or_else(|| "u0".into());
         Button::new(if dark { "theme-dark" } else { "theme-light" })
             .outline()
             .small()
             .label(label)
             .dropdown_menu(move |mut menu, _, _| {
-                for name in &names {
-                    let (desk, name) = (desk.clone(), name.clone());
-                    let on = chosen.as_deref() == name.as_deref();
-                    menu = menu.item(
-                        PopupMenuItem::new(name.clone().unwrap_or_else(|| "u0".into()))
-                            .checked(on)
-                            .on_click(move |_, _, cx| {
-                                let name = name.as_ref().map(ToString::to_string);
-                                desk.update(cx, |d, cx| d.choose_theme(dark, name, cx));
-                            }),
-                    );
+                for (saved, title) in &items {
+                    let (desk, saved) = (desk.clone(), saved.clone());
+                    let on = match (&chosen, &saved, active_carbon) {
+                        (_, None, Some(c)) => c == builtins[0],
+                        (_, Some(id), Some(c)) => crate::theme::parse_carbon(id) == Some(c),
+                        (Some(a), Some(b), None) => a == b,
+                        _ => false,
+                    };
+                    menu = menu.item(PopupMenuItem::new(title.clone()).checked(on).on_click(
+                        move |_, _, cx| {
+                            desk.update(cx, |d, cx| d.choose_theme(dark, saved.clone(), cx));
+                        },
+                    ));
                 }
                 menu
             })

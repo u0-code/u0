@@ -93,13 +93,13 @@ u0 把设置保存在其主目录（`~/.u0`，或 `U0_HOME`）中的 `settings.j
 | 键 | 类型 | 默认值 | 含义 |
 |---|---|---|---|
 | `look` | `"dark"`、`"light"`、`"system"` | `"dark"` | 深色、浅色，或跟随系统。 |
-| `theme_dark`, `theme_light` | 主题名称或 `null` | `null` | 每种外观使用的主题。`null`：u0 自带的主题。 |
+| `theme_dark`, `theme_light` | 主题名称或 `null` | `null` | 每种外观使用的主题（深色可选 `"g100"` / `"g90"`，浅色可选 `"white"` / `"g10"`，或 `themes/` 中的主题）。`null`：深色为 Carbon G100，浅色为 Carbon White。 |
 | `backdrop` | 路径或 `null` | `null` | 在对话下方淡淡绘制的一张图片。 |
 | `scale` | `80`、`90`、`100`、`110`、`125`、`150`、`175`、`200` | `100` | 窗口绘制的大小，以百分比表示。⌘+ 和 ⌘− 在这些值之间切换。 |
 | `contrast` | bool | `false` | 把次要文字和边框画得更明显。 |
 | `glass` | bool | `false` | 让桌面以模糊效果透过窗口显示。 |
-| `mono` | `"jet_brains"`、`"sf_mono"`、`"menlo"` | `"jet_brains"` | 代码和数字使用的字体。 |
-| `width` | `"comfortable"`、`"wide"`、`"full"` | `"comfortable"` | 对话和输入框的显示宽度（680 pt、880 pt，或整个面板）。 |
+| `mono` | `"plex_mono"`、`"jet_brains"`、`"sf_mono"`、`"menlo"` | `"plex_mono"` | 代码和数字使用的字体。 |
+| `width` | `"comfortable"`、`"wide"`、`"full"` | `"comfortable"` | 对话和输入框的显示宽度（720 pt、880 pt，或整个面板）。 |
 | `blue_orange` | bool | `false` | 新增和删除的行用蓝色和橙色显示，而不是绿色和红色。 |
 | `twelve` | bool | `false` | 时间使用十二小时制。 |
 | `language` | `"en"`、`"zh-CN"`、`"de"`、`"es"`、`"fr"`、`"ja"`、`"ko"`、`"pt-BR"`、`"ru"`、`"sv"` 或 `null` | `null` | 窗口的语言。`null`：如果 u0 支持系统语言则使用系统语言，否则使用英语。 |

@@ -631,11 +631,12 @@ impl SendKey {
     }
 }
 
-/// The face code is set in: the one shipped, or one macOS has.
+/// The face code is set in: IBM Plex Mono (bundled by u0ui), or one installed on this Mac.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CodeFont {
     #[default]
+    PlexMono,
     JetBrains,
     SfMono,
     Menlo,
@@ -645,6 +646,7 @@ impl CodeFont {
     /// Its family's name.
     pub fn family(self) -> &'static str {
         match self {
+            Self::PlexMono => "IBM Plex Mono",
             Self::JetBrains => "JetBrains Mono",
             Self::SfMono => "SF Mono",
             Self::Menlo => "Menlo",
@@ -673,14 +675,15 @@ pub enum Width {
 }
 
 impl Width {
-    /// The reading column in a pane `pane` wide.
+    /// The reading column in a pane `pane` wide (`chat-max-width` 720px,
+    /// `chat-max-width-wide` 880px, `thread-gutter` 24px per side).
     pub fn column(self, pane: f32) -> f32 {
         let most = match self {
-            Self::Comfortable => 680.,
+            Self::Comfortable => 720.,
             Self::Wide => 880.,
             Self::Full => f32::MAX,
         };
-        (pane - 64.).clamp(0., most)
+        (pane - 48.).clamp(0., most)
     }
 }
 

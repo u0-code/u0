@@ -69,18 +69,18 @@ use crate::{
 };
 
 /// How narrow the sidebar can be dragged, and how wide the middle stays
-/// beside it: t3code's.
-const LEFT_LEAST: f32 = 208.;
-const MIDDLE_LEAST: f32 = 640.;
+/// beside it (`tokens.json` `"layout"`).
+const LEFT_LEAST: f32 = crate::style::SIDEBAR_MIN_WIDTH;
+const MIDDLE_LEAST: f32 = crate::style::THREAD_MIN_WIDTH;
 /// How narrow the session column may get, at any size or zoom: under it
 /// the columns beside it stop taking room and lie over it instead, the
 /// right one first.
-const THREAD_LEAST: f32 = 480.;
+const THREAD_LEAST: f32 = crate::style::THREAD_MIN_WIDTH;
 /// How narrow the right column can be dragged.
-const RIGHT_LEAST: f32 = 280.;
-pub const TOPBAR: f32 = 44.;
+const RIGHT_LEAST: f32 = crate::style::RIGHT_COLUMN_MIN_WIDTH;
+pub const TOPBAR: f32 = crate::style::TITLEBAR_HEIGHT;
 /// Room the window's lights take at the left of the top row.
-const LIGHTS: f32 = 76.;
+const LIGHTS: f32 = crate::style::TRAFFIC_LIGHT_INSET;
 
 /// What the middle shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -422,9 +422,12 @@ impl Desk {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let machines = hub::Machine::open(&home, &tx);
         let (settings, settings_refused) = Settings::load(&home);
-        // The system's look changed: drawn again, for a look that follows it.
-        cx.observe_window_appearance(window, |_, _, cx| cx.notify())
-            .detach();
+        // The system's look changed: re-project the theme outside `render`.
+        cx.observe_window_appearance(window, |this, window, cx| {
+            this.sync_appearance(window, cx);
+            cx.notify();
+        })
+        .detach();
         // Keys pressed while one is being recorded are its, not done.
         let me = cx.entity().downgrade();
         cx.intercept_keystrokes(move |e, window, cx| {
@@ -447,6 +450,17 @@ impl Desk {
         for refused in crate::themes::load(&home, cx) {
             tracing::warn!("a theme did not read: {refused}");
         }
+        theme::set_light(
+            match settings.look {
+                settings::Look::Dark => false,
+                settings::Look::Light => true,
+                settings::Look::System => matches!(
+                    window.appearance(),
+                    gpui::WindowAppearance::Light | gpui::WindowAppearance::VibrantLight
+                ),
+            },
+            cx,
+        );
         mirror(&settings, cx);
         let composer = mention::Composer::new(
             settings.send.return_sends(""),
@@ -1546,12 +1560,30 @@ impl Desk {
         cx.notify();
     }
 
+    /// Sync light/dark mode from `settings.look` and `window.appearance()`.
+    pub(crate) fn sync_appearance(&self, window: &Window, cx: &mut Context<Self>) {
+        theme::set_light(
+            match self.settings.look {
+                settings::Look::Dark => false,
+                settings::Look::Light => true,
+                settings::Look::System => matches!(
+                    window.appearance(),
+                    gpui::WindowAppearance::Light | gpui::WindowAppearance::VibrantLight
+                ),
+            },
+            cx,
+        );
+    }
+
     /// What a setting changes now, not only when next read: the keys the
     /// composer sends with.
     pub(crate) fn settings_took(&mut self, cx: &mut Context<Self>) {
         self.sync_send_key(cx);
         self.sync_spelling(cx);
         self.update_due();
+        if self.settings.look != settings::Look::System {
+            theme::set_light(self.settings.look == settings::Look::Light, cx);
+        }
         mirror(&self.settings, cx);
         // Diffs read again, spacing in or out.
         if let Some(key) = self.current {
@@ -1714,7 +1746,7 @@ impl Desk {
                 let tall = crate::pages::settings_height(window);
                 let desk = desk.clone();
                 dialog
-                    .w(px(1080.))
+                    .w(px(crate::style::SETTINGS_DIALOG_WIDTH))
                     .h(tall)
                     .p_0()
                     .close_button(false)
@@ -1858,18 +1890,15 @@ impl Render for Desk {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Speech recognition ready for the composer's speech button.
         self.speech(window, cx);
-        // The look, as chosen or as the system is now.
-        theme::set_light(
-            match self.settings.look {
-                settings::Look::Dark => false,
-                settings::Look::Light => true,
-                settings::Look::System => matches!(
-                    window.appearance(),
-                    gpui::WindowAppearance::Light | gpui::WindowAppearance::VibrantLight
-                ),
-            },
-            cx,
-        );
+        if self.settings.look == settings::Look::System {
+            let system_light = matches!(
+                window.appearance(),
+                gpui::WindowAppearance::Light | gpui::WindowAppearance::VibrantLight
+            );
+            if theme::is_light() != system_light {
+                window.defer(cx, move |_, cx| theme::set_light(system_light, cx));
+            }
+        }
         // The whole window as large as it is set, once this frame is drawn:
         // a zoom changes the size everything is laid out in.
         let zoom = f32::from(self.settings.scale.clamp(
@@ -1882,11 +1911,11 @@ impl Render for Desk {
             window.defer(cx, move |window, cx| {
                 window.set_zoom(zoom, cx);
                 // macOS draws the lights at their own size: they stay in the
-                // middle of the top row, 44 points high however large.
+                // middle of the 38-point top row however large.
                 #[cfg(target_os = "macos")]
                 window.set_traffic_light_position(gpui::point(
-                    gpui::px(18.),
-                    gpui::px(22. - 6. / zoom),
+                    gpui::px(crate::style::TRAFFIC_LIGHT_START),
+                    gpui::px(crate::style::TRAFFIC_LIGHT_OFFSET_Y - 6. / zoom),
                 ));
             });
         }

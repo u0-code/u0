@@ -65,24 +65,20 @@ change is held to these rules.
 What is drawn is native GPUI, on every platform u0 runs on: no web view,
 no HTML rendered from what an agent says (Markdown is the thread's format).
 
-- UI components come from, in this order of preference: `gpui-kit`,
-  `gpui-kit-material`, `ely-gpui-component`. Use a component for what it
-  means (a button is a button, a dialog a dialog), not for how it happens to
-  look.
-- Nothing is drawn by hand that one of them can draw: a hand-made widget in
-  u0 is replaced by the library's when one exists.
-- Where none of them has what is needed, or one gets it wrong, the component
-  is written once in `gpui-kit-material` (the owner's repository,
-  `mizorewww/gpui-kit-material`), not inside u0:
-  - it follows Material 3; what u0 needs beyond M3 is added as a variant
-    of the M3 component, not as a component of its own;
-  - the change goes in as a pull request (`gh pr create`), merged at once
-    (`gh pr merge`); u0 uses it from git until a release is cut;
-  - releases are published to crates.io by that repository's GitHub
-    Actions, when its components have settled; u0 then moves back to
-    the crates.io version.
-  - A component that is not Material at all goes in a crate and repository
-    of its own, the same way.
+- UI components come from, in this order of preference: `u0ui`
+  (`u0-code/gpui-u0ui`), `gpui-kit`. Use a component for what it means (a
+  button is a button, a dialog a dialog), not for how it happens to look.
+- Nothing is drawn by hand that `u0ui` or `gpui-kit` can draw: a hand-made
+  widget in u0 is replaced by `u0ui`'s when one exists.
+- Where `u0ui` lacks what is needed, or gets it wrong, the component is
+  written or fixed once in `gpui-u0ui` (`u0-code/gpui-u0ui`), not inside
+  u0:
+  - it follows Carbon v11 and `gpui-u0ui`'s `AGENTS.md` (generated tokens,
+    four themes White / G10 / G90 / G100, Material Symbols Sharp icons,
+    desktop density, gallery page and tests);
+  - the change goes in as a pull request (`gh pr create -R u0-code/gpui-u0ui`),
+    merged at once (`gh pr merge --squash --delete-branch`), and u0 updates
+    `u0ui` (`cargo update -p u0ui`).
 - A bug in, or a missing piece of, a library someone else keeps
   (`gpui-kit` is longbridge's) is fixed there, by a pull request opened
   without asking first. It must stand on its own for every user of that
@@ -235,10 +231,10 @@ crates/desk/src/
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
   figures.rs    what Markdown shows as a picture: Mermaid (mermaid-rs-renderer) and
                 TeX (ratex), drawn natively as SVG
-  ui.rs, theme.rs, style.rs
-  themes.rs     themes in gpui-kit's format: u0's, yours, a VS Code theme imported
-  fonts.rs, assets.rs   faces, icons
-assets/         fonts, the desk's own icons and the themes it brings, built into the app
+  ui.rs, theme.rs, style.rs   Carbon tokens, theme projection (White/G10/G90/G100), layout constants
+  themes.rs     custom themes in ~/.u0/themes/: Carbon roles, a VS Code theme imported
+  fonts.rs, assets.rs   IBM Plex (from u0ui), Material Symbols Sharp icons, brand marks
+assets/         u0's own mark and app bundle icon, built into the app
 policy/         u0.mobileconfig: the example profile, every policy key; read by a core test
 website/        the user guide (Docusaurus): docs/ in English, i18n/zh-Hans/ in
                 Simplified Chinese; published on GitHub Pages
@@ -258,11 +254,12 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 | Where u0 keeps its files | `settings::home()` |
 | A program on the PATH | `which::which` (the `which` crate) |
 | Anything over HTTP | `http::get`, `http::call`, `http::download` (ureq), off the window's thread |
-| An agent's logo | `Desk::mark_of` and `ui::mark` |
+| An agent's logo or a brand mark | `Desk::mark_of` and `ui::mark` (ACP registry SVG, else Simple Icons), UI icons `u0ui::Icon::carbon(CarbonIcon::…)` |
 | Anything git | `git.rs`, in the server: a `proto::Call` handled with `repo.rs` |
 | A tool for agents | a `#[tool]` in `server/tools.rs` or the file of its subject in `server/tools/` (its router added to `Tools::every`), over what the server already does for a `Call`; one that acts calls `Tools::allowed` first, or `Tools::allowed_on` for one that acts on a session it names |
 | Text written for you (a title, a commit message, ...) | `Desk::ask_writer` with a `writer::Ask`: the writer agent, in a session of its own |
-| A widget (switch, button, menu, ...) | `gpui::component` (gpui-kit, which the desk names `gpui`), coloured by `theme::kit` |
+| A widget (switch, button, menu, ...) | `u0ui` (`u0ui::prelude::*`, `u0ui::components`, `u0ui::ghost`, `u0ui::t3`, `u0ui::patterns`), then `gpui::component`, coloured by `u0ui::theme::set_theme` (`theme::kit`) |
+| Colours, type, spacing and layout | `u0ui::theme::color(ColorRole::…)` (`theme::role`), `TypeStyled::type_style(TypeStyle::…)`, `u0ui::tokens::SPACING_*`, and `style::*` layout constants |
 | A menu opened from a trigger | `Desk::menu`: gpui-kit's PopupMenu (items, ticked for a choice) in a Popover held open by `Desk::popup`; one with a line to type in, `Desk::popover`; a choice among several in the settings, gpui-kit's `SettingField::dropdown` |
 | A call from inside the desk's update that may call the desk back (a window call that tells its observers, such as `set_zoom`) | `window.defer`, so it runs once the update is over: the desk updated twice at once panics |
 | Something shown only on hover | `invisible`, and `visible` on `group_hover`, laid over the row; never `hidden`/`flex` on hover, which GPUI can paint without laying out, and panics |
