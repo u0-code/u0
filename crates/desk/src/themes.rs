@@ -3,8 +3,8 @@
 //!
 //! Built-in themes are Carbon's four (`White`, `G10`, `G90`, `G100` in
 //! `u0ui::tokens::CarbonTheme`). User themes in `<home>/themes/` are created
-//! by duplicating an active theme, editing tokens, or importing a VS Code
-//! colour theme.
+//! by duplicating a built-in or active theme, editing tokens in the Appearance
+//! drawer, or importing a VS Code or `gpui-kit` colour theme.
 
 use std::{
     collections::HashMap,
@@ -12,17 +12,51 @@ use std::{
     rc::Rc,
 };
 
-use gpui::component::Colorize as _;
 use gpui::component::theme::{ThemeConfig, ThemeMode, ThemeSet};
 use gpui::{App, Global, Hsla};
 use serde_json::{Map, Value, json};
-use u0ui::tokens::ColorRole;
+use u0ui::tokens::{CarbonTheme, ColorRole};
 
 /// User themes loaded from `<home>/themes/`, each with its source file.
 #[derive(Default)]
 pub struct Themes(pub Vec<(Rc<ThemeConfig>, Option<PathBuf>)>);
 
 impl Global for Themes {}
+
+/// The 12 Carbon roles edited in `Settings › Appearance › Customize`, paired
+/// with their canonical `ThemeConfig.colors` key.
+pub const EDITOR_ROLES: [(ColorRole, &str); 12] = [
+    (ColorRole::Background, "background"),
+    (ColorRole::Layer01, "sidebar.background"),
+    (ColorRole::Layer02, "popover.background"),
+    (ColorRole::BorderSubtle01, "border"),
+    (ColorRole::TextPrimary, "foreground"),
+    (ColorRole::TextSecondary, "muted.foreground"),
+    (ColorRole::LinkPrimary, "link"),
+    (ColorRole::Interactive, "primary.background"),
+    (ColorRole::SupportError, "danger.background"),
+    (ColorRole::SupportSuccess, "success.background"),
+    (ColorRole::SupportWarning, "warning.background"),
+    (ColorRole::SupportInfo, "base.blue"),
+];
+
+/// The 6 primary tokens highlighted above the live preview card in the drawer.
+pub const PRIMARY_ROLES: [ColorRole; 6] = [
+    ColorRole::Background,
+    ColorRole::Layer01,
+    ColorRole::TextPrimary,
+    ColorRole::TextSecondary,
+    ColorRole::Interactive,
+    ColorRole::SupportError,
+];
+
+const PREVIEW_ROLES: [ColorRole; 5] = [
+    ColorRole::Background,
+    ColorRole::Layer01,
+    ColorRole::TextPrimary,
+    ColorRole::TextSecondary,
+    ColorRole::Interactive,
+];
 
 /// Where your custom themes are kept.
 pub fn folder(home: &Path) -> PathBuf {
@@ -67,6 +101,16 @@ pub fn find(cx: &App, name: &str) -> Option<Rc<ThemeConfig>> {
         .map(|(t, _)| t.clone())
 }
 
+/// Look up the source file path of custom theme `name`.
+pub fn path_of(cx: &App, name: &str) -> Option<PathBuf> {
+    let themes = cx.try_global::<Themes>()?;
+    themes
+        .0
+        .iter()
+        .find(|(t, _)| t.name == name)
+        .and_then(|(_, path)| path.clone())
+}
+
 /// Parse a `#rrggbb` or `#rrggbbaa` hex colour into `Hsla`.
 pub fn parse_hex(hex: &str) -> Option<Hsla> {
     let hex = hex.trim().strip_prefix('#')?;
@@ -81,6 +125,11 @@ pub fn parse_hex(hex: &str) -> Option<Hsla> {
         }
         _ => None,
     }
+}
+
+/// Lowercase `#rrggbb` representation of `color`.
+pub fn to_hex(color: Hsla) -> String {
+    u0ui::u0::settings::to_hex(color)
 }
 
 /// Carbon token name ↔ `ThemeConfig.colors` fallback key mapping.
@@ -140,6 +189,71 @@ pub fn roles_of(config: &ThemeConfig) -> HashMap<ColorRole, Hsla> {
     out
 }
 
+/// Five `ThemeCard` wireframe preview colours for a built-in `CarbonTheme`.
+pub fn preview_colors_of_carbon(theme: CarbonTheme) -> [Hsla; 5] {
+    PREVIEW_ROLES.map(|role| u0ui::theme::color_in(theme, role))
+}
+
+/// Five `ThemeCard` wireframe preview colours for a custom `ThemeConfig`.
+pub fn preview_colors_of_custom(config: &ThemeConfig) -> [Hsla; 5] {
+    let base = default_carbon(config.mode.is_dark());
+    let over = roles_of(config);
+    PREVIEW_ROLES.map(|role| {
+        over.get(&role)
+            .copied()
+            .unwrap_or_else(|| u0ui::theme::color_in(base, role))
+    })
+}
+
+/// Resolve all 12 [`EDITOR_ROLES`] for `config`, falling back to Carbon's base
+/// palette for its mode where a key is unset.
+pub fn role_values(config: &ThemeConfig) -> [(ColorRole, Hsla); 12] {
+    let base = default_carbon(config.mode.is_dark());
+    let over = roles_of(config);
+    EDITOR_ROLES.map(|(role, _)| {
+        let color = over
+            .get(&role)
+            .copied()
+            .unwrap_or_else(|| u0ui::theme::color_in(base, role));
+        (role, color)
+    })
+}
+
+const fn default_carbon(dark: bool) -> CarbonTheme {
+    if dark {
+        CarbonTheme::G100
+    } else {
+        CarbonTheme::White
+    }
+}
+
+fn carbon_colors_map(base: CarbonTheme) -> Map<String, Value> {
+    let pick = |role: ColorRole| json!(to_hex(u0ui::theme::color_in(base, role)));
+    [
+        ("background", pick(ColorRole::Background)),
+        ("foreground", pick(ColorRole::TextPrimary)),
+        ("border", pick(ColorRole::BorderSubtle01)),
+        ("sidebar.background", pick(ColorRole::Layer01)),
+        ("popover.background", pick(ColorRole::Layer02)),
+        ("muted.background", pick(ColorRole::ChatBubbleUser)),
+        ("muted.foreground", pick(ColorRole::TextSecondary)),
+        ("secondary.background", pick(ColorRole::Field01)),
+        ("secondary.hover.background", pick(ColorRole::LayerHover01)),
+        ("input.border", pick(ColorRole::BorderStrong01)),
+        ("primary.background", pick(ColorRole::Interactive)),
+        ("link", pick(ColorRole::LinkPrimary)),
+        ("success.background", pick(ColorRole::SupportSuccess)),
+        ("danger.background", pick(ColorRole::SupportError)),
+        ("warning.background", pick(ColorRole::SupportWarning)),
+        ("base.blue", pick(ColorRole::SupportInfo)),
+        ("base.green", pick(ColorRole::SyntaxString)),
+        ("base.yellow", pick(ColorRole::SyntaxNumber)),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_owned(), v))
+    .collect()
+}
+
 /// Duplicate `config` as a file in `<home>/themes/`, under `name`.
 pub fn duplicate(home: &Path, config: &ThemeConfig, name: &str) -> (PathBuf, Vec<u8>) {
     let mut theme = serde_json::to_value(config).expect("a theme serializes");
@@ -148,37 +262,9 @@ pub fn duplicate(home: &Path, config: &ThemeConfig, name: &str) -> (PathBuf, Vec
     file(home, name, &theme)
 }
 
-/// Export the active Carbon theme for `dark` (or light) into a custom theme
-/// file under `name`.
-pub fn own(home: &Path, name: &str, dark: bool) -> (PathBuf, Vec<u8>) {
-    use crate::theme as t;
-    let colors: Map<String, Value> = [
-        ("background", t::role(ColorRole::Background)),
-        ("foreground", t::role(ColorRole::TextPrimary)),
-        ("border", t::role(ColorRole::BorderSubtle01)),
-        ("sidebar.background", t::role(ColorRole::Layer01)),
-        ("popover.background", t::role(ColorRole::Layer02)),
-        ("muted.background", t::role(ColorRole::ChatBubbleUser)),
-        ("muted.foreground", t::role(ColorRole::TextSecondary)),
-        ("secondary.background", t::role(ColorRole::Field01)),
-        (
-            "secondary.hover.background",
-            t::role(ColorRole::LayerHover01),
-        ),
-        ("input.border", t::role(ColorRole::BorderStrong01)),
-        ("primary.background", t::role(ColorRole::Interactive)),
-        ("link", t::role(ColorRole::LinkPrimary)),
-        ("success.background", t::role(ColorRole::SupportSuccess)),
-        ("danger.background", t::role(ColorRole::SupportError)),
-        ("warning.background", t::role(ColorRole::SupportWarning)),
-        ("base.blue", t::role(ColorRole::SyntaxKeyword)),
-        ("base.green", t::role(ColorRole::SyntaxString)),
-        ("base.yellow", t::role(ColorRole::SyntaxNumber)),
-    ]
-    .into_iter()
-    .map(|(k, c)| (k.to_owned(), json!(c.to_hex())))
-    .collect();
-    let mode = if dark {
+/// Export built-in `base` into a custom theme file under `name`.
+pub fn own_carbon(home: &Path, name: &str, base: CarbonTheme) -> (PathBuf, Vec<u8>) {
+    let mode = if base.is_dark() {
         ThemeMode::Dark
     } else {
         ThemeMode::Light
@@ -187,8 +273,38 @@ pub fn own(home: &Path, name: &str, dark: bool) -> (PathBuf, Vec<u8>) {
     file(
         home,
         name,
-        &json!({ "name": name, "mode": mode_str, "colors": colors }),
+        &json!({
+            "name": name,
+            "mode": mode_str,
+            "colors": carbon_colors_map(base),
+        }),
     )
+}
+
+/// Reset `config` to the Carbon defaults for its mode, keeping its name.
+pub fn reset_to_carbon(home: &Path, config: &ThemeConfig) -> (PathBuf, Vec<u8>) {
+    own_carbon(home, &config.name, default_carbon(config.mode.is_dark()))
+}
+
+/// Update `role` in `config` to `color` and serialize `<home>/themes/<slug>.json`.
+pub fn set_role_color(
+    home: &Path,
+    config: &ThemeConfig,
+    role: ColorRole,
+    color: Hsla,
+) -> (PathBuf, Vec<u8>) {
+    let mut theme = serde_json::to_value(config).expect("a theme serializes");
+    if !theme["colors"].is_object() {
+        theme["colors"] = json!({});
+    }
+    let hex = json!(to_hex(color));
+    if let Some((_, kit_key)) = EDITOR_ROLES.iter().find(|(r, _)| *r == role) {
+        theme["colors"][*kit_key] = hex.clone();
+        if role == ColorRole::Layer02 {
+            theme["colors"]["secondary.background"] = hex;
+        }
+    }
+    file(home, &config.name, &theme)
 }
 
 fn file(home: &Path, name: &str, theme: &Value) -> (PathBuf, Vec<u8>) {
@@ -196,6 +312,27 @@ fn file(home: &Path, name: &str, theme: &Value) -> (PathBuf, Vec<u8>) {
     let set = json!({ "name": name, "themes": [theme] });
     let text = serde_json::to_vec_pretty(&set).expect("a theme serializes");
     (folder(home).join(format!("{stem}.json")), text)
+}
+
+/// Validate and import a `gpui-kit` `ThemeSet` JSON file into
+/// `<home>/themes/<slug>.json`. Returns `(path, bytes, theme_name, is_dark)`.
+pub fn from_kit_json(home: &Path, text: &str) -> Result<(PathBuf, Vec<u8>, String, bool), String> {
+    let set: ThemeSet = serde_json::from_str(text).map_err(|e| {
+        crate::tr_with("it is not a gpui-kit theme file: %{e}", &[("e", &e)]).to_string()
+    })?;
+    let first = set
+        .themes
+        .into_iter()
+        .next()
+        .ok_or_else(|| crate::tr("it lists no themes under \"themes\"").to_string())?;
+    let name = if first.name.trim().is_empty() {
+        "Imported".to_owned()
+    } else {
+        first.name.to_string()
+    };
+    let dark = first.mode.is_dark();
+    let (path, bytes) = duplicate(home, &first, &name);
+    Ok((path, bytes, name, dark))
 }
 
 // VS Code theme colour keys mapped onto our Carbon-bridged ThemeSet keys.
@@ -273,7 +410,7 @@ const VSCODE_MAP: [(&str, &[&str]); 19] = [
 ];
 
 /// Import a VS Code JSONC colour theme into `<home>/themes/<slug>.json`.
-pub fn from_vscode(home: &Path, text: &str) -> Result<(PathBuf, Vec<u8>, String), String> {
+pub fn from_vscode(home: &Path, text: &str) -> Result<(PathBuf, Vec<u8>, String, bool), String> {
     let theme: Value =
         jsonc_parser::parse_to_serde_value(text, &jsonc_parser::ParseOptions::default()).map_err(
             |e| crate::tr_with("it is not a theme VS Code reads: %{e}", &[("e", &e)]).to_string(),
@@ -298,7 +435,7 @@ pub fn from_vscode(home: &Path, text: &str) -> Result<(PathBuf, Vec<u8>, String)
     let theme =
         json!({ "name": name, "mode": if dark { "dark" } else { "light" }, "colors": ours });
     let (path, text) = file(home, &name, &theme);
-    Ok((path, text, name))
+    Ok((path, text, name, dark))
 }
 
 #[cfg(test)]
@@ -319,8 +456,9 @@ mod tests {
             },
             "tokenColors": [],
         }"##;
-        let (path, written, name) = from_vscode(Path::new("/h"), text).unwrap();
+        let (path, written, name, dark) = from_vscode(Path::new("/h"), text).unwrap();
         assert_eq!(name, "Night // Owl");
+        assert!(dark);
         assert_eq!(path, Path::new("/h/themes/night-owl.json"));
         let set: ThemeSet = serde_json::from_slice(&written).unwrap();
         let theme = &set.themes[0];
@@ -343,5 +481,36 @@ mod tests {
             parse_hex("#22da6e").as_ref()
         );
         assert!(from_vscode(Path::new("/h"), r#"{"colors": {}}"#).is_err());
+    }
+
+    #[test]
+    fn editing_tokens_and_importing_kit_json_round_trip() {
+        let home = Path::new("/h");
+        let (_, base_bytes) = own_carbon(home, "Midnight", CarbonTheme::G100);
+        let set: ThemeSet = serde_json::from_slice(&base_bytes).unwrap();
+        let mut current = set.themes[0].clone();
+        for (idx, (role, _)) in EDITOR_ROLES.into_iter().enumerate() {
+            let hex = format!("#{:02x}{:02x}80", idx * 10 + 5, idx * 8 + 12);
+            let picked = parse_hex(&hex).unwrap();
+            let (_, updated) = set_role_color(home, &current, role, picked);
+            let parsed: ThemeSet = serde_json::from_slice(&updated).unwrap();
+            current = parsed.themes[0].clone();
+            let resolved = role_values(&current);
+            assert_eq!(to_hex(resolved[idx].1), hex, "{role:?}");
+        }
+        let kit_raw = String::from_utf8(
+            serde_json::to_vec(&json!({
+                "name": "Midnight",
+                "themes": [current],
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let (path, _, name, dark) = from_kit_json(home, &kit_raw).unwrap();
+        assert_eq!(path, Path::new("/h/themes/midnight.json"));
+        assert_eq!(name, "Midnight");
+        assert!(dark);
+        assert!(from_kit_json(home, "not json").is_err());
+        assert!(from_kit_json(home, r#"{"name":"Empty","themes":[]}"#).is_err());
     }
 }

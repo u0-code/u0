@@ -191,6 +191,10 @@ impl SRow {
     }
 
     /// Carbon `ContentSwitcher` (`ToggleGroup`, `sm` 32px) for 2–3 choices.
+    #[allow(
+        clippy::cast_precision_loss,
+        reason = "segment counts and character lengths are tiny UI integers"
+    )]
     pub fn segmented<T: Copy + PartialEq + 'static>(
         mut self,
         choices: impl IntoIterator<Item = (SharedString, T)>,
@@ -199,6 +203,13 @@ impl SRow {
     ) -> Self {
         let locked = self.is_locked();
         let list: Vec<(SharedString, T)> = choices.into_iter().collect();
+        let max_chars = list
+            .iter()
+            .map(|(l, _)| l.chars().count())
+            .max()
+            .unwrap_or(4);
+        let per_seg = (max_chars as f32 * 8.6 + 38.).max(86.);
+        let seg_w = (per_seg * list.len() as f32).clamp(240., 360.);
         let active_ix = list.iter().position(|(_, v)| *v == current).unwrap_or(0);
         let values: Vec<T> = list.iter().map(|(_, v)| *v).collect();
         let mut group = ToggleGroup::new((self.id.clone(), "seg"))
@@ -218,7 +229,7 @@ impl SRow {
                 on_pick(picked, window, cx);
             }
         });
-        self.control = Some(group.into_any_element());
+        self.control = Some(div().w(px(seg_w)).child(group).into_any_element());
         self
     }
 
@@ -574,11 +585,30 @@ pub fn carbon_page(
     query: &str,
     faces: &Faces,
 ) -> AnyElement {
+    carbon_page_with_tail(id, title, lede, banner, groups, None, query, faces)
+}
+
+/// Like [`carbon_page`], with an optional custom `tail` section rendered after
+/// the `SettingsSection`s inside the same 720px column (`SetAppearance` `Themes`).
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a Carbon settings page takes its id, header copy, optional banner, groups, optional tail, query and faces"
+)]
+pub fn carbon_page_with_tail(
+    id: &'static str,
+    title: SharedString,
+    lede: SharedString,
+    banner: Option<AnyElement>,
+    groups: Vec<SGroup>,
+    tail: Option<AnyElement>,
+    query: &str,
+    faces: &Faces,
+) -> AnyElement {
     let sections: Vec<SettingsSection> = groups
         .into_iter()
         .filter_map(|g| g.into_section(query))
         .collect();
-    let empty = sections.is_empty() && !query.is_empty();
+    let empty = sections.is_empty() && tail.is_none() && !query.is_empty();
     div()
         .id(id)
         .flex_1()
@@ -601,6 +631,7 @@ pub fn carbon_page(
                 )
                 .children(banner)
                 .children(sections)
+                .children(tail)
                 .when(empty, |d| {
                     d.child(
                         div()

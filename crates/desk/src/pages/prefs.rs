@@ -18,7 +18,7 @@ use crate::{
     fonts::{Faces, Weighted as _},
     hub::Host,
     keys,
-    settings::{Notify, Quit, Settings, Submodules, Width},
+    settings::{Notify, Quit, Settings, Submodules},
     theme,
     ui::{self, Pick, Weight},
 };
@@ -452,6 +452,7 @@ impl Desk {
                     faces,
                 ))
             }
+            Tab::Appearance => Some(self.appearance_tab(query, faces, cx)),
             _ => None,
         }
     }
@@ -460,7 +461,7 @@ impl Desk {
         clippy::too_many_arguments,
         reason = "a setting row binds its key, copy, choices, current/default values and setter"
     )]
-    fn global_segmented_srow<T: Copy + PartialEq + 'static, const N: usize>(
+    pub(super) fn global_segmented_srow<T: Copy + PartialEq + 'static, const N: usize>(
         &self,
         id: &'static str,
         title: &'static str,
@@ -499,7 +500,7 @@ impl Desk {
         clippy::too_many_arguments,
         reason = "a setting row binds its key, copy, choices, current/default values and setter"
     )]
-    fn global_select_srow<T: Copy + PartialEq + 'static, const N: usize>(
+    pub(super) fn global_select_srow<T: Copy + PartialEq + 'static, const N: usize>(
         &self,
         id: &'static str,
         title: &'static str,
@@ -718,317 +719,17 @@ impl Desk {
         }
     }
 
-    /// Legacy `SettingPage` tabs (`Appearance` until Commit 7, `Chat`,
-    /// `Keybindings`, `Writing`, `About`, `SourceControl`).
+    /// Legacy `SettingPage` tabs (`Chat`, `Keybindings`, `Writing`, `About`,
+    /// `SourceControl`).
     pub(super) fn own_tab(
         &self,
         tab: super::Tab,
         w: &WeakEntity<Desk>,
         banners: Option<SettingGroup>,
-        cx: &App,
+        _: &App,
     ) -> Option<SettingPage> {
         use super::Tab;
         let (lede, groups) = match tab {
-            Tab::Appearance => (
-                "How the thread and what is beside it read.",
-                vec![
-                    group(
-                        crate::tr("Reading"),
-                        vec![
-                            item(
-                                w,
-                                crate::tr("The sidebar sorts by"),
-                                crate::tr(
-                                    "A project's threads, and the projects: your last message, anything happening, when each began, or name. Pinned ones stay on top.",
-                                ),
-                                |d, _, cx| {
-                                    d.pick(
-                                        "sort",
-                                        [
-                                            (
-                                                crate::tr("Your message"),
-                                                crate::settings::Sort::Used,
-                                            ),
-                                            (crate::tr("Activity"), crate::settings::Sort::Updated),
-                                            (crate::tr("Begun"), crate::settings::Sort::Begun),
-                                            (crate::tr("Name"), crate::settings::Sort::Name),
-                                        ],
-                                        d.settings.sort,
-                                        |s, v| s.sort = v,
-                                        cx,
-                                    )
-                                },
-                            ),
-                            item(
-                                w,
-                                crate::tr("Look"),
-                                crate::tr(
-                                    "Light and dark keep the same amber for what is going on now.",
-                                ),
-                                |d, _, cx| {
-                                    d.pick(
-                                        "look",
-                                        [
-                                            (crate::tr("Dark"), crate::settings::Look::Dark),
-                                            (crate::tr("Light"), crate::settings::Look::Light),
-                                            (
-                                                crate::tr("As the system"),
-                                                crate::settings::Look::System,
-                                            ),
-                                        ],
-                                        d.settings.look,
-                                        |s, v| s.look = v,
-                                        cx,
-                                    )
-                                },
-                            ),
-                            item(
-                                w,
-                                crate::tr("Size"),
-                                crate::tr(
-                                    "Everything in the window, larger or smaller: ⌘+, ⌘− and ⌘0.",
-                                ),
-                                |d, _, cx| {
-                                    d.pick(
-                                        "scale",
-                                        crate::settings::SCALES.map(|s| (format!("{s}%"), s)),
-                                        d.settings.scale,
-                                        |s, v| s.scale = v,
-                                        cx,
-                                    )
-                                },
-                            ),
-                            item(
-                                w,
-                                crate::tr("Contrast"),
-                                crate::tr(
-                                    "More draws the greys of what matters less, and the edges, stronger.",
-                                ),
-                                |d, _, cx| {
-                                    d.pick(
-                                        "contrast",
-                                        [
-                                            (crate::tr("As designed"), false),
-                                            (crate::tr("More"), true),
-                                        ],
-                                        d.settings.contrast,
-                                        |s, v| s.contrast = v,
-                                        cx,
-                                    )
-                                },
-                            ),
-                            item(
-                                w,
-                                crate::tr("Glass"),
-                                crate::tr(
-                                    "The window's grounds let the desktop show through, blurred.",
-                                ),
-                                |d, _, cx| {
-                                    d.pick(
-                                        "glass",
-                                        [(crate::tr("Solid"), false), (crate::tr("Glass"), true)],
-                                        d.settings.glass,
-                                        |s, v| s.glass = v,
-                                        cx,
-                                    )
-                                },
-                            ),
-                            item(
-                                w,
-                                crate::tr("Code font"),
-                                crate::tr("What code, commands and numbers are set in."),
-                                |d, _, cx| {
-                                    d.pick(
-                                        "mono",
-                                        [
-                                            (
-                                                crate::tr("IBM Plex Mono"),
-                                                crate::settings::CodeFont::PlexMono,
-                                            ),
-                                            (
-                                                crate::tr("JetBrains Mono"),
-                                                crate::settings::CodeFont::JetBrains,
-                                            ),
-                                            (
-                                                crate::tr("SF Mono"),
-                                                crate::settings::CodeFont::SfMono,
-                                            ),
-                                            (crate::tr("Menlo"), crate::settings::CodeFont::Menlo),
-                                        ],
-                                        d.settings.mono,
-                                        |s, v| s.mono = v,
-                                        cx,
-                                    )
-                                },
-                            ),
-                            item(
-                                w,
-                                crate::tr("Terminal text"),
-                                crate::tr("How large your terminals' text is, in the code font."),
-                                |d, _, cx| {
-                                    d.pick(
-                                        "terminal_size",
-                                        [
-                                            (crate::tr("Small"), crate::settings::TermSize::Small),
-                                            (
-                                                crate::tr("Medium"),
-                                                crate::settings::TermSize::Medium,
-                                            ),
-                                            (crate::tr("Large"), crate::settings::TermSize::Large),
-                                        ],
-                                        d.settings.terminal_size,
-                                        |s, v| s.terminal_size = v,
-                                        cx,
-                                    )
-                                },
-                            ),
-                            item(
-                                w,
-                                crate::tr("Terminal shell"),
-                                crate::tr(
-                                    "What a new terminal runs: your login shell, or one named.",
-                                ),
-                                |d, _, cx| {
-                                    d.pick(
-                                        "shell",
-                                        [
-                                            (
-                                                crate::tr("Login shell"),
-                                                crate::settings::Shell::Login,
-                                            ),
-                                            (crate::tr("zsh"), crate::settings::Shell::Zsh),
-                                            (crate::tr("bash"), crate::settings::Shell::Bash),
-                                            (crate::tr("fish"), crate::settings::Shell::Fish),
-                                        ],
-                                        d.settings.shell,
-                                        |s, v| s.shell = v,
-                                        cx,
-                                    )
-                                },
-                            ),
-                            item(
-                                w,
-                                crate::tr("Reading width"),
-                                crate::tr("How wide the thread and the composer are."),
-                                |d, _, cx| {
-                                    d.pick(
-                                        "width",
-                                        [
-                                            (crate::tr("Comfortable"), Width::Comfortable),
-                                            (crate::tr("Wide"), Width::Wide),
-                                            (crate::tr("Full"), Width::Full),
-                                        ],
-                                        d.settings.width,
-                                        |s, v| s.width = v,
-                                        cx,
-                                    )
-                                },
-                            ),
-                            item(
-                                w,
-                                crate::tr("What a change added and took away"),
-                                crate::tr("Blue and orange tell them apart without green and red."),
-                                |d, _, cx| {
-                                    d.pick(
-                                        "blue_orange",
-                                        [
-                                            (crate::tr("Green and red"), false),
-                                            (crate::tr("Blue and orange"), true),
-                                        ],
-                                        d.settings.blue_orange,
-                                        |s, v| s.blue_orange = v,
-                                        cx,
-                                    )
-                                },
-                            ),
-                            item(
-                                w,
-                                crate::tr("Times"),
-                                crate::tr("When a message was said, and what u0 says of times."),
-                                |d, _, cx| {
-                                    d.pick(
-                                        "twelve",
-                                        [
-                                            (crate::tr("24-hour"), false),
-                                            (crate::tr("12-hour"), true),
-                                        ],
-                                        d.settings.twelve,
-                                        |s, v| s.twelve = v,
-                                        cx,
-                                    )
-                                },
-                            ),
-                            item(
-                                w,
-                                crate::tr("A diff's long lines"),
-                                crate::tr(
-                                    "Wrapped, they show whole; kept to a line, they are cut at the edge.",
-                                ),
-                                |d, _, cx| {
-                                    d.pick(
-                                        "diff_wrap",
-                                        [(crate::tr("Wrap"), true), (crate::tr("Cut"), false)],
-                                        d.settings.diff_wrap,
-                                        |s, v| s.diff_wrap = v,
-                                        cx,
-                                    )
-                                },
-                            ),
-                            item(
-                                w,
-                                crate::tr("Changes only in spacing"),
-                                crate::tr(
-                                    "Left out, a diff shows what changed in the words alone.",
-                                ),
-                                |d, _, cx| {
-                                    d.pick(
-                                        "no_spacing",
-                                        [
-                                            (crate::tr("Shown"), false),
-                                            (crate::tr("Left out"), true),
-                                        ],
-                                        d.settings.no_spacing,
-                                        |s, v| s.no_spacing = v,
-                                        cx,
-                                    )
-                                },
-                            ),
-                            item(
-                                w,
-                                crate::tr("A file's diff opens"),
-                                crate::tr("Side by side widens the column beside the thread."),
-                                |d, _, cx| {
-                                    d.pick(
-                                        "side_by_side",
-                                        [
-                                            (crate::tr("Stacked"), false),
-                                            (crate::tr("Side by side"), true),
-                                        ],
-                                        d.settings.side_by_side,
-                                        |s, v| s.side_by_side = v,
-                                        cx,
-                                    )
-                                },
-                            ),
-                            item(
-                                w,
-                                crate::tr("A diff's files"),
-                                crate::tr("Folded, each shows its name and counts until opened."),
-                                |d, _, cx| {
-                                    d.pick(
-                                        "diff_folded",
-                                        [(crate::tr("Open"), false), (crate::tr("Folded"), true)],
-                                        d.settings.diff_folded,
-                                        |s, v| s.diff_folded = v,
-                                        cx,
-                                    )
-                                },
-                            ),
-                        ],
-                    ),
-                    self.themes_group(w, cx),
-                ],
-            ),
             Tab::Chat => (
                 "What you write, and what the agent did.",
                 vec![
@@ -1395,7 +1096,7 @@ impl Desk {
     }
 }
 
-fn managed_info_banner(faces: &Faces) -> Div {
+pub(super) fn managed_info_banner(faces: &Faces) -> Div {
     div()
         .flex()
         .items_start()

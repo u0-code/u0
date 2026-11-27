@@ -437,6 +437,7 @@ impl Desk {
                     .child(top_bar)
                     .child(body),
             )
+            .children(self.theme_editor_drawer(&faces, cx))
             .into_any_element()
     }
 

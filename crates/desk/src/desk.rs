@@ -1751,6 +1751,8 @@ impl Desk {
             cx.notify();
         } else if self.pages.pairing_modal.is_some() {
             self.close_pairing_dialog(window, cx);
+        } else if self.pages.open && self.pages.editing_theme.is_some() {
+            self.close_theme_editor(cx);
         } else if self.pages.open {
             self.close_settings(window, cx);
         } else if self.panes.whole && self.page == Page::Thread {
@@ -1983,6 +1985,7 @@ impl Desk {
     fn settings_closed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.pages.open = false;
         self.pages.recording = None;
+        self.pages.editing_theme = None;
         window.focus(&self.composer.input.focus_handle(cx), cx);
         cx.notify();
     }
