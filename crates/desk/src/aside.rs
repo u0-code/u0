@@ -18,7 +18,7 @@ mod tabs;
 
 pub use files::Viewer;
 #[cfg(target_os = "macos")]
-pub use page::{Web, Went};
+pub use page::{Web, Went, answers};
 pub use sims::Sims;
 pub use tabs::{Column, Surface};
 

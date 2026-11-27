@@ -8,9 +8,11 @@ use gpui::{ClipboardItem, Context, Div, Entity, SharedString, canvas, div, prelu
 use gpui_webview::WebView;
 use u0ui::{
     components::{
-        MenuItem,
+        Button, ButtonSize, ButtonVariant, Empty, EmptyContent, EmptyDescription, EmptyHeader,
+        EmptyMedia, EmptyTitle, MenuItem,
         alert::{Alert, AlertAction, AlertVariant},
     },
+    icons::{CarbonIcon, Icon},
     t3::workspace::{PreviewChrome, PreviewChromeTexts, PreviewStrip},
     tokens::ColorRole,
 };
@@ -33,6 +35,9 @@ impl Desk {
             let tab = tab
                 .child(self.page_strip(key, &address, cx))
                 .children(self.forwarded_note(&address, cx));
+            if let Some(unreached) = &page.unreached {
+                return tab.child(Self::unreached(key, unreached, cx));
+            }
             // Its webview is made once this frame is drawn.
             return match page.view.clone() {
                 Some(view) => tab.child(self.page_view(view)),
@@ -72,7 +77,7 @@ impl Desk {
                 )
             }
         });
-        let mut chrome = PreviewChrome::new("page-chrome", address)
+        let mut chrome = PreviewChrome::new("page-chrome", address.clone())
             .narrow(true)
             .secure(page.is_some_and(|p| p.address.starts_with("https:")))
             .loading(loading)
@@ -89,9 +94,12 @@ impl Desk {
                 more: crate::tr("More actions"),
             })
             .more_menu(self.page_menu(key, cx))
-            .on_navigate(move |typed, _, cx| desk.update(cx, |d, cx| d.navigate(key, &typed, cx)));
+            .on_navigate({
+                let desk = desk.clone();
+                move |typed, _, cx| desk.update(cx, |d, cx| d.navigate(key, &typed, cx))
+            });
         if let Some(view) = view {
-            let (back, forward, reload, stop) = (view.clone(), view.clone(), view.clone(), view);
+            let (back, forward, stop) = (view.clone(), view.clone(), view);
             chrome = chrome
                 // WebKit's own history, not the page's `history`, which
                 // the page may have redefined.
@@ -105,7 +113,10 @@ impl Desk {
                     // SAFETY: on the main thread WebKit's view lives on.
                     drop(unsafe { forward.read(cx).raw().webview().goForward() });
                 })
-                .on_reload(move |_, cx| drop(reload.read(cx).raw().reload()))
+                .on_reload({
+                    let desk = desk.clone();
+                    move |_, cx| desk.update(cx, |d, cx| d.reload_page(key, cx))
+                })
                 .on_stop(move |_, cx| {
                     use wry::WebViewExtMacOS as _;
                     // SAFETY: on the main thread WebKit's view lives on.
@@ -135,12 +146,10 @@ impl Desk {
             return vec![viewport];
         };
         let (copied, opened) = (page.address.clone(), page.address.clone());
-        let view = page.view.clone();
         vec![
-            MenuItem::item(crate::tr("Reload")).on_select(move |_, cx| {
-                if let Some(view) = &view {
-                    let _ = view.read(cx).raw().reload();
-                }
+            MenuItem::item(crate::tr("Reload")).on_select({
+                let desk = desk.clone();
+                move |_, cx| desk.update(cx, |d, cx| d.reload_page(key, cx))
             }),
             MenuItem::item(crate::tr("Copy address")).on_select(move |_, cx| {
                 cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()));
@@ -246,6 +255,84 @@ impl Desk {
                     desk.update(cx, |d, cx| d.stop_forward(host, there, cx));
                 })),
         )
+    }
+
+    /// In the page's place while nothing answers where it was opened
+    /// (the `WebViewStates` board's "The page does not load"): what did not
+    /// answer and why that may be, Try again, and your browser.
+    fn unreached(key: u64, address: &str, cx: &mut Context<Self>) -> Div {
+        let (desk, browse) = (cx.entity(), cx.entity());
+        let url = url::Url::parse(address).ok();
+        let port = url.as_ref().and_then(url::Url::port_or_known_default);
+        let host = url
+            .as_ref()
+            .and_then(|u| u.host_str().map(str::to_owned))
+            .unwrap_or_default();
+        let at = port.map_or_else(|| host.clone(), |p| format!("{host}:{p}"));
+        let here = matches!(
+            host.as_str(),
+            "localhost" | "127.0.0.1" | "[::1]" | "0.0.0.0"
+        );
+        let why = match port.filter(|_| here) {
+            Some(port) => crate::tr_with(
+                "Is the dev server running? Nothing answered on port %{port} on this Mac.",
+                &[("port", &port)],
+            ),
+            None => crate::tr_with(
+                "Nothing answered at %{address}. Check the address, or your connection.",
+                &[("address", &at)],
+            ),
+        };
+        let opened = address.to_owned();
+        // `.wv { padding: 32px 24px 24px }`, its icon `support-error` at 32.
+        div()
+            .flex_1()
+            .min_h(px(0.))
+            .px(px(24.))
+            .pt(px(32.))
+            .pb(px(24.))
+            .child(
+                Empty::new()
+                    .child(
+                        EmptyHeader::new()
+                            .child(
+                                EmptyMedia::new().child(
+                                    Icon::carbon(CarbonIcon::ErrorFilled)
+                                        .size_length(px(32.))
+                                        .color(theme::role(ColorRole::SupportError)),
+                                ),
+                            )
+                            .child(EmptyTitle::new(crate::tr_with(
+                                "Can't reach %{address}",
+                                &[("address", &at)],
+                            )))
+                            .child(EmptyDescription::new(why)),
+                    )
+                    .child(
+                        EmptyContent::new()
+                            .child(
+                                Button::new("page-again", crate::tr("Try again"))
+                                    .variant(ButtonVariant::Primary)
+                                    .size(ButtonSize::Sm)
+                                    .icon(CarbonIcon::Renew)
+                                    .on_click(move |_, _, cx| {
+                                        desk.update(cx, |d, cx| d.reload_page(key, cx));
+                                    }),
+                            )
+                            .child(
+                                Button::new(
+                                    "page-unreached-browser",
+                                    crate::tr("Open in your browser"),
+                                )
+                                .variant(ButtonVariant::Ghost)
+                                .size(ButtonSize::Sm)
+                                .icon(CarbonIcon::Launch)
+                                .on_click(move |_, _, cx| {
+                                    browse.update(cx, |d, cx| d.browse(&opened, cx));
+                                }),
+                            ),
+                    ),
+            )
     }
 
     /// The page, laid out at the viewport chosen: as wide as the column, or

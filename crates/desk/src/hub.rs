@@ -297,6 +297,16 @@ pub fn forward(
     });
 }
 
+/// Whether anything answers at `address` (its host and port), for the
+/// page of the session `key`'s Preview tab: back as `Went::Reached`.
+#[cfg(target_os = "macos")]
+pub fn knock(key: u64, address: String, tx: Sender) {
+    off(tx, move || {
+        let answered = crate::aside::answers(&address);
+        Msg::Page(key, crate::aside::Went::Reached { address, answered })
+    });
+}
+
 /// Do `work` off the window's thread, and send what it comes to back.
 fn off(tx: Sender, work: impl FnOnce() -> Msg + Send + 'static) {
     acp::runtime().spawn_blocking(move || {

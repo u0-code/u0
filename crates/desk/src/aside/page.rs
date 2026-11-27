@@ -53,6 +53,9 @@ pub struct Page {
     /// When a window or download it asked for was last handed to your
     /// browser (`rules::may_hand`).
     handed: Option<Instant>,
+    /// The address nothing answered at, while that is so: u0's own state
+    /// shows in the page's place, not the engine's error page.
+    pub unreached: Option<String>,
 }
 
 /// What a page said, for the window.
@@ -64,6 +67,32 @@ pub enum Went {
     /// (`rules::for_browser`), one in a while (`rules::may_hand`); nothing
     /// is saved.
     Asked(String),
+    /// Whether anything answered at this address as it was opened.
+    Reached { address: String, answered: bool },
+}
+
+/// The host and port a web address is reached at, to see that something
+/// answers there before a page is shown; none for a file.
+fn door(address: &str) -> Option<(String, u16)> {
+    let url = url::Url::parse(address).ok()?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return None;
+    }
+    Some((url.host_str()?.to_owned(), url.port_or_known_default()?))
+}
+
+/// Whether anything answers at `address`: a connection taken at its host
+/// and port within two seconds; a file, always (the engine says if it is
+/// not there).
+pub fn answers(address: &str) -> bool {
+    use std::net::{TcpStream, ToSocketAddrs as _};
+    let Some((host, port)) = door(address) else {
+        return true;
+    };
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    (host, port).to_socket_addrs().is_ok_and(|mut at| {
+        at.any(|at| TcpStream::connect_timeout(&at, std::time::Duration::from_secs(2)).is_ok())
+    })
 }
 
 /// `typed` as a page to open here: a web address (`http` when it names no
@@ -150,20 +179,22 @@ impl Desk {
                 if let Some(view) = &page.view {
                     view.update(cx, |v, _| v.load_url(&address));
                 }
-                page.address = address;
+                page.address.clone_from(&address);
             }
             None => {
                 self.web.pages.insert(
                     key,
                     Page {
                         opened: Rc::new(RefCell::new(address.clone())),
-                        address,
+                        address: address.clone(),
                         view: None,
                         handed: None,
+                        unreached: None,
                     },
                 );
             }
         }
+        crate::hub::knock(key, address, self.tx.clone());
         self.columns.entry(key).or_default().open(Surface::Preview);
         if self.current == Some(key) {
             self.panes.right = true;
@@ -177,6 +208,25 @@ impl Desk {
             Went::At(address) => {
                 if let Some(page) = self.web.pages.get_mut(&key) {
                     page.address = address;
+                }
+            }
+            Went::Reached { address, answered } => {
+                if let Some(page) = self
+                    .web
+                    .pages
+                    .get_mut(&key)
+                    .filter(|p| *p.opened.borrow() == address)
+                {
+                    // Something answers again: the page is loaded afresh.
+                    if answered
+                        && page.unreached.take().is_some()
+                        && let Some(view) = &page.view
+                    {
+                        view.update(cx, |v, _| v.load_url(&address));
+                    }
+                    if !answered {
+                        page.unreached = Some(address);
+                    }
                 }
             }
             Went::Asked(address) => {
@@ -193,6 +243,20 @@ impl Desk {
             }
         }
         cx.notify();
+    }
+
+    /// Load the session `key`'s page again, once something is seen to
+    /// answer where it was opened (Reload, Try again).
+    pub(crate) fn reload_page(&mut self, key: u64, cx: &mut Context<Self>) {
+        if let Some(page) = self.web.pages.get(&key) {
+            let opened = page.opened.borrow().clone();
+            if page.unreached.is_none()
+                && let Some(view) = &page.view
+            {
+                let _ = view.read(cx).raw().reload();
+            }
+            crate::hub::knock(key, opened, self.tx.clone());
+        }
     }
 
     /// The pages go before the window does: a webview must not outlive
@@ -221,7 +285,7 @@ impl Desk {
             if Some(*key) != self.current {
                 page.view = None;
             }
-            let on = shown == Some(*key);
+            let on = shown == Some(*key) && page.unreached.is_none();
             match &page.view {
                 Some(view) => {
                     if view.read(cx).visible() != on {
@@ -389,6 +453,21 @@ mod tests {
             "http://localhost:5173/",
             "https://localhost:5173/"
         ));
+    }
+
+    #[test]
+    fn a_web_page_is_knocked_for_at_its_host_and_port_and_a_file_is_not() {
+        assert_eq!(
+            door("http://127.0.0.1:5173/cover"),
+            Some(("127.0.0.1".into(), 5173))
+        );
+        assert_eq!(
+            door("https://example.com/"),
+            Some(("example.com".into(), 443))
+        );
+        assert_eq!(door("http://[::1]:8000/"), Some(("[::1]".into(), 8000)));
+        assert_eq!(door("file:///tmp/a.html"), None);
+        assert!(answers("file:///tmp/nowhere.html"));
     }
 
     #[test]
