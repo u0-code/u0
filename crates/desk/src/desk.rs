@@ -1886,20 +1886,7 @@ impl Desk {
             self.close_pairing_dialog(window, cx);
             self.pages.open = true;
             let desk = cx.entity();
-            let shown = cx.new(|cx| {
-                Over::new(
-                    desk.clone(),
-                    |d, window, cx| {
-                        // Held to the dialog's height, not grown to what it
-                        // holds, so each column scrolls on its own.
-                        div()
-                            .h(crate::pages::settings_height(window))
-                            .child(d.settings_dialog(window, cx))
-                            .into_any_element()
-                    },
-                    cx,
-                )
-            });
+            let shown = cx.new(|cx| Over::new(desk.clone(), Desk::settings_dialog, cx));
             window.open_dialog(cx, move |dialog, window, _| {
                 let tall = crate::pages::settings_height(window);
                 let desk = desk.clone();
@@ -1912,7 +1899,14 @@ impl Desk {
                     .on_close(move |_, window, cx| {
                         desk.update(cx, |d, cx| d.settings_closed(window, cx));
                     })
-                    .child(shown.clone())
+                    // Its content, not its children: children go in the
+                    // dialog's own scroll area, which, once they stand a
+                    // pixel taller than it (its border), takes every wheel
+                    // before the sidebar or the page inside can scroll.
+                    .content({
+                        let shown = shown.clone();
+                        move |content, _, _| content.min_h_0().px_0().child(shown.clone())
+                    })
             });
         }
         self.popup = Popup::Closed;
