@@ -9,7 +9,7 @@ export default defineConfig({
 		entrypoint: "worker.js",
 		workersDev: true,
 		env: {
-			DB: bindings.d1({ name: "ghost-telemetry" }),
+			DB: bindings.d1({ name: "u0-telemetry" }),
 			LIMIT: bindings.rateLimit({
 				namespace: "4317",
 				simple: { limit: 20, period: 60 },

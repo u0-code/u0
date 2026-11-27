@@ -5,8 +5,7 @@ The Cloudflare Worker `u0-telemetry` (https://u0-telemetry.aac6fef-aed.workers.d
 (`crates/core/src/telemetry.rs`; what each level sends is in the main
 README). It checks each batch against `batch.schema.json`, refuses one
 with a field it does not know or a value of the wrong shape, and keeps it
-as a row of the D1 database `ghost-telemetry` (`schema.sql`; it keeps the
-name it was made with before the product was u0): the batch
+as a row of the D1 database `u0-telemetry` (`schema.sql`): the batch
 and the country Cloudflare saw it from, nothing else of the request.
 
 `batch.schema.json` is made from `telemetry::Batch`, the Rust that sends
@@ -18,7 +17,7 @@ Deploy it with Cloudflare's `cf` CLI, logged in:
 ```sh
 cd telemetry
 npm ci
-npx cf deploy        # binds the D1 database ghost-telemetry, made the first time
+npx cf deploy        # binds the D1 database u0-telemetry, made the first time
 cf d1 list           # its id, for the commands below
 cf d1 query <id> --sql="$(cat schema.sql)"
 ```
