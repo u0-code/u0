@@ -70,6 +70,14 @@ impl Sessions {
         self.all.iter_mut().filter(move |s| s.of(host, agent))
     }
 
+    /// The sessions of `agent` on `host` its CLI runs now outside u0
+    /// (`running`): each is marked, and each other not.
+    pub fn running(&mut self, host: Host, agent: &str, running: &[SessionId]) {
+        for s in self.of(host, agent) {
+            s.elsewhere = s.meta.id.as_ref().is_some_and(|id| running.contains(id));
+        }
+    }
+
     /// The subagent `id` the session `parent` set to work: a session of
     /// its own, under it.
     pub fn add_subagent(&mut self, parent: u64, id: SessionId, title: String, state: State) {
@@ -647,5 +655,17 @@ mod tests {
         // B's agent stopping closes B's session, not A's.
         assert_eq!(sessions.exited(b, "claude", "gone"), vec![on_b]);
         assert_eq!(sessions.at(on_a).unwrap().state, State::Idle);
+    }
+
+    #[test]
+    fn a_session_running_elsewhere_is_marked_until_its_agent_says_it_no_longer_is() {
+        let mut sessions = two();
+        let s1 = [SessionId::new("s1")];
+        sessions.running(Host::HERE, "a", &s1);
+        let marked = |s: &Sessions| s.all.iter().map(|s| s.elsewhere).collect::<Vec<_>>();
+        // Only `a`'s: `b`'s s1 is another session.
+        assert_eq!(marked(&sessions), vec![true, false]);
+        sessions.running(Host::HERE, "a", &[]);
+        assert_eq!(marked(&sessions), vec![false, false]);
     }
 }

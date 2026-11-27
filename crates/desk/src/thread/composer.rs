@@ -1306,6 +1306,30 @@ impl Desk {
             banners.push(banner.into_any_element());
         }
 
+        // Taken over from a terminal that still has it open: both can
+        // write in it, and neither sees what the other says.
+        if s.elsewhere && s.parent.is_none() {
+            let mut banner = ComposerBanner::new("banner-elsewhere", BannerKind::Warning)
+                .icon(CarbonIcon::Terminal)
+                .title(crate::tr_with(
+                    "%{name} has this thread open elsewhere too",
+                    &[("name", &agent_name)],
+                ))
+                .body(crate::tr("That process does not see what you send here."));
+            if self.can_fork(s) {
+                let (desk, key) = (cx.entity(), s.key);
+                banner = banner.action(
+                    CarbonButton::new("elsewhere-fork", crate::tr("Branch off a copy"))
+                        .variant(ButtonVariant::Tertiary)
+                        .size(ButtonSize::Sm)
+                        .on_click(move |_, _, cx| {
+                            desk.update(cx, |this, cx| this.fork(key, cx));
+                        }),
+                );
+            }
+            banners.push(banner.into_any_element());
+        }
+
         if let Some(crate::hub::Auth::Needed(why)) =
             self.slot(s.host, &s.meta.agent).map(|x| &x.auth)
         {

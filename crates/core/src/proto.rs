@@ -708,6 +708,12 @@ pub enum Event {
         agent: String,
         folders: Vec<(PathBuf, usize)>,
     },
+    /// The sessions of `agent` its CLI runs now in a process of its own
+    /// outside u0 (a terminal's), as it says: each of the others is not.
+    Running {
+        agent: String,
+        sessions: Vec<SessionId>,
+    },
     /// A session the agent keeps was loaded: what was said in it came
     /// before this, as updates.
     Loaded {
@@ -1928,6 +1934,10 @@ mod tests {
             Event::Elsewhere {
                 agent: "a".into(),
                 folders: vec![(dir.join("x"), 2)],
+            },
+            Event::Running {
+                agent: "a".into(),
+                sessions: vec![SessionId::new("s1")],
             },
             Event::Loaded {
                 key: 1,

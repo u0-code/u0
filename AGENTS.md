@@ -42,7 +42,8 @@ change is held to these rules.
    (`registry::KNOWN`): what the registry does not say of an agent (the CLI
    its adapter drives and the variable that points it at yours, whether it
    is on at first, its brand's colour, the variable naming the folder its
-   CLI keeps its sign-in in, which another account of it points elsewhere).
+   CLI keeps its sign-in in, which another account of it points elsewhere,
+   and where its CLI says which sessions it runs outside u0).
    Each other fact is defined once and referenced everywhere else.
 3. **No second mechanism.** Before adding a check, gate, retry, cache,
    second pass or fallback, show that stating the rule once at its source
@@ -181,7 +182,8 @@ crates/core/src/
   devices.rs    iOS simulators and Android emulators: listed, started, their screen
                 streamed, touched
                 (xcrun simctl, adb, emulator; AXe for an iOS one, where installed)
-  diagnostics.rs  the processes u0 runs, as a tree with CPU and memory; its log's troubles
+  diagnostics.rs  the processes u0 runs, as a tree with CPU and memory, and which run
+                outside it; its log's troubles
   path.rs       the PATH your shell sets up, for an app opened from the Dock
   scripts.rs    a repository's own commands, in its u0.json
   telemetry.rs  what u0 tells its makers, by level (0-3): the counts, the daily batch

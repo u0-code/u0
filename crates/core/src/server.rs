@@ -990,6 +990,7 @@ impl Server {
             self.shared.home.clone(),
             self.shared.send.clone(),
         );
+        let running = self.running_elsewhere(id);
         acp::runtime().spawn(async move {
             let mut all: Vec<(PathBuf, PathBuf)> = Vec::new();
             // Each project's folder, and u0's worktrees of it.
@@ -1055,7 +1056,34 @@ impl Server {
                 agent: name,
                 folders: elsewhere.into_iter().collect(),
             });
+            // Once those listed are on the desk, which of them run elsewhere.
+            if let Some(running) = running
+                && let Ok(said) = tokio::task::spawn_blocking(running).await
+            {
+                send(said);
+            }
         });
+    }
+
+    /// What says which sessions of the agent `id` its CLI runs now outside
+    /// u0, by the variables it is started with; none for an agent whose CLI
+    /// does not say.
+    fn running_elsewhere(
+        &self,
+        id: &str,
+    ) -> Option<impl FnOnce() -> Event + std::marker::Send + 'static> {
+        registry::known(id).and_then(|k| k.5)?;
+        let env = (self.settings().ok())
+            .and_then(|s| s.env.get(id).cloned())
+            .unwrap_or_default();
+        let agent = id.to_owned();
+        Some(move || {
+            let running = registry::running_elsewhere(&agent, &env, std::process::id());
+            Event::Running {
+                agent,
+                sessions: running.into_iter().map(SessionId::new).collect(),
+            }
+        })
     }
 
     /// Open again the session `session` the agent `id` keeps, in `folder`
@@ -1074,6 +1102,10 @@ impl Server {
         // What it says from now on is written: on a load, all that was
         // said in it.
         self.shared.records.open(id, session.clone());
+        // Taken over from a terminal that still runs it, it says so.
+        if let Some(running) = self.running_elsewhere(id) {
+            self.off(running);
+        }
         let (_, given) = self.shared.tools(id, Some(session.clone()));
         let loaded = move |result| Event::Loaded {
             key,

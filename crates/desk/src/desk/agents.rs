@@ -371,6 +371,14 @@ impl Desk {
         );
     }
 
+    /// Ask each agent running for its sessions again: one begun since in
+    /// a terminal shows, to be taken over, and which run there is known.
+    pub(crate) fn relist(&self) {
+        for slot in self.slots.iter().filter(|s| s.running()) {
+            self.list_sessions(slot.host, &slot.entry.id);
+        }
+    }
+
     /// Read what a session of `agent` on `host` offers before one is
     /// opened, and whether it is signed in, by opening one and deleting it
     /// again.

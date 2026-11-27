@@ -1271,6 +1271,12 @@ impl Desk {
             tip.push_str(" · ");
             tip.push_str(b);
         }
+        if s.elsewhere {
+            tip.push('\n');
+            tip.push_str(&crate::tr(
+                "Open in another process too, such as a terminal",
+            ));
+        }
         if let Some(said) = s.items.iter().rev().find_map(|i| match i {
             Item::Agent(t) => Some(gist(t)).filter(|g| !g.is_empty()),
             _ => None,
@@ -1374,6 +1380,13 @@ impl Desk {
                         .when(pinned, |d| {
                             d.child(
                                 CarbonGlyph::carbon(CarbonIcon::PinFilled)
+                                    .size_length(px(12.))
+                                    .color(theme::muted()),
+                            )
+                        })
+                        .when(s.elsewhere, |d| {
+                            d.child(
+                                CarbonGlyph::carbon(CarbonIcon::Terminal)
                                     .size_length(px(12.))
                                     .color(theme::muted()),
                             )

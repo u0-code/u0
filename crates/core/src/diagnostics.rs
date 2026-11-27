@@ -146,6 +146,39 @@ pub fn signal(root: u32, pid: u32, signal: &str) -> Result<String, String> {
     }
 }
 
+/// Which of `pids` run now and are not under `root` (u0's own process):
+/// those another program started.
+pub fn outside(root: u32, pids: &[u32]) -> Vec<u32> {
+    let Some(mut system) = system() else {
+        return Vec::new();
+    };
+    system.refresh_processes_specifics(ProcessesToUpdate::All, true, ProcessRefreshKind::nothing());
+    let parent =
+        |pid: u32| (system.process(Pid::from_u32(pid))).map(|p| p.parent().map_or(0, Pid::as_u32));
+    outside_of(root, pids, parent)
+}
+
+/// Which of `pids` run (have a `parent`) and have not `root` above them.
+fn outside_of(root: u32, pids: &[u32], parent: impl Fn(u32) -> Option<u32>) -> Vec<u32> {
+    let under = |pid: u32| {
+        let mut at = pid;
+        // A tree is shallow; a loop in what was read is cut short.
+        for _ in 0..64 {
+            if at == root {
+                return true;
+            }
+            match parent(at) {
+                Some(up) if up != 0 && up != at => at = up,
+                _ => return false,
+            }
+        }
+        false
+    };
+    (pids.iter().copied())
+        .filter(|&pid| parent(pid).is_some() && !under(pid))
+        .collect()
+}
+
 /// Ask the process `pid`, one u0 started, to end (TERM).
 pub fn terminate(pid: u32) {
     send(pid, Signal::Term);
@@ -229,6 +262,15 @@ fn parse_log_trouble(line: &str) -> Option<LogTrouble> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_process_is_outside_u0_unless_u0_started_it_and_only_while_it_runs() {
+        // launchd 1; u0 10, its agent 20 and that agent's CLI 30; a
+        // terminal's shell 40 and the CLI run in it 50; 60 has ended.
+        let parents = [(1, 0), (10, 1), (20, 10), (30, 20), (40, 1), (50, 40)];
+        let parent = |pid| parents.iter().find(|(p, _)| *p == pid).map(|(_, up)| *up);
+        assert_eq!(outside_of(10, &[30, 50, 60], parent), vec![50]);
+    }
 
     #[test]
     fn the_processes_under_u0_are_listed_each_after_its_parent() {

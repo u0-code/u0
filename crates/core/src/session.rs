@@ -594,6 +594,9 @@ pub struct Session {
     /// It has a record the desk wrote: its agent's session is resumed, not
     /// loaded, so that nothing comes twice.
     pub recorded: bool,
+    /// Its agent's CLI runs it now in a process outside u0 as well (a
+    /// terminal's), as it last said (`Event::Running`).
+    pub elsewhere: bool,
     /// The commands the agent takes in it, typed after `/`.
     pub commands: Vec<agent_client_protocol::v1::schema::AvailableCommand>,
     /// What goes with the next thing said: images, files and sessions
@@ -1103,6 +1106,7 @@ impl Session {
             log: Vec::new(),
             replaying: false,
             recorded: false,
+            elsewhere: false,
             commands: Vec::new(),
             attached: Vec::new(),
             git: git::View::default(),

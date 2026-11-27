@@ -583,6 +583,9 @@ impl Desk {
                 let settled = self.listed(host, &agent, result);
                 self.on_settle(&settled, cx);
             }
+            Event::Running { agent, sessions } => {
+                self.sessions.running(host, &agent, &sessions);
+            }
             Event::Probed { agent, result } => self.probed(host, &agent, result),
             Event::CliVersion { cli, version } => {
                 if let Some(m) = self.machine_mut(host) {

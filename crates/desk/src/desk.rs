@@ -586,8 +586,9 @@ impl Desk {
         })
         .detach();
 
-        // Each minute, let go of agents idle long enough; at once and as
-        // often as you said, fetch the projects.
+        // Each minute, let go of agents idle long enough and list again
+        // the sessions of those running; at once and as often as you said,
+        // fetch the projects.
         cx.spawn(async move |this, cx| {
             let _ = this.update(cx, |this, _| this.refresh_projects());
             loop {
@@ -597,6 +598,7 @@ impl Desk {
                 if this
                     .update(cx, |this, cx| {
                         this.release_idle(cx);
+                        this.relist();
                         this.refresh_projects();
                         this.update_due();
                         this.poll_prs();

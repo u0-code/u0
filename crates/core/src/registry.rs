@@ -416,13 +416,18 @@ const PROGRAM: &str = "program";
 ///   deepened on the light ground to keep 3:1 there; a mark that is black
 ///   has none and is drawn in the text colour;
 /// - the variable that names the folder its CLI keeps its sign-in and
-///   settings in: another account of it is the agent run with its own.
+///   settings in: another account of it is the agent run with its own;
+/// - where its CLI says which sessions it is running, if it does: the
+///   folder it keeps them in when that variable says none (under your
+///   home), and the folder there that holds a file a process (see
+///   [`running_elsewhere`]).
 type Known = (
     &'static str,
     Option<(&'static str, &'static str)>,
     bool,
     Option<(u32, u32)>,
     Option<&'static str>,
+    Option<(&'static str, &'static str)>,
 );
 pub const KNOWN: [Known; 6] = [
     (
@@ -431,6 +436,7 @@ pub const KNOWN: [Known; 6] = [
         true,
         Some((0xD977_57, 0xD977_57)),
         Some("CLAUDE_CONFIG_DIR"),
+        Some((".claude", "sessions")),
     ),
     (
         "codex-acp",
@@ -438,6 +444,7 @@ pub const KNOWN: [Known; 6] = [
         true,
         None,
         Some("CODEX_HOME"),
+        None,
     ),
     (
         "antigravity-acp",
@@ -445,14 +452,30 @@ pub const KNOWN: [Known; 6] = [
         true,
         Some((0x8FBD_FF, 0x3C7B_E0)),
         None,
+        None,
     ),
-    ("gemini", None, false, Some((0xA99B_FA, 0x6B5B_D6)), None),
-    ("opencode", None, false, Some((0xB4B4_B4, 0x6E6E_6E)), None),
+    (
+        "gemini",
+        None,
+        false,
+        Some((0xA99B_FA, 0x6B5B_D6)),
+        None,
+        None,
+    ),
+    (
+        "opencode",
+        None,
+        false,
+        Some((0xB4B4_B4, 0x6E6E_6E)),
+        None,
+        None,
+    ),
     (
         "github-copilot-cli",
         None,
         false,
         Some((0xC4C4_C4, 0x6E6E_6E)),
+        None,
         None,
     ),
 ];
@@ -479,6 +502,45 @@ pub fn instance(id: &str) -> (&str, Option<&str>) {
 pub fn account_id(agent: &str, account: &str) -> Option<String> {
     (account.chars().any(char::is_alphanumeric))
         .then(|| format!("{}+{}", instance(agent).0, crate::git::slug(account)))
+}
+
+/// The sessions of the agent `id` that its CLI runs now in a process
+/// another program started (a terminal's), not u0 (`ours`, u0's own
+/// process): where [`KNOWN`] says its CLI keeps a file a process, each
+/// naming its `pid` and the session it runs, in the folder its variable
+/// points at in `env` (what the agent is started with), else in yours,
+/// else in your home's.
+pub fn running_elsewhere(
+    id: &str,
+    env: &BTreeMap<String, Option<String>>,
+    ours: u32,
+) -> Vec<String> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Running {
+        pid: u32,
+        session_id: String,
+    }
+    let Some(&(.., Some(var), Some((default, folder)))) = known(id) else {
+        return Vec::new();
+    };
+    let dir = (env.get(var).cloned().flatten().map(PathBuf::from))
+        .or_else(|| std::env::var_os(var).map(PathBuf::from))
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(default)));
+    let Some(Ok(files)) = dir.map(|d| std::fs::read_dir(d.join(folder))) else {
+        return Vec::new();
+    };
+    let running: Vec<Running> = files
+        .flatten()
+        .filter(|f| f.path().extension().is_some_and(|e| e == "json"))
+        .filter_map(|f| serde_json::from_slice(&std::fs::read(f.path()).ok()?).ok())
+        .collect();
+    let pids: Vec<u32> = running.iter().map(|r| r.pid).collect();
+    let outside = crate::diagnostics::outside(ours, &pids);
+    (running.into_iter())
+        .filter(|r| outside.contains(&r.pid))
+        .map(|r| r.session_id)
+        .collect()
 }
 
 /// The entry of the agent `id` in `registry`: for an account beside the
@@ -751,6 +813,38 @@ mod tests {
         // Its CLI keeps its sign-in where the variable u0 knows points.
         assert_eq!(known(&id).and_then(|k| k.4), Some("CLAUDE_CONFIG_DIR"));
         assert!(entry_of(&registry, "codex-acp+x").is_none());
+    }
+
+    #[test]
+    fn a_session_claude_code_runs_in_a_terminal_is_running_elsewhere_and_u0s_own_is_not() {
+        let config = tempfile::tempdir().unwrap();
+        let sessions = config.path().join("sessions");
+        std::fs::create_dir(&sessions).unwrap();
+        // As Claude Code 2.1 writes them (a fixture), for: the process
+        // that started this test's, one of this test's own (as u0's
+        // agent's CLI is u0's), and one that has ended.
+        let running = |pid: u32, id: &str| {
+            let mut file: serde_json::Value =
+                serde_json::from_str(include_str!("fixtures/claude-code-running.json")).unwrap();
+            file["pid"] = pid.into();
+            file["sessionId"] = id.into();
+            std::fs::write(sessions.join(format!("{pid}.json")), file.to_string()).unwrap();
+        };
+        running(std::os::unix::process::parent_id(), "terminal");
+        running(std::process::id(), "ours");
+        running(u32::MAX - 1, "ended");
+        std::fs::write(sessions.join("x.key"), "not one").unwrap();
+        let env = BTreeMap::from([(
+            "CLAUDE_CONFIG_DIR".to_owned(),
+            Some(config.path().display().to_string()),
+        )]);
+        let ours = std::process::id();
+        assert_eq!(
+            running_elsewhere("claude-acp+work", &env, ours),
+            vec!["terminal".to_owned()]
+        );
+        // An agent whose CLI says nothing of it has none.
+        assert!(running_elsewhere("codex-acp", &env, ours).is_empty());
     }
 
     #[test]

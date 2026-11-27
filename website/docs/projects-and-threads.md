@@ -60,6 +60,16 @@ of each, so the list and a thread show at once. A thread with a record
 is resumed with the agent when you write; one without (begun elsewhere)
 is loaded from the agent and recorded from then on.
 
+A thread begun in a terminal shows in its project (within a minute while
+u0 runs, as each agent is asked again) and can be taken over: open it, and its history
+shows as the agent loads it; once loaded, write in it as in any other.
+Where the agent's CLI says which threads it runs (Claude Code does), a
+thread still open in another process, such as a terminal, shows a
+terminal mark in the sidebar, and above the composer **Claude Code has this
+thread open elsewhere too**: what you send here goes on in u0, and that
+process does not see it. Write in one place at a time, or **Branch off a
+copy** to go on apart.
+
 ### The sidebar
 
 - **Pinned** threads from every project come first, in the order you
