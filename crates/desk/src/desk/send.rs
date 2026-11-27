@@ -150,7 +150,25 @@ impl Desk {
         session.ran_on.clone_from(&session.branch);
         if session.state == State::Working || session.state == State::Opening {
             if on_screen {
-                self.follow_up(key, &text, self.settings.steer, cx);
+                let waiting_reject = session.waiting().and_then(|a| {
+                    let no = a
+                        .options
+                        .iter()
+                        .find(|o| {
+                            o.kind
+                                == agent_client_protocol::v1::schema::PermissionOptionKind::RejectOnce
+                        })
+                        .or_else(|| a.options.last())
+                        .cloned()?;
+                    Some((a.id, no))
+                });
+                if let Some((request, no)) = waiting_reject {
+                    self.telling = None;
+                    self.choose(key, request, &no, cx);
+                    self.follow_up(key, &text, false, cx);
+                } else {
+                    self.follow_up(key, &text, self.settings.steer, cx);
+                }
             }
             return;
         }
@@ -434,6 +452,96 @@ impl Desk {
         if let Some(s) = self.sessions.at_mut(key) {
             s.answered(request, option);
         }
+        if self
+            .telling
+            .is_some_and(|(k, r, _)| k == key && r == request)
+        {
+            self.telling = None;
+        }
+        cx.notify();
+    }
+
+    /// Open the inline note box on a waiting permission card (`revise` for
+    /// plan changes, else `"No, and tell it…"`).
+    pub fn begin_tell(
+        &mut self,
+        key: u64,
+        request: u64,
+        revise: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let placeholder = if revise {
+            crate::tr("What to change in the plan")
+        } else {
+            let name = self
+                .sessions
+                .at(key)
+                .map(|s| self.name_of(&s.meta.agent))
+                .unwrap_or_default();
+            crate::tr_with("Tell %{name} what to do instead", &[("name", &name)])
+        };
+        self.telling = Some((key, request, revise));
+        self.tell_input.update(cx, |i, cx| {
+            i.set_value("", window, cx);
+            i.set_placeholder(placeholder, window, cx);
+            window.focus(&gpui::Focusable::focus_handle(&*i, cx), cx);
+        });
+        cx.notify();
+    }
+
+    /// Close the inline permission note box and return focus to the composer.
+    pub fn cancel_tell(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.telling = None;
+        self.tell_input
+            .update(cx, |i, cx| i.set_value("", window, cx));
+        window.focus(
+            &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
+            cx,
+        );
+        cx.notify();
+    }
+
+    /// Reject the waiting permission `request` once and send what was typed
+    /// in `tell_input` right after.
+    pub fn reject_and_tell(
+        &mut self,
+        key: u64,
+        request: u64,
+        _revise: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let text = self.tell_input.read(cx).value().trim().to_owned();
+        if text.is_empty() {
+            return;
+        }
+        let no = self.sessions.at(key).and_then(|s| {
+            let a = s.items.iter().rev().find_map(|i| match i {
+                Item::Asked(a) if a.id == request && a.chosen.is_none() => Some(a),
+                _ => None,
+            })?;
+            a.options
+                .iter()
+                .find(|o| {
+                    o.kind == agent_client_protocol::v1::schema::PermissionOptionKind::RejectOnce
+                })
+                .or_else(|| a.options.last())
+                .cloned()
+        });
+        self.telling = None;
+        self.tell_input
+            .update(cx, |i, cx| i.set_value("", window, cx));
+        if let Some(no) = no {
+            self.choose(key, request, &no, cx);
+            self.follow_up(key, &text, false, cx);
+        } else {
+            self.send_in(key, &text, cx);
+        }
+        window.focus(
+            &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
+            cx,
+        );
         cx.notify();
     }
 

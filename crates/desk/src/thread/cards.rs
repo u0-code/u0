@@ -112,13 +112,14 @@ impl Desk {
                 reject = reject.child(button);
             }
         }
-        // Turned down with a word: rejected, and the line is yours to say
-        // what to do instead, said once you send it.
-        if let Some(no) = (asked.options.iter())
-            .find(|o| o.kind == PermissionOptionKind::RejectOnce)
-            .cloned()
+        // Turned down with a word: opens an inline note box on the card, or
+        // sends your reply once rejected.
+        if asked
+            .options
+            .iter()
+            .any(|o| o.kind == PermissionOptionKind::RejectOnce)
         {
-            let (at, request, line) = (s.key, asked.id, self.composer.input.clone());
+            let (at, request) = (s.key, asked.id);
             reject = reject.child(
                 ui::button(
                     SharedString::from(format!("{key}-instead")),
@@ -127,13 +128,13 @@ impl Desk {
                 )
                 .tooltip(crate::tr("Reject it, then write what it should do instead"))
                 .on_click(cx.listener(move |this, _, window, cx| {
-                    this.choose(at, request, &no, cx);
-                    window.focus(&gpui::Focusable::focus_handle(line.read(cx), cx), cx);
+                    this.begin_tell(at, request, false, window, cx);
                 })),
             );
         }
-        // Revise: the plan quoted in your reply, the request left waiting.
-        if let Some(plan) = plan.clone() {
+        // Revise: write changes to the plan inline on the card.
+        if plan.is_some() {
+            let (at, request) = (s.key, asked.id);
             reject = reject.child(
                 ui::button(
                     SharedString::from(format!("{key}-revise")),
@@ -141,7 +142,7 @@ impl Desk {
                     Weight::Quiet,
                 )
                 .on_click(cx.listener(move |this, _, window, cx| {
-                    this.quote(&plan, None, window, cx);
+                    this.begin_tell(at, request, true, window, cx);
                 })),
             );
         }
@@ -162,6 +163,124 @@ impl Desk {
                 .child(bare(&asked.title))
                 .into_any_element(),
         };
+        let fields = (!asked.facts.is_empty()).then(|| {
+            let mut rows = div().flex().flex_col().gap(px(4.));
+            for (k, v) in &asked.facts {
+                rows = rows.child(
+                    div()
+                        .flex()
+                        .items_baseline()
+                        .gap(px(10.))
+                        .child(
+                            ui::mono(faces, k.clone())
+                                .w(px(120.))
+                                .flex_none()
+                                .text_size(px(crate::style::CAPTION))
+                                .text_color(theme::faint()),
+                        )
+                        .child(
+                            ui::mono(faces, v.clone())
+                                .flex_1()
+                                .min_w(px(0.))
+                                .text_size(px(crate::style::CAPTION))
+                                .text_color(theme::text2()),
+                        ),
+                );
+            }
+            rows
+        });
+        let source = asked.tool.as_deref().map(|tool| {
+            meta(
+                faces,
+                crate::tr_with("u0 tool · %{tool}", &[("tool", &tool)]),
+            )
+        });
+        let footer = if let Some((_, _, revise)) = self
+            .telling
+            .filter(|(k, r, _)| *k == s.key && *r == asked.id)
+        {
+            let (at, request) = (s.key, asked.id);
+            let label = if revise {
+                crate::tr("What to change in the plan")
+            } else {
+                crate::tr_with("Tell %{name} what to do instead", &[("name", &name)])
+            };
+            let submit = crate::tr(if revise {
+                "Send the changes"
+            } else {
+                "Reject once and send"
+            });
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .child(meta(faces, label).text_color(theme::text2()))
+                .child(
+                    div()
+                        .px(px(10.))
+                        .py(px(6.))
+                        .rounded(px(8.))
+                        .bg(theme::panel())
+                        .border_1()
+                        .border_color(theme::border2())
+                        .child(
+                            gpui::component::input::Textarea::new(&self.tell_input)
+                                .appearance(false),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(6.))
+                        .child(
+                            ui::button(
+                                SharedString::from(format!("{key}-tell-back")),
+                                crate::tr("Back to the options"),
+                                Weight::Quiet,
+                            )
+                            .on_click(cx.listener(
+                                |this, _, window, cx| {
+                                    this.cancel_tell(window, cx);
+                                },
+                            )),
+                        )
+                        .child(div().flex_1())
+                        .child(
+                            ui::button(
+                                SharedString::from(format!("{key}-tell-send")),
+                                submit,
+                                Weight::Primary,
+                            )
+                            .on_click(cx.listener(
+                                move |this, _, window, cx| {
+                                    this.reject_and_tell(at, request, revise, window, cx);
+                                },
+                            )),
+                        ),
+                )
+                .into_any_element()
+        } else {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(6.))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .child(reject)
+                        .child(div().flex_1())
+                        .child(allow),
+                )
+                .child(meta(
+                    faces,
+                    crate::tr(
+                        "Or type in the composer below — sending while this waits rejects once and sends your message.",
+                    ),
+                ))
+                .into_any_element()
+        };
         div()
             .flex()
             .flex_col()
@@ -171,16 +290,21 @@ impl Desk {
             .bg(theme::well())
             .border_1()
             .border_color(theme::border2())
-            .child(ui::text(faces, headline).text_size(px(crate::style::BODY)))
-            .child(body)
             .child(
                 div()
                     .flex()
                     .items_center()
-                    .child(reject)
-                    .child(div().flex_1())
-                    .child(allow),
+                    .gap(px(8.))
+                    .child(
+                        ui::text(faces, headline)
+                            .flex_1()
+                            .text_size(px(crate::style::BODY)),
+                    )
+                    .children(source),
             )
+            .child(body)
+            .children(fields)
+            .child(footer)
     }
 
     /// How a turn ended.
@@ -345,11 +469,35 @@ impl Desk {
                     .child(go)
             }
         };
+        let checkpoint_err = s
+            .turn_of(i)
+            .and_then(|t| s.turns.get(t))
+            .and_then(|t| t.checkpoint_error.as_deref());
         div()
             .flex()
-            .items_center()
-            .child(div().flex_1().min_w(px(0.)).child(body))
-            .children(Self::turn_tools(s, i, cx))
+            .flex_col()
+            .gap(px(6.))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .child(div().flex_1().min_w(px(0.)).child(body))
+                    .children(Self::turn_tools(s, i, cx)),
+            )
+            .when_some(checkpoint_err, |d, why| {
+                d.child(
+                    step()
+                        .child(icon("alert").text_color(theme::accent()))
+                        .child(verb(faces, crate::tr("This turn can't be undone")))
+                        .child(meta(
+                            faces,
+                            crate::tr_with(
+                                "Its files could not be checkpointed: %{why}",
+                                &[("why", &why)],
+                            ),
+                        )),
+                )
+            })
     }
 
     /// What went wrong in a turn; where it is a limit the agent hit, the

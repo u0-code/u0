@@ -19,10 +19,13 @@ The thread is the same for every agent:
 - **The plan**, with how many steps are done, **Copy the plan**, and
   **Keep it as PLAN.md in the folder**.
 - **Permission cards**: what the agent asks before it acts ("wants to run
-  a command", "wants to edit a file", "proposed a plan"). The buttons are
-  the agent's own options, and the default is the first that allows once.
-  **No, and tell it…** rejects with a note; **Revise…** answers a plan
-  with changes. Answered, the card becomes a line ("You allowed once").
+  a command", "wants to edit a file", "proposed a plan"), along with its
+  structured arguments when it calls a u0 tool. The buttons are the
+  agent's own options, and the default is the first that allows once.
+  **No, and tell it…** opens a note on the card to reject once and send
+  what to do instead; **Revise…** answers a plan with changes; sending in
+  the composer while a card waits also rejects once and sends your
+  message. Answered, the card becomes a line ("You allowed once").
 - **Forms**: when an agent asks for input, the composer becomes a form,
   one question at a time, which you can **Decline**.
 - **Subagents** at work or waiting get tabs over the thread; × hides a

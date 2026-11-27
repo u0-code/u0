@@ -83,6 +83,7 @@ fn shown(view: crate::settings::View, items: &[Item], row: &fold::Row) -> bool {
                 | Item::Agent(_)
                 | Item::Asked(_)
                 | Item::Note { .. }
+                | Item::Compacted { .. }
                 | Item::Image { yours: true, .. }
                 | Item::File { .. }
         ),

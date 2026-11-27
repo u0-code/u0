@@ -180,6 +180,10 @@ pub struct Desk {
     /// item, and the line it is in.
     pub reading: Option<(u64, usize)>,
     pub reader: Entity<TextareaState>,
+    /// A permission card's inline reply (`(session, request, is_revise)`),
+    /// and the text area typed in on that card.
+    pub telling: Option<(u64, u64, bool)>,
+    pub tell_input: Entity<TextareaState>,
     /// What is typed to narrow a long menu of choices (a model's).
     pub menu_search: Entity<InputState>,
     /// Moved when what the menu open lists changed while it is open (one
@@ -473,6 +477,27 @@ impl Desk {
             cx,
         );
         let reader = cx.new(|cx| TextareaState::new(window, cx).auto_grow(1, 24));
+        let tell_input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(2, 6)
+                .submit_on_enter(settings.send.return_sends(""))
+        });
+        cx.subscribe_in(
+            &tell_input,
+            window,
+            |this, _, e: &InputEvent, window, cx| {
+                if let InputEvent::PressEnter {
+                    secondary,
+                    shift: false,
+                } = e
+                    && (this.settings.send.return_sends("") || *secondary)
+                    && let Some((key, request, revise)) = this.telling
+                {
+                    this.reject_and_tell(key, request, revise, window, cx);
+                }
+            },
+        )
+        .detach();
         let menu_search = cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Search")));
         cx.subscribe_in(
             &menu_search,
@@ -602,6 +627,8 @@ impl Desk {
             menu_changed: 0,
             reading: None,
             reader,
+            telling: None,
+            tell_input,
             rename,
             undo: None,
             confirming: None,
@@ -1618,6 +1645,8 @@ impl Desk {
             self.palette_back(window, cx);
         } else if self.renaming.is_some() {
             self.cancel_rename(cx);
+        } else if self.telling.is_some() {
+            self.cancel_tell(window, cx);
         } else if self.find.open && typing_in(&self.find.input, cx) {
             self.toggle_find(window, cx);
         } else if typing_in(&self.search.input, cx) || self.search_open {

@@ -753,14 +753,21 @@ impl Desk {
         let Some(origin) = self.sessions.at(key) else {
             return;
         };
-        let (title, folder, project) = (
+        let (title, folder, project, from) = (
             origin.meta.title.clone(),
             origin.meta.folder.clone(),
             super::Place::project_of(origin),
+            origin
+                .meta
+                .id
+                .as_ref()
+                .map(|id| format!("{}:{}", origin.meta.agent, id.0))
+                .or_else(|| Some(format!("{}:", origin.meta.agent))),
         );
         let host = project.host;
         let new = self.sessions.take_key();
         let mut s = self.begun_in(new, agent, project);
+        s.meta.from = from;
         s.wants_worktree = false;
         if s.meta.folder != folder {
             s.meta.folder.clone_from(&folder);
@@ -800,12 +807,23 @@ impl Desk {
         cx.notify();
     }
 
-    /// The session `s` was branched off, when it was and that is here.
+    /// The session `s` was branched off (or handed off from), when it was
+    /// and that is here.
     pub(crate) fn origin_of(&self, s: &Session) -> Option<u64> {
-        let from = s.meta.from.as_ref()?;
+        let from = s.meta.from.as_deref()?;
+        if let Some((agent, id)) = from.split_once(':')
+            && !id.is_empty()
+            && let Some(found) = (self.sessions.all.iter()).find(|o| {
+                o.host == s.host
+                    && o.meta.agent == agent
+                    && o.meta.id.as_ref().is_some_and(|i| *i.0 == *id)
+            })
+        {
+            return Some(found.key);
+        }
         (self.sessions.all.iter())
             .find(|o| {
-                o.meta.agent == s.meta.agent && o.meta.id.as_ref().is_some_and(|i| *i.0 == **from)
+                o.meta.agent == s.meta.agent && o.meta.id.as_ref().is_some_and(|i| *i.0 == *from)
             })
             .map(|o| o.key)
     }

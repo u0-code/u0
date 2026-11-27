@@ -211,17 +211,20 @@ impl Desk {
                     t.before = Some(snap.commit);
                 }
             }
-            Err(why) => self.trouble(
-                crate::tr("This turn can't be undone"),
-                Some(
-                    crate::tr_with(
-                        "Its files could not be checkpointed: %{why}",
-                        &[("why", &why)],
-                    )
-                    .into(),
-                ),
-                None,
-            ),
+            Err(why) => {
+                s.turns[turn].checkpoint_error = Some(why.clone());
+                self.trouble(
+                    crate::tr("This turn can't be undone"),
+                    Some(
+                        crate::tr_with(
+                            "Its files could not be checkpointed: %{why}",
+                            &[("why", &why)],
+                        )
+                        .into(),
+                    ),
+                    None,
+                );
+            }
         }
         if let Some(text) = then {
             self.prompt(key, text);

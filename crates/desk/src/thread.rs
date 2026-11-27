@@ -489,6 +489,23 @@ impl Desk {
         parts.push(Desk::shown(&s.meta.folder));
         // Branched off another: which, to go back to it.
         let origin = self.origin_of(s).and_then(|k| self.sessions.at(k));
+        let handoff = s.handoff_agent().map(|from| {
+            let from_name = self.name_of(from);
+            div()
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .mt(px(8.))
+                .child(div().flex_1().h(px(1.)).bg(theme::border()))
+                .child(meta(
+                    faces,
+                    crate::tr_with(
+                        "Handed off from %{from} to %{to} · context carried over",
+                        &[("from", &from_name), ("to", &name)],
+                    ),
+                ))
+                .child(div().flex_1().h(px(1.)).bg(theme::border()))
+        });
         // Scripts run in the new worktree: what they were, whether the
         // session still waits for them, where to see them.
         let setup = (!s.setup.is_empty()).then(|| {
@@ -612,6 +629,7 @@ impl Desk {
                     })),
             )
             .children(setup)
+            .children(handoff)
     }
 
     /// The folders a draft works in beside its own (the composer's + adds
@@ -1220,6 +1238,60 @@ impl Desk {
                 .line_height(px(20.))
                 .text_color(theme::muted())
                 .into_any_element(),
+            Item::Compacted {
+                before,
+                after,
+                summary,
+            } => {
+                let fmt_tok = |n: u64| {
+                    if n >= 1000 {
+                        format!("{}k", (n + 500) / 1000)
+                    } else {
+                        n.to_string()
+                    }
+                };
+                let label = match (before, after) {
+                    (Some(b), Some(a)) => crate::tr_with(
+                        "Context compacted · %{before} → %{after} tokens",
+                        &[("before", &fmt_tok(*b)), ("after", &fmt_tok(*a))],
+                    ),
+                    _ => crate::tr("Context compacted"),
+                };
+                let open = self.expanded.contains(&key);
+                let toggle = key.clone();
+                let mut col = div().flex().flex_col().gap(px(6.)).child(
+                    div()
+                        .id(SharedString::from(format!("{key}-compact")))
+                        .flex()
+                        .items_center()
+                        .gap(px(10.))
+                        .when(summary.is_some(), |d| {
+                            d.cursor_pointer().on_click(
+                                cx.listener(move |this, _, _, cx| this.toggle(&toggle, cx)),
+                            )
+                        })
+                        .child(div().flex_1().h(px(1.)).bg(theme::border()))
+                        .child(meta(faces, label))
+                        .when(summary.is_some(), |d| {
+                            d.child(
+                                ui::icon(
+                                    if open {
+                                        "chevron-down"
+                                    } else {
+                                        "chevron-right"
+                                    },
+                                    12.,
+                                )
+                                .text_color(theme::faint()),
+                            )
+                        })
+                        .child(div().flex_1().h(px(1.)).bg(theme::border())),
+                );
+                if open && let Some(sum) = summary {
+                    col = col.child(well(faces).font_family(faces.ui.clone()).child(sum.clone()));
+                }
+                col.into_any_element()
+            }
             Item::Ended { reason, secs } => self
                 .ended(faces, s, i, *reason, *secs, cx)
                 .into_any_element(),
@@ -1740,6 +1812,12 @@ impl Desk {
                         );
                 }
                 ToolCallContent::Content(x) => {
+                    if matches!(
+                        x.content,
+                        agent_client_protocol::v1::schema::ContentBlock::Image(_)
+                    ) {
+                        continue;
+                    }
                     let text = text_of(&x.content);
                     if !text.trim().is_empty() {
                         body = body.child(well(faces).child(output::printed(
@@ -1752,17 +1830,98 @@ impl Desk {
                 _ => {}
             }
         }
+        if let Some(url) = tool.external_url() {
+            body = body.child(
+                div().flex().justify_end().child(
+                    ui::button(
+                        SharedString::from(format!("{key}-open-web")),
+                        crate::tr("Open in your browser"),
+                        ui::Weight::Quiet,
+                    )
+                    .on_click(move |_, _, cx| cx.open_url(&url)),
+                ),
+            );
+        }
+        for (n, (mime, pic)) in tool.images().into_iter().enumerate() {
+            let bytes = pic.bytes.clone();
+            body = body.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .p(px(10.))
+                    .rounded(px(8.))
+                    .bg(theme::well())
+                    .child(
+                        gpui::img(picture(&pic))
+                            .max_w(px(480.))
+                            .max_h(px(320.))
+                            .rounded(px(6.)),
+                    )
+                    .child(
+                        div().flex().justify_end().child(
+                            ui::button(
+                                SharedString::from(format!("{key}-attach-img-{n}")),
+                                crate::tr("Add the image to chat"),
+                                ui::Weight::Secondary,
+                            )
+                            .on_click(cx.listener(
+                                move |this, _, _, cx| {
+                                    this.add_attached(
+                                        crate::desk::mention::Attached::Image {
+                                            mime: mime.clone(),
+                                            bytes: bytes.clone(),
+                                        },
+                                        cx,
+                                    );
+                                },
+                            )),
+                        ),
+                    ),
+            );
+        }
+        let fields = tool.output_facts();
+        if !fields.is_empty() {
+            let mut table = well(faces).flex().flex_col().gap(px(4.));
+            for (k, v) in fields {
+                table = table.child(
+                    div()
+                        .flex()
+                        .items_baseline()
+                        .gap(px(10.))
+                        .child(
+                            ui::mono(faces, k)
+                                .w(px(120.))
+                                .flex_none()
+                                .text_size(px(crate::style::CAPTION))
+                                .text_color(theme::faint()),
+                        )
+                        .child(
+                            ui::mono(faces, v)
+                                .flex_1()
+                                .min_w(px(0.))
+                                .text_size(px(crate::style::CAPTION))
+                                .text_color(theme::text2()),
+                        ),
+                );
+            }
+            body = body.child(table);
+        }
         div().child(body)
     }
 }
 
-/// Whether a call has anything to open: a diff, or output with words in it.
+/// Whether a call has anything to open: a diff, an image, structured output,
+/// or output with words in it.
 fn has_body(tool: &Tool) -> bool {
-    tool.call.content.iter().any(|c| match c {
-        ToolCallContent::Diff(_) => true,
-        ToolCallContent::Content(x) => !text_of(&x.content).trim().is_empty(),
-        _ => false,
-    })
+    !tool.images().is_empty()
+        || tool.external_url().is_some()
+        || !tool.output_facts().is_empty()
+        || tool.call.content.iter().any(|c| match c {
+            ToolCallContent::Diff(_) => true,
+            ToolCallContent::Content(x) => !text_of(&x.content).trim().is_empty(),
+            _ => false,
+        })
 }
 
 #[cfg(test)]

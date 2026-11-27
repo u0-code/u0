@@ -110,6 +110,10 @@ pub struct Asked {
     pub options: Vec<PermissionOption>,
     /// What kind of call it asks for (a command, an edit), when known.
     pub kind: Option<ToolKind>,
+    /// The u0 MCP tool it asks for, when it is one (`u0-<tool>-<n>`).
+    pub tool: Option<String>,
+    /// Structured input fields of the call, in key order, when given.
+    pub facts: Vec<(String, String)>,
     /// The option chosen, by its name and kind, or `None` while it waits.
     /// A turn stopped first answers it as rejected, named "Cancelled".
     pub chosen: Option<(String, PermissionOptionKind)>,
@@ -171,6 +175,101 @@ impl Tool {
             _ => self.call.title.trim().trim_matches('`').to_owned(),
         }
     }
+
+    /// Pictures returned in this tool call's content, each with its MIME type.
+    pub fn images(&self) -> Vec<(String, std::sync::Arc<Picture>)> {
+        self.call
+            .content
+            .iter()
+            .filter_map(|c| match c {
+                ToolCallContent::Content(x) => {
+                    let ContentBlock::Image(img) = &x.content else {
+                        return None;
+                    };
+                    image_of(&x.content).map(|pic| (img.mime_type.clone(), pic))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A web address returned by this tool call, when it links to one.
+    pub fn external_url(&self) -> Option<String> {
+        let is_web = |u: &str| u.starts_with("https://") || u.starts_with("http://");
+        for c in &self.call.content {
+            if let ToolCallContent::Content(x) = c
+                && let ContentBlock::ResourceLink(r) = &x.content
+                && is_web(&r.uri)
+            {
+                return Some(r.uri.clone());
+            }
+        }
+        let obj = self.call.raw_output.as_ref()?.as_object()?;
+        ["url", "html_url", "web_url", "link"]
+            .into_iter()
+            .find_map(|k| {
+                obj.get(k)?
+                    .as_str()
+                    .filter(|u| is_web(u))
+                    .map(str::to_owned)
+            })
+    }
+
+    /// Key-value fields from `raw_output`, when the call returned a JSON object.
+    pub fn output_facts(&self) -> Vec<(String, String)> {
+        let url = self.external_url();
+        self.call
+            .raw_output
+            .as_ref()
+            .map(|v| facts_of(v, false))
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|(_, val)| url.as_deref() != Some(val.as_str()))
+            .collect()
+    }
+}
+
+/// Scalar or short fields of a JSON object `value`, in key order, for
+/// showing what a tool call was given or returned.
+fn facts_of(value: &Value, skip_command: bool) -> Vec<(String, String)> {
+    let Some(map) = value.as_object() else {
+        return Vec::new();
+    };
+    let mut keys: Vec<&String> = map.keys().collect();
+    keys.sort();
+    let mut out = Vec::new();
+    for key in keys {
+        if skip_command && key == "command" {
+            continue;
+        }
+        let shown = match &map[key] {
+            Value::Null => continue,
+            Value::String(s) if s.trim().is_empty() => continue,
+            Value::String(s) => s.clone(),
+            Value::Bool(b) => b.to_string(),
+            Value::Number(n) => n.to_string(),
+            Value::Array(items) if items.is_empty() => continue,
+            Value::Array(items) => items
+                .iter()
+                .map(|v| match v {
+                    Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                })
+                .collect::<Vec<_>>()
+                .join(", "),
+            other @ Value::Object(_) => other.to_string(),
+        };
+        out.push((key.clone(), shown));
+    }
+    out
+}
+
+/// The u0 MCP tool name in a permission call id (`u0-<tool>-<n>`).
+fn u0_tool_of(id: &str) -> Option<String> {
+    let rest = id.strip_prefix("u0-")?;
+    let (tool, num) = rest.rsplit_once('-')?;
+    (!tool.is_empty() && !num.is_empty() && num.chars().all(|c| c.is_ascii_alphanumeric()))
+        .then(|| tool.to_owned())
 }
 
 /// One thing in the thread.
@@ -212,6 +311,13 @@ pub enum Item {
         id: SessionId,
         title: String,
     },
+    /// The context was compacted, with token counts before and after when
+    /// known, and any summary the agent gave.
+    Compacted {
+        before: Option<u64>,
+        after: Option<u64>,
+        summary: Option<String>,
+    },
     /// A turn ended, why, and after how long.
     Ended {
         reason: StopReason,
@@ -243,6 +349,8 @@ pub struct Turn {
     pub after: Option<String>,
     /// What changed from before to after.
     pub diff: Option<Vec<git::FileDiff>>,
+    /// Why this turn's files could not be checkpointed, when git failed.
+    pub checkpoint_error: Option<String>,
 }
 
 /// A task the agent left going in the background (a command), and how
@@ -428,6 +536,8 @@ pub struct Session {
     pub modes: Option<SessionModeState>,
     pub options: Vec<SessionConfigOption>,
     pub usage: Option<UsageUpdate>,
+    /// Token count before a compaction currently in progress.
+    compacting_from: Option<u64>,
     /// When the turn going on started, for the time beside it.
     pub since: Option<Instant>,
     /// When the thought being streamed began.
@@ -581,7 +691,7 @@ impl Format {
 }
 
 /// The picture in `block`, if it is one the desk draws.
-fn image_of(block: &ContentBlock) -> Option<std::sync::Arc<Picture>> {
+pub fn image_of(block: &ContentBlock) -> Option<std::sync::Arc<Picture>> {
     let ContentBlock::Image(image) = block else {
         return None;
     };
@@ -816,6 +926,14 @@ impl Session {
         self.placing.clear();
         self.marks.clear();
         self.times.clear();
+        self.compacting_from = None;
+    }
+
+    /// The agent id this session was handed off from, when it came from a
+    /// different agent (`<agent>:<id>` in `meta.from`).
+    pub fn handoff_agent(&self) -> Option<&str> {
+        let (agent, _) = self.meta.from.as_deref()?.split_once(':')?;
+        (agent != self.meta.agent).then_some(agent)
     }
 
     /// The events of a record up to the one that begins your message
@@ -935,6 +1053,7 @@ impl Session {
             modes: None,
             options: Vec::new(),
             usage: None,
+            compacting_from: None,
             since: None,
             thinking: None,
             pending: None,
@@ -1211,7 +1330,18 @@ impl Session {
                     self.meta.title = title;
                 }
             }
-            SessionUpdate::UsageUpdate(u) => self.usage = Some(u),
+            SessionUpdate::UsageUpdate(u) => {
+                if let Some(Item::Compacted {
+                    before: Some(b),
+                    after: a @ None,
+                    ..
+                }) = self.items.last_mut()
+                    && u.used < *b
+                {
+                    *a = Some(u.used);
+                }
+                self.usage = Some(u);
+            }
             SessionUpdate::SubagentUpdate(u) => {
                 let id = u.session_id.clone();
                 let named = match u.title {
@@ -1253,20 +1383,50 @@ impl Session {
             }),
             // The context compacted: said where it was, as a divider is.
             SessionUpdate::CompactionUpdate(c) => match c.status {
-                CompactionStatus::Completed => self.items.push(Item::Note {
-                    text: "The context was compacted: what came before is summarized for the agent"
-                        .into(),
-                    trouble: false,
-                }),
-                CompactionStatus::Failed => self.items.push(Item::Note {
-                    text: match c.error {
-                        agent_client_protocol::schema::MaybeUndefined::Value(why) => {
-                            format!("The context could not be compacted: {why}")
+                CompactionStatus::InProgress => {
+                    self.compacting_from = self.usage.as_ref().map(|u| u.used);
+                }
+                CompactionStatus::Completed => {
+                    let meta_num = |keys: &[&str]| match &c.meta {
+                        agent_client_protocol::schema::MaybeUndefined::Value(m) => {
+                            keys.iter().find_map(|k| m.get(*k)?.as_u64())
                         }
-                        _ => "The context could not be compacted".into(),
-                    },
-                    trouble: true,
-                }),
+                        _ => None,
+                    };
+                    let before = meta_num(&["tokensBefore", "preTokens", "before"])
+                        .or_else(|| self.compacting_from.take())
+                        .or_else(|| self.usage.as_ref().map(|u| u.used));
+                    let after = meta_num(&["tokensAfter", "postTokens", "after"]);
+                    let summary = match c.summary {
+                        agent_client_protocol::schema::MaybeUndefined::Value(blocks) => {
+                            let s = blocks
+                                .iter()
+                                .map(text_of)
+                                .filter(|t| !t.trim().is_empty())
+                                .collect::<Vec<_>>()
+                                .join("\n\n");
+                            (!s.is_empty()).then_some(s)
+                        }
+                        _ => None,
+                    };
+                    self.items.push(Item::Compacted {
+                        before,
+                        after,
+                        summary,
+                    });
+                }
+                CompactionStatus::Failed => {
+                    self.compacting_from = None;
+                    self.items.push(Item::Note {
+                        text: match c.error {
+                            agent_client_protocol::schema::MaybeUndefined::Value(why) => {
+                                format!("The context could not be compacted: {why}")
+                            }
+                            _ => "The context could not be compacted".into(),
+                        },
+                        trouble: true,
+                    });
+                }
                 _ => {}
             },
             _ => {}
@@ -1355,12 +1515,25 @@ impl Session {
                 .last()
                 .map(|t| t.call.kind)
         });
+        let tool = u0_tool_of(&call.0);
+        let raw_input = request.tool_call.fields.raw_input.clone().or_else(|| {
+            self.tools()
+                .filter(|t| t.call.tool_call_id == call)
+                .last()
+                .and_then(|t| t.call.raw_input.clone())
+        });
+        let facts = raw_input
+            .as_ref()
+            .map(|v| facts_of(v, kind == Some(ToolKind::Execute)))
+            .unwrap_or_default();
         self.update_tool(request.tool_call, None);
         self.items.push(Item::Asked(Asked {
             id,
             title,
             options: request.options,
             kind,
+            tool,
+            facts,
             chosen: None,
         }));
     }
@@ -1640,20 +1813,84 @@ mod tests {
     fn a_compaction_is_said_once_done_and_as_trouble_when_it_fails() {
         let mut s = Session::new(1, "claude-acp", PathBuf::from("/tmp"));
         s.apply(update(
+            r#"{"sessionUpdate":"usage_update","used":184000,"size":200000}"#,
+        ));
+        s.apply(update(
             r#"{"sessionUpdate":"compaction_update","compactionId":"c","status":"in_progress"}"#,
         ));
         assert!(s.items.is_empty());
         s.apply(update(
-            r#"{"sessionUpdate":"compaction_update","compactionId":"c","status":"completed"}"#,
+            r#"{"sessionUpdate":"compaction_update","compactionId":"c","status":"completed","summary":[{"type":"text","text":"Summarized earlier turns"}]}"#,
+        ));
+        s.apply(update(
+            r#"{"sessionUpdate":"usage_update","used":22000,"size":200000}"#,
         ));
         s.apply(update(
             r#"{"sessionUpdate":"compaction_update","compactionId":"d","status":"failed","error":"too big"}"#,
         ));
         assert!(matches!(
             &s.items[..],
-            [Item::Note { trouble: false, .. }, Item::Note { text, trouble: true }]
-                if text.ends_with("too big")
+            [
+                Item::Compacted {
+                    before: Some(184_000),
+                    after: Some(22_000),
+                    summary: Some(sum),
+                },
+                Item::Note { text, trouble: true }
+            ] if sum == "Summarized earlier turns" && text.ends_with("too big")
         ));
+    }
+
+    #[test]
+    fn a_permission_question_reads_u0_tool_name_and_input_facts() {
+        let mut s = Session::new(1, "claude-acp", PathBuf::from("/tmp"));
+        let request: RequestPermissionRequest = serde_json::from_str(
+            r#"{"sessionId":"s","toolCall":{"toolCallId":"u0-open_pr-42","title":"Open a pull request","rawInput":{"base":"main","draft":true,"title":"Fix auth"}},"options":[{"optionId":"once","name":"Allow","kind":"allow_once"}]}"#,
+        )
+        .unwrap();
+        s.asked(7, request);
+        let asked = s.waiting().unwrap();
+        assert_eq!(asked.tool.as_deref(), Some("open_pr"));
+        assert_eq!(
+            asked.facts,
+            vec![
+                ("base".into(), "main".into()),
+                ("draft".into(), "true".into()),
+                ("title".into(), "Fix auth".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tool_call_extracts_images_links_and_structured_output() {
+        let tool: Tool = Tool {
+            call: serde_json::from_value(serde_json::json!({
+                "toolCallId": "m1",
+                "title": "render_diagram",
+                "kind": "other",
+                "status": "completed",
+                "rawOutput": {"url": "https://figma.com/file/abc", "nodes": 12, "theme": "dark"},
+                "content": [
+                    {"type": "content", "content": {"type": "image", "mimeType": "image/png", "data": "iVBORw0KGgo="}}
+                ]
+            }))
+            .unwrap(),
+            started: None,
+            took: None,
+            starts: Vec::new(),
+        };
+        assert_eq!(tool.images().len(), 1);
+        assert_eq!(
+            tool.external_url().as_deref(),
+            Some("https://figma.com/file/abc")
+        );
+        assert_eq!(
+            tool.output_facts(),
+            vec![
+                ("nodes".into(), "12".into()),
+                ("theme".into(), "dark".into()),
+            ]
+        );
     }
 
     #[test]
