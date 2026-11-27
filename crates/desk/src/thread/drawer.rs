@@ -1,7 +1,10 @@
-//! The drawer under the thread (⌘J): your terminals beside the session, a
-//! tab each, one shown or two side by side; the repository's own scripts,
-//! each a click from running in a terminal of its own; a dev server's
-//! address to open; and what a terminal shows, handed to the agent.
+//! The drawer under the thread (`⌘J`, `TerminalBrowser` board): your terminals
+//! beside the session drawn with `u0ui::t3::workspace::TerminalDrawer`, a tab
+//! each, one shown or up to four side by side; the repository's own scripts,
+//! each a click from running in a terminal of its own; a dev server's address
+//! to open; and what a terminal shows, handed to the agent.
+
+use std::rc::Rc;
 
 use gpui::component::{
     Sizable as _,
@@ -9,15 +12,22 @@ use gpui::component::{
     menu::{ContextMenuExt as _, PopupMenuItem},
     separator::Separator,
     switch::Switch,
-    tab::{Tab, TabBar},
 };
 use gpui::{
     Context, Div, Entity, FontWeight, InteractiveElement as _, KeyDownEvent, MouseButton,
     MouseDownEvent, MouseMoveEvent, ScrollEvent, SharedString, StyledText, TextRun, Window, div,
     prelude::*, px,
 };
+use u0ui::{
+    components::{Button, ButtonSize, ButtonVariant},
+    icons::CarbonIcon,
+    t3::workspace::{TerminalDrawer, TerminalTab, TerminalTexts},
+    tokens::{ColorRole, TypeStyle},
+    typography::TypeStyled as _,
+};
 
 use crate::{
+    aside::Surface,
     desk::{
         Desk,
         runs::{self, Layout},
@@ -28,14 +38,15 @@ use crate::{
     ui::{self, Weight},
 };
 
-/// How tall the drawer stands, its tab bar, and a terminal's line.
-pub const HEIGHT: f32 = 340.;
+/// How tall the drawer stands (`TerminalBrowser` board: compact bottom drawer).
+pub const HEIGHT: f32 = 240.;
 /// How many terminals stand side by side at most.
 pub const SIDE_BY_SIDE: usize = 4;
-const BAR: f32 = 38.;
-/// The room around a terminal's text: beside and above.
-const PAD: f32 = 14.;
-const TOP: f32 = 10.;
+/// Height of `TerminalDrawer`'s tab bar (`rem(32.)`).
+const BAR: f32 = 32.;
+/// The room around a terminal's text: beside and above (`.t3-term-view { padding: 12px 24px }`).
+const PAD: f32 = 24.;
+const TOP: f32 = 12.;
 
 /// A terminal's grid: the size its text is set in, a line's height, a
 /// cell's width in the desk's mono face.
@@ -77,14 +88,18 @@ impl Desk {
                 .flex_none()
                 .h(px(HEIGHT))
                 .border_t_1()
-                .border_color(theme::border())
-                .bg(theme::well())
+                .border_color(theme::role(ColorRole::BorderSubtle01))
         })
     }
 
-    /// Your terminals beside the session: their tabs, the scripts, the
-    /// terminal shown (or those side by side), in the drawer or the column.
+    /// Your terminals beside the session (`u0ui::t3::workspace::TerminalDrawer`):
+    /// tabs, repository scripts, and the interactive PTY viewport.
+    #[allow(
+        clippy::too_many_lines,
+        reason = "wires TerminalDrawer tabs, script controls, actions, and PTY panes together"
+    )]
     pub(crate) fn terminal_view(&self, faces: &Faces, grid: Grid, cx: &mut Context<Self>) -> Div {
+        let desk = cx.entity();
         let terms = self.session_terminals();
         let on = self
             .drawer
@@ -96,89 +111,22 @@ impl Desk {
             .map(|s| s.scripts.clone())
             .unwrap_or_default();
 
-        let mut bar = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(4.))
-            .h(px(BAR))
-            .pl(px(10.))
-            .pr(px(8.))
-            .border_b_1()
-            .border_color(theme::border());
         let ids: Vec<u64> = terms.iter().map(|t| t.id).collect();
         let chosen = on.and_then(|id| ids.iter().position(|i| *i == id));
-        bar = bar.child(
-            TabBar::new("terminal-tabs")
-                .segmented()
-                .small()
-                .when_some(chosen, TabBar::selected_index)
-                .children(terms.iter().map(|t| self.tab(faces, t, cx)))
-                .on_click(cx.listener(move |this, ix: &usize, window, cx| {
-                    this.drawer.on = ids.get(*ix).copied();
-                    window.focus(&this.drawer.focus, cx);
-                    cx.notify();
-                })),
-        );
-        bar = bar
-            .child(
-                ui::icon_button("new-terminal", "plus", crate::tr("New terminal"))
-                    .size(px(24.))
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_terminal(None, window, cx);
-                    })),
-            )
-            .child(div().flex_1());
-        let scripts_none = scripts.is_empty();
-        if !scripts_none {
-            bar = bar.child(
-                ui::text(faces, crate::tr("Scripts"))
-                    .text_size(px(crate::style::CAPTION))
-                    .text_color(theme::faint())
-                    .mr(px(2.)),
-            );
-        }
-        for (n, script) in scripts.iter().enumerate() {
-            let name = script.name.clone();
-            bar = bar.child(
-                ui::led_button(
-                    SharedString::from(format!("script-{n}")),
-                    Some(
-                        ui::icon("play", 10.)
-                            .text_color(theme::muted())
-                            .into_any_element(),
-                    ),
-                    script.name.clone(),
-                    Weight::Secondary,
-                )
-                .h(px(24.))
-                .px(px(8.))
-                .tooltip(crate::tr_with(
-                    "%{command}  ·  right-click to change it",
-                    &[("command", &script.command)],
-                ))
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.run_script(&name, window, cx);
-                }))
-                .on_mouse_down(
-                    gpui::MouseButton::Right,
-                    cx.listener(move |this, _, window, cx| this.write_script(Some(n), window, cx)),
-                ),
-            );
-        }
-        if self.session().is_some_and(|s| s.repo) {
-            bar = bar.child(
-                ui::icon_button(
-                    "add-script",
-                    "file-plus",
-                    crate::tr("Add a script to u0.json"),
-                )
-                .size(px(24.))
-                .on_click(cx.listener(|this, _, window, cx| this.write_script(None, window, cx))),
-            );
-        }
+        let tabs: Vec<TerminalTab> = terms
+            .iter()
+            .map(|t| {
+                let raw = t.script.as_deref().unwrap_or(&t.title);
+                let title = if raw.is_empty() {
+                    "zsh".to_owned()
+                } else {
+                    ui::fit(raw, 20)
+                };
+                TerminalTab::new(title).running(t.ended.is_none())
+            })
+            .collect();
+
         let shown = on.and_then(|id| terms.iter().find(|t| t.id == id).copied());
-        // A script's own preview address, else the last one it printed.
         let preview = shown.and_then(|t| {
             scripts
                 .iter()
@@ -186,60 +134,65 @@ impl Desk {
                 .and_then(|x| x.preview.clone())
                 .or_else(|| runs::address(&t.text()))
         });
-        // A rule between what the repository gives and the drawer's own.
-        let ruled = !scripts_none || preview.is_some();
-        if let Some((url, host)) = preview.zip(shown.map(|t| t.host)) {
-            bar = bar.child(
-                ui::button("open-preview", crate::tr("Open preview"), Weight::Quiet)
-                    .tooltip(url.clone())
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.open_address(host, url.clone(), cx);
-                    })),
+
+        let mut extras = div().flex().items_center().gap(px(4.)).pr(px(4.));
+        for (n, script) in scripts.iter().enumerate() {
+            let (name, d_run, d_edit) = (script.name.clone(), desk.clone(), desk.clone());
+            extras = extras.child(
+                div()
+                    .on_mouse_down(MouseButton::Right, move |_, window, cx| {
+                        d_edit.update(cx, |this, cx| this.write_script(Some(n), window, cx));
+                    })
+                    .child(
+                        Button::new(
+                            SharedString::from(format!("script-{n}")),
+                            script.name.clone(),
+                        )
+                        .variant(ButtonVariant::Ghost)
+                        .size(ButtonSize::Sm)
+                        .icon(CarbonIcon::Play)
+                        .on_click(move |_, window, cx| {
+                            let s_name = name.clone();
+                            d_run.update(cx, |this, cx| this.run_script(&s_name, window, cx));
+                        }),
+                    ),
             );
         }
-        bar = bar
-            .when(ruled, |d| {
-                d.child(
-                    Separator::vertical()
-                        .h(px(18.))
-                        .mx(px(4.))
-                        .color(theme::tag_line()),
-                )
-            })
-            .child(self.layout_button(
-                "split-side",
-                "panel-right",
-                "Side by side",
-                Layout::Side,
-                cx,
-            ))
-            .child(self.layout_button(
-                "split-stacked",
-                "list",
-                "One above another",
-                Layout::Stacked,
-                cx,
-            ))
-            .when(!self.terminals_beside(), |d| {
-                d.child(
-                    ui::icon_button(
-                        "hide-drawer",
-                        "chevron-down",
-                        crate::keys::hint(cx, &crate::tr("Hide"), "drawer"),
-                    )
-                    .size(px(26.))
-                    .on_click(cx.listener(|this, _, window, cx| this.toggle_drawer(window, cx))),
-                )
-            });
+        if self.session().is_some_and(|s| s.repo) {
+            let d_add = desk.clone();
+            extras = extras.child(
+                Button::new("add-script", crate::tr("Add a script to u0.json"))
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Sm)
+                    .icon(CarbonIcon::DocumentAdd)
+                    .icon_only(true)
+                    .on_click(move |_, window, cx| {
+                        d_add.update(cx, |this, cx| this.write_script(None, window, cx));
+                    }),
+            );
+        }
+        if let Some((url, host)) = preview.zip(shown.map(|t| t.host)) {
+            let d_prev = desk.clone();
+            extras = extras.child(
+                Button::new("open-preview", crate::tr("Open preview"))
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Sm)
+                    .icon(CarbonIcon::Launch)
+                    .icon_only(true)
+                    .on_click(move |_, _, cx| {
+                        let target = url.clone();
+                        d_prev.update(cx, |this, cx| this.open_address(host, target, cx));
+                    }),
+            );
+        }
 
-        // The one keys go to; split, all of them, four at most.
         let stacked = self.drawer.layout == Layout::Stacked;
         let panes: Vec<&Terminal> = if self.drawer.layout == Layout::One {
             shown.into_iter().collect()
         } else {
             terms.iter().copied().take(SIDE_BY_SIDE).collect()
         };
-        let mut body = div()
+        let mut pty_row = div()
             .id("terminals")
             .key_context(crate::desk::runs::CONTEXT)
             .track_focus(&self.drawer.focus)
@@ -247,49 +200,107 @@ impl Desk {
             .when(stacked, gpui::Styled::flex_col)
             .flex_1()
             .min_h(px(0.))
+            .bg(theme::role(ColorRole::TerminalBackground))
             .on_key_down(cx.listener(|this, e: &KeyDownEvent, _, cx| this.terminal_key(e, cx)));
         for (n, t) in panes.iter().enumerate() {
             if n > 0 {
-                body = body.child(if stacked {
-                    Separator::horizontal().color(theme::border())
+                pty_row = pty_row.child(if stacked {
+                    Separator::horizontal().color(theme::role(ColorRole::BorderSubtle01))
                 } else {
-                    Separator::vertical().color(theme::border())
+                    Separator::vertical().color(theme::role(ColorRole::BorderSubtle01))
                 });
             }
             let focused = Some(t.id) == on;
-            body = body.child(self.pane(faces, t, grid, focused, cx));
+            pty_row = pty_row.child(self.pane(faces, t, grid, focused, cx));
         }
-        div()
+
+        let viewport = div()
             .flex()
             .flex_col()
             .flex_1()
             .min_h(px(0.))
-            .child(bar)
             .children(self.script_form(faces, cx))
-            .child(body)
-    }
+            .child(pty_row);
 
-    /// Split the drawer `layout`'s way (a second terminal opened when it
-    /// holds one), or, split so already, back to one.
-    fn layout_button(
-        &self,
-        id: &'static str,
-        icon: &'static str,
-        what: &'static str,
-        layout: Layout,
-        cx: &mut Context<Self>,
-    ) -> gpui::component::button::Button {
-        let on = self.drawer.layout == layout;
-        ui::icon_button(id, icon, crate::tr(if on { "One terminal" } else { what }))
-            .size(px(26.))
-            .when(on, |b| b.text_color(theme::text()))
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.drawer.layout = if on { Layout::One } else { layout };
-                if !on && this.session_terminals().len() < 2 {
-                    this.open_terminal(None, window, cx);
+        let texts = TerminalTexts {
+            close: Rc::new(|t| crate::tr_with("Close %{title}", &[("title", &t)])),
+            new_terminal: crate::tr("New terminal"),
+            split: crate::tr("Split right"),
+            add_to_chat: crate::tr("Add selection to chat"),
+            maximize: crate::tr("Maximize"),
+            hide: crate::keys::hint(cx, &crate::tr("Hide terminal"), "drawer").into(),
+            exited: Rc::new(|n| crate::tr_with("Process exited with code %{n}", &[("n", &n)])),
+        };
+
+        let (d_sel, d_close, d_new, d_split, d_chat, d_max, d_hide) = (
+            desk.clone(),
+            desk.clone(),
+            desk.clone(),
+            desk.clone(),
+            desk.clone(),
+            desk.clone(),
+            desk,
+        );
+        let close_ids = ids.clone();
+        let active_id = on;
+        let beside = self.terminals_beside();
+
+        let drawer = TerminalDrawer::new("terminal-drawer", tabs)
+            .controlled(chosen.unwrap_or(0))
+            .texts(texts)
+            .bar_extra(extras)
+            .viewport(viewport)
+            .on_select(move |ix, window, cx| {
+                let picked = ids.get(ix).copied();
+                d_sel.update(cx, |this, cx| {
+                    this.drawer.on = picked;
+                    window.focus(&this.drawer.focus, cx);
+                    cx.notify();
+                });
+            })
+            .on_close(move |ix, _, cx| {
+                if let Some(&id) = close_ids.get(ix) {
+                    d_close.update(cx, |this, cx| this.close_terminal(id, cx));
                 }
-                cx.notify();
-            }))
+            })
+            .on_new(move |window, cx| {
+                d_new.update(cx, |this, cx| this.open_terminal(None, window, cx));
+            })
+            .on_split(move |window, cx| {
+                d_split.update(cx, |this, cx| {
+                    let was_side = this.drawer.layout == Layout::Side;
+                    this.drawer.layout = if was_side { Layout::One } else { Layout::Side };
+                    if !was_side && this.session_terminals().len() < 2 {
+                        this.open_terminal(None, window, cx);
+                    }
+                    cx.notify();
+                });
+            })
+            .on_add_to_chat(move |window, cx| {
+                if let Some(id) = active_id {
+                    d_chat.update(cx, |this, cx| this.ask_about_terminal(id, window, cx));
+                }
+            })
+            .on_maximize(move |_, cx| {
+                d_max.update(cx, |this, cx| {
+                    if beside {
+                        this.toggle_whole(cx);
+                    } else {
+                        this.open_surface(Surface::Terminal, cx);
+                    }
+                });
+            })
+            .on_hide(move |window, cx| {
+                d_hide.update(cx, |this, cx| {
+                    if beside {
+                        this.close_shown(cx);
+                    } else {
+                        this.toggle_drawer(window, cx);
+                    }
+                });
+            });
+
+        div().flex().flex_col().flex_1().min_h(px(0.)).child(drawer)
     }
 
     /// Do `what` to the terminal `id`.
@@ -326,8 +337,8 @@ impl Desk {
                     )))
                     .child(
                         ui::text(faces, crate::tr(label))
-                            .text_size(px(crate::style::CAPTION))
-                            .text_color(theme::text2()),
+                            .type_style(TypeStyle::Label01)
+                            .text_color(theme::role(ColorRole::TextSecondary)),
                     )
             };
         let mut form = div()
@@ -338,8 +349,9 @@ impl Desk {
             .gap(px(10.))
             .px(px(12.))
             .py(px(8.))
+            .bg(theme::role(ColorRole::Layer01))
             .border_b_1()
-            .border_color(theme::border())
+            .border_color(theme::role(ColorRole::BorderSubtle01))
             .child(field(&self.drawer.name, 120.))
             .child(field(&self.drawer.command, 280.))
             .child(field(&self.drawer.preview, 220.))
@@ -398,60 +410,6 @@ impl Desk {
         ))
     }
 
-    /// A terminal's tab: its title, how it ended, and a button to close it
-    /// that shows while the pointer is over the tab.
-    fn tab(&self, faces: &Faces, t: &Terminal, cx: &mut Context<Self>) -> Tab {
-        let id = t.id;
-        // The pointer over it is kept by the desk: a hover group's style
-        // never reached the button inside gpui-kit's tab.
-        let closable = self.drawer.hovered == Some(id) || self.drawer.on == Some(id);
-        Tab::new()
-            .on_hover(cx.listener(move |this, over: &bool, _, cx| {
-                let now = if *over {
-                    Some(id)
-                } else {
-                    this.drawer.hovered.filter(|h| *h != id)
-                };
-                if now != this.drawer.hovered {
-                    this.drawer.hovered = now;
-                    cx.notify();
-                }
-            }))
-            .label(ui::fit(&t.title, 22))
-            .prefix(ui::icon("terminal", 12.).text_color(if t.ended.is_some() {
-                theme::quiet()
-            } else {
-                theme::muted()
-            }))
-            .suffix(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(4.))
-                    .children(t.ended.clone().map(|how| {
-                        ui::text(faces, how)
-                            .text_size(px(crate::style::CAPTION))
-                            .text_color(theme::faint())
-                    }))
-                    .when(closable, |d| {
-                        d.child(
-                            ui::icon_button(
-                                SharedString::from(format!("close-term-{id}")),
-                                "x",
-                                crate::tr("Close"),
-                            )
-                            .size(px(18.))
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| {
-                                    cx.stop_propagation();
-                                    this.close_terminal(id, cx);
-                                },
-                            )),
-                        )
-                    }),
-            )
-    }
-
     /// A terminal's screen, its cursor where keys go; the cells chosen
     /// with the mouse, and over them what can be done with them.
     fn pane(
@@ -463,6 +421,7 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let (rows, cursor) = t.rows();
+        let term_ink = theme::role(ColorRole::TerminalText);
         let font = |bold: bool| gpui::Font {
             family: faces.mono.clone(),
             features: gpui::FontFeatures::default(),
@@ -482,7 +441,7 @@ impl Desk {
                 runs.push(TextRun {
                     len: 1,
                     font: font(false),
-                    color: theme::text2(),
+                    color: term_ink,
                     background_color: None,
                     underline: None,
                     strikethrough: None,
@@ -510,8 +469,6 @@ impl Desk {
         } = grid;
         let at = |(row, col): (u16, u16)| (f32::from(col) * cell, f32::from(row) * line);
 
-        // The screen's cells, with where its first one is kept for the
-        // mouse to be read against.
         let origin = t.origin.clone();
         let mut screen = div()
             .relative()
@@ -532,8 +489,8 @@ impl Desk {
                 .size_full(),
             );
         if let Some(((r0, c0), (r1, c1))) = t.chosen() {
-            let mut tint = theme::accent();
-            tint.a = 0.25;
+            let mut tint = theme::role(ColorRole::Interactive);
+            tint.a = 0.28;
             for r in r0..=r1 {
                 let from = if r == r0 { c0 } else { 0 };
                 let to = if r == r1 { c1 + 1 } else { cols };
@@ -559,8 +516,8 @@ impl Desk {
                     .top(px(y))
                     .w(px(cell))
                     .h(px(line))
-                    .bg(theme::text2())
-                    .opacity(0.7),
+                    .bg(term_ink)
+                    .opacity(0.75),
             );
         }
         let (desk, size) = (cx.entity().downgrade(), t.size());
@@ -571,9 +528,6 @@ impl Desk {
             .chosen()
             .map(|chosen| self.chosen_pop(faces, id, at, chosen, cols, cell, cx));
 
-        // Its shell is told the size of the grid as it was laid out, not as
-        // the window's width guesses it: a pane narrower than guessed had
-        // the prompt's right side wrap onto a line of its own.
         let measure = gpui::canvas(
             move |bounds, _, cx| {
                 let fit = fits(
@@ -621,8 +575,6 @@ impl Desk {
                     window.focus(&this.drawer.focus, cx);
                     if let Some(t) = this.drawer.terminals.iter_mut().find(|t| t.id == id) {
                         let at = Self::cell_at(t, e.position, grid);
-                        // ⌘ and a click opens an address; two clicks choose
-                        // a word, three its line.
                         if e.modifiers.platform
                             && let Some(url) = t.link_at(at)
                         {
@@ -631,7 +583,6 @@ impl Desk {
                         } else if e.modifiers.platform
                             && crate::markdown::path_like(&t.word_text(at))
                         {
-                            // ⌘ and a click on a file's path opens it.
                             let named = t.word_text(at);
                             this.open_named(&named);
                         } else {
@@ -658,24 +609,33 @@ impl Desk {
                 }
             }))
             .context_menu(move |menu, _, _| {
-                let item = |label: SharedString, act: fn(&mut Desk, u64, &mut gpui::Window, &mut Context<Desk>)| {
-                    let desk = owner.clone();
-                    PopupMenuItem::new(label)
-                        .on_click(move |_, window, cx| desk.update(cx, |d, cx| act(d, id, window, cx)))
-                };
+                let item =
+                    |label: SharedString,
+                     act: fn(&mut Desk, u64, &mut gpui::Window, &mut Context<Desk>)| {
+                        let desk = owner.clone();
+                        PopupMenuItem::new(label)
+                            .on_click(move |_, window, cx| desk.update(cx, |d, cx| act(d, id, window, cx)))
+                    };
                 let menu = menu
                     .item(item(crate::tr("Copy"), |d, id, _, cx| d.copy_chosen(id, cx)))
                     .item(item(crate::tr("Paste"), |d, id, _, cx| d.paste_terminal(id, cx)))
-                    .item(item(crate::tr("Select all"), |d, id, _, cx| d.with_terminal(id, Terminal::choose_all, cx)))
-                    .item(item(crate::tr("Jump to latest"), |d, id, _, cx| d.with_terminal(id, Terminal::latest, cx)))
+                    .item(item(crate::tr("Select all"), |d, id, _, cx| {
+                        d.with_terminal(id, Terminal::choose_all, cx);
+                    }))
+                    .item(item(crate::tr("Jump to latest"), |d, id, _, cx| {
+                        d.with_terminal(id, Terminal::latest, cx);
+                    }))
                     .item(item(crate::tr("Clear"), |d, id, _, cx| {
                         d.drawer.on = Some(id);
                         d.clear_terminal(cx);
                     }));
                 match &name {
-                    Some(name) => menu.separator().item(item(crate::tr_with("Ask %{name} about it", &[("name", name)]), |d, id, window, cx| {
-                        d.ask_about_terminal(id, window, cx);
-                    })),
+                    Some(name) => menu.separator().item(item(
+                        crate::tr_with("Ask %{name} about it", &[("name", name)]),
+                        |d, id, window, cx| {
+                            d.ask_about_terminal(id, window, cx);
+                        },
+                    )),
                     None => menu,
                 }
             })
@@ -763,7 +723,7 @@ mod tests {
             line: 19.,
             cell: 7.5,
         };
-        assert_eq!(fits(800., 302., grid), (14, 102));
+        assert_eq!(fits(800., 302., grid), (14, 100));
         assert_eq!(fits(10., 302., grid), (14, 2));
     }
 }

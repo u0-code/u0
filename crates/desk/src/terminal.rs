@@ -11,6 +11,7 @@ use std::{
 };
 
 use gpui::{Hsla, Keystroke};
+use u0ui::tokens::ColorRole;
 
 use crate::{proto::Call, theme};
 
@@ -249,7 +250,10 @@ fn drawn(screen: &vt100::Screen) -> (Vec<Vec<Stretch>>, Option<(u16, u16)>) {
                 }
                 let (mut fg, mut bg) = (color(cell.fgcolor()), background(cell.bgcolor()));
                 if cell.inverse() {
-                    (fg, bg) = (bg.unwrap_or_else(theme::bg), Some(fg));
+                    (fg, bg) = (
+                        bg.unwrap_or_else(|| theme::role(ColorRole::TerminalBackground)),
+                        Some(fg),
+                    );
                 }
                 let text = if cell.has_contents() {
                     cell.contents()
@@ -343,7 +347,7 @@ pub fn key_bytes(key: &Keystroke, app_cursor: bool) -> Option<Vec<u8>> {
 /// sixteen named ones, the xterm cube and greys for the rest.
 fn color(c: vt100::Color) -> Hsla {
     match c {
-        vt100::Color::Default => theme::text2(),
+        vt100::Color::Default => theme::role(ColorRole::TerminalText),
         vt100::Color::Idx(n) => indexed(n),
         vt100::Color::Rgb(r, g, b) => rgb(r, g, b),
     }
@@ -359,15 +363,14 @@ fn background(c: vt100::Color) -> Option<Hsla> {
 
 fn indexed(n: u8) -> Hsla {
     match n {
-        0 | 8 => theme::faint(),
-        1 | 9 => theme::coral(),
-        2 | 10 => theme::code_argument(),
-        3 | 11 => theme::code_number(),
-        4 | 12 => theme::code_program(),
-        5 | 13 => rgb(0xC6, 0x9C, 0xE6),
-        6 | 14 => rgb(0x7F, 0xC8, 0xC8),
-        7 => theme::text2(),
-        15 => theme::text(),
+        0 | 8 => rgb(0x8D, 0x8D, 0x8D),
+        1 | 9 => rgb(0xFF, 0x83, 0x89),
+        2 | 10 => rgb(0x42, 0xBE, 0x65),
+        3 | 11 => rgb(0xF1, 0xC2, 0x1B),
+        4 | 12 => rgb(0x78, 0xA9, 0xFF),
+        5 | 13 => rgb(0xBE, 0x95, 0xFF),
+        6 | 14 => rgb(0x3D, 0xDB, 0xD9),
+        7 | 15 => theme::role(ColorRole::TerminalText),
         16..=231 => {
             let n = n - 16;
             let level = |v: u8| if v == 0 { 0 } else { 55 + v * 40 };
@@ -425,9 +428,12 @@ mod tests {
         assert_eq!(rows[0][0].text, "ok ");
         assert_eq!(
             (rows[0][1].text.as_str(), rows[0][1].color),
-            ("red", theme::coral())
+            ("red", rgb(0xFF, 0x83, 0x89))
         );
-        assert_eq!(rows[1][0].background, Some(theme::text2()));
+        assert_eq!(
+            rows[1][0].background,
+            Some(theme::role(ColorRole::TerminalText))
+        );
         assert_eq!(cursor, Some((1, 3)));
     }
 

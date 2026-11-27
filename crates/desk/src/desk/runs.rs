@@ -81,7 +81,6 @@ pub struct Drawer {
     pub focus: FocusHandle,
     pub on: Option<u64>,
     pub layout: Layout,
-    pub hovered: Option<u64>,
     pub closing: Option<u64>,
     pub writing: Option<Writing>,
     pub name: Entity<InputState>,
@@ -97,7 +96,6 @@ impl Drawer {
             focus: cx.focus_handle(),
             on: None,
             layout: Layout::One,
-            hovered: None,
             closing: None,
             writing: None,
             name: cx.new(|cx| InputState::new(window, cx).placeholder("dev")),
@@ -179,7 +177,7 @@ impl Desk {
                 None => raw_url,
             };
             out.push(DevServer {
-                title: t.title.clone(),
+                title: t.script.clone().unwrap_or_else(|| t.title.clone()),
                 command: script.map(|s| s.command.clone()),
                 machine,
                 host: t.host,
@@ -477,13 +475,17 @@ impl Desk {
         }
     }
 
-    /// Hand what is chosen in the terminal `id` to the session's agent:
-    /// put in what you are writing, to say what to do with it.
+    /// Hand what is chosen in the terminal `id` (or its screen when nothing
+    /// is chosen) to the session's agent.
     pub fn ask_about_terminal(&mut self, id: u64, window: &mut Window, cx: &mut Context<Self>) {
         let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id) else {
             return;
         };
-        let Some(chosen) = t.chosen_text() else {
+        let snippet = t.chosen_text().or_else(|| {
+            let trimmed = t.text().trim().to_owned();
+            (!trimmed.is_empty()).then_some(trimmed)
+        });
+        let Some(chosen) = snippet else {
             return;
         };
         t.selection = None;
