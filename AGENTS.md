@@ -503,9 +503,10 @@ the user guide in `website/` (https://u0-code.github.io/u0/).
 ## Commits
 
 Changes are committed straight to `main`, one change per commit, and pushed,
-except a fix for an issue: it goes in as a pull request whose last commit
-says `Fixes #<n>`, reviewed, then merged at once (`gh pr merge --rebase
---delete-branch`), so the issue links to what fixed it. No CI checks a
+except a fix for an issue: it goes in as a pull request that says
+`Fixes #<n>`, reviewed, then squashed into one commit on `main` at once
+(`gh pr merge --squash --delete-branch`; the repository allows no other
+merge), so the issue links to what fixed it. No CI checks a
 change. `just check` before each commit is what stands in for that. CI only builds: each push to `main`
 has `.github/workflows/app.yml` build u0.app with `bundle.sh` and replace
 the `nightly` prerelease with it, which `Casks/u0@nightly.rb` installs;
