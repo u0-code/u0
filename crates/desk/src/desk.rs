@@ -69,6 +69,10 @@ use crate::{
     theme,
 };
 
+/// What a thread begun about something is given once it is on screen
+/// (`Desk::begin_about`): its prompt, its links.
+pub(crate) type Fill = std::rc::Rc<dyn Fn(&mut Desk, &mut Window, &mut Context<Desk>)>;
+
 /// How narrow the sidebar can be dragged, and how wide the middle stays
 /// beside it (`tokens.json` `"layout"`).
 const LEFT_LEAST: f32 = crate::style::SIDEBAR_MIN_WIDTH;
@@ -1001,6 +1005,95 @@ impl Desk {
         }
     }
 
+    /// Begin a thread in `p`, with `agent` (else the project's), that
+    /// comes with something of its own, which `fill` puts in it: in the
+    /// project's draft where that holds nothing yet; else, asked first, in
+    /// its place. A draft no row shows is never written over unasked;
+    /// cancelled, it stays on screen as it was.
+    pub(crate) fn begin_about(
+        &mut self,
+        p: Place,
+        agent: Option<String>,
+        fill: Fill,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let held = (self.draft_in(&p)).filter(|&key| self.draft_holds(key, cx));
+        let Some(key) = held else {
+            self.open_draft(&p, agent.as_deref(), window, cx);
+            if self.current.is_some_and(|k| self.draft_in(&p) == Some(k)) {
+                fill(self, window, cx);
+            }
+            return;
+        };
+        self.show(key, window, cx);
+        let desk = cx.entity();
+        window.open_alert_dialog(cx, move |alert, _, _| {
+            let (desk, p, agent, fill) = (desk.clone(), p.clone(), agent.clone(), fill.clone());
+            alert
+                .title(crate::tr("Replace what you were writing?"))
+                .description(crate::tr(
+                    "This project's new thread already holds what you were writing.",
+                ))
+                .ok_text(crate::tr("Replace"))
+                .show_cancel(true)
+                .on_ok(move |_, window, cx| {
+                    desk.update(cx, |d, cx| {
+                        if d.draft_in(&p) != Some(key) {
+                            return;
+                        }
+                        d.clear_draft(key, window, cx);
+                        d.open_draft(&p, agent.as_deref(), window, cx);
+                        if d.current == Some(key) {
+                            fill(d, window, cx);
+                        }
+                    });
+                    true
+                })
+        });
+    }
+
+    /// The project's draft on screen, begun where there is none: with
+    /// `agent`, else the project's.
+    fn open_draft(
+        &mut self,
+        p: &Place,
+        agent: Option<&str>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match agent {
+            Some(agent) => self.new_session(agent, p.clone(), window, cx),
+            None => self.new_in(p.clone(), window, cx),
+        }
+    }
+
+    /// Whether the draft `key` holds anything of yours: what was typed or
+    /// attached in it, or what it was begun about.
+    fn draft_holds(&self, key: u64, cx: &gpui::App) -> bool {
+        let Some(s) = self.sessions.at(key) else {
+            return false;
+        };
+        if self.current == Some(key) {
+            mention::holds(s, &self.typed(cx), Some(&self.composer.draft))
+        } else {
+            mention::holds(s, &s.meta.unsent, self.composer.drafts.get(&key))
+        }
+    }
+
+    /// Empty the draft `key`, on screen: what was typed and attached in
+    /// it, and what it was begun about.
+    fn clear_draft(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
+        self.put_line("", window, cx);
+        self.composer.draft.attached.clear();
+        self.composer.draft.from_link = false;
+        if let Some(s) = self.sessions.at_mut(key) {
+            s.meta.links.clear();
+            s.begin = None;
+            s.attached.clear();
+        }
+    }
+
     /// The draft kept in the project `p`, on its server; Scratch's for a
     /// scratch folder. A draft is not listed: it is found again here.
     pub(crate) fn draft_in(&self, p: &Place) -> Option<u64> {
@@ -1210,13 +1303,23 @@ impl Desk {
     }
 
     /// Begin the session the composer was drawn for with none on screen,
-    /// what was typed in it kept.
+    /// what was typed in it kept: a thread of its own, with the agent and
+    /// choices the composer showed. The project's draft, which no row
+    /// shows, is left as it was, not written over.
     pub(crate) fn begin_unbegun(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.unbegun().is_none() {
-            return;
+        let Some(drawn) = self.unbegun() else { return };
+        let mut p = Place::project_of(&drawn);
+        if p.folder == self.scratch_dir(p.host) {
+            let Some(folder) = self.scratch(p.host) else {
+                return;
+            };
+            p = folder;
         }
         let typed = self.typed(cx);
-        self.new_default(window, cx);
+        let key = self.sessions.take_key();
+        let s = self.begun_in(key, &drawn.meta.agent, p);
+        self.sessions.all.push(s);
+        self.show(key, window, cx);
         if !typed.is_empty() {
             self.put_line(&typed, window, cx);
         }
@@ -1233,14 +1336,8 @@ impl Desk {
             && let Some(s) = self.sessions.at_mut(key)
             && s.state == State::Draft
         {
-            // Where it works stays, and what git said of it.
-            let mut new = Session::new(key, agent, s.meta.folder.clone());
-            new.host = s.host;
-            new.meta.project = std::mem::take(&mut s.meta.project);
-            (new.branch, new.repo) = (s.branch.take(), s.repo);
-            new.scripts = std::mem::take(&mut s.scripts);
-            new.wants_worktree = s.wants_worktree;
-            *s = new;
+            s.switch_to(agent);
+            self.composer.draft.leads(agent);
         }
         if let Some(key) = self.current {
             let host = self.sessions.at(key).map(|s| s.host);

@@ -154,10 +154,7 @@ impl Desk {
     /// The sessions that wait on you, then the others most lately touched.
     fn to_pick_up(&self) -> Vec<&Session> {
         let shown = self.sessions.all.iter().filter(|s| {
-            self.listed_now(s)
-                && Some(s.key) != self.current
-                && s.meta.flags.settled.is_none()
-                && !(s.is_draft())
+            self.listed_now(s) && Some(s.key) != self.current && s.meta.flags.settled.is_none()
         });
         let (mut needs, mut rest): (Vec<&Session>, Vec<&Session>) =
             shown.partition(|s| asks(s).is_some());

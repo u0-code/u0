@@ -352,8 +352,12 @@ impl Desk {
             run.workflow,
             error_text.trim()
         );
-        self.new_in(place, window, cx);
-        self.put_line(&prompt, window, cx);
+        let fill = std::rc::Rc::new(
+            move |d: &mut Self, window: &mut Window, cx: &mut Context<Self>| {
+                d.put_line(&prompt, window, cx);
+            },
+        );
+        self.begin_about(place, None, fill, window, cx);
     }
 
     /// Answer the question the run `run` waits on.

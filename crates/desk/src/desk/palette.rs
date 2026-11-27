@@ -788,9 +788,8 @@ impl Desk {
                 groups.push(this_thread);
             }
             if !only_actions {
-                let mut recent: Vec<&crate::session::Session> = sessions
-                    .filter(|s| Some(s.key) != self.current && s.state != State::Draft)
-                    .collect();
+                let mut recent: Vec<&crate::session::Session> =
+                    sessions.filter(|s| Some(s.key) != self.current).collect();
                 recent.sort_by_key(|s| std::cmp::Reverse(lists::used(s)));
                 let rows: Vec<Row> = recent
                     .into_iter()

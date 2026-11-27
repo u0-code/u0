@@ -79,9 +79,14 @@ copy** to go on apart.
   when it began, or by name.
 - **Snoozed** and **Settled** shelves sit folded at the foot.
 - A new thread is not a row until you send it. Each project keeps one
-  draft: + on the project, ⌘N or ⇧⌘N brings it back as you left it
-  (what you typed, attached and chose), and begins one where there is
-  none.
+  draft: + on the project, ⌘N, ⇧⌘N, ⌥⌘N (for Scratch) and the
+  palette's **New thread in…** bring it back as you left it (what you
+  typed, attached and chose), and begin one where there is none. Begun
+  for another agent, it keeps all that but the model and options. A
+  thread begun about an issue, a pull request, a failed workflow step
+  or a link's prompt asks before it takes the place of a draft that
+  holds something. What you send from the empty start page goes in a
+  thread of its own, and the draft stays.
 
 Each row ends with the thread's state: Working, Approval, Sign in,
 Failed, Limited, Plan, Done, or Woke.

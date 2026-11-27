@@ -163,21 +163,26 @@ impl Desk {
                 // Only a project you added: a link does not add one.
                 let folder = (project.map(here))
                     .filter(|p| self.projects().contains(p))
-                    .or_else(|| self.chosen_project());
-                let Some(folder) = folder else {
-                    self.new_scratch_on(crate::hub::Host::HERE, window, cx);
-                    return self.write_prompt(prompt, window, cx);
-                };
-                let on = folder.host;
-                match (pr, issue, agent.filter(|a| self.slot(on, a).is_some())) {
-                    (Some(n), _, _) => {
-                        self.start_from_pr(folder, n, String::new(), false, window, cx);
-                    }
-                    (None, Some(n), _) => self.start_from_issue(folder, n, "", false, window, cx),
-                    (None, None, Some(agent)) => self.new_session(&agent, folder, window, cx),
-                    (None, None, None) => self.new_in(folder, window, cx),
+                    .or_else(|| self.chosen_project())
+                    .unwrap_or_else(|| here(self.scratch_dir(crate::hub::Host::HERE)));
+                let agent = agent.filter(|a| self.slot(folder.host, a).is_some());
+                if prompt.is_none() && pr.is_none() && issue.is_none() {
+                    return match agent {
+                        Some(agent) => self.new_session(&agent, folder, window, cx),
+                        None => self.new_in(folder, window, cx),
+                    };
                 }
-                self.write_prompt(prompt, window, cx);
+                let fill = std::rc::Rc::new(
+                    move |d: &mut Self, window: &mut Window, cx: &mut Context<Self>| {
+                        if let Some(n) = pr {
+                            d.about_pr(n, String::new(), false);
+                        } else if let Some(n) = issue {
+                            d.about_issue(n, "", false, window, cx);
+                        }
+                        d.write_prompt(prompt.clone(), window, cx);
+                    },
+                );
+                self.begin_about(folder, agent, fill, window, cx);
             }
             Link::Session { agent, id, prompt } => {
                 let id = agent_client_protocol::v1::schema::SessionId::new(id);

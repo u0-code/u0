@@ -10422,6 +10422,16 @@ _version: 2
   pt-BR: "Substituir o que você estava escrevendo?"
   ru: "Заменить то, что вы писали?"
   sv: "Ersätta det du skrev?"
+"This project's new thread already holds what you were writing.":
+  zh-CN: "此项目的新线程里已有你正在写的内容。"
+  de: "Der neue Thread dieses Projekts enthält bereits, was Sie geschrieben haben."
+  es: "El nuevo hilo de este proyecto ya contiene lo que estabas escribiendo."
+  fr: "Le nouveau fil de ce projet contient déjà ce que vous écriviez."
+  ja: "このプロジェクトの新しいスレッドには、書きかけの内容がすでにあります。"
+  ko: "이 프로젝트의 새 스레드에 이미 작성 중인 내용이 있습니다."
+  pt-BR: "A nova thread deste projeto já contém o que você estava escrevendo."
+  ru: "В новом треде этого проекта уже есть то, что вы писали."
+  sv: "Projektets nya tråd innehåller redan det du skrev."
 "Reply":
   zh-CN: "回复"
   de: "Antworten"

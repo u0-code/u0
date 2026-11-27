@@ -1122,7 +1122,7 @@ impl Desk {
         column: f32,
         cx: &mut Context<Self>,
     ) -> Option<Div> {
-        if !(s.is_draft()) || self.composer.draft.also_run.is_empty() {
+        if !s.is_draft() || self.composer.draft.also_run.is_empty() {
             return None;
         }
         let mut row = div()

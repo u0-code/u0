@@ -105,12 +105,28 @@ impl Draft {
         }
     }
 
+    /// `agent` runs it now, first: it is no longer one it also runs on.
+    pub fn leads(&mut self, agent: &str) {
+        self.also_run.retain(|(a, _)| a != agent);
+    }
+
     fn is_empty(&self) -> bool {
         self.attached.is_empty()
             && self.also_run.is_empty()
             && !self.in_background
             && !self.from_link
     }
+}
+
+/// Whether the draft `s` holds anything of yours: `text` typed in it,
+/// what `draft` attached, or what it was begun about (a pull request or
+/// an issue linked, what its worktree begins from).
+pub fn holds(s: &Session, text: &str, draft: Option<&Draft>) -> bool {
+    !text.trim().is_empty()
+        || draft.is_some_and(|d| !d.attached.is_empty())
+        || !s.attached.is_empty()
+        || !s.meta.links.is_empty()
+        || s.begin.is_some()
 }
 
 /// The draft of the session left (`from`; none for the composer drawn
@@ -1219,6 +1235,35 @@ mod tests {
         assert_eq!(draft.also_run.len(), 1);
         draft.keep_apart(false);
         assert!(draft.also_run.is_empty());
+    }
+
+    #[test]
+    fn a_draft_holds_what_was_typed_attached_or_begun_about_and_not_its_choices() {
+        let mut s = Session::new(1, "a", "/p".into());
+        let mut d = Draft {
+            also_run: vec![("b".into(), None)],
+            in_background: true,
+            ..Draft::default()
+        };
+        assert!(!holds(&s, "  \n", Some(&d)), "choices alone are not lost");
+        assert!(holds(&s, "half written", None));
+        d.attached.push(Attached::Text(Chip::new(
+            crate::session::Context::Paste,
+            "pasted",
+        )));
+        assert!(holds(&s, "", Some(&d)));
+        s.begin = Some(crate::session::Begin::Pr(2, "p".into()));
+        assert!(holds(&s, "", None));
+    }
+
+    #[test]
+    fn the_agent_a_draft_is_switched_to_is_no_longer_one_it_also_runs_on() {
+        let mut d = Draft {
+            also_run: vec![("b".into(), None), ("c".into(), Some("m".into()))],
+            ..Draft::default()
+        };
+        d.leads("b");
+        assert_eq!(d.also_run, vec![("c".into(), Some("m".into()))]);
     }
 
     #[test]
