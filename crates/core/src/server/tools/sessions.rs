@@ -152,19 +152,21 @@ impl Tools {
             return Err("Say what to change: pin, archive, title or tags".into());
         }
         let title = format!("Organise this session: {}", ask.said());
-        let meta = (self.allowed_on("organize_session", title, &ask, &ask.agent, &id)).await?;
+        (self.allowed_on("organize_session", title, &ask, &ask.agent, &id)).await?;
+        // Read again as it is now, once you allowed it: what changed in it
+        // while the card was open stays.
         let mut changed = None;
         self.shared.change_index(|index| {
             let pinned = (index.sessions.iter().filter_map(|m| m.flags.pinned)).max();
-            let now = ask.apply(meta, pinned.unwrap_or(0));
-            if let Some(kept) =
-                (index.sessions.iter_mut()).find(|m| m.agent == now.agent && m.id == now.id)
-            {
-                kept.clone_from(&now);
-            }
-            changed = Some(now);
+            let Some(kept) = (index.sessions.iter_mut())
+                .find(|m| m.agent == ask.agent && m.id.as_ref() == Some(&id))
+            else {
+                return;
+            };
+            *kept = ask.apply(kept.clone(), pinned.unwrap_or(0));
+            changed = Some(kept.clone());
         });
-        let now = changed.ok_or("The index of sessions does not read")?;
+        let now = changed.ok_or("Ghost keeps no such session now")?;
         let told = format!("“{}” is organised.", now.title);
         (self.shared.send)(Event::Organized(Box::new(now)));
         Ok(told)
@@ -273,7 +275,28 @@ esac; done"#;
             &json!({"agent": "a", "session": "s1", "pin": true,
                 "title": "Ship it", "tags": ["release"]}),
         );
-        let title = answer_card(&server, &said, "once");
+        // While the card is open, you archive it on the desk.
+        let card = loop {
+            if let crate::proto::Event::Said { event, .. } =
+                said.recv_timeout(Duration::from_secs(10)).unwrap()
+                && let crate::acp::Event::Permission { id, request } = *event
+            {
+                break (id, request);
+            }
+        };
+        let mut archived = super::super::tests::meta(home.path(), "Work");
+        archived.flags.archived = true;
+        server.handle(Call::Keep(vec![archived]));
+        server.handle(Call::Answer {
+            agent: "a".into(),
+            request: card.0,
+            answer: crate::acp::Answer::Permission(
+                agent_client_protocol::v1::schema::RequestPermissionOutcome::Selected(
+                    agent_client_protocol::v1::schema::SelectedPermissionOutcome::new("once"),
+                ),
+            ),
+        });
+        let title = card.1.tool_call.fields.title.unwrap_or_default();
         assert_eq!(
             title,
             "Organise this session: pin it, rename it “Ship it”, tag it release"
@@ -293,6 +316,10 @@ esac; done"#;
         );
         let kept = server.shared.index.lock().unwrap().clone().unwrap();
         assert_eq!(kept.sessions[0].title, "Ship it");
+        assert!(
+            kept.sessions[0].flags.archived,
+            "what you did meanwhile stays"
+        );
         client.call("organize_session", &json!({"agent": "a", "session": "s1"}));
         assert!(client.result().1, "nothing to change");
     }
