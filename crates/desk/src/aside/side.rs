@@ -1,9 +1,17 @@
 //! A side chat in the column: a branch of the session whole, asked beside
 //! it so that nothing said there goes in it. What was asked and answered,
-//! a line to ask more, and the last answer taken back into the session.
+//! a line to ask more (u0ui's `ComposerCompact`), and the last answer
+//! taken back into the session.
 
-use gpui::component::{Sizable as _, input::Input, scroll::ScrollableElement as _};
+use agent_client_protocol::v1::schema::SessionConfigOptionCategory;
+use gpui::component::scroll::ScrollableElement as _;
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
+use u0ui::{
+    components::{Button, ButtonSize, ButtonVariant},
+    tokens::{ColorRole, TypeStyle},
+    typography::TypeStyled as _,
+    u0::composer::{ComposerCompact, ComposerCompactTexts},
+};
 
 use super::fine;
 use crate::{
@@ -11,8 +19,7 @@ use crate::{
     fonts::Faces,
     markdown,
     session::{Item, State},
-    theme,
-    ui::{self, Weight},
+    theme, ui,
 };
 
 impl Desk {
@@ -24,27 +31,59 @@ impl Desk {
                 .p(px(16.))
                 .child(fine(faces, crate::tr("This side chat is gone.")));
         };
+        // Who answers: the agent, and its model where it has one chosen.
+        let agent = self.name_of(&s.meta.agent);
+        let model = Self::option_name(s, &SessionConfigOptionCategory::Model);
+        let who = model
+            .as_ref()
+            .map_or_else(|| agent.clone(), |m| format!("{agent} · {m}"));
         let up = s.beside;
         // What it was branched with is the session's own: shown there.
         let from = up
             .and_then(|u| self.sessions.at(u))
             .map_or(0, |u| u.items.len().min(s.items.len()));
-        let mut said = div().flex().flex_col().gap(px(12.)).px(px(16.)).py(px(12.));
+        let mut said = div().flex().flex_col().gap(px(16.)).p(px(16.)).child(
+            div()
+                .type_style(TypeStyle::Label01)
+                .text_color(theme::role(ColorRole::TextSecondary))
+                .child(crate::tr_with(
+                    "Side chat · %{name} · doesn't interrupt the thread",
+                    &[("name", &who)],
+                )),
+        );
         for (n, item) in s.items.iter().enumerate().skip(from) {
             said = match item {
                 Item::You(text) => said.child(
-                    div()
-                        .self_end()
-                        .max_w(px(260.))
-                        .px(px(10.))
-                        .py(px(6.))
-                        .rounded(px(10.))
-                        .bg(theme::panel2())
-                        .child(ui::text(faces, text.clone()).text_size(px(crate::style::LABEL))),
+                    div().flex().justify_end().child(
+                        crate::thread::you_said(faces, format!("side-{key}-{n}"), text.clone())
+                            .max_w(px(300.)),
+                    ),
                 ),
-                Item::Agent(text) => said.child(div().text_size(px(crate::style::LABEL)).child(
-                    markdown::render(faces, &format!("side-{key}-{n}"), text, cx),
-                )),
+                Item::Agent(text) => said.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(6.))
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(6.))
+                                .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 14.))
+                                .child(
+                                    div()
+                                        .type_style(TypeStyle::Label01)
+                                        .text_color(theme::role(ColorRole::TextSecondary))
+                                        .child(who.clone()),
+                                ),
+                        )
+                        .child(markdown::render(
+                            faces,
+                            &format!("side-{key}-{n}"),
+                            text,
+                            cx,
+                        )),
+                ),
                 _ => said,
             };
         }
@@ -56,6 +95,26 @@ impl Desk {
         }
         let working = matches!(s.state, State::Working | State::Opening);
         let answered = s.items[from..].iter().any(|i| matches!(i, Item::Agent(_)));
+        let asks = cx.entity();
+        let line = ComposerCompact::new(SharedString::from(format!("side-line-{key}")), agent)
+            .lead(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.))
+            .disabled(working)
+            .texts(ComposerCompactTexts {
+                placeholder: crate::tr_with(
+                    "Ask %{name} on the side…",
+                    &[(
+                        "name",
+                        &model.unwrap_or_else(|| self.name_of(&s.meta.agent)),
+                    )],
+                ),
+                message: crate::tr("Side chat message"),
+                attach: crate::tr("Attach"),
+                send: crate::tr("Send"),
+            })
+            .on_send(move |text, _, cx| {
+                asks.update(cx, |this, cx| this.ask_side(key, &text, cx));
+            });
+        let (back, main) = (cx.entity(), cx.entity());
         div()
             .flex()
             .flex_col()
@@ -77,59 +136,43 @@ impl Desk {
                     .flex_col()
                     .flex_none()
                     .gap(px(8.))
-                    .p(px(10.))
-                    .border_t_1()
-                    .border_color(theme::border())
-                    .child(Input::new(&self.side_line).small().disabled(working))
+                    .px(px(16.))
+                    .pt(px(8.))
+                    .pb(px(16.))
+                    .when(working, |d| d.child(fine(faces, crate::tr("Answering…"))))
+                    .child(line)
                     .child(
                         div()
                             .flex()
                             .items_center()
-                            .gap(px(6.))
-                            .when(working, |d| d.child(fine(faces, crate::tr("Answering…"))))
-                            .child(div().flex_1())
+                            .justify_end()
+                            .gap(px(4.))
                             .when(answered, |d| {
                                 d.child(
-                                    ui::button(
-                                        "side-back",
-                                        crate::tr("Add to chat"),
-                                        Weight::Secondary,
-                                    )
-                                    .on_click(cx.listener(
-                                        move |this, _, window, cx| {
-                                            this.answer_back(key, window, cx);
-                                        },
-                                    )),
+                                    Button::new("side-back", crate::tr("Add to chat"))
+                                        .variant(ButtonVariant::Ghost)
+                                        .size(ButtonSize::Sm)
+                                        .on_click(move |_, window, cx| {
+                                            back.update(cx, |this, cx| {
+                                                this.answer_back(key, window, cx);
+                                            });
+                                        }),
                                 )
                             })
                             .child(
-                                ui::button(
-                                    "side-main",
-                                    crate::tr("Open in main view"),
-                                    Weight::Quiet,
-                                )
-                                .on_click(cx.listener(
-                                    move |this, _, window, cx| {
-                                        this.show(key, window, cx);
-                                    },
-                                )),
+                                Button::new("side-main", crate::tr("Open in main view"))
+                                    .variant(ButtonVariant::Ghost)
+                                    .size(ButtonSize::Sm)
+                                    .on_click(move |_, window, cx| {
+                                        main.update(cx, |this, cx| this.show(key, window, cx));
+                                    }),
                             ),
                     ),
             )
     }
 
-    /// Ask what is on the side chat's line in the side chat shown.
-    pub(crate) fn ask_side(
-        &mut self,
-        text: &str,
-        window: &mut gpui::Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(crate::desk::Surface::Side(key)) = self.surface() else {
-            return;
-        };
+    /// Ask `text` in the side chat `key`.
+    pub(crate) fn ask_side(&mut self, key: u64, text: &str, cx: &mut Context<Self>) {
         self.send_in(key, text, cx);
-        self.side_line
-            .update(cx, |line, cx| line.set_value("", window, cx));
     }
 }

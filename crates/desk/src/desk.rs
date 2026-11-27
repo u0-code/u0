@@ -356,7 +356,6 @@ pub struct Desk {
     /// The right column's tabs, by session.
     pub columns: HashMap<u64, Column>,
     /// The line a side chat in the column is asked in.
-    pub side_line: Entity<InputState>,
     /// The Files tab and the file read in the column.
     pub viewer: Viewer,
     /// The PRs and Issues pages.
@@ -536,19 +535,6 @@ impl Desk {
             },
         )
         .detach();
-        let side_line =
-            cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Ask on the side")));
-        cx.subscribe_in(
-            &side_line,
-            window,
-            |this, input, e: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { .. } = e {
-                    let text = input.read(cx).value().to_string();
-                    this.ask_side(&text, window, cx);
-                }
-            },
-        )
-        .detach();
         let rename = cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Name")));
         cx.subscribe(&rename, |this, input, e: &InputEvent, cx| {
             if let InputEvent::PressEnter { .. } = e {
@@ -715,7 +701,6 @@ impl Desk {
             find: crate::thread::Find::new(window, cx),
             signing: None,
             columns: HashMap::new(),
-            side_line,
             viewer: Viewer::new(window, cx),
             forge: forge::Forge::new(&settings::home(), window, cx),
             tab_scroll: gpui::ScrollHandle::new(),

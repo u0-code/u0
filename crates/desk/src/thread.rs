@@ -901,27 +901,7 @@ impl Desk {
                     .items_end()
                     .gap(px(4.))
                     .group(group)
-                    .child(
-                        Bubble::new()
-                            .alignment(MessageAlignment::End)
-                            .with_variant(BubbleVariant::Secondary)
-                            .max_w(px(520.))
-                            .content(
-                                BubbleContent::new()
-                                    .font_family(faces.ui.clone())
-                                    .text_color(theme::text())
-                                    .bg(theme::bubble())
-                                    .px(px(16.))
-                                    .py(px(12.))
-                                    .rounded(px(BUBBLE_RADIUS))
-                                    .text_size(px(crate::style::BODY))
-                                    .line_height(px(21.)),
-                            )
-                            .child(gpui::base::SelectableText::new(
-                                SharedString::from(format!("{key}-you-words")),
-                                shown,
-                            )),
-                    )
+                    .child(you_said(faces, format!("{key}-you-words"), shown).max_w(px(520.)))
                     .when(long, |d| {
                         d.child(
                             div()
@@ -1551,9 +1531,6 @@ impl Desk {
                                                         chosen.to_string()
                                                     };
                                                     if let Some((key, _)) = this.reading.take() {
-                                                        this.side_line.update(cx, |i, _| {
-                                                            let _ = i;
-                                                        });
                                                         this.ask_beside(key, cx);
                                                         if !text.trim().is_empty() {
                                                             cx.write_to_clipboard(
@@ -2026,6 +2003,26 @@ fn has_body(tool: &Tool) -> bool {
             ToolCallContent::Content(x) => !text_of(&x.content).trim().is_empty(),
             _ => false,
         })
+}
+
+/// What you said, in its bubble (the thread's, a side chat's), its words
+/// selectable under `id`.
+pub(crate) fn you_said(faces: &Faces, id: impl Into<SharedString>, text: String) -> Bubble {
+    Bubble::new()
+        .alignment(MessageAlignment::End)
+        .with_variant(BubbleVariant::Secondary)
+        .content(
+            BubbleContent::new()
+                .font_family(faces.ui.clone())
+                .text_color(theme::text())
+                .bg(theme::bubble())
+                .px(px(16.))
+                .py(px(12.))
+                .rounded(px(BUBBLE_RADIUS))
+                .text_size(px(crate::style::BODY))
+                .line_height(px(21.)),
+        )
+        .child(gpui::base::SelectableText::new(id.into(), text))
 }
 
 #[cfg(test)]

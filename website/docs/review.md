@@ -117,7 +117,9 @@ began), **Plan**, **Background tasks**, **Servers**, **Terminals**,
 
 The **Side chat** tab asks the agent a question beside the thread: it
 knows the whole thread, and nothing said there goes back into it. **Add
-to chat** quotes its last answer into the thread.
+to chat** quotes its last answer into the thread. Its line names who
+answers (**Ask Sonnet on the side…**), and holds while the agent
+answers.
 
 ## Terminals
 
