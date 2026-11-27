@@ -119,6 +119,15 @@ pub struct Asked {
     pub chosen: Option<(String, PermissionOptionKind)>,
 }
 
+impl Asked {
+    /// The option that turns it down this once, where it offers one: what
+    /// "No, and tell it…", and a message sent while it waits, answer it
+    /// with. Never a no for always, which would outlast the note.
+    pub fn no(&self) -> Option<&PermissionOption> {
+        (self.options.iter()).find(|o| o.kind == PermissionOptionKind::RejectOnce)
+    }
+}
+
 /// What the agent asked a person for, beyond a permission (ACP's
 /// elicitation): a form to fill in, or a page to open (`url`). Once
 /// answered, what was said back, in words.
@@ -1850,6 +1859,26 @@ mod tests {
                 ("title".into(), "Fix auth".into()),
             ]
         );
+    }
+
+    #[test]
+    fn a_question_is_turned_down_with_a_note_only_by_its_no_for_this_once() {
+        let mut s = Session::new(1, "claude-acp", PathBuf::from("/tmp"));
+        let request: RequestPermissionRequest = serde_json::from_str(
+            r#"{"sessionId":"s","toolCall":{"toolCallId":"t","title":"make clean"},"options":[{"optionId":"always","name":"Allow always","kind":"allow_always"},{"optionId":"never","name":"Reject always","kind":"reject_always"},{"optionId":"no","name":"Reject","kind":"reject_once"},{"optionId":"yes","name":"Allow","kind":"allow_once"}]}"#,
+        )
+        .unwrap();
+        s.asked(1, request, Asker::Agent);
+        assert_eq!(
+            s.waiting().unwrap().no().map(|o| &*o.option_id.0),
+            Some("no")
+        );
+        let only_always: RequestPermissionRequest = serde_json::from_str(
+            r#"{"sessionId":"s","toolCall":{"toolCallId":"u","title":"ls"},"options":[{"optionId":"yes","name":"Allow","kind":"allow_once"},{"optionId":"never","name":"Reject always","kind":"reject_always"}]}"#,
+        )
+        .unwrap();
+        s.asked(2, only_always, Asker::Agent);
+        assert!(s.waiting().unwrap().no().is_none());
     }
 
     #[test]

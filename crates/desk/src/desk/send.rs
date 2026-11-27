@@ -179,22 +179,11 @@ impl Desk {
         session.ran_on.clone_from(&session.branch);
         if session.state == State::Working || session.state == State::Opening {
             if on_screen {
-                let waiting_reject = session.waiting().and_then(|a| {
-                    let no = a
-                        .options
-                        .iter()
-                        .find(|o| {
-                            o.kind
-                                == agent_client_protocol::v1::schema::PermissionOptionKind::RejectOnce
-                        })
-                        .or_else(|| a.options.last())
-                        .cloned()?;
-                    Some((a.id, no))
-                });
+                let waiting_reject =
+                    (session.waiting()).and_then(|a| Some((a.id, a.no()?.clone())));
                 if let Some((request, no)) = waiting_reject {
                     self.telling = None;
-                    self.choose(key, request, &no, cx);
-                    self.follow_up(key, &text, false, cx);
+                    self.reject_and_say(key, request, &no, &text, cx);
                 } else {
                     self.follow_up(key, &text, self.settings.steer, cx);
                 }
@@ -283,20 +272,44 @@ impl Desk {
     /// turn, and is said as the one going on ends, with what goes with
     /// it; or (`steer`) it goes in now, the turn stopped for it.
     pub(crate) fn follow_up(&mut self, key: u64, text: &str, steer: bool, cx: &mut Context<Self>) {
+        let Some(last) = self.sessions.at(key).map(|s| s.meta.queued.len()) else {
+            return;
+        };
+        self.queue(key, text, last);
+        if steer {
+            self.steer(last, cx);
+        }
+        cx.notify();
+    }
+
+    /// Turn the question `request` in the session `key` down with `no`,
+    /// and say `text` next: before anything queued already, since it
+    /// answers the step the agent is on, not the ones queued after it.
+    fn reject_and_say(
+        &mut self,
+        key: u64,
+        request: u64,
+        no: &agent_client_protocol::v1::schema::PermissionOption,
+        text: &str,
+        cx: &mut Context<Self>,
+    ) {
+        self.choose(key, request, no, cx);
+        self.queue(key, text, 0);
+        cx.notify();
+    }
+
+    /// Queue `text` in the session `key` at `at`, with what goes with it.
+    fn queue(&mut self, key: u64, text: &str, at: usize) {
         let Some(session) = self.sessions.at_mut(key) else {
             return;
         };
-        session.meta.queued.push(text.to_owned());
-        let last = session.meta.queued.len() - 1;
+        let at = at.min(session.meta.queued.len());
+        session.meta.queued.insert(at, text.to_owned());
         let attached = self.attach(key, text);
         if let Some(s) = self.sessions.at_mut(key) {
             s.attached.extend(attached);
         }
         self.save_index();
-        if steer {
-            self.steer(last, cx);
-        }
-        cx.notify();
     }
 
     /// Open the session `key` once its agent on `host` runs, starting it
@@ -531,8 +544,8 @@ impl Desk {
         cx.notify();
     }
 
-    /// Reject the waiting permission `request` once and send what was typed
-    /// in `tell_input` right after.
+    /// Reject the waiting permission `request` once and say what was typed
+    /// in `tell_input` next, before anything queued.
     pub fn reject_and_tell(
         &mut self,
         key: u64,
@@ -546,24 +559,16 @@ impl Desk {
             return;
         }
         let no = self.sessions.at(key).and_then(|s| {
-            let a = s.items.iter().rev().find_map(|i| match i {
-                Item::Asked(a) if a.id == request && a.chosen.is_none() => Some(a),
+            s.items.iter().rev().find_map(|i| match i {
+                Item::Asked(a) if a.id == request && a.chosen.is_none() => a.no().cloned(),
                 _ => None,
-            })?;
-            a.options
-                .iter()
-                .find(|o| {
-                    o.kind == agent_client_protocol::v1::schema::PermissionOptionKind::RejectOnce
-                })
-                .or_else(|| a.options.last())
-                .cloned()
+            })
         });
         self.telling = None;
         self.tell_input
             .update(cx, |i, cx| i.set_value("", window, cx));
         if let Some(no) = no {
-            self.choose(key, request, &no, cx);
-            self.follow_up(key, &text, false, cx);
+            self.reject_and_say(key, request, &no, &text, cx);
         } else {
             self.send_in(key, &text, cx);
         }
