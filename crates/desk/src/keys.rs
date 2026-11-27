@@ -82,6 +82,7 @@ actions!(
         CloseSurface,
         PullRequests,
         Issues,
+        Workflows,
         ClearTerminal,
         EditQueued,
         PreviousTurn,
@@ -103,7 +104,7 @@ actions!(
 /// Each action a binding of yours can name: its name, what it does, and
 /// the action. The keys page lists them in this order.
 type Make = fn() -> Box<dyn Action>;
-pub const ACTIONS: [(&str, &str, Make); 52] = [
+pub const ACTIONS: [(&str, &str, Make); 53] = [
     ("palette", "Go to anything", || Box::new(Palette)),
     ("new_session", "New thread", || Box::new(NewSession)),
     ("new_here", "New thread in this project", || {
@@ -185,6 +186,7 @@ pub const ACTIONS: [(&str, &str, Make); 52] = [
     }),
     ("pull_requests", "Pull requests", || Box::new(PullRequests)),
     ("issues", "Issues", || Box::new(Issues)),
+    ("workflows", "Workflows", || Box::new(Workflows)),
     ("clear_terminal", "Clear the terminal", || {
         Box::new(ClearTerminal)
     }),
@@ -259,6 +261,7 @@ pub const GROUPS: [(&str, &[&str]); 6] = [
             "next_area",
             "toggle_sidebar",
             "settings",
+            "workflows",
             "usage",
         ],
     ),
@@ -624,6 +627,9 @@ pub fn handle(cx: &mut App, shown: &Shown) {
     });
     on::<Issues>(cx, shown, |d, window, cx| {
         d.open_forge(crate::github::Kind::Issue, window, cx);
+    });
+    on::<Workflows>(cx, shown, |d, window, cx| {
+        d.open_tab(Tab::Workflows, window, cx);
     });
     on::<Usage>(cx, shown, |d, window, cx| {
         d.open_tab(Tab::Usage, window, cx);

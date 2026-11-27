@@ -235,10 +235,7 @@ impl Desk {
                 "Threads put away, and what u0 keeps on this Mac.",
                 self.sessions_tab(w),
             ),
-            Tab::Usage => paged(
-                "What threads cost and took, and where your limits stand, as agents said.",
-                self.usage(w),
-            ),
+            Tab::Usage | Tab::Workflows => SettingPage::new(tab.title()),
             Tab::Diagnostics => paged(
                 "What u0 runs on this Mac, and what went wrong.",
                 self.diagnostics(w),
@@ -246,10 +243,6 @@ impl Desk {
             Tab::Tasks => paged(
                 "A prompt said to an agent on a schedule. u0's server runs them, so they run while the window is closed; each run's thread is in the sidebar.",
                 self.tasks(w),
-            ),
-            Tab::Workflows => paged(
-                "Work in stages, run by u0's server as one run that outlives a restart: each step's result is kept as it ends, and a step that fails pauses the run there.",
-                self.flows(w),
             ),
             Tab::Telemetry => paged(
                 "What the machine these settings are of tells the people who make u0, as far as you let it.",

@@ -91,6 +91,10 @@ pub struct Pages {
     pub dictionary: Entity<TextareaState>,
     /// The days the usage page reads over; none, all.
     pub period: Option<u64>,
+    /// Project filter on the Usage workspace page (`None` = all projects).
+    pub usage_project: Option<std::path::PathBuf>,
+    /// Machine filter on the Usage workspace page (`None` = all machines).
+    pub usage_host: Option<crate::hub::Host>,
     /// The project the settings a project may hold are set for, as
     /// t3code's "Applying settings for"; none, everywhere.
     pub scope: Option<std::path::PathBuf>,
@@ -198,7 +202,9 @@ impl Pages {
             }),
             var_secret: true,
             project: None,
-            period: Some(30),
+            period: Some(7),
+            usage_project: None,
+            usage_host: None,
             scope: None,
             forges: Vec::new(),
             themes_refused: Vec::new(),

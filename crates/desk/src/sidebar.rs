@@ -262,8 +262,8 @@ impl Desk {
     /// Five-item section navigation bar (`sb-nav`): `Threads`, `Pull requests`,
     /// `Issues`, `Workflows`, `Usage`.
     fn sidebar_nav(&self, cx: &mut Context<Self>) -> Div {
-        let usage = self.pages.open && self.pages.tab == Tab::Usage;
-        let flows = self.pages.open && self.pages.tab == Tab::Workflows;
+        let usage = !self.pages.open && self.page == Page::Usage;
+        let flows = !self.pages.open && self.page == Page::Workflows;
         let prs = !self.pages.open && self.page == Page::Forge(crate::github::Kind::Pr);
         let issues = !self.pages.open && self.page == Page::Forge(crate::github::Kind::Issue);
         let threads = !self.pages.open && self.page == Page::Thread;
@@ -350,7 +350,7 @@ impl Desk {
                 crate::tr("Workflows"),
                 flows,
                 |this, window, cx| {
-                    this.open_tab(Tab::Workflows, window, cx);
+                    this.open_page(Page::Workflows, window, cx);
                 },
             ))
             .child(tab(
@@ -359,7 +359,7 @@ impl Desk {
                 crate::keys::hint(cx, "Usage", "usage").into(),
                 usage,
                 |this, window, cx| {
-                    this.open_tab(Tab::Usage, window, cx);
+                    this.open_page(Page::Usage, window, cx);
                 },
             ))
     }

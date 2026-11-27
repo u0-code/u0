@@ -199,14 +199,15 @@ Top level:
 | `about` | A line shown with the workflow. |
 | `agent` | The agent for agent steps that name none. |
 | `project` | The folder for steps that name none. |
+| `worktree` | When `true`, each run creates an isolated git worktree of `project` that all steps in that run share. |
 | `steps` | The steps, in order. Each step's `name` must be unique. |
 
 Steps:
 
 | Step | Keys | What it does |
 |---|---|---|
-| `agent` | `name`, `prompt`; optional `agent`, `model`, `project`, `worktree`, `after` | Says `prompt` to an agent in a new thread titled "workflow · step". With `after` (an earlier agent step's name) it goes on in that step's thread instead. The step's result is the agent's last answer. |
-| `run` | `name`, `command`; optional `dir` | Runs `command` with `/bin/sh -c` in `dir` (or the project). The result is its standard output. A non-zero exit pauses the run with its error output. |
+| `agent` | `name`, `prompt`; optional `agent`, `model`, `mode`, `project`, `worktree`, `after` | Says `prompt` to an agent in a new thread titled "workflow · step". With `after` (an earlier agent step's name) it goes on in that step's thread instead. The step's result is the agent's last answer. |
+| `run` | `name`, `command`; optional `dir`, `continue_on_error` | Runs `command` with `/bin/sh -c` in `dir` (or the run's worktree / project). The result is its standard output. A non-zero exit pauses the run with its error output unless `continue_on_error` is `true`. |
 | `ask` | `name`, `title`, `choices`; optional `stop` | Asks you, with one button per choice. Your choice is the step's result. A choice listed in `stop` stops the run. |
 
 Values: `{{input}}` is the run's input, and `{{<step name>}}` is an
@@ -233,14 +234,14 @@ for an option; and a command that runs its words as code (`sh -c`,
 `ssh`, `xargs`) runs a value as code. **Settings › Workflows** says so
 under **Values in commands**.
 
-### Running a workflow
+### Editing and running a workflow
 
-In **Settings › Workflows**, type an input (optional) and press **Start**
-beside the workflow. Under **Runs** you can show those that need you,
-those going, or all. A run shows each finished step with the first line of
-its result and **Open** (its thread); a run waiting on an `ask` step
-shows its choices; a paused run shows why, with **Resume** (run the step
-again). **Cancel** stops a run and the turn in progress.
+Open **Workflows** from the sidebar (or **Settings › Workflows**). Choose **New workflow** or **Edit** on any workflow tab to add, reorder or edit agent, command and question steps in place, or press **Run now** to start a run.
+
+The **Runs** column lists every run of the selected workflow; selecting a run shows its step-by-step timeline:
+- Finished agent steps link to their thread; finished commands show their duration.
+- A failed step shows its exit code and output, with **Fix in a thread** (opens a thread in the run's worktree with the failure context), **Re-run from step N** (truncates completed steps back to step *N* and resumes), and **Full log**.
+- A step waiting on an `ask` question shows its choice buttons, and **Cancel** stops an active run.
 
 Runs are kept in `<home>/runs.json`. A run that was going when the
 server stopped continues when it starts again.

@@ -37,7 +37,7 @@ impl Desk {
             .w_auto()
             .flex_shrink_1()
         };
-        if self.page != Page::Thread {
+        if !matches!(self.page, Page::Thread | Page::Workflows | Page::Usage) {
             bar = bar.child(
                 ui::icon_button("back", "chevron-left", crate::tr("Back · Esc")).on_click(
                     cx.listener(|this, _, window, cx| this.open_page(Page::Thread, window, cx)),
@@ -146,6 +146,12 @@ impl Desk {
                     })
                     .to_string(),
                 ));
+            }
+            Page::Workflows => {
+                bar = self.workflows_topbar(bar, cx);
+            }
+            Page::Usage => {
+                bar = self.usage_topbar(bar, cx);
             }
         }
         bar

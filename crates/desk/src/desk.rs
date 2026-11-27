@@ -93,6 +93,10 @@ pub enum Page {
     Agent(hub::Host, String),
     /// A project's pull requests, or its issues.
     Forge(crate::github::Kind),
+    /// The workflows workspace view (`Workflows` board).
+    Workflows,
+    /// The usage workspace view (`Usage` board).
+    Usage,
 }
 
 pub use crate::aside::{Column, Surface, Viewer};
@@ -1789,6 +1793,14 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if tab == crate::pages::Tab::Usage {
+            self.open_page(Page::Usage, window, cx);
+            return;
+        }
+        if tab == crate::pages::Tab::Workflows {
+            self.open_page(Page::Workflows, window, cx);
+            return;
+        }
         self.pages.tab = tab;
         let page_ix = crate::pages::Tab::ALL
             .iter()
@@ -1917,20 +1929,37 @@ impl Desk {
 
     pub fn open_page(&mut self, page: Page, window: &mut Window, cx: &mut Context<Self>) {
         // An agent's page shows the command of yours that starts it.
-        if let Page::Agent(host, id) = &page {
-            let host = *host;
-            let c = (self.settings_on(host).commands.get(id))
-                .cloned()
-                .unwrap_or_default();
-            self.pages
-                .command
-                .update(cx, |i, cx| i.set_value(&c, window, cx));
-            self.pages
-                .model
-                .update(cx, |i, cx| i.set_value("", window, cx));
-            if let Some(cli) = self.here_on(host, id).and_then(|h| h.cli.clone()) {
-                self.call(host, Call::CliVersion { cli });
+        match &page {
+            Page::Agent(host, id) => {
+                let host = *host;
+                let c = (self.settings_on(host).commands.get(id))
+                    .cloned()
+                    .unwrap_or_default();
+                self.pages
+                    .command
+                    .update(cx, |i, cx| i.set_value(&c, window, cx));
+                self.pages
+                    .model
+                    .update(cx, |i, cx| i.set_value("", window, cx));
+                if let Some(cli) = self.here_on(host, id).and_then(|h| h.cli.clone()) {
+                    self.call(host, Call::CliVersion { cli });
+                }
             }
+            Page::Usage => {
+                self.call(
+                    self.pages.on,
+                    Call::Telemetry(crate::telemetry::Ask::Opened("usage".into())),
+                );
+                self.read_used();
+            }
+            Page::Workflows => {
+                self.call(
+                    self.pages.on,
+                    Call::Telemetry(crate::telemetry::Ask::Opened("workflows".into())),
+                );
+                self.read_flows(window, cx);
+            }
+            _ => {}
         }
         self.page = page;
         self.popup = Popup::Closed;
@@ -2128,6 +2157,8 @@ impl Render for Desk {
                 }
                 Page::Agent(host, id) => middle.child(self.agent_page(&faces, host, &id, cx)),
                 Page::Forge(_) => middle.child(self.forge_page(&faces, cx)),
+                Page::Workflows => middle.child(self.workflows_page(window, cx)),
+                Page::Usage => middle.child(self.usage_page(cx)),
             }
         };
         let right = match &self.page {

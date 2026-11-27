@@ -178,6 +178,63 @@ pub fn ahead(text: &str, now: SystemTime) -> Option<SystemTime> {
     SystemTime::try_from(at).ok()
 }
 
+/// The date and time of `t` for a workspace header:
+/// "Friday 27 November · 10:24".
+pub fn header_date(t: SystemTime, twelve: bool) -> String {
+    format!("{} · {}", local(t).strftime("%A %-d %B"), clock(t, twelve))
+}
+
+/// Short weekday and day of month in local time: "Sat 21".
+pub fn short_day(t: SystemTime) -> String {
+    local(t).strftime("%a %-d").to_string()
+}
+
+/// Local midnight starting the day of `t`.
+pub fn start_of_day(t: SystemTime) -> SystemTime {
+    at_minute(t, 0, 0)
+}
+
+/// Short weekday (or month-day) and clock relative to `now`:
+/// `"10:42"`, `"Mon 02:30"`, or `"Dec 14 02:30"`.
+pub fn short_at(t: SystemTime, now: SystemTime, twelve: bool) -> String {
+    let clk = clock(t, twelve);
+    if local(t).date() == local(now).date() {
+        return clk;
+    }
+    let gap = t
+        .duration_since(now)
+        .or_else(|_| now.duration_since(t))
+        .unwrap_or_default();
+    if gap < Duration::from_hours(168) {
+        format!("{} {clk}", local(t).strftime("%a"))
+    } else {
+        format!("{} {clk}", local(t).strftime("%b %-d"))
+    }
+}
+
+/// How long until `t` from `now`, plus its local clock:
+/// "in 3h 36m · 14:00" or "in 2d 21h · Mon 08:00".
+pub fn until_reset(t: SystemTime, now: SystemTime, twelve: bool) -> String {
+    let secs = t.duration_since(now).map_or(0, |d| d.as_secs());
+    let span = if secs >= 86_400 {
+        let d = secs / 86_400;
+        let h = (secs % 86_400) / 3600;
+        format!("in {d}d {h}h")
+    } else if secs >= 3600 {
+        let h = secs / 3600;
+        let m = (secs % 3600) / 60;
+        format!("in {h}h {m}m")
+    } else {
+        format!("in {}m", (secs / 60).max(1))
+    };
+    let at = if local(t).date() == local(now).date() {
+        clock(t, twelve)
+    } else {
+        format!("{} {}", local(t).strftime("%a"), clock(t, twelve))
+    };
+    format!("{span} · {at}")
+}
+
 /// A time written as RFC 3339 says ("2026-11-24T10:42:07.123Z", or with
 /// an offset such as "+08:00"), as agents date their sessions.
 pub fn parse(text: &str) -> Option<SystemTime> {
