@@ -62,8 +62,18 @@ change is held to these rules.
 
 ## Components
 
-What is drawn is native GPUI, on every platform u0 runs on: no web view,
-no HTML rendered from what an agent says (Markdown is the thread's format).
+What is drawn is native GPUI, on every platform u0 runs on, and no HTML
+rendered from what an agent says (Markdown is the thread's format).
+
+- A web page is shown only in the system's own webview (WKWebView on
+  macOS; WebView2 on Windows and WebKitGTK on Linux to come), through
+  gpui-kit's `gpui-webview` with its `gpui-fast` feature, so u0's menus,
+  popovers and dialogs draw above the page; never an engine u0 bundles.
+- A webview shows only a page you chose to open: a dev server's address,
+  an address you open, an HTML file of yours you open. Never what an agent
+  wrote, and never one opened on an agent's word.
+- Where the system has no webview, u0 says what is missing and how to get
+  it, and opens the page in your browser instead.
 
 - UI components come from, in this order of preference: `u0ui`
   (`u0-code/gpui-u0ui`), `gpui-kit`. Use a component for what it means (a
@@ -217,7 +227,9 @@ crates/desk/src/
                 reads the patches (diff), the Files tab and a file read
                 (files), full tool output (output), git's scopes, commits and
                 pull request (repo), a side chat in it (side), the Devices
-                tab: simulators and emulators (sims)
+                tab: simulators and emulators (sims), the Preview tab: dev
+                servers, and a page you open there in the system's webview
+                (preview)
   pages/        the settings dialog, gpui-kit's Settings, a page a tab (settings, prefs, projects, writing,
                 usage, voice: dictation's settings, updates: on About, hosts:
                 Source control, looks: Appearance's themes, diagnostics,
@@ -268,6 +280,7 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 | A setting in the settings dialog, or a row of a list there | `prefs::item` (a gpui-kit SettingItem whose control the desk draws), under `prefs::group` (a SettingGroup); a row that is more than a name, a line and a control (an agent, a task, a run), `prefs::whole`; never a card of rows drawn by hand |
 | A setting a project may hold otherwise (`Settings::PROJECT`) | read with `Settings::of(project)` (`Desk::settings_in`), drawn with `Desk::own` under the page's `scope_group`, kept with `Settings::hold` |
 | Words the window shows | `crate::tr("English")`, or `crate::tr_with("%{n} running", &[("n", &n)])` for a sentence with values (one key, never pieces glued), its translation in every language added to `crates/desk/locales/app.yml` (a test fails on one missing); `prefs::item`, `prefs::group` and a settings page's title translate their own. What an agent or the server says is not translated |
+| A page inside u0 | `gpui-webview` (gpui-kit's, its `gpui-fast` feature), in the Preview tab (`aside/preview`), for a page you opened |
 | What is typed, found | a file path: `repo::paths` (nucleo-matcher), in the desk and the tools alike; sessions, commands, names: `rank::rank` and `rank::terms` |
 | A short name made of a title (a branch, a file, an id) | `git::slug` |
 
