@@ -22449,3 +22449,13 @@ _version: 2
   pt-BR: "Buscar conversas, projetos, comandos e ajustes"
   ru: "Искать треды, проекты, команды и настройки"
   sv: "Sök trådar, projekt, kommandon och inställningar"
+"Continue with %{level}":
+  zh-CN: "以%{level}级别继续"
+  de: "Weiter mit %{level}"
+  es: "Continuar con %{level}"
+  fr: "Continuer avec %{level}"
+  ja: "%{level} で続ける"
+  ko: "%{level}(으)로 계속"
+  pt-BR: "Continuar com %{level}"
+  ru: "Продолжить с уровнем «%{level}»"
+  sv: "Fortsätt med %{level}"

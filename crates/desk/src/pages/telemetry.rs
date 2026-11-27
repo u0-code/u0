@@ -193,7 +193,7 @@ impl Desk {
             crate::desk::Over::new(
                 desk.clone(),
                 |d, _, cx| {
-                    use u0ui::u0::settings::{ConsentSheet, ConsentTexts};
+                    use u0ui::u0::settings::{ConsentActions, ConsentSheet, ConsentTexts};
                     let sent = d.pages.sent.clone();
                     let reading = crate::tr("Reading…");
                     let desk = cx.entity();
@@ -210,11 +210,14 @@ impl Desk {
                         levels: Level::ALL.map(|l| crate::tr(l.name())),
                         describe: Level::ALL.map(|l| crate::tr(l.about())),
                         share_nothing: crate::tr("Keep telemetry off"),
-                        proceed: crate::tr("Continue"),
+                        proceed: std::rc::Rc::new(|level| {
+                            crate::tr_with("Continue with %{level}", &[("level", &level)])
+                        }),
                     };
                     ConsentSheet::new("first-run-telemetry")
                         .app_name("u0")
                         .default_level(1)
+                        .actions(ConsentActions::Dialog)
                         .texts(texts)
                         .payload(move |lvl| {
                             sent.get(lvl).cloned().flatten().map_or_else(
