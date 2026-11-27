@@ -458,52 +458,394 @@ fn over_https(url: &str) -> Option<String> {
         .then(|| format!("https://{host}/{path}"))
 }
 
+/// One entry inside a `.zip` archive, read from its central directory.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ZipEntry {
+    pub path: String,
+    pub bytes: u64,
+    pub is_dir: bool,
+}
+
 /// What a file holds, as the column's viewer shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Body {
-    /// Text, cut at `TEXT_MOST` bytes.
-    Text(String),
+    /// Text, cut at `TEXT_MOST` (or `MINIFIED_MOST` when minified and not `full`).
+    Text {
+        text: String,
+        total_bytes: u64,
+        truncated: bool,
+        minified: bool,
+    },
+    /// Comma- or tab-separated values parsed into columns and rows, with raw text kept.
+    Table {
+        headers: Vec<String>,
+        rows: Vec<Vec<String>>,
+        total_rows: usize,
+        raw: String,
+    },
+    /// A `.zip` archive's entries, browsed without extracting.
+    Archive { bytes: u64, entries: Vec<ZipEntry> },
     /// A PDF's first pages, each a PNG, and how many it has.
     Pdf { pages: Vec<Vec<u8>>, of: usize },
-    /// A picture the window draws from the file itself.
-    Image,
+    /// A picture the window draws from the file itself, with its dimensions and size.
+    Image { width: u32, height: u32, bytes: u64 },
+    /// Video or audio opened with the system player rather than played inside u0.
+    Media { audio: bool, bytes: u64 },
     /// Anything else, by its size.
     Binary(u64),
 }
 
-/// The most of a text file the viewer reads.
+/// The most of a text file the viewer reads, and the preview cap for minified bundles.
 const TEXT_MOST: usize = 2 << 20;
+const MINIFIED_MOST: usize = 100 << 10;
+const ARCHIVE_MOST: u64 = 64 << 20;
+const TABLE_ROWS_MOST: usize = 500;
 /// The pages of a PDF drawn, and how large (points to pixels).
 const PDF_PAGES: usize = 24;
 const PDF_SCALE: f32 = 1.5;
 
-/// Read `path` for the viewer: text, a PDF's pages, a picture, or what
-/// is none of those.
-pub fn read_file(path: PathBuf) -> Event {
-    let body = std::fs::read(&path)
-        .map_err(|e| e.to_string())
-        .and_then(|bytes| body_of(&path, bytes));
+/// Read `path` for the viewer: text, CSV/TSV table, `.zip` archive, PDF pages,
+/// image, video/audio metadata, or binary size.
+pub fn read_file(path: PathBuf, full: bool) -> Event {
+    let body = read_body(&path, full).map(Box::new);
     Event::FileRead { path, body }
 }
 
-fn body_of(path: &Path, mut bytes: Vec<u8>) -> Result<Body, String> {
+fn read_body(path: &Path, full: bool) -> Result<Body, String> {
+    use std::io::Read as _;
+    let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
+    let total_bytes = meta.len();
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    let kind = mime_guess::from_path(path).first();
+
+    if matches!(
+        ext.as_str(),
+        "mp4"
+            | "mov"
+            | "m4v"
+            | "webm"
+            | "mkv"
+            | "avi"
+            | "mp3"
+            | "wav"
+            | "m4a"
+            | "aac"
+            | "flac"
+            | "ogg"
+    ) || kind.as_ref().is_some_and(|m| {
+        m.type_() == mime_guess::mime::VIDEO || m.type_() == mime_guess::mime::AUDIO
+    }) {
+        let audio = matches!(ext.as_str(), "mp3" | "wav" | "m4a" | "aac" | "flac" | "ogg")
+            || kind
+                .as_ref()
+                .is_some_and(|m| m.type_() == mime_guess::mime::AUDIO);
+        return Ok(Body::Media {
+            audio,
+            bytes: total_bytes,
+        });
+    }
+
+    if kind
+        .as_ref()
+        .is_some_and(|m| Format::of(m.essence_str()).is_some())
+    {
+        let (width, height) =
+            imagesize::size(path).map_or((0, 0), |s| (s.width as u32, s.height as u32));
+        return Ok(Body::Image {
+            width,
+            height,
+            bytes: total_bytes,
+        });
+    }
+
+    if ext == "zip" && total_bytes <= ARCHIVE_MOST {
+        let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+        if let Some(entries) = zip_entries(&bytes) {
+            return Ok(Body::Archive {
+                bytes: total_bytes,
+                entries,
+            });
+        }
+        return Ok(Body::Binary(total_bytes));
+    }
+
+    if kind.is_some_and(|m| m == mime_guess::mime::APPLICATION_PDF) {
+        let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+        return pdf_pages(bytes);
+    }
+
+    let mut bytes = Vec::new();
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    std::io::Read::take(file, (TEXT_MOST + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    body_of(path, bytes, total_bytes, full)
+}
+
+fn body_of(path: &Path, mut bytes: Vec<u8>, total_bytes: u64, full: bool) -> Result<Body, String> {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
     let kind = mime_guess::from_path(path).first();
     if kind
         .as_ref()
         .is_some_and(|m| Format::of(m.essence_str()).is_some())
     {
-        return Ok(Body::Image);
+        let (width, height) =
+            imagesize::blob_size(&bytes).map_or((0, 0), |s| (s.width as u32, s.height as u32));
+        return Ok(Body::Image {
+            width,
+            height,
+            bytes: total_bytes,
+        });
     }
     if kind.is_some_and(|m| m == mime_guess::mime::APPLICATION_PDF) || bytes.starts_with(b"%PDF-") {
         return pdf_pages(bytes);
     }
+    if ext == "zip"
+        && let Some(entries) = zip_entries(&bytes)
+    {
+        return Ok(Body::Archive {
+            bytes: total_bytes,
+            entries,
+        });
+    }
     if bytes.iter().take(8192).any(|b| *b == 0) {
-        return Ok(Body::Binary(bytes.len() as u64));
+        return Ok(Body::Binary(total_bytes));
     }
-    if bytes.len() > TEXT_MOST {
-        bytes.truncate(TEXT_MOST);
+    if matches!(ext.as_str(), "csv" | "tsv") && total_bytes <= TEXT_MOST as u64 {
+        let raw = String::from_utf8_lossy(&bytes).into_owned();
+        let sep = if ext == "tsv" { '\t' } else { ',' };
+        if let Some((headers, rows, total_rows)) = parse_delimited(&raw, sep) {
+            return Ok(Body::Table {
+                headers,
+                rows,
+                total_rows,
+                raw,
+            });
+        }
     }
-    Ok(Body::Text(String::from_utf8_lossy(&bytes).into_owned()))
+    let lines = bytes.split(|&b| b == b'\n').count();
+    let minified = matches!(ext.as_str(), "js" | "mjs" | "cjs" | "css" | "json")
+        && bytes.len() > MINIFIED_MOST
+        && bytes.len() / lines > 400;
+    let cap = if minified && !full {
+        MINIFIED_MOST
+    } else {
+        TEXT_MOST
+    };
+    let truncated = total_bytes > cap as u64 || bytes.len() > cap;
+    if bytes.len() > cap {
+        bytes.truncate(cap);
+    }
+    let mut text = String::from_utf8_lossy(&bytes).into_owned();
+    if truncated && text.ends_with('\u{FFFD}') {
+        text.pop();
+    }
+    Ok(Body::Text {
+        text,
+        total_bytes,
+        truncated,
+        minified,
+    })
+}
+
+/// Format minified JSON or JS/CSS source for inspection in the viewer.
+pub fn pretty_print(ext: &str, text: &str) -> String {
+    if ext.eq_ignore_ascii_case("json")
+        && let Ok(val) = serde_json::from_str::<serde_json::Value>(text)
+        && let Ok(pretty) = serde_json::to_string_pretty(&val)
+    {
+        return pretty;
+    }
+    let mut out = String::with_capacity(text.len() + text.len() / 8);
+    let mut indent = 0usize;
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for ch in text.chars() {
+        if let Some(q) = quote {
+            out.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == q {
+                quote = None;
+            }
+            continue;
+        }
+        match ch {
+            '"' | '\'' | '`' => {
+                quote = Some(ch);
+                out.push(ch);
+            }
+            '{' => {
+                indent += 1;
+                out.push_str("{\n");
+                for _ in 0..indent {
+                    out.push_str("  ");
+                }
+            }
+            '}' => {
+                indent = indent.saturating_sub(1);
+                out.push('\n');
+                for _ in 0..indent {
+                    out.push_str("  ");
+                }
+                out.push('}');
+            }
+            ';' => {
+                out.push_str(";\n");
+                for _ in 0..indent {
+                    out.push_str("  ");
+                }
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+/// Parse CSV or TSV text into headers, up to `TABLE_ROWS_MOST` rows, and total row count.
+pub fn parse_delimited(text: &str, sep: char) -> Option<(Vec<String>, Vec<Vec<String>>, usize)> {
+    let mut records: Vec<Vec<String>> = Vec::new();
+    let mut row: Vec<String> = Vec::new();
+    let mut field = String::new();
+    let mut in_quotes = false;
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if in_quotes {
+            if ch == '"' {
+                if chars.peek() == Some(&'"') {
+                    chars.next();
+                    field.push('"');
+                } else {
+                    in_quotes = false;
+                }
+            } else {
+                field.push(ch);
+            }
+        } else if ch == '"' && field.is_empty() {
+            in_quotes = true;
+        } else if ch == sep {
+            row.push(std::mem::take(&mut field));
+        } else if ch == '\r' {
+            if chars.peek() == Some(&'\n') {
+                chars.next();
+            }
+            row.push(std::mem::take(&mut field));
+            if row.iter().any(|c| !c.is_empty()) || row.len() > 1 {
+                records.push(std::mem::take(&mut row));
+            } else {
+                row.clear();
+            }
+        } else if ch == '\n' {
+            row.push(std::mem::take(&mut field));
+            if row.iter().any(|c| !c.is_empty()) || row.len() > 1 {
+                records.push(std::mem::take(&mut row));
+            } else {
+                row.clear();
+            }
+        } else {
+            field.push(ch);
+        }
+    }
+    if !field.is_empty() || !row.is_empty() {
+        row.push(field);
+        if row.iter().any(|c| !c.is_empty()) || row.len() > 1 {
+            records.push(row);
+        }
+    }
+    let headers = records.first()?.clone();
+    if headers.is_empty() {
+        return None;
+    }
+    let total_rows = records.len().saturating_sub(1);
+    let cols = headers.len();
+    let rows = records
+        .into_iter()
+        .skip(1)
+        .take(TABLE_ROWS_MOST)
+        .map(|mut r| {
+            r.resize(cols, String::new());
+            r
+        })
+        .collect();
+    Some((headers, rows, total_rows))
+}
+
+/// Read the central directory of a `.zip` archive without extracting it.
+pub fn zip_entries(bytes: &[u8]) -> Option<Vec<ZipEntry>> {
+    if bytes.len() < 22 {
+        return None;
+    }
+    let min = bytes.len().saturating_sub(65_557);
+    let eocd = (min..=bytes.len() - 22)
+        .rev()
+        .find(|&i| bytes.get(i..i + 4) == Some(&[0x50, 0x4b, 0x05, 0x06]))?;
+    let total = u16::from_le_bytes(bytes.get(eocd + 10..eocd + 12)?.try_into().ok()?) as usize;
+    let mut pos = u32::from_le_bytes(bytes.get(eocd + 16..eocd + 20)?.try_into().ok()?) as usize;
+    let mut entries = Vec::with_capacity(total.min(5000));
+    for _ in 0..total.min(5000) {
+        if bytes.get(pos..pos + 4) != Some(&[0x50, 0x4b, 0x01, 0x02]) {
+            break;
+        }
+        let size = u64::from(u32::from_le_bytes(
+            bytes.get(pos + 24..pos + 28)?.try_into().ok()?,
+        ));
+        let name_len = u16::from_le_bytes(bytes.get(pos + 28..pos + 30)?.try_into().ok()?) as usize;
+        let extra_len =
+            u16::from_le_bytes(bytes.get(pos + 30..pos + 32)?.try_into().ok()?) as usize;
+        let comment_len =
+            u16::from_le_bytes(bytes.get(pos + 32..pos + 34)?.try_into().ok()?) as usize;
+        let name_bytes = bytes.get(pos + 46..pos + 46 + name_len)?;
+        let path = String::from_utf8_lossy(name_bytes).into_owned();
+        let is_dir = path.ends_with('/');
+        entries.push(ZipEntry {
+            path,
+            bytes: size,
+            is_dir,
+        });
+        pos = pos.checked_add(46 + name_len + extra_len + comment_len)?;
+    }
+    Some(entries)
+}
+
+/// Extract the `.zip` archive `archive` into `dest`.
+pub fn extract_archive(archive: &Path, dest: &Path) -> Event {
+    let result = std::fs::create_dir_all(dest)
+        .map_err(|e| e.to_string())
+        .and_then(|()| {
+            crate::registry::run(
+                std::process::Command::new("unzip")
+                    .args(["-q", "-o"])
+                    .arg(archive)
+                    .arg("-d")
+                    .arg(dest),
+            )
+            .map(|_| format!("Extracted to {}", dest.display()))
+        })
+        .map_err(|why| ("Couldn't extract the archive".into(), why));
+    Event::Notice(result)
+}
+
+/// Copy `from` into `to`, creating parent directories when needed.
+pub fn copy_file(from: &Path, to: &Path) -> Event {
+    let result = (|| {
+        if let Some(parent) = to.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        std::fs::copy(from, to).map_err(|e| e.to_string())?;
+        Ok(format!("Copied to {}", to.display()))
+    })()
+    .map_err(|why| ("Couldn't copy the file".into(), why));
+    Event::Notice(result)
 }
 
 /// A PDF's first pages drawn, as hayro draws them: in Rust, with no library
@@ -644,15 +986,97 @@ mod tests {
         std::fs::write(&text, "fn a() {}\n").unwrap();
         let bin = dir.path().join("a.bin");
         std::fs::write(&bin, [1u8, 0, 2]).unwrap();
-        let read = |p: &Path| match read_file(p.to_path_buf()) {
-            Event::FileRead { body, .. } => body,
+        let read = |p: &Path| match read_file(p.to_path_buf(), false) {
+            Event::FileRead { body, .. } => body.map(|b| *b),
             _ => unreachable!(),
         };
-        assert_eq!(read(&text), Ok(Body::Text("fn a() {}\n".into())));
+        assert_eq!(
+            read(&text),
+            Ok(Body::Text {
+                text: "fn a() {}\n".into(),
+                total_bytes: 10,
+                truncated: false,
+                minified: false,
+            })
+        );
         assert_eq!(read(&bin), Ok(Body::Binary(3)));
         assert!(read(&dir.path().join("a.png")).is_err());
         std::fs::write(dir.path().join("b.png"), [0u8]).unwrap();
-        assert_eq!(read(&dir.path().join("b.png")), Ok(Body::Image));
+        assert_eq!(
+            read(&dir.path().join("b.png")),
+            Ok(Body::Image {
+                width: 0,
+                height: 0,
+                bytes: 1,
+            })
+        );
+        std::fs::write(dir.path().join("clip.mp4"), [0u8, 1, 2, 3]).unwrap();
+        assert_eq!(
+            read(&dir.path().join("clip.mp4")),
+            Ok(Body::Media {
+                audio: false,
+                bytes: 4,
+            })
+        );
+        let csv = dir.path().join("tokens.csv");
+        std::fs::write(&csv, "role,hex\nbg,\"#161616\"\n").unwrap();
+        assert_eq!(
+            read(&csv),
+            Ok(Body::Table {
+                headers: vec!["role".into(), "hex".into()],
+                rows: vec![vec!["bg".into(), "#161616".into()]],
+                total_rows: 1,
+                raw: "role,hex\nbg,\"#161616\"\n".into(),
+            })
+        );
+        // Minimal valid ZIP archive with one entry `hello.txt` (size 5).
+        let mut zip = Vec::new();
+        // Local file header
+        zip.extend_from_slice(&[0x50, 0x4b, 0x03, 0x04]);
+        zip.extend_from_slice(&[20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        zip.extend_from_slice(&0u32.to_le_bytes());
+        zip.extend_from_slice(&5u32.to_le_bytes());
+        zip.extend_from_slice(&5u32.to_le_bytes());
+        zip.extend_from_slice(&9u16.to_le_bytes());
+        zip.extend_from_slice(&0u16.to_le_bytes());
+        zip.extend_from_slice(b"hello.txt");
+        zip.extend_from_slice(b"hello");
+        let cd_offset = zip.len() as u32;
+        // Central directory header
+        zip.extend_from_slice(&[0x50, 0x4b, 0x01, 0x02]);
+        zip.extend_from_slice(&[20, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        zip.extend_from_slice(&0u32.to_le_bytes());
+        zip.extend_from_slice(&5u32.to_le_bytes());
+        zip.extend_from_slice(&5u32.to_le_bytes());
+        zip.extend_from_slice(&9u16.to_le_bytes());
+        zip.extend_from_slice(&0u16.to_le_bytes());
+        zip.extend_from_slice(&0u16.to_le_bytes());
+        zip.extend_from_slice(&0u16.to_le_bytes());
+        zip.extend_from_slice(&0u16.to_le_bytes());
+        zip.extend_from_slice(&0u32.to_le_bytes());
+        zip.extend_from_slice(&0u32.to_le_bytes());
+        zip.extend_from_slice(b"hello.txt");
+        let cd_size = (zip.len() as u32) - cd_offset;
+        // End of central directory
+        zip.extend_from_slice(&[0x50, 0x4b, 0x05, 0x06, 0, 0, 0, 0]);
+        zip.extend_from_slice(&1u16.to_le_bytes());
+        zip.extend_from_slice(&1u16.to_le_bytes());
+        zip.extend_from_slice(&cd_size.to_le_bytes());
+        zip.extend_from_slice(&cd_offset.to_le_bytes());
+        zip.extend_from_slice(&0u16.to_le_bytes());
+        let zip_path = dir.path().join("release.zip");
+        std::fs::write(&zip_path, &zip).unwrap();
+        assert_eq!(
+            read(&zip_path),
+            Ok(Body::Archive {
+                bytes: zip.len() as u64,
+                entries: vec![ZipEntry {
+                    path: "hello.txt".into(),
+                    bytes: 5,
+                    is_dir: false,
+                }],
+            })
+        );
         assert!(read(&dir.path().join("broken.pdf")).is_err());
         std::fs::write(dir.path().join("broken.pdf"), b"%PDF-1.4 no more").unwrap();
         assert!(read(&dir.path().join("broken.pdf")).is_err());
@@ -661,8 +1085,12 @@ mod tests {
     #[test]
     fn a_pdf_reads_as_its_pages_drawn() {
         let pdf = "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 100 50]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n";
-        let Ok(Body::Pdf { pages, of }) = body_of(Path::new("a.pdf"), pdf.as_bytes().to_vec())
-        else {
+        let Ok(Body::Pdf { pages, of }) = body_of(
+            Path::new("a.pdf"),
+            pdf.as_bytes().to_vec(),
+            pdf.len() as u64,
+            false,
+        ) else {
             panic!("the PDF was not read");
         };
         assert_eq!((pages.len(), of), (1, 1));

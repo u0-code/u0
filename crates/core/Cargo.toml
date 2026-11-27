@@ -33,6 +33,7 @@ slug.workspace = true
 percent-encoding.workspace = true
 url.workspace = true
 mime_guess.workspace = true
+imagesize.workspace = true
 nucleo-matcher.workspace = true
 which.workspace = true
 jiff.workspace = true

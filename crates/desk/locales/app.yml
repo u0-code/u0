@@ -7682,6 +7682,16 @@ _version: 2
   pt-BR: "Carga %{load} em %{cores} núcleos, %{memory} de memória; os processos do u0 ocupam %{held}."
   ru: "Нагрузка %{load} на %{cores} ядрах, памяти %{memory}; процессы u0 занимают %{held}."
   sv: "Belastning %{load} på %{cores} kärnor, %{memory} minne; u0:s processer använder %{held}."
+"Load full file":
+  zh-CN: "加载完整文件"
+  de: "Vollständige Datei laden"
+  es: "Cargar archivo completo"
+  fr: "Charger le fichier complet"
+  ja: "ファイル全体を読み込む"
+  ko: "전체 파일 불러오기"
+  pt-BR: "Carregar arquivo completo"
+  ru: "Загрузить файл целиком"
+  sv: "Läs in hela filen"
 "Load new commits":
   zh-CN: "载入新提交"
   de: "Neue Commits laden"
@@ -9752,6 +9762,16 @@ _version: 2
   pt-BR: "Desligar"
   ru: "Выключить"
   sv: "Stäng av"
+"Pretty-print":
+  zh-CN: "格式化显示"
+  de: "Formatieren"
+  es: "Formatear"
+  fr: "Formater"
+  ja: "整形表示"
+  ko: "보기 좋게 정렬"
+  pt-BR: "Formatar"
+  ru: "Форматировать"
+  sv: "Formatera"
 "Press %{key} twice to quit":
   zh-CN: "连按两次 %{key} 以退出"
   de: "%{key} zweimal drücken, um zu beenden"

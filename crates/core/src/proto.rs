@@ -316,9 +316,22 @@ pub enum Call {
         ask: crate::github::Ask,
         linear: Option<String>,
     },
-    /// What the file at `path` holds, for the column's viewer.
+    /// What the file at `path` holds, for the column's viewer (`full` loads
+    /// past the minified-file preview cap).
     ReadFile {
         path: PathBuf,
+        #[serde(default)]
+        full: bool,
+    },
+    /// Unpack the `.zip` archive `archive` into `dest`.
+    ExtractArchive {
+        archive: PathBuf,
+        dest: PathBuf,
+    },
+    /// Copy an outside-workspace file `from` into the project at `to`.
+    CopyFile {
+        from: PathBuf,
+        to: PathBuf,
     },
     /// Where `words` are in the files of `folder` git sees, looked for
     /// `how`.
@@ -541,7 +554,7 @@ impl Call {
             | Self::ReadPr { dir, .. }
             | Self::PrText { dir, .. }
             | Self::Folders { dir } => vec![dir.as_path()],
-            Self::ReadFile { path } => vec![path.as_path()],
+            Self::ReadFile { path, .. } => vec![path.as_path()],
             Self::Sizes { worktrees } => worktrees.iter().map(PathBuf::as_path).collect(),
             Self::Place { calls, .. } => (calls.iter())
                 .flat_map(|(_, files)| files.iter().map(|(path, _)| path.as_path()))
@@ -581,6 +594,8 @@ impl Call {
             | Self::CopyRecord { .. }
             | Self::SaveScript { .. }
             | Self::MakeFolder { .. }
+            | Self::ExtractArchive { .. }
+            | Self::CopyFile { .. }
             | Self::Forge { .. }
             | Self::Create { .. }
             | Self::Clone { .. }
@@ -886,7 +901,7 @@ pub enum Event {
     /// What the file at `path` holds.
     FileRead {
         path: PathBuf,
-        body: Result<crate::repo::Body, String>,
+        body: Result<Box<crate::repo::Body>, String>,
     },
     /// What git grep found for `words`: each place as "path:line", and the
     /// line.
@@ -1227,6 +1242,15 @@ mod tests {
             },
             Call::ReadFile {
                 path: dir.join("a.rs"),
+                full: false,
+            },
+            Call::ExtractArchive {
+                archive: dir.join("release.zip"),
+                dest: dir.join("release"),
+            },
+            Call::CopyFile {
+                from: PathBuf::from("/tmp/spec.md"),
+                to: dir.join("spec.md"),
             },
             Call::Forge {
                 folder: dir.clone(),
@@ -1431,10 +1455,10 @@ mod tests {
             },
             Event::FileRead {
                 path: dir.join("a.pdf"),
-                body: Ok(crate::repo::Body::Pdf {
+                body: Ok(Box::new(crate::repo::Body::Pdf {
                     pages: vec![vec![0x89, b'P']],
                     of: 3,
-                }),
+                })),
             },
             Event::Grepped {
                 words: "fn main".into(),

@@ -8791,6 +8791,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "imagesize 0.14.0",
  "jiff 1.0.2",
  "libc",
  "mime_guess",

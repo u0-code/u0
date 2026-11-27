@@ -253,7 +253,12 @@ impl Desk {
     /// Ask the server `host` for what the file at `path` there holds, for
     /// its tab in the column.
     pub(crate) fn read_file(&self, host: crate::hub::Host, path: PathBuf) {
-        self.call(host, Call::ReadFile { path });
+        self.call(host, Call::ReadFile { path, full: false });
+    }
+
+    /// Ask the server `host` for the full contents of a truncated minified file.
+    pub(crate) fn read_file_full(&self, host: crate::hub::Host, path: PathBuf) {
+        self.call(host, Call::ReadFile { path, full: true });
     }
 
     /// Show the changes of `scope`; the branch's and a commit's are read

@@ -601,7 +601,11 @@ impl Server {
                 files: git::files(&folder),
                 folder,
             }),
-            Call::ReadFile { path } => self.off(move || repo::read_file(path)),
+            Call::ReadFile { path, full } => self.off(move || repo::read_file(path, full)),
+            Call::ExtractArchive { archive, dest } => {
+                self.off(move || repo::extract_archive(&archive, &dest));
+            }
+            Call::CopyFile { from, to } => self.off(move || repo::copy_file(&from, &to)),
             Call::Forge {
                 folder,
                 kind,

@@ -513,7 +513,7 @@ mod tests {
         std::os::unix::fs::symlink(home.path().join("mcp.json"), project.join("out")).unwrap();
         let settings = serde_json::json!({"enabled": [], "folders": [project]});
         std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
-        let read = |path: PathBuf| Call::ReadFile { path };
+        let read = |path: PathBuf| Call::ReadFile { path, full: false };
         let may = |call: &Call| Access::allows(Scope::Read, call, home.path());
         assert!(may(&read(project.join("a.rs"))));
         assert!(may(&Call::Watch));

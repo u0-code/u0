@@ -30,9 +30,35 @@ use crate::{
 
 /// What a file's tab shows once read.
 pub enum Shown {
-    /// Text, in the editor; what it held when read or last saved.
-    Text(String),
-    Image,
+    /// Text, in the editor; what it held when read or last saved, and truncation metadata.
+    Text {
+        original: String,
+        total_bytes: u64,
+        truncated: bool,
+        minified: bool,
+    },
+    /// CSV or TSV table, with raw text for switching to the text editor.
+    Table {
+        headers: Vec<String>,
+        rows: Vec<Vec<String>>,
+        total_rows: usize,
+        raw: String,
+    },
+    /// A `.zip` archive's entries without extracting.
+    Archive {
+        bytes: u64,
+        entries: Vec<crate::repo::ZipEntry>,
+    },
+    Image {
+        width: u32,
+        height: u32,
+        bytes: u64,
+    },
+    /// Video or audio file opened with the system player.
+    Media {
+        audio: bool,
+        bytes: u64,
+    },
     /// A PDF's first pages, and how many it has.
     Pages(Vec<Arc<gpui::Image>>, usize),
     Binary(u64),
@@ -44,6 +70,10 @@ pub enum Shown {
 /// file by name, whether every folder is open; the file asked for, what
 /// came back, its editor, and whether Markdown is drawn; the lines being
 /// commented on, and the field for it.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each toggle controls an independent view option in the file browser and viewer"
+)]
 pub struct Viewer {
     pub tree: Entity<TreeState>,
     pub held: Option<(crate::desk::Place, usize, String, bool)>,
@@ -53,6 +83,9 @@ pub struct Viewer {
     pub shown: Option<Shown>,
     pub editor: Entity<EditorState>,
     pub drawn: bool,
+    pub raw_table: bool,
+    pub zoom_fit: bool,
+    pub pdf_page: usize,
     pub wrap: bool,
     pub lines: Option<(usize, usize)>,
     pub note: Entity<InputState>,
@@ -95,6 +128,9 @@ impl Viewer {
                     .soft_wrap(true)
             }),
             drawn: true,
+            raw_table: false,
+            zoom_fit: true,
+            pdf_page: 0,
             wrap: true,
             lines: None,
             note,
@@ -158,6 +194,8 @@ impl Desk {
             if self.viewer.path.as_ref() != Some(&full) {
                 self.viewer.path = Some(full.clone());
                 self.viewer.lines = None;
+                self.viewer.raw_table = false;
+                self.viewer.pdf_page = 0;
                 self.viewer.shown = None;
                 self.read_file(folder.host, full);
             }
@@ -168,25 +206,65 @@ impl Desk {
     pub(crate) fn file_read(
         &mut self,
         path: &std::path::Path,
-        body: Result<Body, String>,
+        body: Result<Box<Body>, String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if self.viewer.path.as_deref() != Some(path) {
             return;
         }
-        self.viewer.shown = Some(match body {
-            Ok(Body::Text(text)) => {
-                let language = path
-                    .extension()
-                    .map_or_else(|| "text".to_owned(), |e| e.to_string_lossy().into_owned());
-                self.viewer.editor.update(cx, |e, cx| {
-                    e.set_highlighter(language, cx);
-                    e.set_value(&text, window, cx);
-                });
-                Shown::Text(text)
+        let set_editor = |editor: &Entity<EditorState>,
+                          text: &str,
+                          window: &mut Window,
+                          cx: &mut Context<Self>| {
+            let language = path
+                .extension()
+                .map_or_else(|| "text".to_owned(), |e| e.to_string_lossy().into_owned());
+            editor.update(cx, |e, cx| {
+                e.set_highlighter(language, cx);
+                e.set_value(text, window, cx);
+            });
+        };
+        self.viewer.shown = Some(match body.map(|b| *b) {
+            Ok(Body::Text {
+                text,
+                total_bytes,
+                truncated,
+                minified,
+            }) => {
+                set_editor(&self.viewer.editor, &text, window, cx);
+                Shown::Text {
+                    original: text,
+                    total_bytes,
+                    truncated,
+                    minified,
+                }
             }
-            Ok(Body::Image) => Shown::Image,
+            Ok(Body::Table {
+                headers,
+                rows,
+                total_rows,
+                raw,
+            }) => {
+                set_editor(&self.viewer.editor, &raw, window, cx);
+                Shown::Table {
+                    headers,
+                    rows,
+                    total_rows,
+                    raw,
+                }
+            }
+            Ok(Body::Archive { bytes, entries }) => Shown::Archive { bytes, entries },
+            Ok(Body::Image {
+                width,
+                height,
+                bytes,
+            }) => Shown::Image {
+                width,
+                height,
+                bytes,
+            },
+            Ok(Body::Media { audio, bytes }) => Shown::Media { audio, bytes },
             Ok(Body::Pdf { pages, of }) => Shown::Pages(
                 pages
                     .into_iter()
@@ -426,7 +504,12 @@ impl Desk {
         let markdown = mermaid || matches!(ext, "md" | "markdown");
         let value = self.viewer.editor.read(cx).value().to_string();
         let text = match &self.viewer.shown {
-            Some(Shown::Text(was)) => Some(was.clone()),
+            Some(Shown::Text {
+                original,
+                truncated: false,
+                ..
+            }) => Some(original.clone()),
+            Some(Shown::Table { raw, .. }) if self.viewer.raw_table => Some(raw.clone()),
             _ => None,
         };
         let changed = text.as_ref().is_some_and(|was| *was != value);
@@ -516,8 +599,14 @@ impl Desk {
                         .h(px(24.))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             let text = this.viewer.editor.read(cx).value().to_string();
+                            let total_bytes = text.len() as u64;
                             this.write(saved.clone(), text.clone());
-                            this.viewer.shown = Some(Shown::Text(text));
+                            this.viewer.shown = Some(Shown::Text {
+                                original: text,
+                                total_bytes,
+                                truncated: false,
+                                minified: false,
+                            });
                             cx.notify();
                         })),
                 )
@@ -527,7 +616,7 @@ impl Desk {
                 .p(px(16.))
                 .child(empty(faces, crate::tr("Reading…")))
                 .into_any_element(),
-            Some(Shown::Text(_)) if markdown && self.viewer.drawn => div()
+            Some(Shown::Text { .. }) if markdown && self.viewer.drawn => div()
                 .id("file-drawn")
                 .flex_1()
                 .min_h(px(0.))
@@ -545,20 +634,188 @@ impl Desk {
                 ))
                 .overflow_y_scrollbar()
                 .into_any_element(),
-            Some(Shown::Text(_)) => div()
+            Some(Shown::Text {
+                total_bytes,
+                minified,
+                truncated,
+                ..
+            }) => {
+                let (total_bytes, minified, truncated) = (*total_bytes, *minified, *truncated);
+                let ext_owned = ext.to_owned();
+                let load_path = full.clone();
+                let host = s.host;
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h(px(0.))
+                    .when(minified || truncated, |d| {
+                        d.child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(8.))
+                                .px(px(12.))
+                                .py(px(6.))
+                                .border_b_1()
+                                .border_color(theme::border())
+                                .child(fine(faces, format!("{} KB", total_bytes.div_ceil(1024))))
+                                .when(minified, |b| {
+                                    b.child(
+                                        ui::button(
+                                            "file-pretty",
+                                            crate::tr("Pretty-print"),
+                                            Weight::Quiet,
+                                        )
+                                        .h(px(24.))
+                                        .on_click(
+                                            cx.listener(move |this, _, window, cx| {
+                                                let cur =
+                                                    this.viewer.editor.read(cx).value().to_string();
+                                                let pretty =
+                                                    crate::repo::pretty_print(&ext_owned, &cur);
+                                                this.viewer.editor.update(cx, |e, cx| {
+                                                    e.set_value(&pretty, window, cx);
+                                                });
+                                            }),
+                                        ),
+                                    )
+                                })
+                                .when(truncated, |b| {
+                                    b.child(
+                                        ui::button(
+                                            "file-load-full",
+                                            crate::tr("Load full file"),
+                                            Weight::Quiet,
+                                        )
+                                        .h(px(24.))
+                                        .on_click(
+                                            cx.listener(move |this, _, _, _| {
+                                                this.read_file_full(host, load_path.clone());
+                                            }),
+                                        ),
+                                    )
+                                }),
+                        )
+                    })
+                    .child(Editor::new(&self.viewer.editor).bordered(false).h_full())
+                    .into_any_element()
+            }
+            Some(Shown::Table { .. }) if self.viewer.raw_table => div()
                 .flex_1()
                 .min_h(px(0.))
                 .child(Editor::new(&self.viewer.editor).bordered(false).h_full())
                 .into_any_element(),
-            Some(Shown::Image) => div()
-                .flex_1()
-                .min_h(px(0.))
-                .p(px(16.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(img(full).max_w_full().max_h_full())
-                .into_any_element(),
+            Some(Shown::Table {
+                headers,
+                rows,
+                total_rows,
+                ..
+            }) => {
+                let summary = format!("{} rows · {} columns", total_rows, headers.len());
+                let mut list = div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .p(px(12.))
+                    .child(fine(faces, summary));
+                list = list.child(fine(faces, headers.join(" | ")));
+                for r in rows.iter().take(50) {
+                    list = list.child(fine(faces, r.join(" | ")));
+                }
+                div()
+                    .id("file-table")
+                    .flex_1()
+                    .min_h(px(0.))
+                    .child(list)
+                    .overflow_y_scrollbar()
+                    .into_any_element()
+            }
+            Some(Shown::Archive { bytes, entries }) => {
+                let mut list = div().flex().flex_col().gap(px(4.)).p(px(12.)).child(fine(
+                    faces,
+                    format!("{} files · {} KB", entries.len(), bytes.div_ceil(1024)),
+                ));
+                for entry in entries.iter().take(100) {
+                    list = list.child(fine(faces, entry.path.clone()));
+                }
+                div()
+                    .id("file-archive")
+                    .flex_1()
+                    .min_h(px(0.))
+                    .child(list)
+                    .overflow_y_scrollbar()
+                    .into_any_element()
+            }
+            Some(Shown::Image {
+                width,
+                height,
+                bytes,
+            }) => {
+                let meta = if *width > 0 && *height > 0 {
+                    format!("{width} × {height} · {} KB", bytes.div_ceil(1024))
+                } else {
+                    format!("{} KB", bytes.div_ceil(1024))
+                };
+                let fit = self.viewer.zoom_fit;
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h(px(0.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .px(px(12.))
+                            .py(px(6.))
+                            .border_b_1()
+                            .border_color(theme::border())
+                            .child(fine(faces, meta))
+                            .child(
+                                ui::button(
+                                    "img-zoom",
+                                    if fit { "100%" } else { "Fit" },
+                                    Weight::Quiet,
+                                )
+                                .h(px(24.))
+                                .on_click(cx.listener(
+                                    |this, _, _, cx| {
+                                        this.viewer.zoom_fit = !this.viewer.zoom_fit;
+                                        cx.notify();
+                                    },
+                                )),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("file-image")
+                            .flex_1()
+                            .min_h(px(0.))
+                            .p(px(16.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(img(full).when(fit, |i| i.max_w_full().max_h_full()))
+                            .overflow_y_scrollbar(),
+                    )
+                    .into_any_element()
+            }
+            Some(Shown::Media { audio, bytes }) => {
+                let kind = if *audio {
+                    crate::tr("Audio")
+                } else {
+                    crate::tr("Video")
+                };
+                div()
+                    .p(px(16.))
+                    .child(empty(
+                        faces,
+                        format!("{kind} · {} KB", bytes.div_ceil(1024)),
+                    ))
+                    .into_any_element()
+            }
             Some(Shown::Pages(pages, of)) => {
                 let mut list = div()
                     .flex()
