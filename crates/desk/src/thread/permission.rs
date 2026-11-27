@@ -305,8 +305,9 @@ impl Desk {
         card.note(Self::card_note(&name, asked))
     }
 
-    /// The foot of a pending card: what its options are, and why u0's
-    /// tools offer no Always where they do not.
+    /// The foot of a pending card: what its options are, and, for u0's
+    /// tools, what Always allow does or why it is not offered, read from
+    /// the options as the server sent them, not from who asks.
     fn card_note(name: &str, asked: &Asked) -> SharedString {
         let always = (asked.options.iter()).any(|o| o.kind == PermissionOptionKind::AllowAlways);
         match &asked.asker {
@@ -326,18 +327,24 @@ impl Desk {
                     ),
                 }
             }
-            Asker::Outside(_) | Asker::Device(_) => {
-                crate::tr("An agent outside u0 shares one key: it is never allowed always.")
-            }
-            Asker::Tool(tool) if always => crate::tr_with(
+            Asker::Tool(tool) | Asker::Device(tool) if always => crate::tr_with(
                 "“Always allow” lets %{tool} act from this thread without asking again.",
                 &[("tool", tool)],
             ),
-            Asker::Tool(tool) if crate::acp::EACH_TIME.contains(&tool.as_str()) => crate::tr_with(
-                "Asked each time: what %{tool} is given can be steered by text nobody vetted (a pull request’s body, a CI log, a webhook), so a yes is for this once.",
-                &[("tool", tool)],
-            ),
-            Asker::Tool(_) => crate::tr("It acts on another thread, so a yes is for this once."),
+            Asker::Outside(_) => {
+                crate::tr("An agent outside u0 shares one key: it is never allowed always.")
+            }
+            Asker::Tool(tool) | Asker::Device(tool)
+                if crate::acp::EACH_TIME.contains(&tool.as_str()) =>
+            {
+                crate::tr_with(
+                    "Asked each time: what %{tool} is given can be steered by text nobody vetted (a pull request’s body, a CI log, a webhook), so a yes is for this once.",
+                    &[("tool", tool)],
+                )
+            }
+            Asker::Tool(_) | Asker::Device(_) => {
+                crate::tr("It acts on another thread, so a yes is for this once.")
+            }
         }
     }
 
@@ -441,5 +448,36 @@ mod tests {
                 ("tags".into(), "a, b".into())
             ]
         );
+    }
+
+    #[test]
+    fn a_device_offered_always_is_not_told_it_never_is() {
+        let options = |json: &str| -> Vec<agent_client_protocol::v1::schema::PermissionOption> {
+            serde_json::from_str(json).unwrap()
+        };
+        let with_always = options(
+            r#"[{"optionId":"once","name":"Allow","kind":"allow_once"},
+                {"optionId":"always","name":"Always allow","kind":"allow_always"},
+                {"optionId":"no","name":"Reject","kind":"reject_once"}]"#,
+        );
+        let asked = |asker: Asker, options| Asked {
+            id: 1,
+            title: "Tap".into(),
+            options,
+            kind: None,
+            asker,
+            call: agent_client_protocol::v1::schema::ToolCallId::new("c"),
+            input: None,
+            asked_at: std::time::SystemTime::now(),
+            chosen: None,
+            answered_at: None,
+            noted: false,
+        };
+        let device = asked(Asker::Device("use_device".into()), with_always.clone());
+        let note = Desk::card_note("Claude", &device);
+        assert!(note.contains("use_device"), "{note}");
+        assert!(!note.contains("never"), "{note}");
+        let merge = asked(Asker::Device("merge_pr".into()), with_always[..1].to_vec());
+        assert!(Desk::card_note("Claude", &merge).contains("merge_pr"));
     }
 }
