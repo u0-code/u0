@@ -163,18 +163,8 @@ impl Desk {
             Ok((wt, scripts)) => {
                 // The branch is named by the writer for what was asked.
                 let said = s.pending.clone().unwrap_or_default();
-                s.meta.folder.clone_from(&wt.path);
-                s.branch = Some(wt.branch.clone());
-                s.scripts = scripts;
-                // A repository of its own now, or a folder of worktrees of
-                // those its folder held: nothing read of that folder holds.
-                s.repo = wt.repos.is_empty();
-                s.git = crate::git::View::default();
-                s.git.repos = wt.repos.iter().map(|w| w.path.clone()).collect();
-                s.git.repo = s.git.repos.first().cloned();
-                s.total = None;
                 let path = wt.path.clone();
-                s.meta.worktree = Some(wt);
+                s.into_worktree(wt, scripts);
                 let (host, agent, project) = (s.host, s.meta.agent.clone(), s.meta.project.clone());
                 let semantic = self.settings_on(host).of(&project).branch_kind;
                 // What the repository runs in each new worktree runs now;

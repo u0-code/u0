@@ -650,6 +650,24 @@ impl Session {
         self.git_dir().is_some() && self.wants_worktree && self.meta.worktree.is_none()
     }
 
+    /// Work in the worktree `wt` made for it before its first turn, with
+    /// the scripts its repository names: a repository of its own now, or
+    /// a folder of worktrees of those its folder held, so nothing read of
+    /// that folder holds; and its first turn runs on the worktree's
+    /// branch, not on the one its folder was on.
+    pub fn into_worktree(&mut self, wt: git::Worktree, scripts: Vec<crate::scripts::Script>) {
+        self.meta.folder.clone_from(&wt.path);
+        self.branch = Some(wt.branch.clone());
+        self.ran_on.clone_from(&self.branch);
+        self.scripts = scripts;
+        self.repo = wt.repos.is_empty();
+        self.git = git::View::default();
+        self.git.repos = wt.repos.iter().map(|w| w.path.clone()).collect();
+        self.git.repo = self.git.repos.first().cloned();
+        self.total = None;
+        self.meta.worktree = Some(wt);
+    }
+
     /// Take what its folder holds, as git said it: whether it is in a
     /// repository, else the repositories in it, the one chosen of them
     /// kept where it is still there.
@@ -1814,6 +1832,24 @@ mod tests {
         assert!(!s.needs_worktree());
         s.repo = true;
         assert!(s.needs_worktree());
+    }
+
+    #[test]
+    fn a_session_moved_into_its_worktree_ran_on_the_worktrees_branch() {
+        let mut s = Session::new(1, "x", "/r".into());
+        s.branch = Some("main".into());
+        // Sent from the draft, on the folder's branch, before the worktree.
+        s.ran_on.clone_from(&s.branch);
+        let wt = git::Worktree {
+            repo: "/r".into(),
+            path: "/w/r-1".into(),
+            branch: "ghost/flow".into(),
+            repos: Vec::new(),
+        };
+        s.into_worktree(wt, Vec::new());
+        assert_eq!(s.meta.folder, PathBuf::from("/w/r-1"));
+        assert_eq!(s.ran_on, s.branch, "no branch changed under it");
+        assert_eq!(s.ran_on.as_deref(), Some("ghost/flow"));
     }
 
     #[test]
