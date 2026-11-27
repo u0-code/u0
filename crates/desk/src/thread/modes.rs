@@ -91,8 +91,8 @@ fn mode_icon(id: &str, name: &str) -> &'static str {
 }
 
 impl Desk {
-    /// Carbon `.t3-cctl` mode chip in the composer footer: `Locked` glyph,
-    /// the mode's name as listed by the agent, and a 12px chevron.
+    /// The mode chip in the composer's footer (u0ui's `ComposerControl`):
+    /// the mode as its agent names it, its menu over it.
     pub(crate) fn mode_chip(
         &self,
         faces: &Faces,
@@ -100,34 +100,8 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> Option<Popover> {
         let name = Self::mode_name(s)?;
-        let open = self.popup == Popup::Mode;
-        let ink = theme::role(if open {
-            u0ui::tokens::ColorRole::TextPrimary
-        } else {
-            u0ui::tokens::ColorRole::TextSecondary
-        });
-        let chip = ui::opener("chip-mode")
-            .h(px(32.))
-            .px(px(8.))
-            .rounded(px(0.))
-            .selected(open)
-            .child(
-                u0ui::icons::Icon::carbon(u0ui::icons::CarbonIcon::Locked)
-                    .size_length(px(16.))
-                    .color(ink),
-            )
-            .child(
-                ui::text(faces, name)
-                    .text_size(px(12.))
-                    .line_height(px(16.))
-                    .text_color(ink),
-            )
-            .child(
-                u0ui::icons::Icon::carbon(u0ui::icons::CarbonIcon::ChevronDown)
-                    .size_length(px(12.))
-                    .color(ink.opacity(0.7)),
-            )
-            .tooltip(crate::keys::hint(cx, &crate::tr("Choose the mode"), "mode"));
+        let chip = u0ui::t3::composer::ComposerControl::new("chip-mode", name)
+            .icon(u0ui::icons::CarbonIcon::Locked);
         let faces = faces.clone();
         Some(over_box(
             self.menu(

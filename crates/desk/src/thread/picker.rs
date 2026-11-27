@@ -16,6 +16,7 @@ use gpui::component::{
     separator::Separator,
 };
 use gpui::{Anchor, Context, Div, SharedString, Stateful, Window, div, prelude::*, px};
+use u0ui::t3::composer::ComposerControl;
 
 use super::{composer::over_box, select_choices};
 use crate::{
@@ -56,8 +57,8 @@ struct Model {
 }
 
 impl Desk {
-    /// Carbon `.t3-cctl` model chip inside the composer footer: the agent's
-    /// mark, its model name and a 12px chevron, opening the 3-column picker.
+    /// The model chip in the composer's footer (u0ui's `ComposerControl`):
+    /// the agent's mark and its model, opening the picker.
     pub(crate) fn model_chip(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Popover {
         let base =
             Self::option_name(s, &Category::Model).unwrap_or_else(|| self.name_of(&s.meta.agent));
@@ -67,33 +68,9 @@ impl Desk {
             base
         };
         let open = self.picker_open();
-        let ink = theme::role(if open {
-            u0ui::tokens::ColorRole::TextPrimary
-        } else {
-            u0ui::tokens::ColorRole::TextSecondary
-        });
-        let chip = ui::opener("chip-model")
-            .h(px(32.))
-            .px(px(8.))
-            .rounded(px(0.))
-            .max_w(px(210.))
+        let chip = ComposerControl::new("chip-model", crate::tr("Choose the model"))
             .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.))
-            .child(ui::one_line(
-                ui::text(faces, model)
-                    .text_size(px(12.))
-                    .line_height(px(16.))
-                    .text_color(ink),
-            ))
-            .child(
-                u0ui::icons::Icon::carbon(u0ui::icons::CarbonIcon::ChevronDown)
-                    .size_length(px(12.))
-                    .color(ink.opacity(0.7)),
-            )
-            .tooltip(crate::keys::hint(
-                cx,
-                &crate::tr("Choose the model"),
-                "model",
-            ));
+            .child(ui::fit(&model, 28));
         let search = gpui::Focusable::focus_handle(self.menu_search.read(cx), cx);
         let (desk, drawn, faces) = (cx.entity(), cx.entity(), faces.clone());
         over_box(Popover::new("model-picker"), Anchor::BottomLeft)
@@ -114,8 +91,8 @@ impl Desk {
             .content(move |_, _, cx| drawn.update(cx, |d, cx| d.picker(&faces, cx)))
     }
 
-    /// Carbon `.t3-cctl` reasoning-effort control (`EffortGlyph` + level name)
-    /// when the session's agent exposes a `ThoughtLevel` option.
+    /// How hard the agent thinks, as bars (`EffortGlyph` in u0ui's
+    /// `ComposerControl`), where its agent has a thought level to choose.
     pub(super) fn effort_chip(
         &self,
         s: &Session,
@@ -124,15 +101,17 @@ impl Desk {
         if !self.composer.also_run.is_empty() && Self::is_draft(s) {
             return None;
         }
-        let effort = Self::option_name(s, &Category::ThoughtLevel)?;
-        let level = effort_level_of(&effort);
+        let (effort, levels) = (s.options.iter())
+            .find(|o| o.category.as_ref() == Some(&Category::ThoughtLevel))
+            .and_then(|o| crate::thread::select_choices(&o.kind))?;
+        let at = levels.iter().position(|(_, _, on)| *on).unwrap_or_default();
+        let level = effort_level_of(at, levels.len());
         let open = self.picker_open();
         let desk = cx.entity();
         Some(
-            u0ui::t3::composer::ComposerControl::new("chip-effort", crate::tr("Effort"))
+            ComposerControl::new("chip-effort", SharedString::from(effort))
                 .active(open)
                 .child(u0ui::t3::composer::EffortGlyph::new(level))
-                .child(SharedString::from(effort))
                 .on_click(move |window, cx| {
                     desk.update(cx, |this, cx| {
                         if this.picker_open() {
@@ -954,24 +933,39 @@ impl Desk {
     }
 }
 
-/// Map an agent's thought-level label onto `EffortGlyph`'s 5-bar scale.
-fn effort_level_of(name: &str) -> u0ui::t3::composer::EffortLevel {
+/// How many of `EffortGlyph`'s five bars a thought level lights: by where
+/// it stands among the agent's own levels (`at` of `of`, lowest first),
+/// whatever it names them.
+fn effort_level_of(at: usize, of: usize) -> u0ui::t3::composer::EffortLevel {
     use u0ui::t3::composer::EffortLevel;
-    let low = name.trim().to_ascii_lowercase();
-    if low.contains("min") || low == "none" || low == "off" {
-        EffortLevel::Minimal
-    } else if low.contains("low") {
-        EffortLevel::Low
-    } else if low.contains("max") || low.contains("xhigh") || low.contains("ultra") {
-        EffortLevel::Max
-    } else if low.contains("high") {
-        EffortLevel::High
-    } else {
-        EffortLevel::Medium
+    if of < 2 {
+        return EffortLevel::Medium;
     }
+    let bars = EffortLevel::ALL.len() - 1;
+    EffortLevel::ALL[(at.min(of - 1) * bars + (of - 1) / 2) / (of - 1)]
 }
 
 /// Whether a choice stands when `query` (lower case) is typed.
 fn shown_by(query: &str, value: &str, label: &str) -> bool {
     query.is_empty() || label.to_lowercase().contains(query) || value.to_lowercase().contains(query)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::effort_level_of;
+    use u0ui::t3::composer::EffortLevel;
+
+    #[test]
+    fn effort_bars_follow_where_a_level_stands_among_the_agents_own() {
+        let three: Vec<_> = (0..3).map(|at| effort_level_of(at, 3)).collect();
+        assert_eq!(
+            three,
+            [EffortLevel::Minimal, EffortLevel::Medium, EffortLevel::Max]
+        );
+        let five: Vec<_> = (0..5).map(|at| effort_level_of(at, 5)).collect();
+        assert_eq!(five, EffortLevel::ALL);
+        assert_eq!(effort_level_of(1, 4), EffortLevel::Low);
+        assert_eq!(effort_level_of(2, 4), EffortLevel::High);
+        assert_eq!(effort_level_of(0, 1), EffortLevel::Medium);
+    }
 }
