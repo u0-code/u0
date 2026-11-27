@@ -5,6 +5,24 @@ description: Agents from the ACP registry, signing in, instances, and telemetry.
 
 # First run
 
+## Set up u0
+
+A new home opens on **Set up u0**, before anything else. Every step is
+optional:
+
+- **Agents**: the agents u0 starts with, each switched on or off,
+  installed or signed in from its row; **Cancel** stops one installing.
+  **Browse the ACP registry** opens **Settings › Agents**.
+- **Your other devices**: **Show pairing link** shows a link and its QR
+  code for another Mac or the phone app (see [Remote control](remote.md)).
+- **Projects and history**: drop a folder to add it as a project, or tick
+  the folders your agents already worked in.
+
+**Continue** adds the folders ticked, asks about telemetry (below), and
+does not show the setup again. Without a project, the window then asks
+**What should we work on?**: open a folder, clone a repository, make a
+new empty project, or **Start without a project (⌥⌘N)**.
+
 ## Telemetry
 
 As u0 first opens (once you continue from its setup page, where it shows
