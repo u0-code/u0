@@ -74,9 +74,11 @@ u0 starts with three agents switched on: **Claude Code**
 GitHub Copilot, OpenCode and more) can be switched on in
 **Settings › Agents**.
 
-Each agent shows at the foot of the sidebar with its logo and whether it
-is ready: **Sign in**, **Install**, **Installing** or **Stopped** when it
-needs something.
+An agent that needs something shows at the foot of the sidebar with its
+logo and what it needs: **Sign in**, **Install**, **Installing** or
+**Stopped**. Several show as one, their logos stacked (with their
+number, such as **3 agents**, when they need different things), which opens
+**Settings › Agents**.
 
 ### Installing
 

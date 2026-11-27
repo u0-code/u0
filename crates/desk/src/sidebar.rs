@@ -600,45 +600,79 @@ impl Desk {
     }
 
     /// 40px sidebar footer (`sb-foot`): `Settings`, compact `Update to …`
-    /// prompt when an update is available, and agent trouble pills when needed.
+    /// prompt when an update is available, and one pill for the agents that
+    /// need something: an agent's own, or their marks stacked when several
+    /// do (opening Settings › Agents), so `Settings` keeps its room.
     fn sidebar_foot(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let mut pills = div().flex().flex_none().items_center().gap(px(4.));
-        for slot in &self.slots {
-            let word = match &slot.stage {
-                Stage::Ready | Stage::Running { .. }
-                    if matches!(slot.auth, crate::hub::Auth::Needed(_)) =>
-                {
-                    "Sign in"
-                }
-                Stage::Missing(_) => "Install",
-                Stage::Installing(_) => "Installing",
-                Stage::Failed(_) => "Stopped",
-                _ => continue,
+        let needing: Vec<_> = self
+            .slots
+            .iter()
+            .filter_map(|slot| {
+                let word = match &slot.stage {
+                    Stage::Ready | Stage::Running { .. }
+                        if matches!(slot.auth, crate::hub::Auth::Needed(_)) =>
+                    {
+                        "Sign in"
+                    }
+                    Stage::Missing(_) => "Install",
+                    Stage::Installing(_) => "Installing",
+                    Stage::Failed(_) => "Stopped",
+                    _ => return None,
+                };
+                Some((slot, word))
+            })
+            .collect();
+        let pill = needing.first().map(|&(first, word)| {
+            let (host, id) = (first.host, first.entry.id.clone());
+            let one = needing.len() == 1;
+            let shown = if needing.iter().all(|(_, w)| *w == word) {
+                crate::tr(word)
+            } else {
+                crate::tr_with("%{n} agents", &[("n", &needing.len())])
             };
-            let (host, id) = (slot.host, slot.entry.id.clone());
-            pills = pills.child(
-                KitButton::new(SharedString::from(format!("pill-{}-{id}", host.0)))
-                    .outline()
-                    .xsmall()
-                    .child(ui::mark(faces, &self.mark_of(&id), 12.))
-                    .child(crate::tr(word))
-                    .accessibility_label(crate::tr_with(
-                        "%{word}: %{agent}",
-                        &[("word", &crate::tr(word)), ("agent", &slot.entry.name)],
-                    ))
-                    .tooltip(match self.server_chip(host) {
+            let told = needing
+                .iter()
+                .map(|(slot, word)| {
+                    let agent = match self.server_chip(slot.host) {
                         Some(on) => crate::tr_with(
                             "%{agent} on %{server}",
                             &[("agent", &slot.entry.name), ("server", &on)],
-                        )
-                        .to_string(),
-                        None => slot.entry.name.clone(),
-                    })
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_agent(host, &id, window, cx);
-                    })),
+                        ),
+                        None => slot.entry.name.clone().into(),
+                    };
+                    crate::tr_with(
+                        "%{word}: %{agent}",
+                        &[("word", &crate::tr(word)), ("agent", &agent)],
+                    )
+                    .to_string()
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let marks = needing.iter().enumerate().fold(
+                div().flex().items_center(),
+                |marks, (ix, (slot, _))| {
+                    marks.child(div().when(ix > 0, |d| d.ml(px(-4.))).child(ui::mark(
+                        faces,
+                        &self.mark_of(&slot.entry.id),
+                        12.,
+                    )))
+                },
             );
-        }
+            KitButton::new("sb-agents")
+                .outline()
+                .xsmall()
+                .child(marks)
+                .child(shown)
+                .accessibility_label(told.clone())
+                .tooltip(told)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    if one {
+                        this.open_agent(host, &id, window, cx);
+                    } else {
+                        this.open_tab(Tab::Agents, window, cx);
+                    }
+                }))
+        });
 
         let update_btn = match &self.updates.now {
             Updating::Found(found) => Some((
@@ -742,7 +776,7 @@ impl Desk {
                     }),
             )
             .children(update_btn)
-            .child(pills)
+            .children(pill)
     }
 }
 

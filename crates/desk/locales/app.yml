@@ -22549,3 +22549,13 @@ _version: 2
   pt-BR: "%{address} não é um endereço web nem um arquivo do tópico: o u0 não o abre"
   ru: "%{address} — не веб-адрес и не файл этой ветки: u0 его не открывает"
   sv: "%{address} är varken en webbadress eller en fil i tråden: u0 öppnar den inte"
+"%{n} agents":
+  zh-CN: "%{n} 个智能体"
+  de: "%{n} Agenten"
+  es: "%{n} agentes"
+  fr: "%{n} agents"
+  ja: "%{n} 個のエージェント"
+  ko: "에이전트 %{n}개"
+  pt-BR: "%{n} agentes"
+  ru: "агентов: %{n}"
+  sv: "%{n} agenter"
