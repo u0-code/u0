@@ -425,7 +425,14 @@ impl Desk {
                         verb(
                             &faces,
                             crate::tr_with(
-                                "Starting %{name}",
+                                // One the agent keeps is opened (all that was
+                                // said in it said again, for a long one a
+                                // while), not started.
+                                if s.meta.id.is_some() {
+                                    "%{name} is opening this thread"
+                                } else {
+                                    "Starting %{name}"
+                                },
                                 &[("name", &self.name_of(&s.meta.agent))],
                             ),
                         )

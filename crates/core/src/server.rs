@@ -1462,7 +1462,16 @@ fn heard(
                     events,
                 });
             }
-            Err(n) => acp::Event::Update(*n),
+            // A subagent announced in a session open here is open here
+            // too, nested ones as well (`Records::said`). Of any other
+            // session only the commands the agent takes are the desk's:
+            // the rest (a history said again for sessions nothing
+            // announced, tens of thousands of updates on a load) is no
+            // one's.
+            Err(n) if matches!(n.update, SessionUpdate::AvailableCommandsUpdate(_)) => {
+                acp::Event::Update(*n)
+            }
+            Err(_) => return None,
         },
         acp::Event::Exited { pid, why } => {
             let this = running.lock().expect("agents").get(agent).map(|a| a.pid());
@@ -1598,7 +1607,8 @@ mod tests {
     }
 
     #[test]
-    fn what_an_agent_says_in_a_session_it_loads_is_written_and_sent_as_its_record() {
+    fn what_an_agent_says_in_a_session_it_loads_is_its_record_and_of_others_only_its_commands_come()
+    {
         let home = tempfile::tempdir().unwrap();
         // An agent that says hello, then, asked to load `s1`, says again
         // what was said in it, and then stops.
@@ -1608,7 +1618,8 @@ read line
 printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":1}}\n' "$(id)"
 read line
 printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"hi"}}}}'
-printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"probe","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"x"}}}}'
+printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s1:replay-subagent:t1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"x"}}}}'
+printf '%s\n' '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"probe","update":{"sessionUpdate":"available_commands_update","availableCommands":[]}}}'
 printf '{"jsonrpc":"2.0","id":%s,"result":{}}\n' "$(id)"
 read line"#;
         std::fs::write(&agent, script).unwrap();
@@ -1641,10 +1652,12 @@ read line"#;
             &events[..],
             [store::Event::At(_), store::Event::Update(_)]
         ));
-        // One said in a session not open here comes as it was said.
-        assert!(
-            matches!(next(), Event::Said { event, .. } if matches!(*event, acp::Event::Update(_)))
-        );
+        // Of one not open here, only the commands it takes come, as said:
+        // what a subagent said is no one's.
+        assert!(matches!(next(), Event::Said { event, .. } if matches!(
+            &*event,
+            acp::Event::Update(n) if matches!(n.update, SessionUpdate::AvailableCommandsUpdate(_))
+        )));
         assert!(matches!(
             next(),
             Event::Loaded {
@@ -1657,6 +1670,68 @@ read line"#;
         let record = store::read(&store::record_path(home.path(), "a", "s1")).unwrap();
         assert_eq!(record.len(), 2);
         assert!(store::read(&store::record_path(home.path(), "a", "probe")).is_none());
+    }
+
+    #[test]
+    fn a_load_keeps_what_the_subagents_of_the_thread_said_and_drops_only_strangers() {
+        let home = tempfile::tempdir().unwrap();
+        // A real load of a Claude Code thread with nested subagents (each
+        // announced with subagent_update before it speaks), then one
+        // session nothing announced.
+        let fixture: Vec<serde_json::Value> =
+            serde_json::from_str(include_str!("fixtures/claude-subagents-load.json")).unwrap();
+        let mut said: Vec<String> = (fixture.iter())
+            .map(|n| serde_json::json!({"jsonrpc": "2.0", "method": "session/update", "params": n}))
+            .map(|line| line.to_string())
+            .collect();
+        said.push(
+            r#"{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"p1:replay-subagent:t1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"x"}}}}"#.into(),
+        );
+        let lines = home.path().join("load.jsonl");
+        std::fs::write(&lines, said.join("\n") + "\n").unwrap();
+        let agent = home.path().join("agent.sh");
+        let script = format!(
+            r#"id() {{ printf '%s' "$line" | sed -E 's/.*"id":("[^"]*"|[0-9]+).*/\1/'; }}
+read line
+printf '{{"jsonrpc":"2.0","id":%s,"result":{{"protocolVersion":1}}}}\n' "$(id)"
+read line
+cat {}
+printf '{{"jsonrpc":"2.0","id":%s,"result":{{}}}}\n' "$(id)"
+read line"#,
+            lines.display()
+        );
+        std::fs::write(&agent, script).unwrap();
+        let (server, rx) = server(home.path());
+        let next = || rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
+        let entry: Entry = serde_json::from_value(serde_json::json!({
+            "id": "a", "name": "A", "version": "1", "distribution": {},
+        }))
+        .unwrap();
+        server.handle(Call::Start {
+            entry,
+            command: Some(format!("/bin/sh {}", agent.display())),
+            env: BTreeMap::new(),
+        });
+        assert!(matches!(next(), Event::Started { result: Ok(_), .. }));
+        server.handle(Call::Reopen {
+            agent: "a".into(),
+            key: 1,
+            session: SessionId::new("p1"),
+            folder: home.path().to_path_buf(),
+            also: Vec::new(),
+            resumed: false,
+        });
+        let mut kept = Vec::new();
+        loop {
+            match next() {
+                Event::Appended { id, .. } => kept.push(id),
+                Event::Loaded { .. } => break,
+                other => panic!("not the thread's or its subagents': {other:?}"),
+            }
+        }
+        // Every update of the thread and of each subagent, nested too.
+        assert_eq!(kept.len(), fixture.len());
+        assert!(kept.iter().any(|id| &*id.0 == "a9f8e7d6c5b4a3f2e"));
     }
 
     #[test]
