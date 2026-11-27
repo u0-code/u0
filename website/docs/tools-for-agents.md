@@ -86,7 +86,7 @@ in **Settings › Agents** and switch them off. That agent's id is added to
 | `comment_on_issue` | Comment on an issue (`number`) with a `body`. | Sessions in Ghost; asks you first |
 | `set_issue_state` | Close an issue, or open it again (`open`). | Sessions in Ghost; asks you first |
 | `list_workflows` | Your workflows: each one's name, what it is for and its steps, or why its file does not read; and their runs, with where each stands and the steps it has done. An agent that may only read is not given a `run` step's command, nor what a step gave back. | Any agent |
-| `start_workflow` | Begin a run of a `workflow` with `input`: its id. | Sessions in Ghost; asks you first |
+| `start_workflow` | Begin a run of a `workflow` with `input`: its id. The card shows the input whole, as its steps get it. | Sessions in Ghost; asks you first |
 | `list_tasks` | The scheduled tasks: each one's id, title, prompt, agent, project, schedule, whether it is paused, and its last run. A webhook's address is never given. | Any agent |
 | `change_task` | Pause a task (`id`), resume it, run it now or remove it (`change`). | Sessions in Ghost; asks you first |
 | `list_worktrees` | The worktrees Ghost made of a project, in its worktrees' folders: each one's repository, path and branch. | Any agent |

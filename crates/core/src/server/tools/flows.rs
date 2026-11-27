@@ -74,7 +74,12 @@ impl Tools {
         &self,
         Parameters(ask): Parameters<StartWorkflow>,
     ) -> Result<String, String> {
-        let title = format!("Run the workflow “{}”", ask.workflow);
+        // What its steps are given, whole: you allow a run on it.
+        let title = if ask.input.is_empty() {
+            format!("Run the workflow “{}” with no input", ask.workflow)
+        } else {
+            format!("Run the workflow “{}” on “{}”", ask.workflow, ask.input)
+        };
         self.allowed("start_workflow", title, &ask).await?;
         let run = self.shared.start_flow(ask.workflow, ask.input)?;
         Ok(format!("Run {run} began."))
@@ -186,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn a_workflow_is_listed_and_begun_as_you_allow_and_its_run_told() {
+    fn a_workflow_is_listed_and_begun_on_the_input_the_card_shows_and_its_run_told() {
         let home = tempfile::tempdir().unwrap();
         let flows = crate::workflows::folder(home.path());
         std::fs::create_dir(&flows).unwrap();
@@ -214,11 +219,11 @@ mod tests {
         );
         client.call(
             "start_workflow",
-            &json!({"workflow": "release", "input": "v2"}),
+            &json!({"workflow": "release", "input": "v2; $(touch pwned)"}),
         );
         assert_eq!(
             answer_card(&server, &said, "once"),
-            "Run the workflow “release”"
+            "Run the workflow “release” on “v2; $(touch pwned)”"
         );
         assert_eq!(client.result(), ("Run 1 began.".to_owned(), false));
         for _ in 0..250 {

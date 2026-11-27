@@ -58,7 +58,7 @@ Ghost 打开会话时，通过 ACP 的 `mcpServers` 把服务器作为一个要�
 | `comment_on_issue` | 用 `body` 评论一个议题（`number`）。 | Ghost 中的会话；先询问你 |
 | `set_issue_state` | 关闭一个议题，或重新打开它（`open`）。 | Ghost 中的会话；先询问你 |
 | `list_workflows` | 你的工作流：每个的名称、用途和步骤，或其文件无法读取的原因；以及它们的运行，包括各自的状态和已完成的步骤。只能读取的智能体拿不到 `run` 步骤的命令，也拿不到各步骤的结果。 | 任何智能体 |
-| `start_workflow` | 用 `input` 开始一次 `workflow` 的运行：返回它的 ID。 | Ghost 中的会话；先询问你 |
+| `start_workflow` | 用 `input` 开始一次 `workflow` 的运行：返回它的 ID。卡片会完整显示输入，与它的步骤得到的一样。 | Ghost 中的会话；先询问你 |
 | `list_tasks` | 计划任务：每个的 ID、标题、提示、智能体、项目、计划、是否已暂停，以及上次运行。绝不会给出 webhook 的地址。 | 任何智能体 |
 | `change_task` | 暂停一个任务（`id`）、恢复它、立即运行或删除它（`change`）。 | Ghost 中的会话；先询问你 |
 | `list_worktrees` | Ghost 为某个项目创建、位于其工作树文件夹中的工作树：每个的仓库、路径和分支。 | 任何智能体 |
