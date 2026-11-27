@@ -31,6 +31,9 @@ pub struct Notice {
     pub system: bool,
 }
 
+/// The notices of sessions that ask, one each, by the session.
+struct Asking;
+
 /// The one way on from a notice.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Way {
@@ -41,6 +44,9 @@ pub enum Way {
     Agent(crate::hub::Host, String),
     /// A session, to put it on screen.
     Show(u64),
+    /// A session that asks before it goes on, to put it on screen: the
+    /// notice goes once nothing there asks any more.
+    Asks(u64),
     /// What was just done to sessions, to take it back.
     Undo,
     /// An update of Ghost's own, to see and install.
@@ -105,8 +111,21 @@ impl Desk {
     /// drawn, where it is at hand.
     pub(crate) fn show_notices(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         for n in std::mem::take(&mut self.notices) {
+            if let Some(Way::Asks(key)) = n.way
+                && !n.system
+            {
+                self.asking.insert(key);
+            }
             let note = Self::notification(&n, cx);
             window.push_notification(note, cx);
+        }
+        // What a session asked, answered or given up on: its notice goes.
+        let over: Vec<u64> = (self.asking.iter().copied())
+            .filter(|&key| !self.sessions.asks(key))
+            .collect();
+        for key in over {
+            self.asking.remove(&key);
+            window.remove_notification1::<Asking>(gpui::ElementId::Integer(key), cx);
         }
     }
 
@@ -129,10 +148,14 @@ impl Desk {
         if n.way == Some(Way::Undo) {
             note = note.id::<super::lists::Undo>();
         }
+        // One for each session that asks, taken back once it no longer does.
+        if let Some(Way::Asks(key)) = n.way {
+            note = note.id1::<Asking>(gpui::ElementId::Integer(key));
+        }
         let label = match &n.way {
             Some(Way::Open(_)) => "Open",
             Some(Way::Agent(..)) => "Open the agent",
-            Some(Way::Show(_)) => "Show",
+            Some(Way::Show(_) | Way::Asks(_)) => "Show",
             Some(Way::Undo) => "Undo",
             Some(Way::Update) => "See",
             Some(Way::Clone(..)) => "Retry",
@@ -150,7 +173,7 @@ impl Desk {
                 Some(Way::Agent(host, agent)) => {
                     d.open_page(super::Page::Agent(host, agent), window, cx);
                 }
-                Some(Way::Show(key)) => d.show(key, window, cx),
+                Some(Way::Show(key) | Way::Asks(key)) => d.show(key, window, cx),
                 Some(Way::Undo) => d.take_back(cx),
                 Some(Way::Update) => d.open_tab(crate::pages::Tab::About, window, cx),
                 Some(Way::Clone(url, to)) => d.clone_into(to, url, cx),
@@ -160,7 +183,7 @@ impl Desk {
         let (way, clicked) = (n.way.clone(), go.clone());
         // A session's notification goes to it wherever it is clicked: the
         // only way on from one in macOS's centre.
-        if matches!(n.way, Some(Way::Show(_))) {
+        if matches!(n.way, Some(Way::Show(_) | Way::Asks(_))) {
             let way = n.way.clone();
             note = note.on_click(move |_, window, cx| clicked(&way, window, cx));
         }

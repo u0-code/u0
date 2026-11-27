@@ -47,6 +47,13 @@ impl Sessions {
         self.all.iter().find(|s| s.key == key)
     }
 
+    /// Whether the session `key` asks before it goes on now: asked during
+    /// a turn that still goes on, and not answered.
+    pub fn asks(&self, key: u64) -> bool {
+        self.at(key).and_then(crate::desk::lists::status)
+            == Some(crate::desk::lists::Status::Approval)
+    }
+
     pub fn at_mut(&mut self, key: u64) -> Option<&mut Session> {
         self.all.iter_mut().find(|s| s.key == key)
     }
@@ -437,6 +444,23 @@ mod tests {
         s.answered(7, &option);
         assert!(s.waiting().is_none());
         assert!(sessions.at(2).unwrap().waiting().is_none());
+    }
+
+    #[test]
+    fn a_session_asks_while_its_turn_waits_on_the_question_and_not_once_it_ended() {
+        let mut sessions = two();
+        let request: RequestPermissionRequest = serde_json::from_str(
+            r#"{"sessionId":"s1","toolCall":{"toolCallId":"t","title":"Go on?"},"options":[{"optionId":"ok","name":"Allow","kind":"allow_once"}]}"#,
+        )
+        .unwrap();
+        let s = sessions.at_mut(1).unwrap();
+        s.state = State::Working;
+        s.asked(7, request);
+        assert!(sessions.asks(1));
+        // Never answered: its agent gave up, and the turn ended.
+        sessions.at_mut(1).unwrap().state = State::Idle;
+        assert!(!sessions.asks(1));
+        assert!(!sessions.asks(9), "a session gone asks nothing");
     }
 
     #[test]

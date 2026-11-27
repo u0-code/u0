@@ -1052,7 +1052,7 @@ impl Desk {
                     "%{name} asks before it goes on in “%{title}”",
                     &[("name", &name), ("title", &title)],
                 ),
-                Some(super::notices::Way::Show(key)),
+                Some(super::notices::Way::Asks(key)),
             );
         }
         if self.current != Some(key)

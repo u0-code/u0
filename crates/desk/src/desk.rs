@@ -255,6 +255,9 @@ pub struct Desk {
     >,
     /// What Ghost tells you at the foot of the window, the oldest first.
     pub notices: Vec<notices::Notice>,
+    /// The sessions a notice says ask before they go on, shown till
+    /// they no longer do.
+    pub asking: std::collections::BTreeSet<u64>,
     pub pages: crate::pages::Pages,
     pub adding: projects::Adding,
     /// No window of Ghost's is in front.
@@ -588,6 +591,7 @@ impl Desk {
             tabs: HashMap::new(),
             kept: HashMap::new(),
             notices: Vec::new(),
+            asking: std::collections::BTreeSet::new(),
             pages,
             adding: projects::Adding::default(),
             behind: false,
