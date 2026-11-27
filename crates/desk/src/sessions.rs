@@ -439,7 +439,7 @@ mod tests {
         let option = request.options[0].clone();
         let id = request.session_id.clone();
         let s = sessions.by_id(Host::HERE, "a", &id).unwrap();
-        s.asked(7, request);
+        s.asked(7, request, crate::acp::Asker::Agent);
         assert_eq!(s.waiting().unwrap().title, "rm -rf build");
         s.answered(7, &option);
         assert!(s.waiting().is_none());
@@ -455,7 +455,7 @@ mod tests {
         .unwrap();
         let s = sessions.at_mut(1).unwrap();
         s.state = State::Working;
-        s.asked(7, request);
+        s.asked(7, request, crate::acp::Asker::Agent);
         assert!(sessions.asks(1));
         // Never answered: its agent gave up, and the turn ended.
         sessions.at_mut(1).unwrap().state = State::Idle;

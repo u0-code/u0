@@ -1114,10 +1114,10 @@ impl Desk {
                     slot.commands = c.available_commands;
                 }
             }
-            acp::Event::Permission { id, request } => {
+            acp::Event::Permission { id, request, asker } => {
                 if let Some(s) = self.sessions.by_id(host, agent, &request.session_id) {
                     let key = s.key;
-                    s.asked(id, request);
+                    s.asked(id, request, asker);
                     self.asks_you(agent, key);
                 } else if self.slot(host, agent).is_some_and(Slot::running) {
                     self.call(

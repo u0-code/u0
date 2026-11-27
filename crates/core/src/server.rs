@@ -145,7 +145,10 @@ impl Shared {
         );
         let (said, id, this) = (self.send.clone(), agent.to_owned(), self.clone());
         let running = Agent::start(&launch, move |event| {
-            if let acp::Event::Permission { id: asked, request } = &event {
+            if let acp::Event::Permission {
+                id: asked, request, ..
+            } = &event
+            {
                 let asks = happened::Happened::Asks {
                     title: (request.tool_call.fields.title.clone()).unwrap_or_default(),
                     request: *asked,
@@ -1440,7 +1443,7 @@ fn heard(
             }
             return None;
         }
-        acp::Event::Permission { id, request }
+        acp::Event::Permission { id, request, .. }
             if writing
                 .lock()
                 .expect("writing")

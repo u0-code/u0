@@ -10,6 +10,7 @@ use gpui::{Context, Div, SharedString, div, prelude::*, px};
 
 use super::{bare, icon, meta, right, step, verb, well};
 use crate::{
+    acp::Asker,
     desk::Desk,
     fonts::Faces,
     hub::Slot,
@@ -190,7 +191,11 @@ impl Desk {
             }
             rows
         });
-        let source = asked.tool.as_deref().map(|tool| {
+        let source = match &asked.asker {
+            Asker::Agent => None,
+            Asker::Tool(tool) | Asker::Outside(tool) | Asker::Device(tool) => Some(tool),
+        }
+        .map(|tool| {
             meta(
                 faces,
                 crate::tr_with("u0 tool · %{tool}", &[("tool", &tool)]),

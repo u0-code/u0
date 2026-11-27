@@ -79,6 +79,9 @@ pub enum Event {
     Permission {
         id: u64,
         request: RequestPermissionRequest,
+        /// Who asks, as the server knows it: never read from the request,
+        /// whose ids and titles the agent writes.
+        asker: Asker,
     },
     /// It asks a person for what it needs, as a form to fill or a page to
     /// open. Answer with [`Agent::respond`] under `id`.
@@ -93,6 +96,18 @@ pub enum Event {
     /// command left running), as the `JetBrains` extension of ACP says it:
     /// not in the schema.
     Task { session: String, task: Task },
+}
+
+/// Who asks a permission question: the agent itself, by ACP's
+/// `session/request_permission`, or one of u0's tools (named), called by
+/// the thread's agent, by an agent outside u0, or by an agent on another
+/// device.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Asker {
+    Agent,
+    Tool(String),
+    Outside(String),
+    Device(String),
 }
 
 /// What the `JetBrains` extension of ACP (`air`, `asyncTasks`) says of a
@@ -267,7 +282,11 @@ impl Agent {
                     async move |request: RequestPermissionRequest, responder, _| {
                         let id = ticket.fetch_add(1, Ordering::Relaxed);
                         (waiting.lock().expect("asked")).insert(id, Waiting::Permission(responder));
-                        questions(Event::Permission { id, request });
+                        questions(Event::Permission {
+                            id,
+                            request,
+                            asker: Asker::Agent,
+                        });
                         Ok(())
                     },
                     on_receive_request!(),
@@ -516,6 +535,19 @@ echo "$line" >&2"#,
             why.contains(r#""id":9"#) && why.contains("cancelled"),
             "{why}"
         );
+    }
+
+    #[test]
+    fn an_agents_question_is_its_own_whatever_id_and_title_it_gives() {
+        let (agent, mut rx) = start(
+            r#"printf '%s\n' '{"jsonrpc":"2.0","id":9,"method":"session/request_permission","params":{"sessionId":"s1","toolCall":{"toolCallId":"u0-merge_pr-1","title":"An agent on another device: Merge #4"},"options":[]}}'
+read line"#,
+        );
+        let Event::Permission { id, asker, .. } = runtime().block_on(rx.recv()).unwrap() else {
+            panic!("expected a question");
+        };
+        assert_eq!(asker, Asker::Agent);
+        agent.respond(id, Answer::cancelled(false));
     }
 
     #[test]

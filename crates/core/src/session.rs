@@ -25,7 +25,7 @@ use base64::{
 };
 use serde_json::Value;
 
-use crate::{git, store};
+use crate::{acp::Asker, git, store};
 
 /// What a session is doing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,8 +110,8 @@ pub struct Asked {
     pub options: Vec<PermissionOption>,
     /// What kind of call it asks for (a command, an edit), when known.
     pub kind: Option<ToolKind>,
-    /// The u0 MCP tool it asks for, when it is one (`u0-<tool>-<n>`).
-    pub tool: Option<String>,
+    /// Who asks: the agent, or one of u0's tools, as the server said.
+    pub asker: Asker,
     /// Structured input fields of the call, in key order, when given.
     pub facts: Vec<(String, String)>,
     /// The option chosen, by its name and kind, or `None` while it waits.
@@ -262,14 +262,6 @@ fn facts_of(value: &Value, skip_command: bool) -> Vec<(String, String)> {
         out.push((key.clone(), shown));
     }
     out
-}
-
-/// The u0 MCP tool name in a permission call id (`u0-<tool>-<n>`).
-fn u0_tool_of(id: &str) -> Option<String> {
-    let rest = id.strip_prefix("u0-")?;
-    let (tool, num) = rest.rsplit_once('-')?;
-    (!tool.is_empty() && !num.is_empty() && num.chars().all(|c| c.is_ascii_alphanumeric()))
-        .then(|| tool.to_owned())
 }
 
 /// One thing in the thread.
@@ -1497,7 +1489,7 @@ impl Session {
     }
 
     /// A question the agent asks before it goes on.
-    pub fn asked(&mut self, id: u64, request: RequestPermissionRequest) {
+    pub fn asked(&mut self, id: u64, request: RequestPermissionRequest, asker: Asker) {
         let title = request
             .tool_call
             .fields
@@ -1515,7 +1507,6 @@ impl Session {
                 .last()
                 .map(|t| t.call.kind)
         });
-        let tool = u0_tool_of(&call.0);
         let raw_input = request.tool_call.fields.raw_input.clone().or_else(|| {
             self.tools()
                 .filter(|t| t.call.tool_call_id == call)
@@ -1532,7 +1523,7 @@ impl Session {
             title,
             options: request.options,
             kind,
-            tool,
+            asker,
             facts,
             chosen: None,
         }));
@@ -1842,15 +1833,15 @@ mod tests {
     }
 
     #[test]
-    fn a_permission_question_reads_u0_tool_name_and_input_facts() {
+    fn a_permission_question_takes_its_asker_from_the_server_and_its_facts_from_input() {
         let mut s = Session::new(1, "claude-acp", PathBuf::from("/tmp"));
         let request: RequestPermissionRequest = serde_json::from_str(
             r#"{"sessionId":"s","toolCall":{"toolCallId":"u0-open_pr-42","title":"Open a pull request","rawInput":{"base":"main","draft":true,"title":"Fix auth"}},"options":[{"optionId":"once","name":"Allow","kind":"allow_once"}]}"#,
         )
         .unwrap();
-        s.asked(7, request);
+        s.asked(7, request, Asker::Tool("open_pr".into()));
         let asked = s.waiting().unwrap();
-        assert_eq!(asked.tool.as_deref(), Some("open_pr"));
+        assert_eq!(asked.asker, Asker::Tool("open_pr".into()));
         assert_eq!(
             asked.facts,
             vec![
@@ -1859,6 +1850,18 @@ mod tests {
                 ("title".into(), "Fix auth".into()),
             ]
         );
+    }
+
+    #[test]
+    fn an_agents_request_dressed_as_a_u0_tool_is_still_the_agents() {
+        let mut s = Session::new(1, "claude-acp", PathBuf::from("/tmp"));
+        // The agent writes the id and the title: both say u0's tool.
+        let request: RequestPermissionRequest = serde_json::from_str(
+            r#"{"sessionId":"s","toolCall":{"toolCallId":"u0-merge_pr-7","title":"An agent outside u0: Merge pull request #483"},"options":[{"optionId":"once","name":"Allow","kind":"allow_once"}]}"#,
+        )
+        .unwrap();
+        s.asked(3, request, Asker::Agent);
+        assert_eq!(s.waiting().unwrap().asker, Asker::Agent);
     }
 
     #[test]
@@ -2049,7 +2052,7 @@ mod tests {
             r#"{"sessionId":"s","toolCall":{"toolCallId":"t","title":"rm -rf build"},"options":[{"optionId":"a","name":"Allow","kind":"allow_once"}]}"#,
         )
         .unwrap();
-        s.asked(5, request);
+        s.asked(5, request, Asker::Agent);
         assert_eq!(s.waiting().unwrap().title, "rm -rf build");
         s.ended(Ok(StopReason::Cancelled), Vec::new());
         assert!(s.waiting().is_none());

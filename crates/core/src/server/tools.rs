@@ -262,7 +262,15 @@ impl Tools {
         // Every agent outside u0 comes in by the one key `mcp.json`
         // holds: a yes for always would be a yes to each of them; and
         // some tools are asked each time whoever calls (`EACH_TIME`).
-        let each_time = once || self.caller() == Some(Caller::Outside) || EACH_TIME.contains(&tool);
+        let caller = self.caller();
+        let each_time = once || caller == Some(Caller::Outside) || EACH_TIME.contains(&tool);
+        // Who asks is said by the server, from the key it came in with:
+        // the card never reads it from the request an agent could forge.
+        let asker = match caller {
+            Some(Caller::Outside) => acp::Asker::Outside(tool.into()),
+            Some(Caller::Device(_)) => acp::Asker::Device(tool.into()),
+            _ => acp::Asker::Tool(tool.into()),
+        };
         let options = [
             Some(PermissionOption::new(
                 "once",
@@ -292,6 +300,7 @@ impl Tools {
             .ask_you(agent, |n| acp::Event::Permission {
                 id: n,
                 request: RequestPermissionRequest::new(id, call, options),
+                asker,
             })
             .await;
         let Some(Answer::Permission(RequestPermissionOutcome::Selected(chosen))) = answer else {
@@ -1141,8 +1150,8 @@ esac; done"#;
         let (request, asked) = loop {
             // u0's own cards, not those its agents raise.
             if let Event::Said { event, .. } = said.recv_timeout(Duration::from_secs(10)).unwrap()
-                && let acp::Event::Permission { id, request } = *event
-                && request.tool_call.tool_call_id.0.starts_with("u0-")
+                && let acp::Event::Permission { id, request, asker } = *event
+                && asker != acp::Asker::Agent
             {
                 break (id, request);
             }
@@ -1504,8 +1513,10 @@ esac; done"#,
         client.call("open_pr", &json!({"title": "Fix", "body": "It is fixed."}));
         let (request, asked) = loop {
             if let Event::Said { event, .. } = next()
-                && let acp::Event::Permission { id, request } = *event
+                && let acp::Event::Permission { id, request, asker } = *event
             {
+                // The server says it is u0's tool asking, not the agent.
+                assert_eq!(asker, acp::Asker::Tool("open_pr".into()));
                 break (id, request);
             }
         };
@@ -1632,7 +1643,7 @@ esac; done"#;
         std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
         let card = |next: &dyn Fn() -> Event| loop {
             if let Event::Said { event, .. } = next()
-                && let acp::Event::Permission { id, request } = *event
+                && let acp::Event::Permission { id, request, .. } = *event
             {
                 break (id, request);
             }

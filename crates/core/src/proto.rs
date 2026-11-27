@@ -2170,6 +2170,7 @@ mod tests {
                     "toolCall": {"toolCallId": "c1", "title": "rm -rf build"},
                     "options": [{"optionId": "allow", "name": "Allow", "kind": "allow_once"}],
                 })),
+                asker: acp::Asker::Tool("merge_pr".into()),
             },
             acp::Event::Elicit {
                 id: 8,

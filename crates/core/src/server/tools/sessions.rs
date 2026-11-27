@@ -290,7 +290,7 @@ esac; done"#;
         let card = loop {
             if let crate::proto::Event::Said { event, .. } =
                 said.recv_timeout(Duration::from_secs(10)).unwrap()
-                && let crate::acp::Event::Permission { id, request } = *event
+                && let crate::acp::Event::Permission { id, request, .. } = *event
             {
                 break (id, request);
             }
@@ -357,7 +357,7 @@ esac; done"#;
         client.call("organize_session", &archive);
         let (n, card) = loop {
             if let Event::Said { event, .. } = said.recv_timeout(Duration::from_secs(10)).unwrap()
-                && let crate::acp::Event::Permission { id, request } = *event
+                && let crate::acp::Event::Permission { id, request, .. } = *event
             {
                 break (id, request);
             }
