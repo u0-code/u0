@@ -147,7 +147,7 @@ impl Desk {
                     "sidebar",
                     crate::keys::hint(cx, &crate::tr("Show the sidebar"), "toggle_sidebar"),
                 )
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
+                .on_click(cx.listener(|this, _, window, cx| this.toggle_sidebar(window, cx))),
             );
         }
         let title_color = if focused {

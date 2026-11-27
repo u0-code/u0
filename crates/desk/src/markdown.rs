@@ -26,7 +26,7 @@ use crate::{
     desk::Desk,
     figures,
     fonts::Faces,
-    style::{H1, H2, H3, PROSE, PROSE_LINE},
+    style::{H1, H2, H3, PROSE, prose_line},
     theme, ui,
 };
 
@@ -60,7 +60,7 @@ pub fn render(faces: &Faces, key: &str, text: &str, cx: &mut Context<Desk>) -> i
         .min_w(px(0.))
         .font_family(faces.ui.clone())
         .text_size(px(PROSE))
-        .line_height(px(PROSE_LINE))
+        .line_height(px(prose_line()))
         .text_color(theme::text())
         .child(
             TextView::markdown(SharedString::from(format!("{key}-words")), bulleted(text))

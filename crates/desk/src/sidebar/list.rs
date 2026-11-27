@@ -452,13 +452,22 @@ impl Desk {
         (items, order)
     }
 
-    pub(crate) fn side_list(&self, faces: &Faces, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(crate) fn side_list(
+        &self,
+        faces: &Faces,
+        window: &gpui::Window,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
         let focus = self.side.read(cx).focus_handle(cx);
-        let selected_id = self
-            .side
-            .read(cx)
-            .selected_entry()
-            .map(|e| e.item().id.clone());
+        let selected_id = focus
+            .contains_focused(window, cx)
+            .then(|| {
+                self.side
+                    .read(cx)
+                    .selected_entry()
+                    .map(|e| e.item().id.clone())
+            })
+            .flatten();
         let typed = self.search.input.read(cx).value().trim().to_owned();
         let query = rank::Query::new(&typed);
 

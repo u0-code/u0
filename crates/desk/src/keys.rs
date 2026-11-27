@@ -607,7 +607,7 @@ pub fn handle(cx: &mut App, shown: &Shown) {
     on::<NextSession>(cx, shown, |d, window, cx| d.step_session(1, window, cx));
     on::<PreviousSession>(cx, shown, |d, window, cx| d.step_session(-1, window, cx));
     on::<Model>(cx, shown, Desk::open_model);
-    on::<ToggleSidebar>(cx, shown, |d, _, cx| d.toggle_sidebar(cx));
+    on::<ToggleSidebar>(cx, shown, |d, window, cx| d.toggle_sidebar(window, cx));
     on::<Stop>(cx, shown, |d, _, cx| d.stop(cx));
     on::<Review>(cx, shown, |d, _, cx| {
         d.show_changes(crate::git::Scope::All, cx);

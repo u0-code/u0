@@ -86,31 +86,32 @@ impl Desk {
             _ => "%{name} asks before it goes on",
         };
         let headline = crate::tr_with(headline, &[("name", &name)]);
-        // The agent's options are the buttons: what turns it down at the
-        // left, what lets it go on at the right.
-        let mut reject = div().flex().gap(px(6.));
-        let mut allow = div().flex().gap(px(6.));
+        // Options in the agent's order (`KeyboardFocus`, `LongAndCJK`):
+        // buttons never cut their words and wrap cleanly across rows.
+        let mut opts = div().flex().flex_wrap().items_center().gap(px(8.));
         let primary = default_option(&asked.options);
+        let default_allow = primary.and_then(|i| asked.options.get(i)).cloned();
+        let default_reject = asked
+            .options
+            .iter()
+            .find(|o| o.kind == PermissionOptionKind::RejectOnce)
+            .or_else(|| asked.options.iter().find(|o| !allows(o.kind)))
+            .cloned();
         for (n, option) in asked.options.iter().enumerate() {
-            let weight = match option.kind {
-                _ if Some(n) == primary => Weight::Primary,
-                PermissionOptionKind::AllowOnce | PermissionOptionKind::AllowAlways => {
-                    Weight::Secondary
-                }
-                _ => Weight::Quiet,
+            let weight = if Some(n) == primary {
+                Weight::Primary
+            } else {
+                Weight::Secondary
             };
             let (at, request, chosen) = (s.key, asked.id, option.clone());
-            let button = ui::button(
-                SharedString::from(format!("{key}-opt-{n}")),
-                option.name.clone(),
-                weight,
-            )
-            .on_click(cx.listener(move |this, _, _, cx| this.choose(at, request, &chosen, cx)));
-            if allows(option.kind) {
-                allow = allow.child(button);
-            } else {
-                reject = reject.child(button);
-            }
+            opts = opts.child(
+                ui::button(
+                    SharedString::from(format!("{key}-opt-{n}")),
+                    option.name.clone(),
+                    weight,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.choose(at, request, &chosen, cx))),
+            );
         }
         // Turned down with a word: opens an inline note box on the card, or
         // sends your reply once rejected.
@@ -120,7 +121,7 @@ impl Desk {
             .any(|o| o.kind == PermissionOptionKind::RejectOnce)
         {
             let (at, request) = (s.key, asked.id);
-            reject = reject.child(
+            opts = opts.child(
                 ui::button(
                     SharedString::from(format!("{key}-instead")),
                     crate::tr("No, and tell it…"),
@@ -135,7 +136,7 @@ impl Desk {
         // Revise: write changes to the plan inline on the card.
         if plan.is_some() {
             let (at, request) = (s.key, asked.id);
-            reject = reject.child(
+            opts = opts.child(
                 ui::button(
                     SharedString::from(format!("{key}-revise")),
                     crate::tr("Revise…"),
@@ -195,10 +196,10 @@ impl Desk {
                 crate::tr_with("u0 tool · %{tool}", &[("tool", &tool)]),
             )
         });
-        let footer = if let Some((_, _, revise)) = self
+        let telling = self
             .telling
-            .filter(|(k, r, _)| *k == s.key && *r == asked.id)
-        {
+            .filter(|(k, r, _)| *k == s.key && *r == asked.id);
+        let footer = if let Some((_, _, revise)) = telling {
             let (at, request) = (s.key, asked.id);
             let label = if revise {
                 crate::tr("What to change in the plan")
@@ -265,14 +266,7 @@ impl Desk {
                 .flex()
                 .flex_col()
                 .gap(px(6.))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .child(reject)
-                        .child(div().flex_1())
-                        .child(allow),
-                )
+                .child(opts)
                 .child(meta(
                     faces,
                     crate::tr(
@@ -281,30 +275,56 @@ impl Desk {
                 ))
                 .into_any_element()
         };
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(12.))
-            .p(px(16.))
-            .rounded(px(12.))
-            .bg(theme::well())
-            .border_1()
-            .border_color(theme::border2())
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(
-                        ui::text(faces, headline)
-                            .flex_1()
-                            .text_size(px(crate::style::BODY)),
-                    )
-                    .children(source),
-            )
-            .child(body)
-            .children(fields)
-            .child(footer)
+        let (at, request, options_shown) = (s.key, asked.id, telling.is_none());
+        div().child(
+            div()
+                .id(SharedString::from(format!("{key}-card")))
+                .tab_index(0)
+                .flex()
+                .flex_col()
+                .gap(px(12.))
+                .p(px(16.))
+                .rounded_none()
+                .bg(theme::role(u0ui::tokens::ColorRole::Layer01))
+                .border_1()
+                .border_color(theme::role(u0ui::tokens::ColorRole::BorderStrong01))
+                .focus(|st| {
+                    st.border_2()
+                        .border_color(theme::role(u0ui::tokens::ColorRole::Focus))
+                })
+                // Return takes the default, Escape turns it down; not while
+                // a note is being written on it.
+                .on_key_down(cx.listener(move |this, e: &gpui::KeyDownEvent, _, cx| {
+                    if !options_shown || e.keystroke.modifiers.modified() {
+                        return;
+                    }
+                    let opt = match e.keystroke.key.as_str() {
+                        "enter" => &default_allow,
+                        "escape" => &default_reject,
+                        _ => return,
+                    };
+                    if let Some(opt) = opt {
+                        cx.stop_propagation();
+                        this.choose(at, request, opt, cx);
+                    }
+                }))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(
+                            ui::text(faces, headline)
+                                .flex_1()
+                                .text_size(px(crate::style::BODY))
+                                .line_height(px(crate::style::prose_line())),
+                        )
+                        .children(source),
+                )
+                .child(body)
+                .children(fields)
+                .child(footer),
+        )
     }
 
     /// How a turn ended.

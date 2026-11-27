@@ -45,6 +45,16 @@ pub fn set(language: Option<&str>) {
     rust_i18n::set_locale(chosen);
 }
 
+/// Whether the active locale is CJK (`zh-CN`, `ja`, `ko`), where lines open
+/// to `14/22` and `12/20` (`LongAndCJK`).
+pub fn is_cjk() -> bool {
+    cjk_locale(&rust_i18n::locale())
+}
+
+pub(crate) fn cjk_locale(locale: &str) -> bool {
+    matches!(locale, "zh-CN" | "ja" | "ko")
+}
+
 /// The locale of `LANGUAGES` the system's (`zh-Hans-CN`, `de-AT`) is, by
 /// its language. Chinese in Traditional characters (`Hant`, or Taiwan,
 /// Hong Kong and Macau without a script) is not offered: English, as any
@@ -86,6 +96,8 @@ mod tests {
         ] {
             assert_eq!(of_system(system), offered, "{system}");
         }
+        assert!(cjk_locale("zh-CN") && cjk_locale("ja") && cjk_locale("ko"));
+        assert!(!cjk_locale("en") && !cjk_locale("de") && !cjk_locale("ru"));
     }
 
     #[test]

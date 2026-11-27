@@ -159,8 +159,15 @@ pub enum Popup {
 
 /// Which side columns show.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is an independent column toggle (docked left, overlay left, right, whole)"
+)]
 pub struct Panes {
     pub left: bool,
+    /// Sidebar opened over the thread (⌘B) while the window has no room
+    /// beside it (`WindowSizes`).
+    pub left_over: bool,
     pub right: bool,
     /// The right column takes the thread's place too.
     pub whole: bool,
@@ -682,6 +689,7 @@ impl Desk {
             picker: crate::thread::Picker::default(),
             panes: Panes {
                 left: true,
+                left_over: false,
                 right: false,
                 whole: false,
             },
@@ -1612,9 +1620,40 @@ impl Desk {
         cx.notify();
     }
 
-    pub fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
-        self.panes.left = !self.panes.left;
+    pub fn toggle_sidebar(&mut self, window: &Window, cx: &mut Context<Self>) {
+        let width = f32::from(window.viewport_size().width);
+        if width - self.left_width() >= THREAD_LEAST {
+            self.panes.left = !self.panes.left;
+            self.panes.left_over = false;
+        } else {
+            self.panes.left_over = !self.panes.left_over;
+        }
         cx.notify();
+    }
+
+    /// Which side columns stand beside vs over the thread at `width`.
+    pub(crate) fn layout_columns(&self, width: f32) -> (f32, bool, bool, bool, bool) {
+        let left = self.left_width();
+        let thread_page = self.page == Page::Thread && self.session().is_some();
+        // The split's rail stands beside the right column; the whole
+        // review keeps the sidebar away.
+        let rail = if self.split.is_some() { 40. } else { 0. };
+        let (left_beside, left_over, right_shown, right_beside) =
+            columns_for(width, left, self.right_width() + rail, self.panes, thread_page);
+        let review_whole = self.panes.whole && thread_page && self.surface() == Some(Surface::Diff);
+        (
+            left,
+            left_beside && !review_whole,
+            left_over && !review_whole,
+            right_shown,
+            right_beside,
+        )
+    }
+
+    /// Whether the sidebar is currently visible (docked or overlaying).
+    pub(crate) fn sidebar_shown(&self, window: &Window) -> bool {
+        let (_, beside, over, _, _) = self.layout_columns(f32::from(window.viewport_size().width));
+        beside || over
     }
 
     pub fn toggle_aside(&mut self, cx: &mut Context<Self>) {
@@ -1711,8 +1750,18 @@ impl Desk {
         } else if self.page != Page::Thread {
             self.page = Page::Thread;
             cx.notify();
+        } else if self.panes.left_over {
+            self.panes.left_over = false;
+            cx.notify();
         } else {
-            return false;
+            let width = f32::from(window.viewport_size().width);
+            let (_, _, _, right_shown, right_beside) = self.layout_columns(width);
+            if right_shown && !right_beside {
+                self.panes.right = false;
+                cx.notify();
+            } else {
+                return false;
+            }
         }
         true
     }
@@ -2083,23 +2132,22 @@ impl Render for Desk {
                 .child(self.welcome_view(&faces, lights, cx));
         }
         let width = f32::from(window.viewport_size().width);
-        let left = self.left_width().min(width - MIDDLE_LEAST).max(LEFT_LEAST);
         let thread_page = self.page == Page::Thread && self.session().is_some();
         let whole = self.panes.whole && thread_page;
         let review_whole = whole && self.surface() == Some(Surface::Diff);
-        // The session column keeps its least, at any size or zoom: a column
-        // beside it that would leave it less lies over it instead, the
-        // right one first.
-        let left_beside = self.panes.left && !review_whole && width - left >= THREAD_LEAST;
-        let right_shown = self.panes.right && thread_page && !whole;
+        // The session column keeps its least (480), at any size or zoom: a
+        // column beside it that would leave it less lies over it instead, the
+        // right one first (`WindowSizes`).
+        let (left, left_beside, left_over, right_shown, right_beside) = self.layout_columns(width);
+        if left_beside && self.panes.left_over {
+            self.panes.left_over = false;
+        }
+        let left_shown = left_beside || left_over;
         let rail_room = if right_shown && self.split.is_some() {
             40.
         } else {
             0.
         };
-        let right_beside = right_shown
-            && width - if left_beside { left } else { 0. } - self.right_width() - rail_room
-                >= THREAD_LEAST;
         let pane = width
             - if left_beside { left } else { 0. }
             - if right_beside {
@@ -2146,7 +2194,7 @@ impl Render for Desk {
                         .object_fit(gpui::ObjectFit::Cover)
                         .opacity(0.16)
                 }))
-                .child(self.topbar(&faces, lights, cx))
+                .child(self.topbar(&faces, left_shown, cx))
                 .children(self.thread_banners(&faces, cx));
 
             match self.page.clone() {
@@ -2168,10 +2216,9 @@ impl Render for Desk {
             Page::Thread if right_beside => {
                 Some(self.aside(&faces, cell, cx).w(px(self.right_width())))
             }
-            Page::Thread if right_shown => Some(over(
+            Page::Thread if right_shown => Some(over_right(
                 self.aside(&faces, cell, cx)
-                    .w(px(self.right_width().min(width - 48.)))
-                    .right_0(),
+                    .w(px(self.right_width().min(width - 48.))),
             )),
             Page::Agent(_, id) => Some(self.about(&faces, id, cx)),
             _ => None,
@@ -2227,16 +2274,22 @@ impl Render for Desk {
             .text_size(px(BODY))
             .text_color(theme::text())
             .when(left_beside, |d| {
-                d.child(self.sidebar(&faces, lights, left, cx))
+                d.child(self.sidebar(&faces, lights, left, window, cx))
             })
             .when(!whole, |d| d.child(middle))
             .children(right)
             .children(split_rail)
-            .when(self.panes.left && !left_beside && !review_whole, |d| {
-                d.child(over(self.sidebar(&faces, lights, left, cx).left_0()))
+            .when(left_over, |d| {
+                d.child(over_left(self.sidebar(
+                    &faces,
+                    lights,
+                    left.min(width - 48.),
+                    window,
+                    cx,
+                )))
             })
             // Hidden, the sidebar is dragged back out from the left edge.
-            .when(!self.panes.left && !review_whole, |d| {
+            .when(!left_shown && !review_whole, |d| {
                 use gpui::component::resizable::{HandleEdge, resize_handle};
                 d.child(
                     resize_handle::<crate::sidebar::LeftEdge, crate::sidebar::LeftEdge>(
@@ -2316,14 +2369,49 @@ fn line_of(named: &str) -> Option<&str> {
     (!at.is_empty() && at.split(':').all(|n| n.parse::<u32>().is_ok())).then_some(at)
 }
 
-/// A column lying over the session's where the window has no room for it
-/// beside it: its full height, raised.
-fn over(column: gpui::Div) -> gpui::Div {
+/// Pure layout rule (`WindowSizes`): the thread never gets narrower than
+/// `THREAD_LEAST` (`480`); side columns that do not fit beside it either fold
+/// away (`left`, until opened with ⌘B as `left_over`) or lie over it (`right`).
+fn columns_for(
+    width: f32,
+    left: f32,
+    right: f32,
+    panes: Panes,
+    thread_page: bool,
+) -> (bool, bool, bool, bool) {
+    let fits_left = width - left >= THREAD_LEAST;
+    let left_beside = panes.left && fits_left;
+    let left_over = panes.left_over && !fits_left;
+    let right_shown = panes.right && thread_page && !panes.whole;
+    let right_beside =
+        right_shown && width - if left_beside { left } else { 0. } - right >= THREAD_LEAST;
+    (left_beside, left_over, right_shown, right_beside)
+}
+
+/// The sidebar opened over the thread when the window has no room beside it.
+fn over_left(column: gpui::Div) -> gpui::Div {
     column
         .absolute()
         .top_0()
-        .h_full()
-        .bg(theme::bg())
+        .bottom_0()
+        .left_0()
+        .bg(u0ui::theme::color(u0ui::tokens::ColorRole::Layer01))
+        .border_r_1()
+        .border_color(theme::border())
+        .shadow_lg()
+}
+
+/// The right column opened over the thread below the 38px unified title bar
+/// (`WindowSizes` `.wsb-over`), leaving the title bar's panel toggles free.
+fn over_right(column: gpui::Div) -> gpui::Div {
+    column
+        .absolute()
+        .top(px(TOPBAR))
+        .bottom_0()
+        .right_0()
+        .bg(u0ui::theme::color(u0ui::tokens::ColorRole::Layer01))
+        .border_l_1()
+        .border_color(theme::border())
         .shadow_lg()
 }
 
@@ -2351,7 +2439,7 @@ fn mirror(settings: &settings::Settings, cx: &mut gpui::App) {
 
 #[cfg(test)]
 mod tests {
-    use super::line_of;
+    use super::{Panes, columns_for, line_of};
 
     #[test]
     fn a_file_named_with_its_line_opens_at_that_line() {
@@ -2359,5 +2447,43 @@ mod tests {
         assert_eq!(line_of("/x/a.rs:40"), Some("40"));
         assert_eq!(line_of("src/main.rs"), None);
         assert_eq!(line_of("a.rs:warning"), None);
+    }
+
+    #[test]
+    fn thread_keeps_its_480_minimum_at_800x520_and_200_percent_zoom() {
+        let base = Panes {
+            left: true,
+            left_over: false,
+            right: false,
+            whole: false,
+        };
+        // 800×520, right closed: 256 + 544 (>= 480) -> sidebar stays beside.
+        assert_eq!(
+            columns_for(800., 256., 400., base, true),
+            (true, false, false, false)
+        );
+        // 800×520, right open: 256 + 400 leaves 144 (< 480) -> right overlays.
+        let with_right = Panes {
+            right: true,
+            ..base
+        };
+        assert_eq!(
+            columns_for(800., 256., 400., with_right, true),
+            (true, false, true, false)
+        );
+        // 1440×900 at 200% zoom -> 720 logical width (< 256 + 480 = 736):
+        // sidebar folds away automatically; ⌘B opens `left_over` over thread.
+        assert_eq!(
+            columns_for(720., 256., 400., base, true),
+            (false, false, false, false)
+        );
+        let toggled = Panes {
+            left_over: true,
+            ..base
+        };
+        assert_eq!(
+            columns_for(720., 256., 400., toggled, true),
+            (false, true, false, false)
+        );
     }
 }

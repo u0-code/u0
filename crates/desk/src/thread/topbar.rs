@@ -16,16 +16,16 @@ use crate::{
 
 impl Desk {
     /// The bar over the middle (`TitleBar` + thread/page header).
-    pub(crate) fn topbar(&self, faces: &Faces, _lights: f32, cx: &mut Context<Self>) -> Div {
-        let mut bar = ui::title_bar(!self.panes.left);
-        if !self.panes.left {
+    pub(crate) fn topbar(&self, faces: &Faces, left_shown: bool, cx: &mut Context<Self>) -> Div {
+        let mut bar = ui::title_bar(!left_shown);
+        if !left_shown {
             bar = bar.child(
                 ui::icon_button(
                     "show-sidebar",
                     "sidebar",
                     crate::keys::hint(cx, &crate::tr("Show the sidebar"), "toggle_sidebar"),
                 )
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
+                .on_click(cx.listener(|this, _, window, cx| this.toggle_sidebar(window, cx))),
             );
         }
         let title = |t: String| {

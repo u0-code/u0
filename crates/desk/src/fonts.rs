@@ -41,7 +41,10 @@ pub fn fallbacks(weight: FontWeight) -> FontFallbacks {
     };
     FontFallbacks::from_fonts(vec![
         pingfang.to_owned(),
+        "Noto Sans SC".to_owned(),
         "Hiragino Sans GB".to_owned(),
+        "Hiragino Sans".to_owned(),
+        "Apple SD Gothic Neo".to_owned(),
         "Noto Sans CJK SC".to_owned(),
         "Apple Color Emoji".to_owned(),
     ])

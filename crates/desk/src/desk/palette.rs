@@ -224,11 +224,11 @@ impl Desk {
         }
         let line = gpui::Focusable::focus_handle(self.composer.input.read(cx), cx);
         let mut areas = Vec::new();
-        if self.panes.left {
+        if self.sidebar_shown(window) {
             areas.push(Area::Sidebar);
         }
         areas.push(Area::Composer);
-        if self.drawer.open {
+        if self.drawer.open && !self.terminals_beside() {
             areas.push(Area::Terminals);
         }
         let now = if line.contains_focused(window, cx) {
@@ -411,7 +411,7 @@ impl Desk {
                 let desk = desk.clone();
                 dialog
                     .w(px(640.))
-                    .margin_top((window.viewport_size().height * 0.1).max(px(52.)))
+                    .margin_top((window.viewport_size().height - px(520.)).clamp(px(24.), px(96.)))
                     .p_0()
                     .rounded_none()
                     .bg(theme::role(u0ui::tokens::ColorRole::Layer01))

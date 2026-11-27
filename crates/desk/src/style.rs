@@ -70,11 +70,25 @@ pub const WINDOW_MIN_WIDTH: f32 = tokens::WINDOW_MIN_WIDTH.px_value();
 /// `window-min-height` (520px): minimum window height.
 pub const WINDOW_MIN_HEIGHT: f32 = tokens::WINDOW_MIN_HEIGHT.px_value();
 
-/// A line of small print (`label-01`, 12/16) under a message or beside a step.
+/// Line height of `body-01` (`14/20` in Latin/Cyrillic, `14/22` in CJK).
+pub fn prose_line() -> f32 {
+    if crate::i18n::is_cjk() {
+        22.
+    } else {
+        PROSE_LINE
+    }
+}
+
+/// Line height of `label-01` (`12/16` in Latin/Cyrillic, `12/20` in CJK).
+pub fn caption_line() -> f32 {
+    if crate::i18n::is_cjk() { 20. } else { 16. }
+}
+
+/// A line of small print (`label-01`, 12/16 or 12/20 in CJK) under a message or beside a step.
 pub fn meta(faces: &Faces, text: impl Into<gpui::SharedString>) -> Div {
     ui::text(faces, text)
         .text_size(px(CAPTION))
-        .line_height(px(16.))
+        .line_height(px(caption_line()))
         .text_color(theme::faint())
 }
 

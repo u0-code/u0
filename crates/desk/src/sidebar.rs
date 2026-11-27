@@ -45,6 +45,7 @@ impl Desk {
         faces: &Faces,
         lights: f32,
         width: f32,
+        window: &gpui::Window,
         cx: &mut Context<Self>,
     ) -> Div {
         let typed = self.search.input.read(cx).value().trim().to_owned();
@@ -89,7 +90,7 @@ impl Desk {
                 )
                 .into_any_element()
         } else {
-            self.side_list(faces, cx).into_any_element()
+            self.side_list(faces, window, cx).into_any_element()
         };
 
         let sel_bar = (self.chosen.len() > 1).then(|| self.sidebar_selection_bar(faces, cx));
