@@ -18735,16 +18735,6 @@ _version: 2
   pt-BR: "Aberto a partir de um link de prompt"
   ru: "Открыто по ссылке с запросом"
   sv: "Öppnad från en promptlänk"
-"Remove from queue":
-  zh-CN: "从队列中移除"
-  de: "Aus der Warteschlange entfernen"
-  es: "Quitar de la cola"
-  fr: "Retirer de la file"
-  ja: "キューから削除"
-  ko: "대기열에서 제거"
-  pt-BR: "Remover da fila"
-  ru: "Убрать из очереди"
-  sv: "Ta bort från kön"
 "Review it before sending — nothing runs until you send it.":
   zh-CN: "请在发送前检查——在你发送之前不会运行任何内容。"
   de: "Prüfen Sie ihn vor dem Senden — nichts wird ausgeführt, bis Sie senden."

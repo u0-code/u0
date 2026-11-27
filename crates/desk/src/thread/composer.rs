@@ -271,7 +271,7 @@ impl Desk {
             .flex_col()
             .w(px(column))
             .gap(px(8.))
-            .children(self.queued_list(faces, s, agent_name, cx))
+            .children(self.queued_list(s, agent_name, cx))
             .children(self.dictation_row(faces, cx))
             .children(self.mention_chips(faces, s, cx))
             .child(box_el)
@@ -1843,15 +1843,17 @@ impl Desk {
         )
     }
 
-    /// `.tc-later` (`ThreadComposer.dc.html`): messages waiting their turn
-    /// while the agent works (`Earlier`, `Send now`, `Edit`).
+    /// What waits its turn while the agent works (the board's `.tc-later`,
+    /// u0ui's `QueuedRunsControl`): each said in order as the turn ends,
+    /// moved earlier, said now (the turn stopped for it), edited in the
+    /// composer, or removed unsent.
     fn queued_list(
         &self,
-        faces: &Faces,
         s: &Session,
         agent_name: &str,
         cx: &mut Context<Self>,
-    ) -> Option<Div> {
+    ) -> Option<AnyElement> {
+        use u0ui::t3::composer::{QueuedRun, QueuedRunsControl, QueuedRunsTexts};
         if s.meta.queued.is_empty() {
             return None;
         }
@@ -1867,126 +1869,38 @@ impl Desk {
                 &[("n", &count), ("name", &agent_name)],
             )
         };
-        let mut list = div()
-            .flex()
-            .flex_col()
-            .bg(theme::role(ColorRole::Layer01))
-            .border_1()
-            .border_color(theme::role(ColorRole::BorderSubtle01))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .h(px(32.))
-                    .pl(px(12.))
-                    .pr(px(8.))
-                    .child(
-                        CarbonGlyph::carbon(CarbonIcon::Time)
-                            .size_length(px(16.))
-                            .color(theme::role(ColorRole::IconSecondary))
-                            .flex_none(),
-                    )
-                    .child(
-                        ui::text(faces, head)
-                            .flex_1()
-                            .min_w(px(0.))
-                            .truncate()
-                            .text_size(px(12.))
-                            .line_height(px(16.))
-                            .text_color(theme::role(ColorRole::TextSecondary)),
-                    ),
-            );
-
-        for (n, text) in s.meta.queued.iter().enumerate() {
-            let editing = self.composer.editing_queued == Some(n);
-            let desk_up = cx.entity();
-            let desk_now = cx.entity();
-            let desk_ed = cx.entity();
-            let desk_rm = cx.entity();
-            list = list.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(4.))
-                    .min_h(px(32.))
-                    .pl(px(12.))
-                    .pr(px(4.))
-                    .border_t_1()
-                    .border_color(theme::role(ColorRole::BorderSubtle01))
-                    .when(editing, |d| {
-                        d.bg(theme::role(ColorRole::StateCurrentBackground))
-                    })
-                    .child(
-                        ui::text(faces, text.clone())
-                            .flex_1()
-                            .min_w(px(0.))
-                            .truncate()
-                            .text_size(px(14.))
-                            .line_height(px(20.)),
-                    )
-                    .when(editing, |d| {
-                        d.child(
-                            ui::text(faces, crate::tr("Editing in the composer"))
-                                .text_size(px(12.))
-                                .text_color(theme::link()),
-                        )
-                    })
-                    .when(n > 0 && !editing, |d| {
-                        d.child(
-                            CarbonButton::new(
-                                SharedString::from(format!("queue-up-{n}")),
-                                crate::tr("Earlier"),
-                            )
-                            .variant(ButtonVariant::Ghost)
-                            .size(ButtonSize::Sm)
-                            .on_click(move |_, _, cx| {
-                                desk_up.update(cx, |this, cx| this.queue_earlier(n, cx));
-                            }),
-                        )
-                    })
-                    .child(
-                        CarbonButton::new(
-                            SharedString::from(format!("steer-{n}")),
-                            crate::tr("Send now"),
-                        )
-                        .variant(ButtonVariant::Ghost)
-                        .size(ButtonSize::Sm)
-                        .on_click(move |_, _, cx| {
-                            desk_now.update(cx, |this, cx| this.steer(n, cx));
-                        }),
-                    )
-                    .when(!editing, |d| {
-                        d.child(
-                            CarbonButton::new(
-                                SharedString::from(format!("unqueue-{n}")),
-                                crate::tr("Edit"),
-                            )
-                            .variant(ButtonVariant::Ghost)
-                            .size(ButtonSize::Sm)
-                            .icon(CarbonIcon::Edit)
-                            .icon_only(true)
-                            .on_click(move |_, window, cx| {
-                                desk_ed.update(cx, |this, cx| this.unqueue(n, window, cx));
-                            }),
-                        )
-                    })
-                    .child(
-                        CarbonButton::new(
-                            SharedString::from(format!("queue-rm-{n}")),
-                            crate::tr("Remove from queue"),
-                        )
-                        .variant(ButtonVariant::Ghost)
-                        .size(ButtonSize::Sm)
-                        .icon(CarbonIcon::TrashCan)
-                        .icon_only(true)
-                        .on_click(move |_, _, cx| {
-                            desk_rm.update(cx, |this, cx| this.remove_queued(n, cx));
-                        }),
-                    ),
-            );
-        }
-        Some(list)
+        let items = (s.meta.queued.iter().enumerate())
+            .map(|(n, text)| {
+                QueuedRun::new(text.clone()).editing(self.composer.editing_queued == Some(n))
+            })
+            .collect();
+        let (earlier, now, edit, remove) = (cx.entity(), cx.entity(), cx.entity(), cx.entity());
+        Some(
+            QueuedRunsControl::new("composer-later", items)
+                .icon(CarbonIcon::Time)
+                .title(head)
+                .collapsible(false)
+                .numbered(false)
+                .single_line(true)
+                .bordered(true)
+                .texts(QueuedRunsTexts {
+                    editing: crate::tr("Editing in the composer"),
+                    send_now: crate::tr("Send now"),
+                    edit: crate::tr("Edit"),
+                    remove: crate::tr("Remove"),
+                    earlier: crate::tr("Earlier"),
+                    ..QueuedRunsTexts::default()
+                })
+                .on_earlier(move |n, _, cx| {
+                    earlier.update(cx, |this, cx| this.queue_earlier(n, cx));
+                })
+                .on_send_now(move |n, _, cx| now.update(cx, |this, cx| this.steer(n, cx)))
+                .on_edit(move |n, window, cx| {
+                    edit.update(cx, |this, cx| this.unqueue(n, window, cx));
+                })
+                .on_remove(move |n, _, cx| remove.update(cx, |this, cx| this.remove_queued(n, cx)))
+                .into_any_element(),
+        )
     }
 
     fn children_asking(
