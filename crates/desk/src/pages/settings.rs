@@ -1,7 +1,8 @@
-//! The settings, a dialog over the window: a column of tabs, and the tab
-//! chosen. u0's own settings (`prefs`); agents, which are switched on
-//! and off and installed; sessions archived, and what u0 keeps on this
-//! machine.
+//! The settings dialog (`SettingsSidebar` board + Carbon dialog shell): a
+//! `1080×820` modal over the window with the `232px` `layer-01` page list down
+//! the left (`This app`, the `layer-02` per-machine box headed by the inline
+//! `Machine` picker, and `u0`) and the `720px`-centered Carbon page on the
+//! right.
 
 use std::time::SystemTime;
 
@@ -9,16 +10,33 @@ use gpui::component::{
     Sizable as _,
     input::Input,
     kbd::Kbd,
-    setting::{SettingGroup, SettingItem, SettingPage, Settings},
+    setting::{SelectIndex, SettingGroup, SettingItem, SettingPage, Settings},
     switch::Switch,
 };
-use gpui::{App, Context, Pixels, SharedString, WeakEntity, Window, div, prelude::*, px};
+use gpui::{
+    AnyElement, App, Context, Div, Pixels, SharedString, WeakEntity, Window, div, prelude::*, px,
+    rgb,
+};
+use u0ui::{
+    components::{
+        badge::{Badge, BadgeSize},
+        button::{Button as CarbonButton, ButtonSize, ButtonVariant},
+        form::FieldSize,
+        list_box::ListItem,
+        select::{Select, SelectType},
+    },
+    icons::{CarbonIcon, Icon as CarbonGlyph},
+    t3::workspace::settings::SettingsBadgeTone,
+    theme::LayerLevel,
+    tokens::ColorRole,
+};
 
 use super::prefs::{group, item, whole};
 use crate::fonts::Weighted as _;
 use crate::{
     desk::{Desk, Page},
     fonts::Faces,
+    hub::{Auth, Host, Stage, Up},
     registry::Way,
     theme,
     ui::{self, Weight},
@@ -53,7 +71,7 @@ pub enum Tab {
 }
 
 impl Tab {
-    /// Each tab, in the order the side list shows them.
+    /// Each tab, in canonical index order.
     pub const ALL: [Self; 17] = [
         Self::General,
         Self::Devices,
@@ -74,7 +92,34 @@ impl Tab {
         Self::About,
     ];
 
-    /// Its name, in your language.
+    const APP_TABS: [Self; 4] = [
+        Self::General,
+        Self::Appearance,
+        Self::Chat,
+        Self::Keybindings,
+    ];
+
+    const MACHINE_GROUPS: [(&'static str, &'static [Self]); 4] = [
+        (
+            "Agents",
+            &[
+                Self::Agents,
+                Self::NewThreads,
+                Self::Writing,
+                Self::Tasks,
+                Self::Workflows,
+                Self::Archive,
+                Self::Usage,
+            ],
+        ),
+        ("Code", &[Self::Projects, Self::SourceControl]),
+        ("Access", &[Self::Devices]),
+        ("Upkeep", &[Self::Diagnostics]),
+    ];
+
+    const U0_TABS: [Self; 2] = [Self::Telemetry, Self::About];
+
+    /// Its page heading, in your language.
     pub fn title(self) -> SharedString {
         crate::tr(match self {
             Self::General => "General",
@@ -95,6 +140,38 @@ impl Tab {
             Self::Workflows => "Workflows",
             Self::Telemetry => "Telemetry",
         })
+    }
+
+    /// Its label in the settings sidebar (`SettingsSidebar.dc.html`).
+    fn nav_label(self) -> SharedString {
+        match self {
+            Self::SourceControl => crate::tr("Source control & issues"),
+            Self::Diagnostics => crate::tr("Maintenance & diagnostics"),
+            _ => self.title(),
+        }
+    }
+
+    /// Material Symbols Sharp (`CarbonIcon`) glyph for the sidebar list.
+    pub fn carbon_icon(self) -> CarbonIcon {
+        match self {
+            Self::General => CarbonIcon::Settings,
+            Self::Appearance => CarbonIcon::ColorPalette,
+            Self::Chat => CarbonIcon::Chat,
+            Self::Keybindings => CarbonIcon::Keyboard,
+            Self::Agents => CarbonIcon::Bot,
+            Self::NewThreads => CarbonIcon::Add,
+            Self::Writing => CarbonIcon::Edit,
+            Self::Tasks => CarbonIcon::Calendar,
+            Self::Workflows => CarbonIcon::Flow,
+            Self::Archive => CarbonIcon::Archive,
+            Self::Usage => CarbonIcon::ChartBar,
+            Self::Projects => CarbonIcon::Folder,
+            Self::SourceControl => CarbonIcon::Branch,
+            Self::Devices => CarbonIcon::Laptop,
+            Self::Diagnostics => CarbonIcon::Activity,
+            Self::Telemetry => CarbonIcon::View,
+            Self::About => CarbonIcon::Information,
+        }
     }
 
     pub fn icon(self) -> &'static str {
@@ -119,25 +196,26 @@ impl Tab {
         }
     }
 
-    /// The heading the side list shows it under; u0's own tabs have
-    /// none.
-    fn group(self) -> &'static str {
-        match self {
-            Self::Agents
-            | Self::NewThreads
-            | Self::Writing
-            | Self::Tasks
-            | Self::Workflows
-            | Self::Archive
-            | Self::Usage => "Agents",
-            Self::About | Self::Diagnostics | Self::Telemetry => "u0",
-            _ => "",
-        }
+    /// Whether this page sits inside the per-machine box (`u0-setbox`).
+    pub fn is_per_machine(self) -> bool {
+        !matches!(
+            self,
+            Self::General
+                | Self::Appearance
+                | Self::Chat
+                | Self::Keybindings
+                | Self::Telemetry
+                | Self::About
+        )
+    }
+
+    fn index(self) -> usize {
+        Self::ALL.iter().position(|&t| t == self).unwrap_or(0)
     }
 }
 
 impl Desk {
-    /// The page of `tab`, its settings each drawn by `w`, the desk.
+    /// Legacy `SettingPage` builder for tabs not yet migrated to `carbon_tab`.
     fn tab_page(&self, tab: Tab, w: &WeakEntity<Desk>, cx: &App) -> SettingPage {
         let paged = |lede: &str, groups: Vec<SettingGroup>| {
             SettingPage::new(tab.title())
@@ -182,86 +260,525 @@ impl Desk {
         page.icon(ui::glyph(tab.icon()))
     }
 
-    /// The settings, over the window: gpui-kit's Settings, a page for each
-    /// tab down the left with the search above them; the way to close them
-    /// at the top. A page chosen there is the tab shown.
+    /// Select `tab` inside the open settings dialog.
+    pub(crate) fn pick_settings_tab(
+        &mut self,
+        tab: Tab,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.pages.tab != tab {
+            self.pages.tab = tab;
+            let page_ix = tab.index();
+            self.pages.settings.update(cx, |s, cx| {
+                s.set_selected_index(
+                    SelectIndex {
+                        page_ix,
+                        group_ix: None,
+                    },
+                    cx,
+                );
+            });
+            self.tab_shown(tab, window, cx);
+            cx.notify();
+        }
+    }
+
+    /// Severity-only badge for `tab` (`SettingsSidebar.dc.html`: yellow = needs
+    /// sign-in / setup, red = failed task or security / turned away; plain
+    /// counts are never shown).
+    fn tab_badge(&self, tab: Tab) -> Option<(usize, SettingsBadgeTone)> {
+        match tab {
+            Tab::Agents => {
+                let n = self
+                    .slots_on(self.pages.on)
+                    .filter(|s| {
+                        matches!(s.auth, Auth::Needed(_))
+                            || matches!(s.stage, Stage::Missing(_) | Stage::Failed(_))
+                    })
+                    .count();
+                (n > 0).then_some((n, SettingsBadgeTone::Warning))
+            }
+            Tab::Tasks => {
+                let n = self.tasks.list.as_ref().ok().map_or(0, |list| {
+                    list.iter()
+                        .filter(|t| t.last.as_ref().is_some_and(|r| r.error.is_some()))
+                        .count()
+                });
+                (n > 0).then_some((n, SettingsBadgeTone::Error))
+            }
+            Tab::Devices => {
+                let refused = self
+                    .machines
+                    .iter()
+                    .skip(1)
+                    .filter(|m| matches!(m.up, Up::Refused(_)))
+                    .count();
+                let waiting = self
+                    .pages
+                    .shared
+                    .as_ref()
+                    .and_then(|s| s.devices.as_ref().ok())
+                    .map_or(0, |devs| devs.iter().filter(|d| d.waiting).count());
+                let n = refused + waiting;
+                (n > 0).then_some((n, SettingsBadgeTone::Error))
+            }
+            _ => None,
+        }
+    }
+
+    /// Carbon `1080×820` settings dialog shell (`SettingsSidebar` + right pane).
     pub(crate) fn settings_dialog(
         &mut self,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) -> gpui::AnyElement {
-        let chosen = self.pages.settings.read(cx).selected_index().page_ix;
-        if let Some(&tab) = Tab::ALL.get(chosen)
-            && tab != self.pages.tab
-        {
-            self.pages.tab = tab;
-            self.tab_shown(tab, window, cx);
-        }
-        let w = cx.entity().downgrade();
-        // The tabs under their headings, a heading where the group changes.
-        let mut settings = Settings::new("settings")
-            .state(&self.pages.settings)
-            .sidebar_width(px(crate::style::SETTINGS_NAV_WIDTH));
-        let mut heading = "";
-        for tab in Tab::ALL {
-            if tab.group() != heading {
-                heading = tab.group();
-                settings = settings.section(crate::tr(heading));
+    ) -> AnyElement {
+        let query = self
+            .pages
+            .settings_search
+            .read(cx)
+            .value()
+            .trim()
+            .to_owned();
+        let state_ix = self.pages.tab.index();
+        self.pages.settings.update(cx, |s, cx| {
+            if s.selected_index().page_ix != state_ix {
+                s.set_selected_index(
+                    SelectIndex {
+                        page_ix: state_ix,
+                        group_ix: None,
+                    },
+                    cx,
+                );
             }
-            settings = settings.page(self.tab_page(tab, &w, cx));
-        }
+            s.set_query(query.clone(), window, cx);
+        });
+
+        let faces = crate::fonts::faces(cx).clone();
+        let nav = self.settings_sidebar(&faces, &query, cx);
+        let scope_hint = if self.pages.tab.is_per_machine() {
+            let mname = self
+                .machine(self.pages.on)
+                .map_or_else(|| crate::tr("This Mac").to_string(), |m| m.name.clone());
+            crate::tr_with(
+                "Machine: %{name} · ⌘, opens settings, Esc closes them",
+                &[("name", &mname)],
+            )
+        } else {
+            crate::tr("This app · ⌘, opens settings, Esc closes them")
+        };
+        let desk_close = cx.entity();
+        let top_bar = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(8.))
+            .h(px(48.))
+            .pl(px(32.))
+            .pr(px(8.))
+            .border_b_1()
+            .border_color(theme::border())
+            .bg(theme::bg())
+            .child(
+                ui::text(&faces, scope_hint)
+                    .flex_1()
+                    .min_w(px(0.))
+                    .truncate()
+                    .text_size(px(crate::style::CAPTION))
+                    .line_height(px(16.))
+                    .text_color(theme::text2()),
+            )
+            .child(
+                CarbonButton::new("close-settings", crate::tr("Close settings (Esc)"))
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Sm)
+                    .icon(CarbonIcon::Close)
+                    .icon_only(true)
+                    .on_click(move |_, window, cx| {
+                        desk_close.update(cx, |this, cx| this.close_settings(window, cx));
+                    }),
+            );
+
+        let body: AnyElement =
+            if let Some(carbon) = self.carbon_tab(self.pages.tab, &query, &faces, cx) {
+                carbon
+            } else {
+                let w = cx.entity().downgrade();
+                let mut settings = Settings::new("settings")
+                    .state(&self.pages.settings)
+                    .sidebar_width(px(100.))
+                    .sidebar_size_range(px(100.)..px(100.));
+                for tab in Tab::ALL {
+                    settings = settings.page(self.tab_page(tab, &w, cx));
+                }
+                div()
+                    .flex_1()
+                    .min_h(px(0.))
+                    .overflow_hidden()
+                    .child(div().h_full().ml(px(-101.)).child(settings))
+                    .into_any_element()
+            };
+
         div()
             .relative()
+            .flex()
             .size_full()
             .bg(theme::bg())
-            .child(settings)
+            .overflow_hidden()
+            .child(nav)
             .child(
                 div()
-                    .absolute()
-                    .top(px(10.))
-                    .right(px(12.))
+                    .relative()
                     .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .children(self.server_pick(cx))
-                    .child(
-                        ui::icon_button("close-settings", "x", crate::tr("Close · Esc")).on_click(
-                            cx.listener(|this, _, window, cx| this.close_settings(window, cx)),
-                        ),
-                    ),
+                    .flex_col()
+                    .flex_1()
+                    .min_w(px(0.))
+                    .h_full()
+                    .child(top_bar)
+                    .child(body),
             )
             .into_any_element()
     }
 
-    /// Where the window holds more than one server, the one whose own
-    /// pages (its agents, projects, tasks, sharing, what it keeps) the
-    /// settings show: each server's are that server's, saved there. The
-    /// window's own (its look, its keys) are this Mac's whichever it is.
-    fn server_pick(&self, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        if self.machines.len() < 2 {
-            return None;
-        }
-        let choices = (self.machines.iter())
-            .map(|m| {
-                let (host, desk) = (m.host, cx.entity());
-                let pick: ui::Pick = Box::new(move |_, window, cx| {
-                    desk.update(cx, |this, cx| {
-                        this.pages.on = host;
+    /// `232px` Carbon settings sidebar (`SettingsSidebar.dc.html`).
+    fn settings_sidebar(&self, faces: &Faces, query: &str, cx: &mut Context<Self>) -> Div {
+        let q = query.to_lowercase();
+        let tab_matches = |tab: Tab| {
+            q.is_empty() || tab.nav_label().to_lowercase().contains(&q) || tab == self.pages.tab
+        };
+
+        let group_head = |label: SharedString| {
+            ui::text(faces, label)
+                .px(px(16.))
+                .pb(px(8.))
+                .text_size(px(crate::style::CAPTION))
+                .line_height(px(16.))
+                .weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(theme::text2())
+        };
+
+        let app_items: Vec<AnyElement> = Tab::APP_TABS
+            .into_iter()
+            .filter(|&t| tab_matches(t))
+            .map(|t| {
+                self.settings_nav_row(faces, t, false, cx)
+                    .into_any_element()
+            })
+            .collect();
+
+        let machine_items: Vec<ListItem> = self
+            .machines
+            .iter()
+            .map(|m| ListItem::labeled(m.host.0.to_string(), m.name.clone()))
+            .collect();
+        let hosts: Vec<Host> = self.machines.iter().map(|m| m.host).collect();
+        let desk_machine = cx.entity();
+        let machine_select = Select::new("settings-machine")
+            .label(crate::tr("Machine"))
+            .kind(SelectType::Inline)
+            .size(FieldSize::Sm)
+            .layer(LayerLevel::Two)
+            .readonly(self.machines.len() < 2)
+            .items(machine_items)
+            .value(Some(self.pages.on.0.to_string()))
+            .on_value_change(move |val, window, cx| {
+                if let Some(raw) = val
+                    && let Ok(h) = raw.parse::<u16>()
+                    && hosts.contains(&Host(h))
+                {
+                    desk_machine.update(cx, |this, cx| {
+                        this.pages.on = Host(h);
                         this.pages.project = None;
                         this.pages.scope = None;
                         this.tab_shown(this.pages.tab, window, cx);
                         cx.notify();
                     });
-                });
-                (m.name.clone(), m.host == self.pages.on, pick)
+                }
+            });
+
+        let mut machine_groups: Vec<AnyElement> = Vec::new();
+        for (g_ix, (heading, tabs)) in Tab::MACHINE_GROUPS.into_iter().enumerate() {
+            let mut rows: Vec<AnyElement> = Vec::new();
+            for &tab in tabs {
+                if tab_matches(tab) {
+                    rows.push(
+                        self.settings_nav_row(faces, tab, true, cx)
+                            .into_any_element(),
+                    );
+                }
+                if tab == Tab::Agents {
+                    for slot in self.slots_on(self.pages.on) {
+                        let id = slot.entry.id.clone();
+                        let name = self.name_of(&id);
+                        if !q.is_empty() && !name.to_lowercase().contains(&q) {
+                            continue;
+                        }
+                        rows.push(self.settings_agent_nav_row(faces, self.pages.on, id, name, cx));
+                    }
+                }
+            }
+            if !rows.is_empty() {
+                machine_groups.push(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .when(g_ix > 0, |d| d.mt(px(20.)))
+                        .child(group_head(crate::tr(heading)))
+                        .children(rows)
+                        .into_any_element(),
+                );
+            }
+        }
+
+        let u0_items: Vec<AnyElement> = Tab::U0_TABS
+            .into_iter()
+            .filter(|&t| tab_matches(t))
+            .map(|t| {
+                self.settings_nav_row(faces, t, false, cx)
+                    .into_any_element()
             })
             .collect();
-        Some(ui::segmented("settings-server", choices))
+
+        div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .w(px(crate::style::SETTINGS_NAV_WIDTH))
+            .h_full()
+            .bg(theme::role(ColorRole::Layer01))
+            .border_r_1()
+            .border_color(theme::border())
+            .overflow_hidden()
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .h(px(48.))
+                    .px(px(16.))
+                    .child(
+                        ui::text(faces, crate::tr("Settings"))
+                            .text_size(px(16.))
+                            .line_height(px(22.))
+                            .weight(gpui::FontWeight::SEMIBOLD)
+                            .text_color(theme::text()),
+                    ),
+            )
+            .child(
+                div().flex_none().px(px(8.)).pb(px(16.)).child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .h(px(32.))
+                        .px(px(8.))
+                        .bg(theme::role(ColorRole::Field02))
+                        .border_b_1()
+                        .border_color(theme::role(ColorRole::BorderStrong01))
+                        .child(
+                            CarbonGlyph::carbon(CarbonIcon::Search)
+                                .size_length(px(16.))
+                                .color(theme::role(ColorRole::IconSecondary))
+                                .flex_none(),
+                        )
+                        .child(
+                            div().flex_1().min_w(px(0.)).child(
+                                Input::new(&self.pages.settings_search)
+                                    .appearance(false)
+                                    .cleanable(true),
+                            ),
+                        ),
+                ),
+            )
+            .child(
+                div()
+                    .id("settings-nav-scroll")
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h(px(0.))
+                    .pt(px(4.))
+                    .pb(px(24.))
+                    .overflow_y_scroll()
+                    .when(!app_items.is_empty(), |d| {
+                        d.child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .child(group_head(crate::tr("This app")))
+                                .children(app_items),
+                        )
+                    })
+                    .when(!machine_groups.is_empty(), |d| {
+                        d.child(
+                            div()
+                                .my(px(20.))
+                                .pt(px(12.))
+                                .pb(px(16.))
+                                .bg(theme::role(ColorRole::Layer02))
+                                .border_t_1()
+                                .border_b_1()
+                                .border_color(theme::border())
+                                .child(div().px(px(16.)).pb(px(4.)).child(machine_select))
+                                .child(
+                                    ui::text(
+                                        faces,
+                                        crate::tr("Each page here is set per machine."),
+                                    )
+                                    .px(px(16.))
+                                    .pb(px(16.))
+                                    .text_size(px(crate::style::CAPTION))
+                                    .line_height(px(16.))
+                                    .text_color(theme::text2()),
+                                )
+                                .children(machine_groups),
+                        )
+                    })
+                    .when(!u0_items.is_empty(), |d| {
+                        d.child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .child(group_head(crate::tr("u0")))
+                                .children(u0_items),
+                        )
+                    }),
+            )
+    }
+
+    fn settings_nav_row(
+        &self,
+        faces: &Faces,
+        tab: Tab,
+        on_layer2: bool,
+        cx: &mut Context<Self>,
+    ) -> gpui::Stateful<Div> {
+        let active = self.pages.tab == tab;
+        let selected_bg = theme::role(if on_layer2 {
+            ColorRole::LayerSelected02
+        } else {
+            ColorRole::LayerSelected01
+        });
+        let hover_bg = theme::role(if on_layer2 {
+            ColorRole::LayerHover02
+        } else {
+            ColorRole::LayerHover01
+        });
+        let badge = self.tab_badge(tab).map(|(n, tone)| {
+            let (bg, fg) = match tone {
+                SettingsBadgeTone::Warning => (
+                    theme::role(ColorRole::SupportWarning),
+                    rgb(0x0016_1616).into(),
+                ),
+                _ => (
+                    theme::role(ColorRole::SupportError),
+                    if theme::is_light() {
+                        gpui::white()
+                    } else {
+                        rgb(0x0016_1616).into()
+                    },
+                ),
+            };
+            Badge::new(n.to_string()).size(BadgeSize::Sm).colors(bg, fg)
+        });
+        let label = tab.nav_label();
+        div()
+            .id(SharedString::from(format!("snav-{tab:?}")))
+            .relative()
+            .flex()
+            .items_center()
+            .gap(px(12.))
+            .w_full()
+            .h(px(32.))
+            .px(px(16.))
+            .cursor_pointer()
+            .when(active, |d| {
+                d.bg(selected_bg).child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top_0()
+                        .bottom_0()
+                        .w(px(3.))
+                        .bg(theme::role(ColorRole::BorderInteractive)),
+                )
+            })
+            .when(!active, |d| d.hover(move |s| s.bg(hover_bg)))
+            .child(
+                CarbonGlyph::carbon(tab.carbon_icon())
+                    .size_length(px(16.))
+                    .color(if active {
+                        theme::text()
+                    } else {
+                        theme::text2()
+                    })
+                    .flex_none(),
+            )
+            .child(
+                ui::text(faces, label)
+                    .flex_1()
+                    .min_w(px(0.))
+                    .truncate()
+                    .text_size(px(crate::style::BODY))
+                    .weight(if active {
+                        gpui::FontWeight::SEMIBOLD
+                    } else {
+                        gpui::FontWeight::NORMAL
+                    })
+                    .text_color(if active {
+                        theme::text()
+                    } else {
+                        theme::text2()
+                    }),
+            )
+            .children(badge)
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.pick_settings_tab(tab, window, cx);
+            }))
+    }
+
+    fn settings_agent_nav_row(
+        &self,
+        faces: &Faces,
+        host: Host,
+        id: String,
+        name: String,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let _ = self;
+        let hover_bg = theme::role(ColorRole::LayerHover02);
+        div()
+            .id(SharedString::from(format!("snav-agent-{}-{id}", host.0)))
+            .flex()
+            .items_center()
+            .gap(px(12.))
+            .w_full()
+            .h(px(32.))
+            .px(px(16.))
+            .cursor_pointer()
+            .hover(move |s| s.bg(hover_bg))
+            .child(
+                CarbonGlyph::carbon(CarbonIcon::Chip)
+                    .size_length(px(16.))
+                    .color(theme::text2())
+                    .flex_none(),
+            )
+            .child(
+                ui::text(faces, name)
+                    .flex_1()
+                    .min_w(px(0.))
+                    .truncate()
+                    .text_size(px(crate::style::BODY))
+                    .text_color(theme::text2()),
+            )
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.open_page(Page::Agent(host, id.clone()), window, cx);
+            }))
+            .into_any_element()
     }
 
     /// The agents of the registry: switched on and off, installed.
     fn agents(&self, w: &WeakEntity<Desk>, cx: &App) -> Vec<SettingGroup> {
-        // What runs here, and what answers the search, from the registry.
         let query = self
             .pages
             .agent_search
@@ -293,7 +810,6 @@ impl Desk {
         let mut head: Vec<SettingItem> = Vec::new();
         if let Some(first) = self.slots_on(self.pages.on).next() {
             let id = first.entry.id.clone();
-            // Said, not chosen here: the first agent on is it.
             head.push(item(
                 w,
                 crate::tr("Default for new threads"),
@@ -319,7 +835,7 @@ impl Desk {
             ));
         }
         let refused = match self.pages.on {
-            crate::hub::Host::HERE => self.settings_refused.clone(),
+            Host::HERE => self.settings_refused.clone(),
             on => self.machine(on).and_then(|m| m.refused.clone()),
         };
         for trouble in [refused, self.registry_trouble.clone()]
@@ -345,7 +861,7 @@ impl Desk {
             crate::tr("Agents outside u0 may act"),
             crate::tr("An agent outside u0 reaches u0's tools by the key in mcp.json (u0 --mcp, or over HTTP on this Mac). Off, it only reads; on, it may say something in a thread or stop its turn, each asked of you there."),
             move |_, _, cx| {
-                gpui::component::switch::Switch::new("outside-acts")
+                Switch::new("outside-acts")
                     .accessibility_label(crate::tr("Agents outside u0 may act"))
                     .small()
                     .checked(acts)
@@ -413,9 +929,7 @@ impl Desk {
         ]
     }
 
-    /// An agent of the registry, `id`: its logo and name (a click opens its
-    /// page), how it stands here, and its switch or the way to install it.
-    fn agent_row(&self, faces: &Faces, id: &str, cx: &mut Context<Self>) -> gpui::Div {
+    fn agent_row(&self, faces: &Faces, id: &str, cx: &mut Context<Self>) -> Div {
         let Some(e) = self.registry.agents.iter().find(|e| e.id == id) else {
             return div();
         };
@@ -429,7 +943,6 @@ impl Desk {
             Way::Runner { runner, .. } => runner.into(),
             Way::None => crate::tr("unavailable"),
         };
-        // Installed, which version, signed in: as far as each is known.
         let version = here.installed.unwrap_or_else(|| e.version.clone());
         let line = match (
             installed,
@@ -437,11 +950,11 @@ impl Desk {
             e.way(),
             self.slot(host, &e.id).map(|s| &s.auth),
         ) {
-            (true, true, _, Some(crate::hub::Auth::Ready)) => crate::tr_with(
+            (true, true, _, Some(Auth::Ready)) => crate::tr_with(
                 "%{version} · %{how} · signed in",
                 &[("version", &version), ("how", &how)],
             ),
-            (true, true, _, Some(crate::hub::Auth::Needed(_))) => crate::tr_with(
+            (true, true, _, Some(Auth::Needed(_))) => crate::tr_with(
                 "%{version} · %{how} · needs sign-in",
                 &[("version", &version), ("how", &how)],
             ),
@@ -498,7 +1011,6 @@ impl Desk {
             .child(control)
     }
 
-    /// What u0 keeps on this machine, how much, and tidying it.
     fn storage(&self, w: &WeakEntity<Desk>) -> SettingGroup {
         use crate::tidy::Tidy;
         let mut items: Vec<SettingItem> = (self.pages.sizes.iter())
@@ -509,8 +1021,6 @@ impl Desk {
                 })
             })
             .collect();
-        // What no session keeps is known only from the index: while it
-        // does not read, every record, worktree and checkpoint looks so.
         if self.store_refused(self.pages.on).is_none() {
             items.push(item(
                 w,
@@ -556,7 +1066,6 @@ impl Desk {
         ))
     }
 
-    /// Projects archived: out of the list until restored here.
     fn archived_projects(&self, w: &WeakEntity<Desk>) -> Option<SettingGroup> {
         let items: Vec<SettingItem> = (self.edited().prefs.iter())
             .filter(|(_, p)| p.archived)
@@ -583,8 +1092,6 @@ impl Desk {
         (!items.is_empty()).then(|| group(crate::tr("Archived projects"), items))
     }
 
-    /// Sessions put away: archived ones, restored or deleted here; and what
-    /// u0 keeps of them on this machine.
     fn sessions_tab(&self, w: &WeakEntity<Desk>) -> Vec<SettingGroup> {
         let mut list: Vec<SettingItem> = (self.sessions.all.iter())
             .filter(|s| s.meta.flags.archived && !self.deleting(s.key))
@@ -612,9 +1119,7 @@ impl Desk {
         groups
     }
 
-    /// A session archived, `key`: its agent, title, project and when (a
-    /// click reads it, saying it is archived), Restore and Delete.
-    fn archived_row(&self, faces: &Faces, key: u64, cx: &mut Context<Self>) -> gpui::Div {
+    fn archived_row(&self, faces: &Faces, key: u64, cx: &mut Context<Self>) -> Div {
         let Some(s) = self.sessions.at(key) else {
             return div();
         };
@@ -624,7 +1129,6 @@ impl Desk {
             .gap(px(12.))
             .w_full()
             .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.))
-            // Opened to read, it says it is archived, with Restore.
             .child(
                 div()
                     .id(SharedString::from(format!("read-{key}")))

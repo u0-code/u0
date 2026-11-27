@@ -14,6 +14,7 @@ mod prefs;
 mod projects;
 mod scope;
 mod settings;
+mod srow;
 mod tasks;
 mod telemetry;
 mod updates;
@@ -57,6 +58,8 @@ pub struct Pages {
     pub tab: Tab,
     /// The settings' page shown and their search: gpui-kit's.
     pub settings: Entity<SettingsState>,
+    /// The Carbon settings sidebar's search field, synced into `settings`.
+    pub settings_search: Entity<InputState>,
     pub agent_search: Entity<InputState>,
     pub prefix: Entity<InputState>,
     /// Your snooze presets as you write them, commas between.
@@ -131,6 +134,9 @@ impl Pages {
             cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr(placeholder)))
         };
         let shown = cx.new(|cx| SettingsState::new(window, cx));
+        let settings_search = field("Search settings", window, cx);
+        cx.subscribe(&settings_search, |_, _, _: &InputEvent, cx| cx.notify())
+            .detach();
         let agent_search = field("Search the ACP registry", window, cx);
         cx.subscribe(&agent_search, |_, _, _: &InputEvent, cx| cx.notify())
             .detach();
@@ -170,6 +176,7 @@ impl Pages {
             open: false,
             tab: Tab::General,
             settings: shown,
+            settings_search,
             agent_search,
             prefix,
             snoozes,

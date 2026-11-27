@@ -1630,6 +1630,13 @@ impl Desk {
         } else if self.chosen.len() > 1 {
             self.chosen.clear();
             cx.notify();
+        } else if typing_in(&self.pages.settings_search, cx)
+            && !self.pages.settings_search.read(cx).value().is_empty()
+        {
+            self.pages
+                .settings_search
+                .update(cx, |i, cx| i.set_value("", window, cx));
+            cx.notify();
         } else if self.pages.open {
             self.close_settings(window, cx);
         } else if self.page != Page::Thread {
@@ -1724,6 +1731,9 @@ impl Desk {
             .iter()
             .position(|t| *t == tab)
             .unwrap_or(0);
+        self.pages
+            .settings_search
+            .update(cx, |i, cx| i.set_value("", window, cx));
         self.pages.settings.update(cx, |s, cx| {
             s.set_query("", window, cx);
             s.set_selected_index(
@@ -1759,6 +1769,7 @@ impl Desk {
                     .w(px(crate::style::SETTINGS_DIALOG_WIDTH))
                     .h(tall)
                     .p_0()
+                    .rounded(px(0.))
                     .close_button(false)
                     .on_close(move |_, window, cx| {
                         desk.update(cx, |d, cx| d.settings_closed(window, cx));
@@ -1767,7 +1778,7 @@ impl Desk {
             });
         }
         self.popup = Popup::Closed;
-        window.focus(&self.pages.settings.focus_handle(cx), cx);
+        window.focus(&self.pages.settings_search.focus_handle(cx), cx);
         cx.notify();
     }
 

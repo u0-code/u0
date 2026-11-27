@@ -1,25 +1,711 @@
-//! The settings that are u0's own, a tab each: how it tells you things
-//! and what it does while you are away; how the thread reads; what you
-//! write while a turn goes on; how new sessions begin; the keys; and what
-//! u0 is. Each row says what happens, and its control says the choice.
+//! The settings that are u0's own, a tab each: `General` and `New threads`
+//! rendered natively on Carbon `SettingsSection` + `SRow`, plus the shared
+//! `item` / `whole` / `group` / `managed` / `pick` helpers used across
+//! `pages/`.
 
-use gpui::component::button::ButtonGroup;
 use gpui::component::setting::{SettingField, SettingGroup, SettingItem, SettingPage};
-use gpui::component::{Disableable as _, Sizable as _, input::Input, kbd::Kbd, switch::Switch};
+use gpui::component::{Disableable as _, Sizable as _, kbd::Kbd, switch::Switch};
 use gpui::{AnyElement, App, Context, Div, SharedString, WeakEntity, div, prelude::*, px};
+use u0ui::{
+    components::button::{Button as CarbonButton, ButtonSize, ButtonVariant},
+    icons::{CarbonIcon, Icon as CarbonGlyph},
+    tokens::ColorRole,
+};
 
+use super::srow::{SGroup, SRow, carbon_page};
 use crate::{
     desk::Desk,
-    fonts::Faces,
+    fonts::{Faces, Weighted as _},
+    hub::Host,
     keys,
-    settings::{Notify, Quit, Submodules, Width},
+    settings::{Notify, Quit, Settings, Submodules, Width},
     theme,
     ui::{self, Pick, Weight},
 };
 
 impl Desk {
-    /// The page of the tab `tab`, when it is one of u0's own: its
-    /// settings, each drawn by `w`, the desk.
+    /// Whether the settings file currently edited did not read (`unreadable`
+    /// state on `SRow`).
+    pub(crate) fn edited_unreadable(&self) -> bool {
+        match self.pages.on {
+            Host::HERE => self.settings_refused.is_some(),
+            on => self.machine(on).is_some_and(|m| m.refused.is_some()),
+        }
+    }
+
+    /// Build a Carbon `SRow` wired to organization policy (`policy_key`) and
+    /// unreadable-settings protection (`unreadable`).
+    pub(crate) fn srow(
+        &self,
+        id: &'static str,
+        title: impl Into<SharedString>,
+        about: impl Into<SharedString>,
+    ) -> SRow {
+        SRow::new(id, title)
+            .description(about)
+            .policy_key(id)
+            .unreadable(self.edited_unreadable())
+    }
+
+    /// Carbon-native settings page for migrated tabs (`General`, `NewThreads`).
+    pub(super) fn carbon_tab(
+        &self,
+        tab: super::Tab,
+        query: &str,
+        faces: &Faces,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        use super::Tab;
+        let scoped = self.pages.scope.is_some();
+        let defaults = Settings::default();
+        match tab {
+            Tab::General => {
+                let any_managed = [
+                    "notify",
+                    "awake",
+                    "editor",
+                    "merge",
+                    "settle_days",
+                    "settle_merged",
+                    "snoozes",
+                    "keep_with_pr",
+                    "resume_at_reset",
+                    "fetch_every",
+                    "check_agents",
+                    "confirm",
+                ]
+                .into_iter()
+                .any(|k| crate::policy::locked(k).is_some());
+                let mut banners = div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(12.))
+                    .child(self.scope_banner(faces, cx));
+                if any_managed {
+                    banners = banners.child(managed_info_banner(faces));
+                }
+                let groups = vec![
+                    SGroup::new(
+                        crate::tr("While you are away"),
+                        vec![
+                            self.global_select_srow(
+                                "notify",
+                                "When a thread ends a turn or needs you",
+                                "From macOS while u0 is behind, clicked to go to the thread; in u0 while another is on screen.",
+                                [
+                                    ("Off", Notify::Off),
+                                    ("Notify", Notify::Banner),
+                                    ("Notify and sound", Notify::BannerAndSound),
+                                ],
+                                self.settings.notify,
+                                defaults.notify,
+                                |s, v| s.notify = v,
+                                scoped,
+                                cx,
+                            ),
+                            self.told_srow(
+                                "notify-finished",
+                                "A turn finished",
+                                "Its answer is in.",
+                                |n| &mut n.finished,
+                                scoped,
+                                cx,
+                            ),
+                            self.told_srow(
+                                "notify-failed",
+                                "A turn failed or was stopped",
+                                "It ended in an error, or you stopped it.",
+                                |n| &mut n.failed,
+                                scoped,
+                                cx,
+                            ),
+                            self.told_srow(
+                                "notify-asks",
+                                "An agent asks before it goes on",
+                                "A permission or a question waits on you.",
+                                |n| &mut n.asks,
+                                scoped,
+                                cx,
+                            ),
+                            {
+                                let now = self.settings.awake;
+                                let def = defaults.awake;
+                                let desk_set = cx.entity();
+                                let desk_reset = cx.entity();
+                                self.srow(
+                                    "awake",
+                                    crate::tr("Keep the Mac awake while an agent works"),
+                                    crate::tr("The display may sleep; a turn going on is not cut short by the Mac sleeping."),
+                                )
+                                .disabled(scoped)
+                                .modified(now != def, move |_, cx| {
+                                    desk_reset.update(cx, |this, cx| {
+                                        this.settings.awake = def;
+                                        this.save_settings();
+                                        this.stay_awake();
+                                        cx.notify();
+                                    });
+                                })
+                                .switch(now, move |on, _, cx| {
+                                    desk_set.update(cx, |this, cx| {
+                                        this.settings.awake = on;
+                                        this.save_settings();
+                                        this.stay_awake();
+                                        cx.notify();
+                                    });
+                                })
+                            },
+                        ],
+                    )
+                    .description(crate::tr("When u0 tells you a thread needs you.")),
+                    SGroup::new(
+                        crate::tr("Files"),
+                        vec![self.editor_srow(scoped, cx)],
+                    ),
+                    SGroup::new(
+                        crate::tr("Pull requests"),
+                        vec![self.own_srow(
+                            "merge",
+                            "Merged as",
+                            "How Merge beside a thread, and merging once its checks pass, merge a pull request; the PRs page offers each.",
+                            [
+                                ("Squash", crate::git::Method::Squash),
+                                ("Merge commit", crate::git::Method::Merge),
+                                ("Rebase", crate::git::Method::Rebase),
+                            ],
+                            |s| s.merge,
+                            |s, v| s.merge = v,
+                            cx,
+                        )],
+                    ),
+                    SGroup::new(
+                        crate::tr("Done for now"),
+                        vec![
+                            self.global_select_srow(
+                                "settle_days",
+                                "A thread is done after it is left for",
+                                "It moves to Settled in the sidebar; anything said to it brings it back.",
+                                [
+                                    ("3 days", Some(3)),
+                                    ("7 days", Some(7)),
+                                    ("14 days", Some(14)),
+                                    ("30 days", Some(30)),
+                                    ("Never", None),
+                                ],
+                                self.settings.settle_days,
+                                defaults.settle_days,
+                                |s, v| s.settle_days = v,
+                                scoped,
+                                cx,
+                            ),
+                            self.global_segmented_srow(
+                                "settle_merged",
+                                "When its pull request merges or closes",
+                                "The thread is done then, while it waits on nothing.",
+                                [("Settle it", true), ("Leave it", false)],
+                                self.settings.settle_merged,
+                                defaults.settle_merged,
+                                |s, v| s.settle_merged = v,
+                                scoped,
+                                cx,
+                            ),
+                            {
+                                let desk_reset = cx.entity();
+                                let def_snoozes = defaults.snoozes.clone();
+                                let changed = self.settings.snoozes != def_snoozes;
+                                self.srow(
+                                    "snoozes",
+                                    crate::tr("Snooze for"),
+                                    crate::tr("The ways to snooze offered first, each as you would type it in Custom…: 1h, 5pm, tomorrow, next week. Commas between."),
+                                )
+                                .disabled(scoped)
+                                .modified(changed, move |window, cx| {
+                                    let joined = def_snoozes.join(", ");
+                                    desk_reset.update(cx, |this, cx| {
+                                        this.settings.snoozes.clone_from(&def_snoozes);
+                                        this.pages
+                                            .snoozes
+                                            .update(cx, |i, cx| i.set_value(joined, window, cx));
+                                        this.save_settings();
+                                        cx.notify();
+                                    });
+                                })
+                                .text_input(&self.pages.snoozes, faces, false)
+                            },
+                            self.global_segmented_srow(
+                                "keep_with_pr",
+                                "Keep threads with a pull request",
+                                "One whose pull request is open is never done for being left.",
+                                [("Keep them", true), ("Let them settle", false)],
+                                self.settings.keep_with_pr,
+                                defaults.keep_with_pr,
+                                |s, v| s.keep_with_pr = v,
+                                scoped,
+                                cx,
+                            ),
+                        ],
+                    ),
+                    SGroup::new(
+                        crate::tr("In the background"),
+                        vec![
+                            self.own_srow(
+                                "resume_at_reset",
+                                "Go on when a limit resets",
+                                "A turn an agent's usage limit stopped is said to go on, as a scheduled task, at the time the agent gives.",
+                                [("Go on", true), ("Wait for me", false)],
+                                |s| s.resume_at_reset,
+                                |s, v| s.resume_at_reset = v,
+                                cx,
+                            ),
+                            self.global_select_srow(
+                                "fetch_every",
+                                "Fetch each project's remote every",
+                                "So branches and pull requests are up to date; projects set to pull are moved on too.",
+                                [
+                                    ("Minute", Some(1)),
+                                    ("5 minutes", Some(5)),
+                                    ("15 minutes", Some(15)),
+                                    ("Never", None),
+                                ],
+                                self.settings.fetch_every,
+                                defaults.fetch_every,
+                                |s, v| s.fetch_every = v,
+                                scoped,
+                                cx,
+                            ),
+                            self.global_segmented_srow(
+                                "check_agents",
+                                "Look for agents' new versions",
+                                "The ACP registry is read again each hour; an agent that stops working is updated to the newest.",
+                                [("Each hour", true), ("Never", false)],
+                                self.settings.check_agents,
+                                defaults.check_agents,
+                                |s, v| s.check_agents = v,
+                                scoped,
+                                cx,
+                            ),
+                        ],
+                    ),
+                    SGroup::new(
+                        crate::tr("Confirmations"),
+                        vec![
+                            self.asks_srow(
+                                "confirm-unpin",
+                                "Unpin",
+                                "Ask before a thread is unpinned.",
+                                |c| &mut c.unpin,
+                                scoped,
+                                cx,
+                            ),
+                            self.asks_srow(
+                                "confirm-archive",
+                                "Archive",
+                                "Ask before a thread is archived.",
+                                |c| &mut c.archive,
+                                scoped,
+                                cx,
+                            ),
+                            self.asks_srow(
+                                "confirm-delete",
+                                "Delete",
+                                "Ask before a thread and what was said in it are deleted.",
+                                |c| &mut c.delete,
+                                scoped,
+                                cx,
+                            ),
+                            self.asks_srow(
+                                "confirm-terminal",
+                                "Close a terminal",
+                                "Ask before a terminal is closed with something running in it.",
+                                |c| &mut c.terminal,
+                                scoped,
+                                cx,
+                            ),
+                            self.global_segmented_srow(
+                                "confirm-quit",
+                                "Quit with ⌘Q",
+                                "Quit in the menu always quits at once.",
+                                [
+                                    ("Hold", Quit::Hold),
+                                    ("Double press", Quit::Double),
+                                    ("Direct", Quit::Direct),
+                                ],
+                                self.settings.confirm.quit,
+                                defaults.confirm.quit,
+                                |s, v| s.confirm.quit = v,
+                                scoped,
+                                cx,
+                            ),
+                        ],
+                    ),
+                ];
+                Some(carbon_page(
+                    "settings-general",
+                    tab.title(),
+                    crate::tr("How u0 tells you things, and what it does while you are away."),
+                    Some(banners.into_any_element()),
+                    groups,
+                    query,
+                    faces,
+                ))
+            }
+            Tab::NewThreads => {
+                let groups = vec![SGroup::new(
+                    crate::tr("In a repository"),
+                    vec![
+                        self.global_segmented_srow(
+                            "worktree",
+                            "A new thread works",
+                            "A project can choose otherwise from its menu.",
+                            [("In the folder", false), ("In a new worktree", true)],
+                            self.settings.worktree,
+                            defaults.worktree,
+                            |s, v| s.worktree = v,
+                            scoped,
+                            cx,
+                        ),
+                        {
+                            let def_prefix = defaults.branch_prefix.clone();
+                            let changed = self.settings.branch_prefix != def_prefix;
+                            let desk_reset = cx.entity();
+                            self.srow(
+                                "branch_prefix",
+                                crate::tr("Worktree branches begin with"),
+                                crate::tr(
+                                    "Then the name the writer gives the work, as in u0/retry-s3-uploads.",
+                                ),
+                            )
+                            .disabled(scoped)
+                            .modified(changed, move |window, cx| {
+                                let p = def_prefix.clone();
+                                desk_reset.update(cx, |this, cx| {
+                                    this.settings.branch_prefix.clone_from(&p);
+                                    this.pages
+                                        .prefix
+                                        .update(cx, |i, cx| i.set_value(p, window, cx));
+                                    this.save_settings();
+                                    cx.notify();
+                                });
+                            })
+                            .text_input(&self.pages.prefix, faces, true)
+                        },
+                        self.own_srow(
+                            "branch_kind",
+                            "Or they begin with",
+                            "The kind of work, as the writer sees it: feat/, fix/, docs/.",
+                            [("The prefix", false), ("The kind of work", true)],
+                            |s| s.branch_kind,
+                            |s, v| s.branch_kind = v,
+                            cx,
+                        ),
+                        self.worktree_location_srow(scoped, cx),
+                        self.own_srow(
+                            "submodules",
+                            "Submodules",
+                            "How far a new worktree's submodules are checked out. Where there are many, the top level alone, or none for a setup script to do.",
+                            [
+                                ("Recursive", Submodules::Recursive),
+                                ("Top level", Submodules::Top),
+                                ("Skip", Submodules::Skip),
+                            ],
+                            |s| s.submodules,
+                            |s, v| s.submodules = v,
+                            cx,
+                        ),
+                        self.own_srow(
+                            "tidy_after",
+                            "An archived thread's worktree is taken away after",
+                            "Its branch stays, and so does a worktree with changes not committed; opened again, the thread checks it out again.",
+                            [
+                                ("A day", Some(1)),
+                                ("7 days", Some(7)),
+                                ("30 days", Some(30)),
+                                ("Never", None),
+                            ],
+                            |s| s.tidy_after,
+                            |s, v| s.tidy_after = v,
+                            cx,
+                        ),
+                    ],
+                )];
+                Some(carbon_page(
+                    "settings-new-threads",
+                    tab.title(),
+                    crate::tr("How a thread begins in a repository."),
+                    Some(self.scope_banner(faces, cx).into_any_element()),
+                    groups,
+                    query,
+                    faces,
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "a setting row binds its key, copy, choices, current/default values and setter"
+    )]
+    fn global_segmented_srow<T: Copy + PartialEq + 'static, const N: usize>(
+        &self,
+        id: &'static str,
+        title: &'static str,
+        about: &'static str,
+        choices: [(&'static str, T); N],
+        now: T,
+        default_val: T,
+        set: fn(&mut Settings, T),
+        scoped: bool,
+        cx: &mut Context<Self>,
+    ) -> SRow {
+        let desk_pick = cx.entity();
+        let desk_reset = cx.entity();
+        let translated = choices.map(|(l, v)| (crate::tr(l), v));
+        self.srow(id, crate::tr(title), crate::tr(about))
+            .disabled(scoped)
+            .modified(now != default_val, move |_, cx| {
+                desk_reset.update(cx, |this, cx| {
+                    set(&mut this.settings, default_val);
+                    this.save_settings();
+                    this.settings_took(cx);
+                    cx.notify();
+                });
+            })
+            .segmented(translated, now, move |picked, _, cx| {
+                desk_pick.update(cx, |this, cx| {
+                    set(&mut this.settings, picked);
+                    this.save_settings();
+                    this.settings_took(cx);
+                    cx.notify();
+                });
+            })
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "a setting row binds its key, copy, choices, current/default values and setter"
+    )]
+    fn global_select_srow<T: Copy + PartialEq + 'static, const N: usize>(
+        &self,
+        id: &'static str,
+        title: &'static str,
+        about: &'static str,
+        choices: [(&'static str, T); N],
+        now: T,
+        default_val: T,
+        set: fn(&mut Settings, T),
+        scoped: bool,
+        cx: &mut Context<Self>,
+    ) -> SRow {
+        let desk_pick = cx.entity();
+        let desk_reset = cx.entity();
+        let translated = choices.map(|(l, v)| (crate::tr(l), v));
+        self.srow(id, crate::tr(title), crate::tr(about))
+            .disabled(scoped)
+            .modified(now != default_val, move |_, cx| {
+                desk_reset.update(cx, |this, cx| {
+                    set(&mut this.settings, default_val);
+                    this.save_settings();
+                    this.settings_took(cx);
+                    cx.notify();
+                });
+            })
+            .select(translated, &now, move |picked, _, cx| {
+                desk_pick.update(cx, |this, cx| {
+                    set(&mut this.settings, picked);
+                    this.save_settings();
+                    this.settings_took(cx);
+                    cx.notify();
+                });
+            })
+    }
+
+    fn told_srow(
+        &self,
+        id: &'static str,
+        name: &'static str,
+        about: &'static str,
+        of: fn(&mut crate::settings::NotifyOn) -> &mut bool,
+        scoped: bool,
+        cx: &mut Context<Self>,
+    ) -> SRow {
+        let mut copy = self.settings.notify_on.clone();
+        let mut def_copy = Settings::default().notify_on;
+        let now = *of(&mut copy);
+        let def = *of(&mut def_copy);
+        let off = self.settings.notify == Notify::Off;
+        let desk_set = cx.entity();
+        let desk_reset = cx.entity();
+        self.srow(id, crate::tr(name), crate::tr(about))
+            .disabled(scoped || off)
+            .modified(now != def, move |_, cx| {
+                desk_reset.update(cx, |this, cx| {
+                    *of(&mut this.settings.notify_on) = def;
+                    this.save_settings();
+                    cx.notify();
+                });
+            })
+            .switch(now, move |on, _, cx| {
+                desk_set.update(cx, |this, cx| {
+                    *of(&mut this.settings.notify_on) = on;
+                    this.save_settings();
+                    cx.notify();
+                });
+            })
+    }
+
+    fn asks_srow(
+        &self,
+        id: &'static str,
+        name: &'static str,
+        about: &'static str,
+        of: fn(&mut crate::settings::Confirm) -> &mut bool,
+        scoped: bool,
+        cx: &mut Context<Self>,
+    ) -> SRow {
+        let mut copy = self.settings.confirm.clone();
+        let mut def_copy = Settings::default().confirm;
+        let now = *of(&mut copy);
+        let def = *of(&mut def_copy);
+        let desk_set = cx.entity();
+        let desk_reset = cx.entity();
+        self.srow(id, crate::tr(name), crate::tr(about))
+            .disabled(scoped)
+            .modified(now != def, move |_, cx| {
+                desk_reset.update(cx, |this, cx| {
+                    *of(&mut this.settings.confirm) = def;
+                    this.save_settings();
+                    cx.notify();
+                });
+            })
+            .switch(now, move |on, _, cx| {
+                desk_set.update(cx, |this, cx| {
+                    *of(&mut this.settings.confirm) = on;
+                    this.save_settings();
+                    cx.notify();
+                });
+            })
+    }
+
+    fn editor_srow(&self, scoped: bool, cx: &mut Context<Self>) -> SRow {
+        let mut choices: Vec<(SharedString, Option<String>)> =
+            vec![(crate::tr("First found"), None)];
+        for (command, name) in crate::desk::EDITORS {
+            if self.on_path.contains(&command) || self.settings.editor.as_deref() == Some(command) {
+                choices.push((name.into(), Some(command.to_owned())));
+            }
+        }
+        let now = self.settings.editor.clone();
+        let desk_pick = cx.entity();
+        let desk_reset = cx.entity();
+        self.srow(
+            "editor",
+            crate::tr("Files open in"),
+            crate::tr("A file the agent named, an edit, or keybindings.json."),
+        )
+        .disabled(scoped)
+        .modified(now.is_some(), move |_, cx| {
+            desk_reset.update(cx, |this, cx| {
+                this.settings.editor = None;
+                this.save_settings();
+                this.settings_took(cx);
+                cx.notify();
+            });
+        })
+        .select(choices, &now, move |picked, _, cx| {
+            desk_pick.update(cx, |this, cx| {
+                this.settings.editor = picked;
+                this.save_settings();
+                this.settings_took(cx);
+                cx.notify();
+            });
+        })
+    }
+
+    fn worktree_location_srow(&self, scoped: bool, cx: &mut Context<Self>) -> SRow {
+        let folder = &self.worktree_folders(Host::HERE)[0];
+        let missing_err = self
+            .settings
+            .worktrees
+            .as_ref()
+            .filter(|p| !p.exists())
+            .map(|p| {
+                crate::tr_with(
+                    "That folder is not there: %{folder}",
+                    &[("folder", &Desk::shown(p))],
+                )
+            });
+        let row = self
+            .srow(
+                "worktrees",
+                crate::tr("Worktree location"),
+                crate::tr_with(
+                    "New worktrees are made in %{folder}. Those made before stay where they are.",
+                    &[("folder", &Desk::shown(folder))],
+                ),
+            )
+            .disabled(scoped)
+            .error(missing_err);
+        if self.settings.worktrees.is_none() {
+            let desk_choose = cx.entity();
+            row.button(
+                crate::tr("Choose…"),
+                ButtonVariant::Tertiary,
+                move |_, cx| {
+                    desk_choose.update(cx, |_, cx| {
+                        Desk::ask_folder(
+                            &crate::tr("Make worktrees here"),
+                            |d, f| {
+                                d.settings.worktrees = Some(f);
+                                d.save_settings();
+                            },
+                            cx,
+                        );
+                    });
+                },
+            )
+        } else {
+            let desk_own = cx.entity();
+            let desk_choose = cx.entity();
+            let controls = div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(
+                    CarbonButton::new("worktrees-own", crate::tr("u0's own"))
+                        .variant(ButtonVariant::Ghost)
+                        .size(ButtonSize::Sm)
+                        .on_click(move |_, _, cx| {
+                            desk_own.update(cx, |this, cx| {
+                                this.settings.worktrees = None;
+                                this.save_settings();
+                                cx.notify();
+                            });
+                        }),
+                )
+                .child(
+                    CarbonButton::new("worktrees-choose", crate::tr("Choose…"))
+                        .variant(ButtonVariant::Tertiary)
+                        .size(ButtonSize::Sm)
+                        .on_click(move |_, _, cx| {
+                            desk_choose.update(cx, |_, cx| {
+                                Desk::ask_folder(
+                                    &crate::tr("Make worktrees here"),
+                                    |d, f| {
+                                        d.settings.worktrees = Some(f);
+                                        d.save_settings();
+                                    },
+                                    cx,
+                                );
+                            });
+                        }),
+                );
+            row.control(controls)
+        }
+    }
+
+    /// Legacy `SettingPage` tabs (`Appearance` until Commit 7, `Chat`,
+    /// `Keybindings`, `Writing`, `About`, `SourceControl`).
     pub(super) fn own_tab(
         &self,
         tab: super::Tab,
@@ -27,269 +713,7 @@ impl Desk {
         cx: &App,
     ) -> Option<SettingPage> {
         use super::Tab;
-        // With a project chosen atop a page, only what a project may hold
-        // can be changed: the rest holds everywhere, and is shown so.
-        let scoped = self.pages.scope.is_some();
         let (lede, groups) = match tab {
-            Tab::General => (
-                "How u0 tells you things, and what it does while you are away.",
-                vec![
-                    Self::scope_group(w),
-                    group(
-                        crate::tr("While you are away"),
-                        vec![
-                            item(
-                                w,
-                                crate::tr("When a thread ends a turn or needs you"),
-                                crate::tr("From macOS while u0 is behind, clicked to go to the thread; in u0 while another is on screen."),
-                                |d, _, cx| {
-                                    Self::pick("notify",
-                                        [
-                                            (crate::tr("Off"), Notify::Off),
-                                            (crate::tr("Notify"), Notify::Banner),
-                                            (crate::tr("Notify and sound"), Notify::BannerAndSound),
-                                        ],
-                                        d.settings.notify,
-                                        |s, v| s.notify = v,
-                                        cx,
-                                    )
-                                    .into_any_element()
-                                },
-                            ).disabled(scoped),
-                            told(w, ("A turn finished", "Its answer is in."), |n| {
-                                &mut n.finished
-                            }).disabled(scoped),
-                            told(
-                                w,
-                                (
-                                    "A turn failed or was stopped",
-                                    "It ended in an error, or you stopped it.",
-                                ),
-                                |n| &mut n.failed,
-                            ).disabled(scoped),
-                            told(
-                                w,
-                                (
-                                    "An agent asks before it goes on",
-                                    "A permission or a question waits on you.",
-                                ),
-                                |n| &mut n.asks,
-                            ).disabled(scoped),
-                            item(
-                                w,
-                                crate::tr("Keep the Mac awake while an agent works"),
-                                crate::tr("The display may sleep; a turn going on is not cut short by the Mac sleeping."),
-                                |d, _, cx| {
-                                    Switch::new("awake")
-                                        .accessibility_label(crate::tr("Keep the Mac awake"))
-                                        .small()
-                                        .checked(d.settings.awake)
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.settings.awake = !this.settings.awake;
-                                            this.save_settings();
-                                            this.stay_awake();
-                                            cx.notify();
-                                        }))
-                                        .into_any_element()
-                                },
-                            ).disabled(scoped),
-                        ],
-                    ),
-                    group(
-                        crate::tr("Files"),
-                        vec![item(
-                            w,
-                            crate::tr("Files open in"),
-                            crate::tr("A file the agent named, an edit, or keybindings.json."),
-                            |d, _, cx| d.editor_pick(cx).into_any_element(),
-                        ).disabled(scoped)],
-                    ),
-                    group(
-                        crate::tr("Pull requests"),
-                        vec![item(
-                            w,
-                            crate::tr("Merged as"),
-                            crate::tr("How Merge beside a thread, and merging once its checks pass, merge a pull request; the PRs page offers each."),
-                            |d, _, cx| {
-                                d.own(
-                                    "merge",
-                                    [
-                                        ("Squash", crate::git::Method::Squash),
-                                        ("Merge commit", crate::git::Method::Merge),
-                                        ("Rebase", crate::git::Method::Rebase),
-                                    ],
-                                    |s| s.merge,
-                                    |s, v| s.merge = v,
-                                    cx,
-                                )
-                                .into_any_element()
-                            },
-                        )],
-                    ),
-                    group(
-                        crate::tr("Done for now"),
-                        vec![
-                            item(
-                                w,
-                                crate::tr("A thread is done after it is left for"),
-                                crate::tr("It moves to Settled in the sidebar; anything said to it brings it back."),
-                                |d, _, cx| {
-                                    Self::pick("settle_days",
-                                        [
-                                            (crate::tr("3 days"), Some(3)),
-                                            (crate::tr("7 days"), Some(7)),
-                                            (crate::tr("14 days"), Some(14)),
-                                            (crate::tr("30 days"), Some(30)),
-                                            (crate::tr("Never"), None),
-                                        ],
-                                        d.settings.settle_days,
-                                        |s, v| s.settle_days = v,
-                                        cx,
-                                    )
-                                    .into_any_element()
-                                },
-                            ).disabled(scoped),
-                            item(
-                                w,
-                                crate::tr("When its pull request merges or closes"),
-                                crate::tr("The thread is done then, while it waits on nothing."),
-                                |d, _, cx| {
-                                    Self::pick("settle_merged",
-                                        [(crate::tr("Settle it"), true), (crate::tr("Leave it"), false)],
-                                        d.settings.settle_merged,
-                                        |s, v| s.settle_merged = v,
-                                        cx,
-                                    )
-                                    .into_any_element()
-                                },
-                            ).disabled(scoped),
-                            item(
-                                w,
-                                crate::tr("Snooze for"),
-                                crate::tr("The ways to snooze offered first, each as you would type it in Custom…: 1h, 5pm, tomorrow, next week. Commas between."),
-                                |d, _, _| {
-                                    div()
-                                        .w(px(220.))
-                                        .child(Input::new(&d.pages.snoozes).small())
-                                        .into_any_element()
-                                },
-                            ).disabled(scoped),
-                            item(
-                                w,
-                                crate::tr("Keep threads with a pull request"),
-                                crate::tr("One whose pull request is open is never done for being left."),
-                                |d, _, cx| {
-                                    Self::pick("keep_with_pr",
-                                        [(crate::tr("Keep them"), true), (crate::tr("Let them settle"), false)],
-                                        d.settings.keep_with_pr,
-                                        |s, v| s.keep_with_pr = v,
-                                        cx,
-                                    )
-                                    .into_any_element()
-                                },
-                            ).disabled(scoped),
-                        ],
-                    ),
-                    group(
-                        crate::tr("In the background"),
-                        vec![
-                            item(
-                                w,
-                                crate::tr("Go on when a limit resets"),
-                                crate::tr("A turn an agent's usage limit stopped is said to go on, as a scheduled task, at the time the agent gives."),
-                                |d, _, cx| {
-                                    d.own(
-                                        "resume-at-reset",
-                                        [("Go on", true), ("Wait for me", false)],
-                                        |s| s.resume_at_reset,
-                                        |s, v| s.resume_at_reset = v,
-                                        cx,
-                                    )
-                                    .into_any_element()
-                                },
-                            ),
-                            item(
-                                w,
-                                crate::tr("Fetch each project's remote every"),
-                                crate::tr("So branches and pull requests are up to date; projects set to pull are moved on too."),
-                                |d, _, cx| {
-                                    Self::pick("fetch_every",
-                                        [
-                                            (crate::tr("Minute"), Some(1)),
-                                            (crate::tr("5 minutes"), Some(5)),
-                                            (crate::tr("15 minutes"), Some(15)),
-                                            (crate::tr("Never"), None),
-                                        ],
-                                        d.settings.fetch_every,
-                                        |s, v| s.fetch_every = v,
-                                        cx,
-                                    )
-                                    .into_any_element()
-                                },
-                            ).disabled(scoped),
-                            item(
-                                w,
-                                crate::tr("Look for agents' new versions"),
-                                crate::tr("The ACP registry is read again each hour; an agent that stops working is updated to the newest."),
-                                |d, _, cx| {
-                                    Self::pick("check_agents",
-                                        [(crate::tr("Each hour"), true), (crate::tr("Never"), false)],
-                                        d.settings.check_agents,
-                                        |s, v| s.check_agents = v,
-                                        cx,
-                                    )
-                                    .into_any_element()
-                                },
-                            ).disabled(scoped),
-                        ],
-                    ),
-                    group(
-                        crate::tr("Confirmations"),
-                        vec![
-                            asks(w, ("Unpin", "Ask before a thread is unpinned."), |c| {
-                                &mut c.unpin
-                            }),
-                            asks(w, ("Archive", "Ask before a thread is archived."), |c| {
-                                &mut c.archive
-                            }),
-                            asks(
-                                w,
-                                (
-                                    "Delete",
-                                    "Ask before a thread and what was said in it are deleted.",
-                                ),
-                                |c| &mut c.delete,
-                            ),
-                            asks(
-                                w,
-                                (
-                                    "Close a terminal",
-                                    "Ask before a terminal is closed with something running in it.",
-                                ),
-                                |c| &mut c.terminal,
-                            ),
-                            item(
-                                w,
-                                crate::tr("Quit with ⌘Q"),
-                                crate::tr("Quit in the menu always quits at once."),
-                                |d, _, cx| {
-                                    Self::pick("confirm-quit",
-                                        [
-                                            (crate::tr("Hold"), Quit::Hold),
-                                            (crate::tr("Double press"), Quit::Double),
-                                            (crate::tr("Direct"), Quit::Direct),
-                                        ],
-                                        d.settings.confirm.quit,
-                                        |s, v| s.confirm.quit = v,
-                                        cx,
-                                    )
-                                    .into_any_element()
-                                },
-                            ).disabled(scoped),
-                        ],
-                    ),
-                ],
-            ),
             Tab::Appearance => (
                 "How the thread and what is beside it read.",
                 vec![
@@ -299,11 +723,17 @@ impl Desk {
                             item(
                                 w,
                                 crate::tr("The sidebar sorts by"),
-                                crate::tr("A project's threads, and the projects: your last message, anything happening, when each began, or name. Pinned ones stay on top."),
+                                crate::tr(
+                                    "A project's threads, and the projects: your last message, anything happening, when each began, or name. Pinned ones stay on top.",
+                                ),
                                 |d, _, cx| {
-                                    Self::pick("sort",
+                                    Self::pick(
+                                        "sort",
                                         [
-                                            (crate::tr("Your message"), crate::settings::Sort::Used),
+                                            (
+                                                crate::tr("Your message"),
+                                                crate::settings::Sort::Used,
+                                            ),
                                             (crate::tr("Activity"), crate::settings::Sort::Updated),
                                             (crate::tr("Begun"), crate::settings::Sort::Begun),
                                             (crate::tr("Name"), crate::settings::Sort::Name),
@@ -312,31 +742,37 @@ impl Desk {
                                         |s, v| s.sort = v,
                                         cx,
                                     )
-                                    .into_any_element()
                                 },
                             ),
                             item(
                                 w,
                                 crate::tr("Look"),
-                                crate::tr("Light and dark keep the same amber for what is going on now."),
+                                crate::tr(
+                                    "Light and dark keep the same amber for what is going on now.",
+                                ),
                                 |d, _, cx| {
-                                    Self::pick("look",
+                                    Self::pick(
+                                        "look",
                                         [
                                             (crate::tr("Dark"), crate::settings::Look::Dark),
                                             (crate::tr("Light"), crate::settings::Look::Light),
-                                            (crate::tr("As the system"), crate::settings::Look::System),
+                                            (
+                                                crate::tr("As the system"),
+                                                crate::settings::Look::System,
+                                            ),
                                         ],
                                         d.settings.look,
                                         |s, v| s.look = v,
                                         cx,
                                     )
-                                    .into_any_element()
                                 },
                             ),
                             item(
                                 w,
                                 crate::tr("Size"),
-                                crate::tr("Everything in the window, larger or smaller: ⌘+, ⌘− and ⌘0."),
+                                crate::tr(
+                                    "Everything in the window, larger or smaller: ⌘+, ⌘− and ⌘0.",
+                                ),
                                 |d, _, cx| {
                                     Self::pick(
                                         "scale",
@@ -345,35 +781,41 @@ impl Desk {
                                         |s, v| s.scale = v,
                                         cx,
                                     )
-                                    .into_any_element()
                                 },
                             ),
                             item(
                                 w,
                                 crate::tr("Contrast"),
-                                crate::tr("More draws the greys of what matters less, and the edges, stronger."),
+                                crate::tr(
+                                    "More draws the greys of what matters less, and the edges, stronger.",
+                                ),
                                 |d, _, cx| {
-                                    Self::pick("contrast",
-                                        [(crate::tr("As designed"), false), (crate::tr("More"), true)],
+                                    Self::pick(
+                                        "contrast",
+                                        [
+                                            (crate::tr("As designed"), false),
+                                            (crate::tr("More"), true),
+                                        ],
                                         d.settings.contrast,
                                         |s, v| s.contrast = v,
                                         cx,
                                     )
-                                    .into_any_element()
                                 },
                             ),
                             item(
                                 w,
                                 crate::tr("Glass"),
-                                crate::tr("The window's grounds let the desktop show through, blurred."),
+                                crate::tr(
+                                    "The window's grounds let the desktop show through, blurred.",
+                                ),
                                 |d, _, cx| {
-                                    Self::pick("glass",
+                                    Self::pick(
+                                        "glass",
                                         [(crate::tr("Solid"), false), (crate::tr("Glass"), true)],
                                         d.settings.glass,
                                         |s, v| s.glass = v,
                                         cx,
                                     )
-                                    .into_any_element()
                                 },
                             ),
                             item(
@@ -381,22 +823,27 @@ impl Desk {
                                 crate::tr("Code font"),
                                 crate::tr("What code, commands and numbers are set in."),
                                 |d, _, cx| {
-                                    Self::pick("mono",
+                                    Self::pick(
+                                        "mono",
                                         [
-                                            (crate::tr("IBM Plex Mono"),
+                                            (
+                                                crate::tr("IBM Plex Mono"),
                                                 crate::settings::CodeFont::PlexMono,
                                             ),
-                                            (crate::tr("JetBrains Mono"),
+                                            (
+                                                crate::tr("JetBrains Mono"),
                                                 crate::settings::CodeFont::JetBrains,
                                             ),
-                                            (crate::tr("SF Mono"), crate::settings::CodeFont::SfMono),
+                                            (
+                                                crate::tr("SF Mono"),
+                                                crate::settings::CodeFont::SfMono,
+                                            ),
                                             (crate::tr("Menlo"), crate::settings::CodeFont::Menlo),
                                         ],
                                         d.settings.mono,
                                         |s, v| s.mono = v,
                                         cx,
                                     )
-                                    .into_any_element()
                                 },
                             ),
                             item(
@@ -404,27 +851,36 @@ impl Desk {
                                 crate::tr("Terminal text"),
                                 crate::tr("How large your terminals' text is, in the code font."),
                                 |d, _, cx| {
-                                    Self::pick("terminal_size",
+                                    Self::pick(
+                                        "terminal_size",
                                         [
                                             (crate::tr("Small"), crate::settings::TermSize::Small),
-                                            (crate::tr("Medium"), crate::settings::TermSize::Medium),
+                                            (
+                                                crate::tr("Medium"),
+                                                crate::settings::TermSize::Medium,
+                                            ),
                                             (crate::tr("Large"), crate::settings::TermSize::Large),
                                         ],
                                         d.settings.terminal_size,
                                         |s, v| s.terminal_size = v,
                                         cx,
                                     )
-                                    .into_any_element()
                                 },
                             ),
                             item(
                                 w,
                                 crate::tr("Terminal shell"),
-                                crate::tr("What a new terminal runs: your login shell, or one named."),
+                                crate::tr(
+                                    "What a new terminal runs: your login shell, or one named.",
+                                ),
                                 |d, _, cx| {
-                                    Self::pick("shell",
+                                    Self::pick(
+                                        "shell",
                                         [
-                                            (crate::tr("Login shell"), crate::settings::Shell::Login),
+                                            (
+                                                crate::tr("Login shell"),
+                                                crate::settings::Shell::Login,
+                                            ),
                                             (crate::tr("zsh"), crate::settings::Shell::Zsh),
                                             (crate::tr("bash"), crate::settings::Shell::Bash),
                                             (crate::tr("fish"), crate::settings::Shell::Fish),
@@ -433,7 +889,6 @@ impl Desk {
                                         |s, v| s.shell = v,
                                         cx,
                                     )
-                                    .into_any_element()
                                 },
                             ),
                             item(
@@ -441,7 +896,8 @@ impl Desk {
                                 crate::tr("Reading width"),
                                 crate::tr("How wide the thread and the composer are."),
                                 |d, _, cx| {
-                                    Self::pick("width",
+                                    Self::pick(
+                                        "width",
                                         [
                                             (crate::tr("Comfortable"), Width::Comfortable),
                                             (crate::tr("Wide"), Width::Wide),
@@ -451,7 +907,6 @@ impl Desk {
                                         |s, v| s.width = v,
                                         cx,
                                     )
-                                    .into_any_element()
                                 },
                             ),
                             item(
@@ -459,13 +914,16 @@ impl Desk {
                                 crate::tr("What a change added and took away"),
                                 crate::tr("Blue and orange tell them apart without green and red."),
                                 |d, _, cx| {
-                                    Self::pick("blue_orange",
-                                        [(crate::tr("Green and red"), false), (crate::tr("Blue and orange"), true)],
+                                    Self::pick(
+                                        "blue_orange",
+                                        [
+                                            (crate::tr("Green and red"), false),
+                                            (crate::tr("Blue and orange"), true),
+                                        ],
                                         d.settings.blue_orange,
                                         |s, v| s.blue_orange = v,
                                         cx,
                                     )
-                                    .into_any_element()
                                 },
                             ),
                             item(
@@ -473,41 +931,51 @@ impl Desk {
                                 crate::tr("Times"),
                                 crate::tr("When a message was said, and what u0 says of times."),
                                 |d, _, cx| {
-                                    Self::pick("twelve",
-                                        [(crate::tr("24-hour"), false), (crate::tr("12-hour"), true)],
+                                    Self::pick(
+                                        "twelve",
+                                        [
+                                            (crate::tr("24-hour"), false),
+                                            (crate::tr("12-hour"), true),
+                                        ],
                                         d.settings.twelve,
                                         |s, v| s.twelve = v,
                                         cx,
                                     )
-                                    .into_any_element()
                                 },
                             ),
                             item(
                                 w,
                                 crate::tr("A diff's long lines"),
-                                crate::tr("Wrapped, they show whole; kept to a line, they are cut at the edge."),
+                                crate::tr(
+                                    "Wrapped, they show whole; kept to a line, they are cut at the edge.",
+                                ),
                                 |d, _, cx| {
-                                    Self::pick("diff_wrap",
+                                    Self::pick(
+                                        "diff_wrap",
                                         [(crate::tr("Wrap"), true), (crate::tr("Cut"), false)],
                                         d.settings.diff_wrap,
                                         |s, v| s.diff_wrap = v,
                                         cx,
                                     )
-                                    .into_any_element()
                                 },
                             ),
                             item(
                                 w,
                                 crate::tr("Changes only in spacing"),
-                                crate::tr("Left out, a diff shows what changed in the words alone."),
+                                crate::tr(
+                                    "Left out, a diff shows what changed in the words alone.",
+                                ),
                                 |d, _, cx| {
-                                    Self::pick("no_spacing",
-                                        [(crate::tr("Shown"), false), (crate::tr("Left out"), true)],
+                                    Self::pick(
+                                        "no_spacing",
+                                        [
+                                            (crate::tr("Shown"), false),
+                                            (crate::tr("Left out"), true),
+                                        ],
                                         d.settings.no_spacing,
                                         |s, v| s.no_spacing = v,
                                         cx,
                                     )
-                                    .into_any_element()
                                 },
                             ),
                             item(
@@ -515,13 +983,16 @@ impl Desk {
                                 crate::tr("A file's diff opens"),
                                 crate::tr("Side by side widens the column beside the thread."),
                                 |d, _, cx| {
-                                    Self::pick("side_by_side",
-                                        [(crate::tr("Stacked"), false), (crate::tr("Side by side"), true)],
+                                    Self::pick(
+                                        "side_by_side",
+                                        [
+                                            (crate::tr("Stacked"), false),
+                                            (crate::tr("Side by side"), true),
+                                        ],
                                         d.settings.side_by_side,
                                         |s, v| s.side_by_side = v,
                                         cx,
                                     )
-                                    .into_any_element()
                                 },
                             ),
                             item(
@@ -529,13 +1000,13 @@ impl Desk {
                                 crate::tr("A diff's files"),
                                 crate::tr("Folded, each shows its name and counts until opened."),
                                 |d, _, cx| {
-                                    Self::pick("diff_folded",
+                                    Self::pick(
+                                        "diff_folded",
                                         [(crate::tr("Open"), false), (crate::tr("Folded"), true)],
                                         d.settings.diff_folded,
                                         |s, v| s.diff_folded = v,
                                         cx,
                                     )
-                                    .into_any_element()
                                 },
                             ),
                         ],
@@ -551,15 +1022,20 @@ impl Desk {
                         vec![item(
                             w,
                             crate::tr("What you send waits, or steers"),
-                            crate::tr("Steer stops the turn and says it now; waiting says it once the turn ends."),
+                            crate::tr(
+                                "Steer stops the turn and says it now; waiting says it once the turn ends.",
+                            ),
                             |d, _, cx| {
-                                Self::pick("steer",
-                                    [(crate::tr("Wait its turn"), false), (crate::tr("Steer"), true)],
+                                Self::pick(
+                                    "steer",
+                                    [
+                                        (crate::tr("Wait its turn"), false),
+                                        (crate::tr("Steer"), true),
+                                    ],
                                     d.settings.steer,
                                     |s, v| s.steer = v,
                                     cx,
                                 )
-                                .into_any_element()
                             },
                         )],
                     ),
@@ -568,7 +1044,9 @@ impl Desk {
                         vec![item(
                             w,
                             crate::tr("Check spelling as you type"),
-                            crate::tr("Words the system's spell checker does not know are underlined; right-click one for its guesses."),
+                            crate::tr(
+                                "Words the system's spell checker does not know are underlined; right-click one for its guesses.",
+                            ),
                             |d, _, cx| {
                                 Switch::new("spell-check")
                                     .accessibility_label(crate::tr("Check spelling as you type"))
@@ -589,12 +1067,16 @@ impl Desk {
                         vec![item(
                             w,
                             crate::tr("What sends what you write"),
-                            crate::tr("Where Return does not send, it breaks the line. The other key (⌘Return, or ⇧⌘Return) begins another thread beside it, or while a turn goes on does the opposite of the setting above."),
+                            crate::tr(
+                                "Where Return does not send, it breaks the line. The other key (⌘Return, or ⇧⌘Return) begins another thread beside it, or while a turn goes on does the opposite of the setting above.",
+                            ),
                             |d, _, cx| {
-                                Self::pick("send",
+                                Self::pick(
+                                    "send",
                                     [
                                         (crate::tr("Return"), crate::settings::SendKey::Return),
-                                        (crate::tr("⌘Return if multiline"),
+                                        (
+                                            crate::tr("⌘Return if multiline"),
                                             crate::settings::SendKey::Multiline,
                                         ),
                                         (crate::tr("⌘Return"), crate::settings::SendKey::Command),
@@ -603,7 +1085,6 @@ impl Desk {
                                     |s, v| s.send = v,
                                     cx,
                                 )
-                                .into_any_element()
                             },
                         )],
                     ),
@@ -614,150 +1095,65 @@ impl Desk {
                             item(
                                 w,
                                 crate::tr("Transcript view (⌃O)"),
-                                crate::tr("Answers shows what you said and its answers; quiet leaves out the calls that went well; normal folds each run of calls into a line; thinking shows its reasoning too; verbose shows every call and step."),
+                                crate::tr(
+                                    "Answers shows what you said and its answers; quiet leaves out the calls that went well; normal folds each run of calls into a line; thinking shows its reasoning too; verbose shows every call and step.",
+                                ),
                                 |d, _, cx| {
-                                    Self::pick("view",
+                                    Self::pick(
+                                        "view",
                                         [
                                             (crate::tr("Answers"), crate::settings::View::Zen),
                                             (crate::tr("Quiet"), crate::settings::View::Quiet),
                                             (crate::tr("Normal"), crate::settings::View::Normal),
-                                            (crate::tr("Thinking"), crate::settings::View::Thinking),
+                                            (
+                                                crate::tr("Thinking"),
+                                                crate::settings::View::Thinking,
+                                            ),
                                             (crate::tr("Verbose"), crate::settings::View::Verbose),
                                         ],
                                         d.settings.view,
                                         |s, v| s.view = v,
                                         cx,
                                     )
-                                    .into_any_element()
                                 },
                             ),
                             item(
                                 w,
                                 crate::tr("An answer streams in"),
-                                crate::tr("A paragraph at a time holds each back until it is whole."),
+                                crate::tr(
+                                    "A paragraph at a time holds each back until it is whole.",
+                                ),
                                 |d, _, cx| {
-                                    Self::pick("paragraphs",
-                                        [(crate::tr("Word by word"), false), (crate::tr("A paragraph at a time"), true)],
+                                    Self::pick(
+                                        "paragraphs",
+                                        [
+                                            (crate::tr("Word by word"), false),
+                                            (crate::tr("A paragraph at a time"), true),
+                                        ],
                                         d.settings.paragraphs,
                                         |s, v| s.paragraphs = v,
                                         cx,
                                     )
-                                    .into_any_element()
                                 },
                             ),
                             Self::window_language(w),
                             item(
                                 w,
                                 crate::tr("Math"),
-                                crate::tr("TeX in what an agent says, $…$ and $$…$$, set as formulas."),
+                                crate::tr(
+                                    "TeX in what an agent says, $…$ and $$…$$, set as formulas.",
+                                ),
                                 |d, _, cx| {
-                                    Self::pick("math",
-                                        [(crate::tr("As written"), false), (crate::tr("Set as formulas"), true)],
+                                    Self::pick(
+                                        "math",
+                                        [
+                                            (crate::tr("As written"), false),
+                                            (crate::tr("Set as formulas"), true),
+                                        ],
                                         d.settings.math,
                                         |s, v| s.math = v,
                                         cx,
                                     )
-                                    .into_any_element()
-                                },
-                            ),
-                        ],
-                    ),
-                ],
-            ),
-            Tab::NewThreads => (
-                "How a thread begins in a repository.",
-                vec![
-                    Self::scope_group(w),
-                    group(
-                        crate::tr("In a repository"),
-                        vec![
-                            item(
-                                w,
-                                crate::tr("A new thread works"),
-                                crate::tr("A project can choose otherwise from its menu."),
-                                |d, _, cx| {
-                                    Self::pick("worktree",
-                                        [(crate::tr("In the folder"), false), (crate::tr("In a new worktree"), true)],
-                                        d.settings.worktree,
-                                        |s, v| s.worktree = v,
-                                        cx,
-                                    )
-                                    .into_any_element()
-                                },
-                            ).disabled(scoped),
-                            item(
-                                w,
-                                crate::tr("Worktree branches begin with"),
-                                crate::tr("Then the name the writer gives the work, as in u0/retry-s3-uploads."),
-                                |d, faces, _| {
-                                    div()
-                                        .w(px(160.))
-                                        .font_family(faces.mono.clone())
-                                        .child(Input::new(&d.pages.prefix).small())
-                                        .into_any_element()
-                                },
-                            ).disabled(scoped),
-                            item(
-                                w,
-                                crate::tr("Or they begin with"),
-                                crate::tr("The kind of work, as the writer sees it: feat/, fix/, docs/."),
-                                |d, _, cx| {
-                                    d.own(
-                                        "branch-kind",
-                                        [("The prefix", false), ("The kind of work", true)],
-                                        |s| s.branch_kind,
-                                        |s, v| s.branch_kind = v,
-                                        cx,
-                                    )
-                                    .into_any_element()
-                                },
-                            ),
-                            item(
-                                w,
-                                crate::tr("Worktree location"),
-                                crate::tr_with(
-                                    "New worktrees are made in %{folder}. Those made before stay where they are.",
-                                    &[("folder", &Desk::shown(&self.worktree_folders(crate::hub::Host::HERE)[0]))],
-                                ),
-                                |d, _, cx| d.worktree_location(cx).into_any_element(),
-                            ).disabled(scoped),
-                            item(
-                                w,
-                                crate::tr("Submodules"),
-                                crate::tr("How far a new worktree's submodules are checked out. Where there are many, the top level alone, or none for a setup script to do."),
-                                |d, _, cx| {
-                                    d.own(
-                                        "submodules",
-                                        [
-                                            ("Recursive", Submodules::Recursive),
-                                            ("Top level", Submodules::Top),
-                                            ("Skip", Submodules::Skip),
-                                        ],
-                                        |s| s.submodules,
-                                        |s, v| s.submodules = v,
-                                        cx,
-                                    )
-                                    .into_any_element()
-                                },
-                            ),
-                            item(
-                                w,
-                                crate::tr("An archived thread's worktree is taken away after"),
-                                crate::tr("Its branch stays, and so does a worktree with changes not committed; opened again, the thread checks it out again."),
-                                |d, _, cx| {
-                                    d.own(
-                                        "tidy-after",
-                                        [
-                                            ("A day", Some(1)),
-                                            ("7 days", Some(7)),
-                                            ("30 days", Some(30)),
-                                            ("Never", None),
-                                        ],
-                                        |s| s.tidy_after,
-                                        |s, v| s.tidy_after = v,
-                                        cx,
-                                    )
-                                    .into_any_element()
                                 },
                             ),
                         ],
@@ -777,12 +1173,6 @@ impl Desk {
         )
     }
 
-    /// A choice among `choices`, the one equal to `now` lit; picking one
-    /// sets it with `set` and keeps the settings. `id` is the setting's
-    /// key in settings.json (or begins with it, before a `-`): one the
-    /// policy locks cannot be chosen, and says who locked it.
-    /// The language of u0's window, of those it speaks: as the
-    /// system's (none), or one chosen.
     fn window_language(w: &WeakEntity<Desk>) -> SettingItem {
         let mut choices = vec![(SharedString::default(), crate::tr("As the system"))];
         choices
@@ -817,7 +1207,7 @@ impl Desk {
         id: &str,
         choices: [(impl Into<SharedString>, T); N],
         now: T,
-        set: fn(&mut crate::settings::Settings, T),
+        set: fn(&mut Settings, T),
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let choices = choices
@@ -840,68 +1230,6 @@ impl Desk {
         }
     }
 
-    /// Where new worktrees go: a folder chosen, or u0's own again.
-    fn worktree_location(&self, cx: &mut Context<Self>) -> Div {
-        fn keep(d: &mut Desk, at: Option<std::path::PathBuf>) {
-            d.settings.worktrees = at;
-            d.save_settings();
-        }
-        div()
-            .flex()
-            .gap(px(6.))
-            .when(self.settings.worktrees.is_some(), |d| {
-                d.child(
-                    ui::button("worktrees-own", crate::tr("u0's own"), Weight::Quiet).on_click(
-                        cx.listener(move |this, _, _, cx| {
-                            keep(this, None);
-                            cx.notify();
-                        }),
-                    ),
-                )
-            })
-            .child(
-                ui::button("worktrees-choose", crate::tr("Choose…"), Weight::Secondary).on_click(
-                    cx.listener(move |_, _, _, cx| {
-                        Desk::ask_folder(
-                            &crate::tr("Make worktrees here"),
-                            |d, f| keep(d, Some(f)),
-                            cx,
-                        );
-                    }),
-                ),
-            )
-    }
-
-    /// The editors here to open files in, and macOS's own choice.
-    fn editor_pick(&self, cx: &mut Context<Self>) -> ButtonGroup {
-        let mut choices: Vec<(SharedString, bool, Pick)> = vec![(
-            crate::tr("First found"),
-            self.settings.editor.is_none(),
-            Box::new(cx.listener(|this, _, _, cx| {
-                this.settings.editor = None;
-                this.save_settings();
-                this.settings_took(cx);
-                cx.notify();
-            })),
-        )];
-        for (command, name) in crate::desk::EDITORS {
-            if self.on_path.contains(&command) {
-                choices.push((
-                    name.into(),
-                    self.settings.editor.as_deref() == Some(command),
-                    Box::new(cx.listener(move |this, _, _, cx| {
-                        this.settings.editor = Some(command.to_owned());
-                        this.save_settings();
-                        this.settings_took(cx);
-                        cx.notify();
-                    })),
-                ));
-            }
-        }
-        ui::segmented("editor", choices)
-    }
-
-    /// What u0 is, and where it keeps what it keeps.
     fn about_u0(&self, w: &WeakEntity<Desk>) -> SettingPage {
         let rows = vec![
             item(
@@ -956,7 +1284,6 @@ impl Desk {
                         |s, v| s.log_days = v,
                         cx,
                     )
-                    .into_any_element()
                 },
             ),
             item(
@@ -977,117 +1304,7 @@ impl Desk {
             .group(SettingGroup::new().items(rows))
             .group(self.updates_group(w))
     }
-}
 
-/// Whether what a session did, `name` (`about` saying more), is told: the
-/// switch for it in `settings.notify_on`.
-fn told(
-    w: &WeakEntity<Desk>,
-    (name, about): (&'static str, &str),
-    of: fn(&mut crate::settings::NotifyOn) -> &mut bool,
-) -> SettingItem {
-    item(w, name, about, move |d, _, cx| {
-        let mut on = d.settings.notify_on.clone();
-        Switch::new(SharedString::from(name))
-            .accessibility_label(crate::tr(name))
-            .small()
-            .checked(*of(&mut on))
-            .disabled(d.settings.notify == Notify::Off)
-            .on_click(cx.listener(move |this, _, _, cx| {
-                let told = of(&mut this.settings.notify_on);
-                *told = !*told;
-                this.save_settings();
-                cx.notify();
-            }))
-            .into_any_element()
-    })
-}
-
-/// Whether u0 asks before `name` (`about` saying more): the switch for
-/// it in `settings.confirm`.
-fn asks(
-    w: &WeakEntity<Desk>,
-    (name, about): (&'static str, &str),
-    of: fn(&mut crate::settings::Confirm) -> &mut bool,
-) -> SettingItem {
-    item(w, name, about, move |d, _, cx| {
-        let mut confirm = d.settings.confirm.clone();
-        Switch::new(SharedString::from(format!("confirm-{name}")))
-            .accessibility_label(crate::tr(name))
-            .small()
-            .checked(*of(&mut confirm))
-            .on_click(cx.listener(move |this, _, _, cx| {
-                let asks = of(&mut this.settings.confirm);
-                *asks = !*asks;
-                this.save_settings();
-                cx.notify();
-            }))
-            .into_any_element()
-    })
-}
-
-/// The keys as they are now, yours over the window's, a setting each
-/// (found by what it does or its keys), and the file yours are kept in.
-fn keyboard(w: &WeakEntity<Desk>) -> SettingPage {
-    let grouped = |name: &str| keys::GROUPS.iter().position(|(_, g)| g.contains(&name));
-    let mut groups: Vec<(&str, Vec<SettingItem>)> = keys::GROUPS
-        .iter()
-        .map(|(title, _)| (*title, Vec::new()))
-        .chain(std::iter::once(("Other", Vec::new())))
-        .collect();
-    for (name, does, _) in keys::ACTIONS {
-        let at = grouped(name).unwrap_or(keys::GROUPS.len());
-        let w = w.clone();
-        groups[at].1.push(
-            SettingItem::new(
-                crate::tr(does),
-                SettingField::render(move |_, _, cx| {
-                    w.update(cx, |d, cx| d.keys_of(name, cx).into_any_element())
-                        .unwrap_or_else(|_| div().into_any_element())
-                }),
-            )
-            .keywords([name]),
-        );
-    }
-    let file = w.clone();
-    let file = SettingItem::render(move |_, _, cx| {
-        file.update(cx, |d, cx| {
-            let faces = crate::fonts::faces(cx).clone();
-            let path = d.home.join("keybindings.json");
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(10.))
-                .child(ui::fine(
-                    &faces,
-                    crate::tr("A rule is { \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }, with \"when\": \"Terminal\" (or \"Composer\", with !, && and ||) for where it holds, \"action\": \"none\" to take a key away, and \"-new_session\" to take it from that action alone; \"script:dev\" runs the script dev. The last rule that holds wins. u0 reads the file as it starts."),
-                ))
-                .child(div().flex().child(
-                    ui::button("open-keys", crate::tr("Open keybindings.json"), Weight::Secondary).on_click(
-                        cx.listener(move |this, _, _, _| {
-                            this.edit(path.clone(), Some(b"[]\n"));
-                        }),
-                    ),
-                ))
-                .into_any_element()
-        })
-        .unwrap_or_else(|_| div().into_any_element())
-    })
-    .keywords(["keybindings.json"]);
-    SettingPage::new(super::Tab::Keybindings.title())
-        .description(crate::tr("The keys as they are now, yours over u0's."))
-        .groups(
-            groups
-                .into_iter()
-                .filter(|(_, items)| !items.is_empty())
-                .map(|(title, items)| group(title, items)),
-        )
-        .group(SettingGroup::new().item(file))
-}
-
-impl Desk {
-    /// The keys of the action `name`: a click records new ones, the minus
-    /// takes them away, the arrow gives it back u0's.
     fn keys_of(&self, name: &'static str, cx: &mut Context<Self>) -> Div {
         let faces = crate::fonts::faces(cx).clone();
         let bound = keys::keys_of(cx, name);
@@ -1148,6 +1365,104 @@ impl Desk {
     }
 }
 
+fn managed_info_banner(faces: &Faces) -> Div {
+    div()
+        .flex()
+        .items_start()
+        .gap(px(12.))
+        .px(px(16.))
+        .py(px(14.))
+        .bg(theme::role(ColorRole::NotificationBackgroundInfo))
+        .border_1()
+        .border_color(theme::role(ColorRole::SupportInfo))
+        .border_l(px(3.))
+        .child(
+            CarbonGlyph::carbon(CarbonIcon::InformationFilled)
+                .size_length(px(18.))
+                .color(theme::role(ColorRole::SupportInfo))
+                .flex_none(),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w(px(0.))
+                .gap(px(2.))
+                .child(
+                    ui::text(faces, crate::tr("Some settings are managed"))
+                        .text_size(px(crate::style::BODY))
+                        .weight(gpui::FontWeight::SEMIBOLD),
+                )
+                .child(
+                    ui::text(
+                        faces,
+                        crate::tr("Managed by your organization: locked controls show a lock and their value."),
+                    )
+                    .text_size(px(crate::style::BODY))
+                    .line_height(px(20.))
+                    .text_color(theme::text2()),
+                ),
+        )
+}
+
+fn keyboard(w: &WeakEntity<Desk>) -> SettingPage {
+    let grouped = |name: &str| keys::GROUPS.iter().position(|(_, g)| g.contains(&name));
+    let mut groups: Vec<(&str, Vec<SettingItem>)> = keys::GROUPS
+        .iter()
+        .map(|(title, _)| (*title, Vec::new()))
+        .chain(std::iter::once(("Other", Vec::new())))
+        .collect();
+    for (name, does, _) in keys::ACTIONS {
+        let at = grouped(name).unwrap_or(keys::GROUPS.len());
+        let w = w.clone();
+        groups[at].1.push(
+            SettingItem::new(
+                crate::tr(does),
+                SettingField::render(move |_, _, cx| {
+                    w.update(cx, |d, cx| d.keys_of(name, cx).into_any_element())
+                        .unwrap_or_else(|_| div().into_any_element())
+                }),
+            )
+            .keywords([name]),
+        );
+    }
+    let file = w.clone();
+    let file = SettingItem::render(move |_, _, cx| {
+        file.update(cx, |d, cx| {
+            let faces = crate::fonts::faces(cx).clone();
+            let path = d.home.join("keybindings.json");
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(10.))
+                .child(ui::fine(
+                    &faces,
+                    crate::tr("A rule is { \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }, with \"when\": \"Terminal\" (or \"Composer\", with !, && and ||) for where it holds, \"action\": \"none\" to take a key away, and \"-new_session\" to take it from that action alone; \"script:dev\" runs the script dev. The last rule that holds wins. u0 reads the file as it starts."),
+                ))
+                .child(div().flex().child(
+                    ui::button("open-keys", crate::tr("Open keybindings.json"), Weight::Secondary).on_click(
+                        cx.listener(move |this, _, _, _| {
+                            this.edit(path.clone(), Some(b"[]\n"));
+                        }),
+                    ),
+                ))
+                .into_any_element()
+        })
+        .unwrap_or_else(|_| div().into_any_element())
+    })
+    .keywords(["keybindings.json"]);
+    SettingPage::new(super::Tab::Keybindings.title())
+        .description(crate::tr("The keys as they are now, yours over u0's."))
+        .groups(
+            groups
+                .into_iter()
+                .filter(|(_, items)| !items.is_empty())
+                .map(|(title, items)| group(title, items)),
+        )
+        .group(SettingGroup::new().item(file))
+}
+
 /// A setting as gpui-kit's Settings draws one: what it is, said plainly
 /// (and found by its search), and its control, which the desk, `w`, draws.
 pub(super) fn item(
@@ -1157,7 +1472,6 @@ pub(super) fn item(
     control: impl Fn(&mut Desk, &Faces, &mut Context<Desk>) -> AnyElement + 'static,
 ) -> SettingItem {
     let w = w.clone();
-    // Said in your language here, whoever called.
     let about = crate::tr(&about.into());
     let item = SettingItem::new(
         crate::tr(&name.into()),
@@ -1168,8 +1482,6 @@ pub(super) fn item(
                     control(d, &faces, cx)
                 })
                 .unwrap_or_else(|_| div().into_any_element());
-            // gpui-kit dims an item disabled; the desk's own control is
-            // also kept from the pointer, under a cover.
             if options.is_disabled() {
                 div()
                     .relative()
@@ -1181,7 +1493,6 @@ pub(super) fn item(
             }
         }),
     );
-    // One with nothing more to say has no empty line under its name.
     if about.is_empty() {
         item
     } else {
