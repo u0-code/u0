@@ -1179,16 +1179,12 @@ impl Desk {
                                 AttachmentContent::new().title(AttachmentTitle::new(name.clone())),
                             )
                             .tooltip(uri.clone())
-                            // Your own file: in u0's viewer, never the
-                            // system's handler of it.
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if let Some(path) = url::Url::parse(&uri)
-                                    .ok()
-                                    .and_then(|u| u.to_file_path().ok())
-                                {
-                                    this.open_surface(crate::aside::Surface::File(path), cx);
-                                }
-                            })),
+                            // As a link: an agent may send a message as if
+                            // yours, so its file opens in u0's viewer only
+                            // within the thread's folder.
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.follow_link(&uri, cx)),
+                            ),
                     )
                     .into_any_element()
             }

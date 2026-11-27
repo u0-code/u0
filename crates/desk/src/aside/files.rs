@@ -911,12 +911,19 @@ impl Desk {
                         .flex_1()
                         .min_w(px(0.)),
                     )
-                    .child(
-                        Button::new("html-open-browser", crate::tr("Open in your browser"))
-                            .variant(ButtonVariant::Ghost)
-                            .size(ButtonSize::Sm)
-                            .icon(CarbonIcon::Launch)
-                            .on_click(move |_, _, cx| crate::aside::rules::yours(&picked, cx)),
+                    // A page of the thread's folder only.
+                    .children(
+                        crate::aside::rules::within(&s.meta.folder, &picked.to_string_lossy()).map(
+                            |_| {
+                                Button::new("html-open-browser", crate::tr("Open in your browser"))
+                                    .variant(ButtonVariant::Ghost)
+                                    .size(ButtonSize::Sm)
+                                    .icon(CarbonIcon::Launch)
+                                    .on_click(move |_, _, cx| {
+                                        crate::aside::rules::yours(&picked, cx);
+                                    })
+                            },
+                        ),
                     );
                 div()
                     .flex()
@@ -1450,13 +1457,13 @@ impl Desk {
                                     &[("name", &file_name)],
                                 ))
                                 .body(crate::tr("u0 can’t show it here."))
+                                // Shown in Finder, never opened: a binary
+                                // may be an executable an agent wrote.
                                 .action(
-                                    Button::new("bin-open", crate::tr("Open in default app"))
+                                    Button::new("bin-reveal", crate::tr("Reveal in Finder"))
                                         .variant(ButtonVariant::Secondary)
                                         .size(ButtonSize::Sm)
-                                        .on_click(move |_, _, cx| {
-                                            crate::aside::rules::yours(&picked, cx);
-                                        }),
+                                        .on_click(move |_, _, cx| cx.reveal_path(&picked)),
                                 )
                                 .action(
                                     Button::new(

@@ -12,9 +12,11 @@ The thread is the same for every agent:
 - **What the agent says**, as Markdown. Mermaid diagrams (` ```mermaid `)
   are drawn natively, and with **Settings › Chat › Math** set to **Set as
   formulas**, so is TeX (`$…$`, `$$…$$`, ` ```math `). A link in it opens
-  a web address in your browser, and a file of the thread's folder in the
-  right column's viewer; any other link (an app, a script, a share,
-  another app's address) is not opened, and u0 says so.
+  a web address in your browser, a `mailto:` address in your mail app,
+  and a file of the thread's folder in the right column's viewer, as does
+  a file that went with a message; any other link (an app, a script, a
+  share, another app's address) is not opened, and u0 says so. A file the
+  viewer cannot show is offered in Finder, never opened.
 - **Tool calls**, each a row with what it did: Read, Created, Edited,
   Deleted, Moved, Searched, Ran, Fetched, Ran a subagent, and so on. A row
   opens to its diff or output. A finished turn's calls fold into one line

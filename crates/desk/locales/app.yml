@@ -16942,16 +16942,6 @@ _version: 2
   pt-BR: "O u0 não pode exibi-lo aqui."
   ru: "u0 не может показать его здесь."
   sv: "u0 kan inte visa den här."
-"Open in default app":
-  zh-CN: "用默认应用打开"
-  de: "In Standard-App öffnen"
-  es: "Abrir en la aplicación predeterminada"
-  fr: "Ouvrir dans l’application par défaut"
-  ja: "既定のアプリで開く"
-  ko: "기본 앱에서 열기"
-  pt-BR: "Abrir no aplicativo padrão"
-  ru: "Открыть в приложении по умолчанию"
-  sv: "Öppna i standardappen"
 "Ask %{name} to inspect it":
   zh-CN: "让 %{name} 检查它"
   de: "%{name} bitten, sie zu prüfen"

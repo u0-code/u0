@@ -42,12 +42,41 @@ pub fn to_browser(address: &str, cx: &mut gpui::App) -> bool {
     true
 }
 
-/// Open `path`, a file of yours the Files tab shows, with the app the
-/// system opens it with, by a button that says so: the one other way u0
-/// hands an address to the system, and only for a file you picked there,
-/// never a link from what an agent said.
+/// `address` as what your mail app is given: a `mailto:` address, and
+/// nothing else.
+pub fn for_mail(address: &str) -> Option<Url> {
+    Url::parse(address).ok().filter(|u| u.scheme() == "mailto")
+}
+
+/// Give `address` to your mail app if it is a `mailto:` address
+/// ([`for_mail`]), and say whether it was: [`to_browser`]'s sibling, for a
+/// link in a reply.
+pub fn to_mail(address: &str, cx: &mut gpui::App) -> bool {
+    let Some(url) = for_mail(address) else {
+        return false;
+    };
+    cx.open_url(url.as_str());
+    true
+}
+
+/// Whether the system's app for `path` only shows it: a web page (a
+/// browser), audio or video (a player), known by its name's extension. An
+/// executable, a package, a script or anything else the system would run
+/// or install is not, whoever wrote it.
+pub fn only_shown(path: &std::path::Path) -> bool {
+    mime_guess::from_path(path).first().is_some_and(|kind| {
+        kind.essence_str() == "text/html" || matches!(kind.type_().as_str(), "audio" | "video")
+    })
+}
+
+/// Open `path`, a file the viewer shows as a web page or as audio or
+/// video ([`only_shown`]), with the app the system shows it with, by a
+/// button that says so: the one other way u0 hands a file to the system.
+/// Any other kind is refused: an agent may have written the file.
 pub fn yours(path: &std::path::Path, cx: &mut gpui::App) {
-    if let Ok(url) = Url::from_file_path(path) {
+    if only_shown(path)
+        && let Ok(url) = Url::from_file_path(path)
+    {
         cx.open_url(url.as_str());
     }
 }
@@ -55,7 +84,10 @@ pub fn yours(path: &std::path::Path, cx: &mut gpui::App) {
 /// The file a link names (`src/a.rs`, `a.rs:12`, `/abs/a.rs`,
 /// `file:///abs/a.rs`), as a path within `folder`, the thread's: none for
 /// one outside it, or a link that names no file. Read as written, `..`
-/// and all, never by the file system.
+/// and all, never by the file system: a link within the folder to a file
+/// elsewhere is followed by the viewer's read, which only shows it to you
+/// (the folder may be on another machine, whose files the desk cannot
+/// resolve).
 pub fn within(folder: &std::path::Path, link: &str) -> Option<std::path::PathBuf> {
     use std::path::{Component, PathBuf};
     let path = match Url::parse(link) {
@@ -161,6 +193,62 @@ mod tests {
             "javascript:go()",
         ] {
             assert_eq!(within(folder, outside), None, "{outside}");
+        }
+    }
+
+    #[test]
+    fn a_file_goes_to_the_system_only_to_be_shown_never_run() {
+        use std::path::Path;
+        for shown in [
+            "site/index.html",
+            "a.htm",
+            "clip.mp4",
+            "song.mp3",
+            "voice.m4a",
+        ] {
+            assert!(only_shown(Path::new(shown)), "{shown}");
+        }
+        for runs in [
+            "tool",
+            "x.command",
+            "setup.pkg",
+            "Evil.app",
+            "run.sh",
+            "a.dmg",
+            "b.terminal",
+            "notes.txt",
+        ] {
+            assert!(!only_shown(Path::new(runs)), "{runs}");
+        }
+    }
+
+    #[test]
+    fn only_a_mailto_address_goes_to_mail() {
+        assert!(for_mail("mailto:a@b.c").is_some());
+        for refused in [
+            "https://example.com",
+            "file:///x",
+            "smb://s/x",
+            "x-mail://a",
+        ] {
+            assert!(for_mail(refused).is_none(), "{refused}");
+        }
+    }
+
+    #[test]
+    fn an_attachment_is_opened_only_within_the_thread_s_folder() {
+        use std::path::Path;
+        let folder = Path::new("/Users/me/proj");
+        assert_eq!(
+            within(folder, "file:///Users/me/proj/shot.png"),
+            Some("shot.png".into())
+        );
+        for elsewhere in [
+            "file:///usr/local/bin/tool",
+            "file:///Users/me/Downloads/setup.pkg",
+            "file:///Users/me/proj/../.ssh/id_rsa",
+        ] {
+            assert_eq!(within(folder, elsewhere), None, "{elsewhere}");
         }
     }
 

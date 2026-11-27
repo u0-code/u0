@@ -287,13 +287,18 @@ impl Desk {
         }
     }
 
-    /// A link in what an agent said: a web address to your browser; a
-    /// file within the thread's folder in u0's own viewer, never the
+    /// A link in what an agent said, or a file that went with a message
+    /// (which an agent may send as if yours): a web address to your
+    /// browser, a `mailto:` to your mail app; a file within the thread's
+    /// folder in u0's own viewer, never the
     /// system's handler of it (`rules::within`); anything else, an app, a
     /// script, a share, another app's address, refused and said.
     pub(crate) fn follow_link(&mut self, to: &str, cx: &mut Context<Self>) {
         if crate::aside::rules::for_browser(to).is_some() {
             return self.browse(to, cx);
+        }
+        if crate::aside::rules::to_mail(to, cx) {
+            return;
         }
         let file = self
             .session()
