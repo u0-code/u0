@@ -574,6 +574,9 @@ impl Desk {
             s.meta.folder.join(path)
         };
         let outside = !full.starts_with(&s.meta.folder);
+        // A file on another server is not at this path on this Mac: what
+        // hands it to this Mac's apps or Finder is not offered.
+        let here = s.host == crate::hub::Host::HERE;
         let rel_display = full
             .strip_prefix(&s.meta.folder)
             .map_or_else(|_| Desk::shown(&full), |p| p.display().to_string());
@@ -751,6 +754,7 @@ impl Desk {
                     .size(ButtonSize::Sm)
                     .icon(CarbonIcon::FolderOpen)
                     .icon_only(true)
+                    .disabled(!here)
                     .on_click(move |_, _, cx| cx.reveal_path(&reveal_p)),
             )
             .child(
@@ -913,8 +917,9 @@ impl Desk {
                     )
                     // A page of the thread's folder only.
                     .children(
-                        crate::aside::rules::within(&s.meta.folder, &picked.to_string_lossy()).map(
-                            |_| {
+                        crate::aside::rules::within(&s.meta.folder, &picked.to_string_lossy())
+                            .filter(|_| here)
+                            .map(|_| {
                                 Button::new("html-open-browser", crate::tr("Open in your browser"))
                                     .variant(ButtonVariant::Ghost)
                                     .size(ButtonSize::Sm)
@@ -922,8 +927,7 @@ impl Desk {
                                     .on_click(move |_, _, cx| {
                                         crate::aside::rules::yours(&picked, cx);
                                     })
-                            },
-                        ),
+                            }),
                     );
                 div()
                     .flex()
@@ -1375,6 +1379,7 @@ impl Desk {
                                     .variant(ButtonVariant::Ghost)
                                     .size(ButtonSize::Sm)
                                     .icon(CarbonIcon::Launch)
+                                    .disabled(!here)
                                     .on_click(move |_, _, cx| {
                                         crate::aside::rules::yours(&picked, cx);
                                     }),
@@ -1463,6 +1468,7 @@ impl Desk {
                                     Button::new("bin-reveal", crate::tr("Reveal in Finder"))
                                         .variant(ButtonVariant::Secondary)
                                         .size(ButtonSize::Sm)
+                                        .disabled(!here)
                                         .on_click(move |_, _, cx| cx.reveal_path(&picked)),
                                 )
                                 .action(

@@ -60,6 +60,8 @@ objc2-avf-audio.workspace = true
 # The Preview tab's page, in WKWebView (`aside/page`): on macOS alone for now.
 gpui-webview.workspace = true
 wry.workspace = true
+objc2-app-kit.workspace = true
+objc2-uniform-type-identifiers.workspace = true
 
 [lints]
 workspace = true

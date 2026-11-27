@@ -264,3 +264,16 @@ pub fn in_terminal(
         .spawn()
         .map(|_| ())
 }
+
+/// The app the system opens a file of this extension's kind with (`mp4`:
+/// a player; `html`: your browser), as `LaunchServices` says for the kind,
+/// not for any file: what a file really is cannot choose it.
+#[cfg(target_os = "macos")]
+pub fn app_for_extension(extension: &str) -> Option<std::path::PathBuf> {
+    use objc2_app_kit::NSWorkspace;
+    use objc2_foundation::NSString;
+    use objc2_uniform_type_identifiers::UTType;
+    let kind = UTType::typeWithFilenameExtension(&NSString::from_str(extension))?;
+    let app = NSWorkspace::sharedWorkspace().URLForApplicationToOpenContentType(&kind)?;
+    app.path().map(|p| std::path::PathBuf::from(p.to_string()))
+}

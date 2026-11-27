@@ -69,14 +69,57 @@ pub fn only_shown(path: &std::path::Path) -> bool {
     })
 }
 
+/// Whether `path` is a plain file, what its name says it is: not a link
+/// (symbolic, or a Finder alias, which begins `book`) to something else,
+/// not a folder or a package, not executable. The system resolves a link
+/// before it picks an app, so `clip.mp4 -> tool` would run `tool`.
+pub fn plain(path: &std::path::Path) -> bool {
+    use std::io::Read as _;
+    let Ok(about) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    #[cfg(unix)]
+    let runs = std::os::unix::fs::PermissionsExt::mode(&about.permissions()) & 0o111 != 0;
+    #[cfg(not(unix))]
+    let runs = false;
+    let mut head = [0u8; 4];
+    let alias = std::fs::File::open(path)
+        .and_then(|mut f| f.read_exact(&mut head))
+        .is_ok()
+        && &head == b"book";
+    about.file_type().is_file() && !runs && !alias
+}
+
 /// Open `path`, a file the viewer shows as a web page or as audio or
-/// video ([`only_shown`]), with the app the system shows it with, by a
-/// button that says so: the one other way u0 hands a file to the system.
-/// Any other kind is refused: an agent may have written the file.
+/// video ([`only_shown`]) and a plain one ([`plain`]), with the app the
+/// system has for its name's kind (on macOS chosen by its extension, so
+/// what the file really is cannot choose), by a button that says so: the
+/// one other way u0 hands a file to the system. Anything else is refused:
+/// an agent may have written the file.
 pub fn yours(path: &std::path::Path, cx: &mut gpui::App) {
-    if only_shown(path)
-        && let Ok(url) = Url::from_file_path(path)
+    if !only_shown(path) || !plain(path) {
+        return;
+    }
+    #[cfg(target_os = "macos")]
     {
+        let _ = cx;
+        let Some(app) = path
+            .extension()
+            .and_then(|e| crate::macos::app_for_extension(&e.to_string_lossy()))
+        else {
+            return;
+        };
+        if let Ok(mut opening) = std::process::Command::new("/usr/bin/open")
+            .arg("-a")
+            .arg(app)
+            .arg(path)
+            .spawn()
+        {
+            std::thread::spawn(move || opening.wait());
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    if let Ok(url) = Url::from_file_path(path) {
         cx.open_url(url.as_str());
     }
 }
@@ -220,6 +263,40 @@ mod tests {
         ] {
             assert!(!only_shown(Path::new(runs)), "{runs}");
         }
+    }
+
+    #[test]
+    fn a_file_is_handed_on_only_as_what_its_name_says() {
+        let dir = tempfile::tempdir().unwrap();
+        let clip = dir.path().join("clip.mp4");
+        std::fs::write(&clip, b"\0\0\0 ftypisom").unwrap();
+        assert!(plain(&clip), "a movie is a movie");
+        let tool = dir.path().join("tool");
+        std::fs::write(&tool, b"#!/bin/sh\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+            assert!(!plain(&tool), "an executable is not");
+            let posing = dir.path().join("posing.mp4");
+            std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::os::unix::fs::symlink(&tool, &posing).unwrap();
+            assert!(!plain(&posing), "a link named as a movie is not");
+            let marked = dir.path().join("marked.mp4");
+            std::fs::write(&marked, b"x").unwrap();
+            std::fs::set_permissions(&marked, std::fs::Permissions::from_mode(0o744)).unwrap();
+            assert!(!plain(&marked), "nor a movie one may run");
+        }
+        let alias = dir.path().join("page.html");
+        std::fs::write(&alias, b"book\0\0\0\0mark\0\0\0\0").unwrap();
+        assert!(!plain(&alias), "a Finder alias is not");
+        let package = dir.path().join("Setup.mp4");
+        std::fs::create_dir(&package).unwrap();
+        assert!(!plain(&package), "a folder or package is not");
+        assert!(
+            !plain(&dir.path().join("gone.mp4")),
+            "nor what is not there"
+        );
     }
 
     #[test]
