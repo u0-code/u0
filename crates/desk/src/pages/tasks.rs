@@ -175,7 +175,8 @@ impl Desk {
     /// The Scheduled tasks tab: the one being written, and the tasks.
     pub(super) fn tasks(&self, w: &WeakEntity<Desk>) -> Vec<SettingGroup> {
         let mut list: Vec<SettingItem> = Vec::new();
-        if self.tasks.draft.is_none() {
+        let has_tasks = matches!(self.tasks_on(self.pages.on), Some(Ok(t)) if !t.is_empty());
+        if self.tasks.draft.is_none() && has_tasks {
             list.push(item(
                 w,
                 crate::tr("A new task"),
@@ -188,8 +189,12 @@ impl Desk {
             ));
         }
         match self.tasks_on(self.pages.on) {
-            None => list.push(item(w, crate::tr("Reading…"), "", |_, _, _| {
-                div().into_any_element()
+            None => list.push(whole(w, &[], |_, _, _| {
+                use u0ui::components::spinner::{Spinner, SpinnerSize};
+                Spinner::new("tasks-reading")
+                    .size(SpinnerSize::Inline)
+                    .description(crate::tr("Reading…"))
+                    .into_any_element()
             })),
             Some(Err(why)) => {
                 let why = why.clone();
@@ -197,14 +202,36 @@ impl Desk {
                     ui::trouble(why.clone()).into_any_element()
                 }));
             }
-            Some(Ok(tasks)) if tasks.is_empty() => list.push(item(
-                w,
-                crate::tr("No tasks yet"),
-                crate::tr(
-                    "A task says its prompt to an agent on a schedule, as a thread of its own.",
-                ),
-                |_, _, _| div().into_any_element(),
-            )),
+            Some(Ok(tasks)) if tasks.is_empty() => {
+                let writing = self.tasks.draft.is_some();
+                list.push(whole(w, &[], move |_, _, cx| {
+                    use u0ui::components::empty::{
+                        Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle,
+                    };
+                    use u0ui::prelude::*;
+                    Empty::new()
+                        .child(
+                            EmptyHeader::new()
+                                .child(EmptyTitle::new(crate::tr("No tasks yet")))
+                                .child(EmptyDescription::new(crate::tr(
+                                    "A task says its prompt to an agent on a schedule, as a thread of its own.",
+                                ))),
+                        )
+                        .when(!writing, |e| {
+                            e.child(
+                                EmptyContent::new().child(
+                                    Button::new("empty-new-task", crate::tr("New task"))
+                                        .size(ButtonSize::Sm)
+                                        .icon(CarbonIcon::Add)
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.new_task(window, cx);
+                                        })),
+                                ),
+                            )
+                        })
+                        .into_any_element()
+                }));
+            }
             Some(Ok(tasks)) => {
                 for task in tasks {
                     let (task, named) = (task.clone(), task.title.clone());

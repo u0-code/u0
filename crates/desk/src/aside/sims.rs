@@ -159,9 +159,12 @@ impl Desk {
     /// The Devices tab.
     pub(super) fn sims_tab(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let Some((found, missing)) = &self.sims.listed else {
-            return div()
-                .p(px(16.))
-                .child(empty(faces, crate::tr("Looking for devices…")));
+            use u0ui::components::spinner::{Spinner, SpinnerSize};
+            return div().p(px(16.)).child(
+                Spinner::new("sims-loading")
+                    .size(SpinnerSize::Inline)
+                    .description(crate::tr("Looking for devices…")),
+            );
         };
         let refresh = ui::button("devices-refresh", crate::tr("Look again"), Weight::Quiet)
             .on_click(cx.listener(|this, _, _, cx| {
@@ -229,13 +232,39 @@ impl Desk {
             )
             .children(rows)
             .when(found.is_empty(), |d| {
-                d.child(empty(faces, crate::tr("No simulator or emulator here.")))
+                use u0ui::components::empty::{
+                    Empty, EmptyDescription, EmptyHeader, EmptyTitle,
+                };
+                d.child(
+                    Empty::new().child(
+                        EmptyHeader::new()
+                            .child(EmptyTitle::new(crate::tr("No simulator or emulator here.")))
+                            .child(EmptyDescription::new(crate::tr(
+                                "u0 looks for iOS simulators with Xcode and Android emulators with the Android SDK.",
+                            ))),
+                    ),
+                )
             })
-            .children(
-                missing
-                    .iter()
-                    .map(|m| fine(faces, crate::tr_with("Not found: %{m}", &[("m", m)]))),
-            )
+            .children(missing.iter().map(|m| {
+                use u0ui::prelude::*;
+                div()
+                    .flex()
+                    .items_start()
+                    .gap(px(8.))
+                    .child(
+                        div().mt(px(2.)).child(
+                            Icon::carbon(CarbonIcon::ErrorFilled)
+                                .size(IconSize::S16)
+                                .color(color(ColorRole::SupportError)),
+                        ),
+                    )
+                    .child(
+                        div()
+                            .type_style(TypeStyle::Body01)
+                            .text_color(color(ColorRole::TextSecondary))
+                            .child(crate::tr_with("Not found: %{m}", &[("m", m)])),
+                    )
+            }))
             .when(missing.iter().any(|m| m == AXE), |d| {
                 // Your press is the asking: nothing is installed without it.
                 let what = format!("brew install {AXE_FORMULA}");

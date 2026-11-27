@@ -99,7 +99,7 @@ pub fn answer(dir: &Path, kind: Kind, ask: Ask, linear: Option<&str>) -> Answer 
         return linear::answer(team, ask);
     }
     let Some((host, path)) = crate::git::remote(dir) else {
-        return crate::github::answer(dir, kind, ask);
+        return no_remote(ask);
     };
     if host.contains("gitlab") {
         gitlab::answer(&host, &path, kind, ask)
@@ -109,6 +109,19 @@ pub fn answer(dir: &Path, kind: Kind, ask: Ask, linear: Option<&str>) -> Answer 
         azure::answer(dir, &repo, kind, ask)
     } else {
         crate::github::answer(dir, kind, ask)
+    }
+}
+
+/// Answer `ask` when `dir` has no `origin` remote (`EmptyStates`).
+fn no_remote(ask: Ask) -> Answer {
+    let why = String::from("no remote");
+    match ask {
+        Ask::List { .. } => Answer::Listed(Err(why)),
+        Ask::View(n) => Answer::Viewed(n, Err(why)),
+        Ask::Diff(n) => Answer::Diffed(n, Err(why)),
+        Ask::Candidates => Answer::Candidates(Err(why)),
+        Ask::Log(run) => Answer::Logged(run, Err(why)),
+        _ => Answer::Acted(None, Err(why)),
     }
 }
 
@@ -170,6 +183,9 @@ fn call(host: Host, method: &str, url: &str, body: Option<&Value>) -> Result<Vec
         .map(|p| text(&said, p))
         .find(|w| !w.is_empty())
         .unwrap_or_else(|| String::from_utf8_lossy(&out).trim().to_owned());
+    if auth.is_none() {
+        return Err(format!("no token: {}: {why}", host.name()));
+    }
     Err(format!("{}: {why}", host.name()))
 }
 
@@ -468,5 +484,20 @@ mod tests {
         assert_eq!(Host::GitHub.account(), "token/github");
         assert_eq!(Host::Azure.token_var(), Some("AZURE_DEVOPS_EXT_PAT"));
         assert!(Host::token_for("git").is_none());
+    }
+
+    #[test]
+    fn a_repository_without_an_origin_remote_says_no_remote() {
+        let dir = tempfile::tempdir().unwrap();
+        let got = answer(
+            dir.path(),
+            Kind::Pr,
+            Ask::List {
+                state: "open".into(),
+                search: String::new(),
+            },
+            None,
+        );
+        assert_eq!(got, Answer::Listed(Err("no remote".into())));
     }
 }

@@ -91,6 +91,7 @@ impl Desk {
             Some(p) => self.forge_name(p),
             None => crate::tr("No project").to_string(),
         };
+        let project_label = project.clone();
         let chip = ui::opener("forge-project")
             .h(px(26.))
             .px(px(8.))
@@ -172,6 +173,23 @@ impl Desk {
                     .unwrap_or_default();
                 d.forge_menu(&item, folder, menu, &desk)
             });
+        let empty_or_err = match &f.rows.read(cx).delegate().list {
+            Some(Err(why)) => Some(Err(why.clone())),
+            Some(Ok(items)) if items.is_empty() => Some(Ok(())),
+            _ => None,
+        };
+        if !f.creating
+            && let Some(state) = empty_or_err
+            && let Some(full) = self.forge_state(&project_label, state, cx)
+        {
+            return div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h(px(0.))
+                .child(bar)
+                .child(full);
+        }
         let side = if f.creating {
             self.forge_form(faces, &crate::tr("New issue"), crate::tr("Create"), cx)
         } else {
@@ -199,6 +217,227 @@ impl Desk {
                     )
                     .child(side),
             )
+    }
+
+    /// Full-body empty or error state on the PRs / Issues page (`EmptyStates`).
+    fn forge_state(
+        &self,
+        project: &str,
+        list: Result<(), String>,
+        cx: &mut Context<Self>,
+    ) -> Option<Div> {
+        use u0ui::components::alert::{Alert, AlertVariant};
+        use u0ui::components::empty::{
+            Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle,
+        };
+        use u0ui::prelude::*;
+        let f = &self.forge;
+        let wrap = |center: bool| {
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h(px(0.))
+                .p(px(24.))
+                .gap(px(16.))
+                .when(center, |d| d.items_start().justify_center())
+        };
+        match list {
+            Err(why) if why == "no remote" => Some(
+                wrap(true).child(
+                    Empty::new()
+                        .child(
+                            EmptyHeader::new()
+                                .child(EmptyTitle::new(crate::tr_with(
+                                    "%{project} has no host",
+                                    &[("project", &project)],
+                                )))
+                                .child(EmptyDescription::new(crate::tr(
+                                    "A project’s host is read from its origin, and this repository has none. Add one with git remote add origin, then read again.",
+                                ))),
+                        )
+                        .child(
+                            EmptyContent::new()
+                                .child(
+                                    Button::new("forge-no-host-again", crate::tr("Read again"))
+                                        .variant(ButtonVariant::Secondary)
+                                        .size(ButtonSize::Sm)
+                                        .icon(CarbonIcon::Renew)
+                                        .on_click(cx.listener(|this, _, _, cx| this.list_forge(cx))),
+                                )
+                                .child(
+                                    Button::new("forge-no-host-all", crate::tr("All projects"))
+                                        .variant(ButtonVariant::Ghost)
+                                        .size(ButtonSize::Sm)
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.list_projects(true, None, window, cx);
+                                        })),
+                                ),
+                        ),
+                ),
+            ),
+            Err(why) if why.starts_with("no token:") => {
+                let host_name = why
+                    .strip_prefix("no token:")
+                    .and_then(|s| s.split(':').next())
+                    .map_or("host", str::trim);
+                Some(
+                    wrap(false)
+                        .child(
+                            Alert::new("forge-no-token")
+                                .variant(AlertVariant::Info)
+                                .title(crate::tr("Only what is public"))
+                                .description(crate::tr_with(
+                                    "%{host} is asked without a token, which reaches only what is public; %{project} is private. A token you give is kept in the macOS Keychain, never in a file, and may be a 1Password reference (op://).",
+                                    &[("host", &host_name), ("project", &project)],
+                                )),
+                        )
+                        .child(
+                            Button::new(
+                                "forge-give-token",
+                                crate::tr("Give a token in Source control › Hosts"),
+                            )
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Sm)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_tab(crate::pages::Tab::SourceControl, window, cx);
+                            })),
+                        ),
+                )
+            }
+            Err(why) if why.contains("Linear team") => {
+                let place = f.folder.clone();
+                Some(
+                    wrap(true).child(
+                        Empty::new()
+                            .child(
+                                EmptyHeader::new()
+                                    .child(EmptyTitle::new(crate::tr_with(
+                                        "%{project}’s issues come through Linear",
+                                        &[("project", &project)],
+                                    )))
+                                    .child(EmptyDescription::new(crate::tr_with(
+                                        "Bitbucket and Azure DevOps projects list issues from a Linear team. Bind %{project} to one by its key, such as ENG, in its project settings.",
+                                        &[("project", &project)],
+                                    ))),
+                            )
+                            .child(
+                                EmptyContent::new().child(
+                                    Button::new(
+                                        "forge-choose-linear",
+                                        crate::tr("Choose a Linear team"),
+                                    )
+                                    .variant(ButtonVariant::Ghost)
+                                    .size(ButtonSize::Sm)
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.pages.project.clone_from(&place);
+                                        this.open_tab(crate::pages::Tab::Projects, window, cx);
+                                    })),
+                                ),
+                            ),
+                    ),
+                )
+            }
+            Err(why)
+                if !self.on_path.contains(&"gh")
+                    || (why.contains("gh") && why.contains("No such file")) =>
+            {
+                Some(
+                    wrap(false)
+                        .child(
+                            Alert::new("forge-no-gh")
+                                .variant(AlertVariant::Warning)
+                                .title(crate::tr(
+                                    "GitHub is reached with gh, and gh is not on this Mac",
+                                ))
+                                .description(crate::tr(
+                                    "Install it with brew install gh and sign in with gh auth login, or give a token in Source control › Hosts. u0 looks for it on the PATH your login shell sets up.",
+                                )),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_wrap()
+                                .gap(px(8.))
+                                .child(
+                                    Button::new(
+                                        "forge-copy-brew-gh",
+                                        crate::tr("Copy brew install gh"),
+                                    )
+                                    .variant(ButtonVariant::Secondary)
+                                    .size(ButtonSize::Sm)
+                                    .icon(CarbonIcon::Copy)
+                                    .on_click(|_, _, cx| {
+                                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                                            "brew install gh".into(),
+                                        ));
+                                    }),
+                                )
+                                .child(
+                                    Button::new("forge-no-gh-again", crate::tr("Read again"))
+                                        .variant(ButtonVariant::Ghost)
+                                        .size(ButtonSize::Sm)
+                                        .icon(CarbonIcon::Renew)
+                                        .on_click(
+                                            cx.listener(|this, _, _, cx| this.list_forge(cx)),
+                                        ),
+                                ),
+                        ),
+                )
+            }
+            Ok(()) if f.every.is_none() => {
+                let filtered = f.part != 0
+                    || f.state != "open"
+                    || !f.search.read(cx).value().trim().is_empty();
+                let desc = if f.kind == Kind::Issue && f.part == 1 && f.state == "open" {
+                    crate::tr_with(
+                        "No open issue in %{project} is assigned to you or was opened by you.",
+                        &[("project", &project)],
+                    )
+                } else {
+                    crate::tr("Nothing matched these filters.")
+                };
+                let mut actions = EmptyContent::new();
+                if filtered {
+                    actions = actions.child(
+                        Button::new("forge-show-all", crate::tr("Show All"))
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Sm)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.forge.part = 0;
+                                this.forge.state = "open";
+                                this.forge
+                                    .search
+                                    .update(cx, |i, cx| i.set_value("", window, cx));
+                                this.list_forge(cx);
+                            })),
+                    );
+                }
+                if f.kind == Kind::Issue {
+                    actions = actions.child(
+                        Button::new("forge-empty-new-issue", crate::tr("New issue"))
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Sm)
+                            .icon(CarbonIcon::Add)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.edit_forge(true, window, cx);
+                            })),
+                    );
+                }
+                Some(
+                    wrap(true).child(
+                        Empty::new()
+                            .child(
+                                EmptyHeader::new()
+                                    .child(EmptyTitle::new(crate::tr("None here.")))
+                                    .child(EmptyDescription::new(desc)),
+                            )
+                            .when(filtered || f.kind == Kind::Issue, |e| e.child(actions)),
+                    ),
+                )
+            }
+            _ => None,
+        }
     }
 }
 

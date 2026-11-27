@@ -432,7 +432,12 @@ impl Desk {
         let Some(shared) = &self.pages.shared else {
             return Vec::new();
         };
+        let missing_cf = self.pages.on == Host::HERE && !self.on_path.contains(&"cloudflared");
         let (status, running) = match &shared.tunnel {
+            Tunnel::Off if missing_cf => (
+                crate::tr("cloudflared is not installed: brew install cloudflared"),
+                false,
+            ),
             Tunnel::Off => (crate::tr("Off"), false),
             Tunnel::Starting => (crate::tr("Starting"), true),
             Tunnel::Up(host) => (
@@ -689,6 +694,34 @@ impl Desk {
                 d.server_control(&name, faces, cx)
             })
         }));
+        if rows.is_empty() {
+            rows.push(whole(w, &[], |_, _, cx| {
+                use u0ui::components::empty::{
+                    Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle,
+                };
+                use u0ui::prelude::*;
+                Empty::new()
+                    .child(
+                        EmptyHeader::new()
+                            .child(EmptyTitle::new(crate::tr("No device is paired")))
+                            .child(EmptyDescription::new(crate::tr(
+                                "The Macs paired with are in this window beside this one; pair with another’s link.",
+                            ))),
+                    )
+                    .child(
+                        EmptyContent::new().child(
+                            Button::new("empty-pair-mac", crate::tr("Pair with another Mac…"))
+                                .variant(ButtonVariant::Secondary)
+                                .size(ButtonSize::Sm)
+                                .icon(CarbonIcon::Link)
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.pages.pair_link.update(cx, |i, cx| i.focus(window, cx));
+                                })),
+                        ),
+                    )
+                    .into_any_element()
+            }));
+        }
         rows
     }
 

@@ -142,6 +142,80 @@ impl Desk {
         )
     }
 
+    /// The workflow files that do not read, each with why and, on this
+    /// Mac, Open; none, nothing.
+    fn unreadable_flows(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let folder = crate::workflows::folder(self.home_on(self.pages.on));
+        let here = self.pages.on == crate::hub::Host::HERE;
+        let rows: Vec<Div> = self
+            .flows
+            .list
+            .iter()
+            .enumerate()
+            .filter_map(|(n, f)| f.as_ref().err().map(|e| (n, e)))
+            .map(|(n, (name, why))| {
+                let file_name = if std::path::Path::new(name)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+                {
+                    name.clone()
+                } else {
+                    format!("{name}.json")
+                };
+                let path = folder.join(&file_name);
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .min_h(px(48.))
+                    .px(px(16.))
+                    .py(px(8.))
+                    .bg(theme::role(ColorRole::Layer01))
+                    .border_1()
+                    .border_color(theme::role(ColorRole::SupportError))
+                    .child(
+                        Icon::carbon(CarbonIcon::ErrorFilled)
+                            .size(IconSize::S16)
+                            .color(theme::role(ColorRole::SupportError)),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w(px(0.))
+                            .child(
+                                div()
+                                    .type_style(TypeStyle::BodyCompact01)
+                                    .text_color(theme::role(ColorRole::TextPrimary))
+                                    .child(file_name),
+                            )
+                            .child(
+                                div()
+                                    .type_style(TypeStyle::Label01)
+                                    .text_color(theme::role(ColorRole::SupportError))
+                                    .child(why.clone()),
+                            ),
+                    )
+                    .when(here, |d| {
+                        d.child(
+                            Button::new(
+                                SharedString::from(format!("flow-open-err-{n}")),
+                                crate::tr("Open"),
+                            )
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Sm)
+                            .icon(CarbonIcon::Edit)
+                            .on_click(cx.listener(move |this, _, _, _| {
+                                this.edit(path.clone(), None);
+                            })),
+                        )
+                    })
+            })
+            .collect();
+        (!rows.is_empty()).then(|| div().flex().flex_col().gap(px(8.)).children(rows))
+    }
+
     /// Full Workflows workspace page (`Workflows` board).
     pub(crate) fn workflows_page(
         &self,
@@ -207,6 +281,7 @@ impl Desk {
                         .pb(px(32.))
                         .px(px(40.))
                         .child(header)
+                        .children(self.unreadable_flows(cx))
                         .child(
                             div()
                                 .flex()
@@ -573,6 +648,7 @@ impl Desk {
                     .pb(px(32.))
                     .px(px(40.))
                     .child(header)
+                    .children(self.unreadable_flows(cx).map(|d| d.mt(px(16.))))
                     .child(tabs)
                     .child(metarow)
                     .child(

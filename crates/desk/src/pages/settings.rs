@@ -833,19 +833,84 @@ impl Desk {
             ));
         }
         if let Some(trouble) = self.registry_trouble.clone() {
-            head.push(whole(w, &[], move |_, _, _| {
-                ui::trouble(trouble.clone()).into_any_element()
+            let empty_reg = self.registry.agents.is_empty();
+            head.push(whole(w, &[], move |_, _, cx| {
+                use u0ui::components::alert::{AlertAction, AlertVariant};
+                use u0ui::components::empty::{
+                    Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle,
+                };
+                use u0ui::prelude::*;
+                if empty_reg {
+                    Empty::new()
+                        .child(
+                            EmptyHeader::new()
+                                .child(EmptyTitle::new(crate::tr("Registry not read yet")))
+                                .child(EmptyDescription::new(trouble.clone())),
+                        )
+                        .child(
+                            EmptyContent::new().child(
+                                Button::new(
+                                    "empty-refresh-registry",
+                                    crate::tr("Read the registry again"),
+                                )
+                                .variant(ButtonVariant::Secondary)
+                                .size(ButtonSize::Sm)
+                                .icon(CarbonIcon::Renew)
+                                .on_click(cx.listener(|this, _, _, cx| this.refresh_registry(cx))),
+                            ),
+                        )
+                        .into_any_element()
+                } else {
+                    let desk = cx.entity();
+                    let again = AlertAction::new(crate::tr("Read the registry again"))
+                        .on_click(move |_, cx| desk.update(cx, Self::refresh_registry));
+                    crate::desk::banners::banner(
+                        "registry-trouble",
+                        AlertVariant::Error,
+                        crate::tr("Registry not read yet"),
+                        trouble.clone(),
+                        None,
+                        Some(again),
+                    )
+                    .into_any_element()
+                }
             }));
         }
         if self.registry.agents.is_empty() && self.registry_trouble.is_none() {
-            head.push(item(
-                w,
-                crate::tr("Reading the registry…"),
-                "",
-                |_, _, _| div().into_any_element(),
-            ));
+            head.push(whole(w, &[], |_, _, _| {
+                use u0ui::components::spinner::{Spinner, SpinnerSize};
+                Spinner::new("registry-reading")
+                    .size(SpinnerSize::Inline)
+                    .description(crate::tr("Reading the registry…"))
+                    .into_any_element()
+            }));
         }
         let host = self.pages.on;
+        for slot in self.slots_on(host) {
+            if let crate::hub::Stage::Missing(m @ crate::registry::Missing::Runner(_)) = &slot.stage
+            {
+                let (agent_id, name) = (slot.entry.id.clone(), self.name_of(&slot.entry.id));
+                let body = m.say(&name);
+                head.push(whole(w, &[], move |_, _, cx| {
+                    use u0ui::components::alert::{AlertAction, AlertVariant};
+                    let desk = cx.entity();
+                    let id = agent_id.clone();
+                    let again = AlertAction::new(crate::tr("Try again")).on_click(move |_, cx| {
+                        let id = id.clone();
+                        desk.update(cx, |this, cx| this.recheck(host, &id, cx));
+                    });
+                    crate::desk::banners::banner(
+                        SharedString::from(format!("missing-runner-{agent_id}")),
+                        AlertVariant::Error,
+                        crate::tr_with("%{name} cannot start yet", &[("name", &name)]),
+                        body.clone(),
+                        None,
+                        Some(again),
+                    )
+                    .into_any_element()
+                }));
+            }
+        }
         let acts = self.settings_on(host).outside_acts;
         head.push(item(
             w,

@@ -864,6 +864,7 @@ impl Desk {
             .cell("cache", cell_count(total_took.read, total_took.has_read))
             .cell("output", count(total_took.output));
 
+        let nothing = rows.is_empty();
         let table = DataTable::new("usage-by-model")
             .size(TableSize::Xs)
             .sortable(false)
@@ -961,8 +962,41 @@ impl Desk {
                                             )),
                                     ),
                             )
-                            .child(table),
+                            .child(if nothing {
+                                self.usage_nothing(cx).into_any_element()
+                            } else {
+                                table.into_any_element()
+                            }),
                     ),
             )
+    }
+
+    /// No agent said anything in the period: said so, and from a day,
+    /// the week a click away.
+    fn usage_nothing(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        use u0ui::components::empty::{
+            Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle,
+        };
+        Empty::new()
+            .child(
+                EmptyHeader::new()
+                    .child(EmptyTitle::new(crate::tr("Nothing said")))
+                    .child(EmptyDescription::new(crate::tr(
+                        "No agent said what a thread cost or took in this time. Not every agent says; u0 does not guess.",
+                    ))),
+            )
+            .when(self.pages.period == Some(1), |e| {
+                e.child(
+                    EmptyContent::new().child(
+                        Button::new("usage-7-days", crate::tr("Last 7 days (⇧⌘2)"))
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Sm)
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.pages.period = Some(7);
+                                cx.notify();
+                            })),
+                    ),
+                )
+            })
     }
 }

@@ -651,11 +651,42 @@ impl Desk {
                             .on_click(cx.listener(move |_, _, _, cx| cx.open_url(url))),
                     );
             }
-            Stage::Failed(_) => {
+            Stage::Failed(why) => {
+                use u0ui::prelude::*;
                 actions = actions.child(
-                    ui::button("recheck", crate::tr("Try again"), Weight::Secondary).on_click(
-                        cx.listener(move |this, _, _, cx| this.recheck(host, &recheck_id, cx)),
-                    ),
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(12.))
+                        .child(
+                            div()
+                                .flex()
+                                .items_start()
+                                .gap(px(8.))
+                                .child(
+                                    div().mt(px(2.)).child(
+                                        Icon::carbon(CarbonIcon::ErrorFilled)
+                                            .size(IconSize::S16)
+                                            .color(color(ColorRole::SupportError)),
+                                    ),
+                                )
+                                .child(
+                                    div()
+                                        .type_style(TypeStyle::Body01)
+                                        .text_color(color(ColorRole::TextSecondary))
+                                        .child(why.clone()),
+                                ),
+                        )
+                        .child(
+                            div().flex().child(
+                                Button::new("recheck", crate::tr("Check that it speaks ACP"))
+                                    .variant(ButtonVariant::Secondary)
+                                    .size(ButtonSize::Sm)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.recheck(host, &recheck_id, cx);
+                                    })),
+                            ),
+                        ),
                 );
             }
             _ if enabled => {
