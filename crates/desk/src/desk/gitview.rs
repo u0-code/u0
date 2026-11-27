@@ -135,6 +135,7 @@ impl Desk {
         branch: Option<String>,
         repo: bool,
         repos: Vec<PathBuf>,
+        summaries: Vec<crate::git::RepoSummary>,
         scripts: Vec<crate::scripts::Script>,
     ) {
         let Some(host) = self.sessions.at(key).map(|s| s.host) else {
@@ -151,6 +152,7 @@ impl Desk {
         s.branch = branch;
         s.scripts = scripts;
         s.holds(repo, repos);
+        s.git.summaries = summaries;
         let git = s.git_dir().is_some();
         if s.state == State::Draft {
             if repo {
@@ -366,7 +368,7 @@ impl Desk {
         cx.notify();
     }
 
-    /// Begin a comment on line `line` of `path`.
+    /// Begin or edit a comment on line `line` of `path`.
     pub fn begin_comment(
         &mut self,
         path: std::path::PathBuf,
@@ -374,10 +376,17 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let existing = self
+            .review
+            .comments
+            .iter()
+            .find(|c| c.0 == path && c.1 == line)
+            .map(|c| c.2.clone())
+            .unwrap_or_default();
         self.review.commenting = Some((path, line));
         self.review
             .comment
-            .update(cx, |i, cx| i.set_value("", window, cx));
+            .update(cx, |i, cx| i.set_value(existing, window, cx));
         window.focus(
             &gpui::Focusable::focus_handle(self.review.comment.read(cx), cx),
             cx,

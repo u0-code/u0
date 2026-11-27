@@ -388,16 +388,19 @@ impl Desk {
             Event::Commits {
                 key,
                 commits,
+                stashes,
                 branches,
                 upstream,
             } => {
                 if let Some(s) = self.sessions.at_mut(key) {
                     s.git.commits = commits;
+                    s.git.stashes = stashes;
                     s.git.branches = branches;
                     s.git.upstream = upstream;
                 }
             }
             Event::Pr { key, pr } => {
+                let pr = pr.map(|p| *p);
                 let ended = |p: &Option<crate::git::Pr>| {
                     p.as_ref()
                         .is_some_and(|p| p.state == "merged" || p.state == "closed")
@@ -438,8 +441,9 @@ impl Desk {
                 branch,
                 repo,
                 repos,
+                summaries,
                 scripts,
-            } => self.looked(key, &folder, branch, repo, repos, scripts),
+            } => self.looked(key, &folder, branch, repo, repos, summaries, scripts),
             Event::TermOpened { id, result } => self.terminal_opened(id, result),
             Event::TermOutput { id, bytes } => {
                 if let Some(t) = self.drawer.terminals.iter_mut().find(|t| t.id == id) {

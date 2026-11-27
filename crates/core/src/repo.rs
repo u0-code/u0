@@ -63,6 +63,15 @@ pub enum GitAction {
     Init,
     /// Put the repository on GitHub: public, or private.
     Publish(bool),
+    /// Save uncommitted changes in a stash, with an optional message.
+    StashPush(Option<String>),
+    /// Apply (`pop: false`) or pop (`pop: true`) `stash@{index}`.
+    StashApply {
+        index: usize,
+        pop: bool,
+    },
+    /// Drop `stash@{index}`.
+    StashDrop(usize),
 }
 
 impl GitAction {
@@ -81,6 +90,9 @@ impl GitAction {
             Self::NewBranch(_) => "make the branch",
             Self::Init => "make it a repository",
             Self::Publish(_) => "put it on GitHub",
+            Self::StashPush(_) => "stash",
+            Self::StashApply { .. } => "apply the stash",
+            Self::StashDrop(_) => "drop the stash",
         }
     }
 }
@@ -99,15 +111,18 @@ pub struct Held {
 /// `u0.json` names.
 pub fn look(key: u64, folder: PathBuf) -> Event {
     let root = git::root(&folder);
+    let repos = if root.is_some() {
+        Vec::new()
+    } else {
+        git::repos(&folder)
+    };
+    let summaries = git::repo_summaries(&repos);
     Event::Looked {
         key,
         branch: git::branch(&folder),
         repo: root.is_some(),
-        repos: if root.is_some() {
-            Vec::new()
-        } else {
-            git::repos(&folder)
-        },
+        repos,
+        summaries,
         scripts: root
             .map(|r| scripts::config(&r).scripts)
             .unwrap_or_default(),
@@ -381,6 +396,19 @@ pub fn git_action(
         GitAction::RenameBranch(b) => git::rename_branch(dir, b).map(|()| b.clone()),
         GitAction::RemoveWorktree(wt) => git::remove_worktree(wt)
             .map(|()| format!("Worktree removed; the branch {} is kept", wt.branch)),
+        GitAction::StashPush(m) => {
+            git::stash_push(dir, m.as_deref()).map(|_| "Changes stashed".into())
+        }
+        GitAction::StashApply { index, pop } => git::stash_apply(dir, *index, *pop).map(|_| {
+            if *pop {
+                format!("Popped stash@{{{index}}}")
+            } else {
+                format!("Applied stash@{{{index}}}")
+            }
+        }),
+        GitAction::StashDrop(index) => {
+            git::stash_drop(dir, *index).map(|_| format!("Dropped stash@{{{index}}}"))
+        }
     };
     Event::Git {
         key,

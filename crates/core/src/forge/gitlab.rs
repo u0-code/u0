@@ -243,6 +243,7 @@ fn detail(v: &Value, discussions: &Value) -> Detail {
                 name: "pipeline".into(),
                 state: pipeline,
                 url: text(v, "/head_pipeline/web_url"),
+                duration: None,
             })
             .into_iter()
             .collect(),

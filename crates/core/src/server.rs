@@ -567,12 +567,13 @@ impl Server {
             Call::Commits { dir, key } => self.off(move || Event::Commits {
                 key,
                 commits: git::log(&dir, 12),
+                stashes: git::stashes(&dir),
                 branches: git::branches(&dir),
                 upstream: git::upstream(&dir),
             }),
             Call::ReadPr { dir, key } => self.off(move || Event::Pr {
                 key,
-                pr: git::read_pr(&dir),
+                pr: git::read_pr(&dir).map(Box::new),
             }),
             Call::PrText { dir, number } => self.off(move || Event::PrText {
                 text: git::pull_request_text(&dir, number),

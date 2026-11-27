@@ -720,7 +720,7 @@ impl Desk {
     /// a git action is at, and the branch's way on (pull, publish).
     fn diff_foot(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
         let said = self.review.comments.len();
-        let (behind, origin) = s.git.upstream;
+        let (_, behind, origin) = s.git.upstream;
         let gh = self.on_path.contains(&"gh");
         let idle = !matches!(s.state, State::Working | State::Opening);
         // Nothing uncommitted, as git read it: nothing to commit.

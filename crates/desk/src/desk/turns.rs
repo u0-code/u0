@@ -380,9 +380,18 @@ impl Desk {
         // not committed: read again after a commit, and after another
         // branch is checked out once git has said which.
         let host = s.host;
+        let stash_changed = matches!(
+            (&action, &result),
+            (
+                crate::repo::GitAction::StashPush(_) | crate::repo::GitAction::StashApply { .. },
+                Ok(_),
+            )
+        );
         if looks {
             let folder = s.meta.folder.clone();
             self.call(host, Call::Look { folder, key });
+        } else if stash_changed {
+            self.refresh_diffs(key);
         } else if s.turns.is_empty() && s.repo && !removed {
             let dir = s.meta.folder.clone();
             self.call(

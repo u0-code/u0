@@ -118,7 +118,8 @@ impl Ask {
                 format!("What the user asks:\n{}", cut(said)),
             ),
             Self::Commit { dir } => {
-                let subjects: Vec<String> = git::log(dir, 10).into_iter().map(|c| c.1).collect();
+                let subjects: Vec<String> =
+                    git::log(dir, 10).into_iter().map(|c| c.subject).collect();
                 (
                     COMMIT.to_owned(),
                     format!(

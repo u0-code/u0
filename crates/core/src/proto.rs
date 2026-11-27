@@ -806,6 +806,8 @@ pub enum Event {
         branch: Option<String>,
         repo: bool,
         repos: Vec<PathBuf>,
+        #[serde(default)]
+        summaries: Vec<git::RepoSummary>,
         scripts: Vec<Script>,
     },
     /// What the folder of a project holds.
@@ -839,18 +841,20 @@ pub enum Event {
         scope: git::Scope,
         result: Result<Vec<git::FileDiff>, String>,
     },
-    /// The recent commits and the local branches where a session works.
+    /// The recent commits, stashes and local branches where a session works.
     Commits {
         key: u64,
-        commits: Vec<(String, String, String)>,
+        commits: Vec<git::Commit>,
+        #[serde(default)]
+        stashes: Vec<git::Stash>,
         branches: Vec<String>,
-        /// How far behind its upstream, and whether it has an origin.
-        upstream: (usize, bool),
+        /// How far ahead of and behind its upstream, and whether it has an origin.
+        upstream: (usize, usize, bool),
     },
     /// The pull request of the branch a session works on, as `gh` says.
     Pr {
         key: u64,
-        pr: Option<git::Pr>,
+        pr: Option<Box<git::Pr>>,
     },
     /// What `gh` says of the pull request `number`, named with `@`.
     PrText {
@@ -1352,6 +1356,7 @@ mod tests {
                 branch: Some("main".into()),
                 repo: true,
                 repos: Vec::new(),
+                summaries: Vec::new(),
                 scripts: vec![script.clone()],
             },
             Event::Held {
@@ -1374,17 +1379,33 @@ mod tests {
             },
             Event::Commits {
                 key: 1,
-                commits: vec![("abc".into(), "Fix".into(), "1 hour ago".into())],
+                commits: vec![git::Commit {
+                    id: "abc".into(),
+                    subject: "Fix".into(),
+                    author: "Ann".into(),
+                    ago: "1h".into(),
+                    refs: vec!["HEAD".into()],
+                    added: 3,
+                    gone: 1,
+                    unpushed: true,
+                }],
+                stashes: vec![git::Stash {
+                    index: 0,
+                    branch: "main".into(),
+                    message: "WIP".into(),
+                    files: 1,
+                    ago: "5m".into(),
+                }],
                 branches: vec!["main".into()],
-                upstream: (2, true),
+                upstream: (1, 2, true),
             },
             Event::Pr {
                 key: 1,
-                pr: Some(of(json!({
+                pr: Some(Box::new(of(json!({
                     "number": 7, "title": "Fix", "url": "https://example.com/7", "state": "open",
                     "draft": false, "conflicts": false, "behind": false, "passed": 3, "failed": 0, "going": 1,
-                    "review": "",
-                }))),
+                    "review": "", "head": "fix", "base": "main", "checks": [],
+                })))),
             },
             Event::PrText {
                 number: 7,

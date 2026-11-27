@@ -783,15 +783,12 @@ mod tests {
         let pr = |going, passed, failed, review: &str| git::Pr {
             number: 7,
             title: "t".into(),
-            url: String::new(),
             state: "open".into(),
-            draft: false,
-            conflicts: false,
-            behind: false,
             passed,
             failed,
             going,
             review: review.into(),
+            ..git::Pr::default()
         };
         let going = watched(&pr(2, 1, 0, ""));
         let done = pr(0, 2, 1, "");

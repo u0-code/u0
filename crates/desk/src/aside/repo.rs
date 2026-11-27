@@ -136,6 +136,7 @@ impl Desk {
                     if let Some(s) = this.sessions.at_mut(key) {
                         s.git = crate::git::View {
                             repos: std::mem::take(&mut s.git.repos),
+                            summaries: std::mem::take(&mut s.git.summaries),
                             repo: Some(chosen.clone()),
                             ..crate::git::View::default()
                         };
@@ -288,12 +289,16 @@ impl Desk {
         desk: &Entity<Self>,
     ) -> PopupMenu {
         let commits = self.sessions.at(key).map(|s| s.git.commits.as_slice());
-        for (id, subject, when) in commits.unwrap_or_default() {
-            let to = Scope::Commit(id.clone());
+        for c in commits.unwrap_or_default() {
+            let to = Scope::Commit(c.id.clone());
             let on = self.review.scope == to;
-            let said = subject.clone();
-            let (faces, id, subject, when) =
-                (faces.clone(), id.clone(), subject.clone(), when.clone());
+            let said = c.subject.clone();
+            let (faces, id, subject, when) = (
+                faces.clone(),
+                c.id.clone(),
+                c.subject.clone(),
+                c.ago.clone(),
+            );
             menu = menu.item(
                 PopupMenuItem::element(move |_, _| {
                     div()

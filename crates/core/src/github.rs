@@ -58,12 +58,15 @@ pub struct Said {
     pub body: String,
 }
 
-/// A check of a pull request: its name, how it stands, where it ran.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// A check of a pull request: its name, how it stands, where it ran, and
+/// how long it took when finished.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Check {
     pub name: String,
     pub state: String,
     pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration: Option<String>,
 }
 
 impl Check {
@@ -583,6 +586,8 @@ struct RawCheck {
     status: String,
     details_url: String,
     target_url: String,
+    started_at: String,
+    completed_at: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -605,6 +610,14 @@ impl RawCheck {
             .unwrap_or_default()
             .to_lowercase()
     }
+}
+
+/// How long a check took between ISO-8601 `started` and `completed`.
+pub(crate) fn check_duration(started: &str, completed: &str) -> Option<String> {
+    let start: jiff::Timestamp = started.parse().ok()?;
+    let end: jiff::Timestamp = completed.parse().ok()?;
+    let secs = u64::try_from(end.as_second().checked_sub(start.as_second())?).ok()?;
+    Some(crate::when::took(std::time::Duration::from_secs(secs)))
 }
 
 /// Where a check's word puts it: passed, failed, or still going.
@@ -697,6 +710,7 @@ impl Raw {
                 } else {
                     c.details_url.clone()
                 },
+                duration: check_duration(&c.started_at, &c.completed_at),
             })
             .collect();
         let body = std::mem::take(&mut self.body);

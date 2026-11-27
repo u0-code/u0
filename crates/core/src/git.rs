@@ -901,27 +901,215 @@ pub fn against_base(
     diff(dir, &fork, &now, no_spacing)
 }
 
-/// The last `n` commits: short id, subject, how long ago.
-pub fn log(dir: &Path, n: usize) -> Vec<(String, String, String)> {
+/// One commit on a branch: its short id, subject, author, relative age,
+/// ref names pointing at it (`HEAD`, `origin/...`, `main`), line counts,
+/// and whether it has not been pushed yet.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Commit {
+    pub id: String,
+    pub subject: String,
+    pub author: String,
+    pub ago: String,
+    #[serde(default)]
+    pub refs: Vec<String>,
+    #[serde(default)]
+    pub added: usize,
+    #[serde(default)]
+    pub gone: usize,
+    #[serde(default)]
+    pub unpushed: bool,
+}
+
+/// A git stash entry: its index (`stash@{index}`), the branch it was made
+/// on, its message, how many files it touches, and how long ago it was made.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Stash {
+    pub index: usize,
+    pub branch: String,
+    pub message: String,
+    pub files: usize,
+    pub ago: String,
+}
+
+/// A summary of one repository inside a multi-repository folder.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct RepoSummary {
+    pub path: PathBuf,
+    pub branch: Option<String>,
+    pub files: usize,
+    pub added: usize,
+    pub gone: usize,
+    pub behind: usize,
+}
+
+/// The short ids of commits on `HEAD` not yet on its upstream (or base).
+fn unpushed_ids(dir: &Path) -> std::collections::HashSet<String> {
+    let range = if git(dir, &["rev-parse", "--verify", "--quiet", "@{u}"], None).is_ok() {
+        Some("@{u}..HEAD".to_owned())
+    } else {
+        default_branch(dir).map(|base| format!("{base}..HEAD"))
+    };
+    let Some(range) = range else {
+        return std::collections::HashSet::new();
+    };
+    git(dir, &["rev-list", "--abbrev-commit", &range], None)
+        .map(|t| {
+            t.lines()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The last `n` commits, with author, decorations, line stats, and push state.
+pub fn log(dir: &Path, n: usize) -> Vec<Commit> {
+    let unpushed = unpushed_ids(dir);
     git(
         dir,
-        &["log", &format!("-{n}"), "--format=%h%x09%s%x09%ct"],
+        &[
+            "log",
+            &format!("-{n}"),
+            "--numstat",
+            "--format=%x1e%h%x09%s%x09%an%x09%ct%x09%D",
+        ],
         None,
     )
     .map(|t| {
         // The time is said as the desk says times, not in git's language.
         let now = std::time::SystemTime::now();
-        t.lines()
-            .filter_map(|l| {
-                let mut f = l.splitn(3, '\t');
-                let (id, subject) = (f.next()?, f.next()?);
-                let secs = f.next()?.trim().parse().ok()?;
+        t.split('\x1e')
+            .filter(|chunk| !chunk.trim().is_empty())
+            .filter_map(|chunk| {
+                let mut lines = chunk.lines();
+                let header = lines.next()?;
+                let mut f = header.splitn(5, '\t');
+                let (id, subject, author) = (f.next()?, f.next()?, f.next()?);
+                let secs: u64 = f.next()?.trim().parse().ok()?;
+                let raw_refs = f.next().unwrap_or_default();
+                let refs = raw_refs
+                    .split(", ")
+                    .map(str::trim)
+                    .filter(|r| !r.is_empty() && *r != "origin/HEAD")
+                    .map(|r| {
+                        if r.starts_with("HEAD -> ") {
+                            "HEAD".to_owned()
+                        } else {
+                            r.to_owned()
+                        }
+                    })
+                    .collect();
+                let (mut added, mut gone) = (0usize, 0usize);
+                for stat in lines.filter(|l| !l.trim().is_empty()) {
+                    let mut cols = stat.splitn(3, '\t');
+                    added += cols
+                        .next()
+                        .and_then(|v| v.parse::<usize>().ok())
+                        .unwrap_or(0);
+                    gone += cols
+                        .next()
+                        .and_then(|v| v.parse::<usize>().ok())
+                        .unwrap_or(0);
+                }
                 let at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs);
-                Some((id.to_owned(), subject.to_owned(), crate::when::ago(at, now)))
+                Some(Commit {
+                    unpushed: unpushed.contains(id),
+                    id: id.to_owned(),
+                    subject: subject.to_owned(),
+                    author: author.to_owned(),
+                    ago: crate::when::ago(at, now),
+                    refs,
+                    added,
+                    gone,
+                })
             })
             .collect()
     })
     .unwrap_or_default()
+}
+
+/// The stashes kept in the repository at `dir`, newest first.
+pub fn stashes(dir: &Path) -> Vec<Stash> {
+    let Ok(text) = git(dir, &["stash", "list", "--format=%gd%x09%gs%x09%ct"], None) else {
+        return Vec::new();
+    };
+    let now = std::time::SystemTime::now();
+    text.lines()
+        .filter_map(|line| {
+            let mut f = line.splitn(3, '\t');
+            let gd = f.next()?;
+            let gs = f.next()?;
+            let secs: u64 = f.next()?.trim().parse().ok()?;
+            let index: usize = gd
+                .strip_prefix("stash@{")?
+                .strip_suffix('}')?
+                .parse()
+                .ok()?;
+            let (branch, message) = gs
+                .strip_prefix("WIP on ")
+                .or_else(|| gs.strip_prefix("On "))
+                .and_then(|rest| rest.split_once(": "))
+                .map_or_else(
+                    || (String::new(), gs.to_owned()),
+                    |(b, m)| (b.to_owned(), m.to_owned()),
+                );
+            let files = git(dir, &["stash", "show", "--name-only", gd], None)
+                .map_or(0, |names| names.lines().filter(|l| !l.is_empty()).count());
+            let at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs);
+            Some(Stash {
+                index,
+                branch,
+                message,
+                files,
+                ago: crate::when::ago(at, now),
+            })
+        })
+        .collect()
+}
+
+/// Save uncommitted changes (including untracked files) in `dir` onto the stash stack.
+pub fn stash_push(dir: &Path, message: Option<&str>) -> Result<String, String> {
+    let mut args = vec!["stash", "push", "-u"];
+    if let Some(m) = message.map(str::trim).filter(|m| !m.is_empty()) {
+        args.extend(["-m", m]);
+    }
+    yours(dir, "git", &args)
+}
+
+/// Apply (or pop when `pop` is true) `stash@{index}` in `dir`.
+pub fn stash_apply(dir: &Path, index: usize, pop: bool) -> Result<String, String> {
+    let verb = if pop { "pop" } else { "apply" };
+    yours(dir, "git", &["stash", verb, &format!("stash@{{{index}}}")])
+}
+
+/// Drop `stash@{index}` from the stash list in `dir`.
+pub fn stash_drop(dir: &Path, index: usize) -> Result<String, String> {
+    yours(
+        dir,
+        "git",
+        &["stash", "drop", &format!("stash@{{{index}}}")],
+    )
+}
+
+/// Per-repository branch, uncommitted change counts, and upstream behind count.
+pub fn repo_summaries(repos: &[PathBuf]) -> Vec<RepoSummary> {
+    repos
+        .iter()
+        .map(|path| {
+            let diffs = uncommitted(path, None, false).unwrap_or_default();
+            let added = diffs.iter().map(|d| d.added).sum();
+            let gone = diffs.iter().map(|d| d.gone).sum();
+            RepoSummary {
+                branch: branch(path),
+                files: diffs.len(),
+                added,
+                gone,
+                behind: upstream(path).1,
+                path: path.clone(),
+            }
+        })
+        .collect()
 }
 
 /// What the commit `id` changed.
@@ -1002,15 +1190,27 @@ pub fn create(dir: &Path, name: &str) -> Result<(), String> {
     init_here(dir).map(|_| ())
 }
 
-/// How far the branch `dir` is on is behind its upstream (0 with none),
+/// How far the branch `dir` is on is ahead of and behind its upstream
+/// (ahead falls back to the repository's default branch before first push),
 /// and whether the repository has a remote called origin.
-pub fn upstream(dir: &Path) -> (usize, bool) {
-    let behind = git(dir, &["rev-list", "--count", "HEAD..@{u}"], None)
-        .ok()
-        .and_then(|n| n.trim().parse().ok())
-        .unwrap_or(0);
+pub fn upstream(dir: &Path) -> (usize, usize, bool) {
+    let count = |range: &str| {
+        git(dir, &["rev-list", "--count", range], None)
+            .ok()
+            .and_then(|n| n.trim().parse().ok())
+            .unwrap_or(0)
+    };
+    let has_tracking = git(dir, &["rev-parse", "--verify", "--quiet", "@{u}"], None).is_ok();
+    let behind = if has_tracking { count("HEAD..@{u}") } else { 0 };
+    let ahead = if has_tracking {
+        count("@{u}..HEAD")
+    } else if let Some(base) = default_branch(dir) {
+        count(&format!("{base}..HEAD"))
+    } else {
+        0
+    };
     let origin = git(dir, &["remote", "get-url", "origin"], None).is_ok();
-    (behind, origin)
+    (ahead, behind, origin)
 }
 
 /// Bring in what the upstream has, only where it moves straight on.
@@ -1141,7 +1341,7 @@ pub fn files(dir: &Path) -> Vec<String> {
 }
 
 /// The pull request of the branch `dir` is on, as `gh` says.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Pr {
     pub number: u64,
     pub title: String,
@@ -1160,6 +1360,17 @@ pub struct Pr {
     pub going: usize,
     /// approved, changes requested, review required; empty for none.
     pub review: String,
+    #[serde(default)]
+    pub head: String,
+    #[serde(default)]
+    pub base: String,
+    #[serde(default)]
+    pub checks: Vec<crate::github::Check>,
+    /// Latest reviewer note: `(reviewer, when, body)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_note: Option<(String, String, String)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub merged_at: Option<String>,
 }
 
 /// The pull request of the branch `dir` is on, as `gh` says.
@@ -1171,28 +1382,94 @@ pub fn read_pr(dir: &Path) -> Option<Pr> {
             "pr",
             "view",
             "--json",
-            "number,title,url,state,isDraft,reviewDecision,statusCheckRollup,mergeable,mergeStateStatus",
+            "number,title,url,state,isDraft,headRefName,baseRefName,reviewDecision,statusCheckRollup,mergeable,mergeStateStatus,reviews,mergedAt",
         ],
     )
     .ok()?;
     let v: serde_json::Value = serde_json::from_str(&out).ok()?;
-    let checks = v["statusCheckRollup"]
+    parse_pr(&v)
+}
+
+fn parse_pr(v: &serde_json::Value) -> Option<Pr> {
+    let raw_checks = v["statusCheckRollup"]
         .as_array()
         .cloned()
         .unwrap_or_default();
     let count = |f: &dyn Fn(&str) -> bool| {
-        checks
+        raw_checks
             .iter()
             .filter(|c| {
                 let word = c["conclusion"]
                     .as_str()
                     .filter(|s| !s.is_empty())
                     .or_else(|| c["state"].as_str())
+                    .or_else(|| c["status"].as_str())
                     .unwrap_or("");
                 f(&word.to_ascii_uppercase())
             })
             .count()
     };
+    let checks = raw_checks
+        .iter()
+        .map(|c| {
+            let name = c["name"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .or_else(|| c["context"].as_str())
+                .unwrap_or_default()
+                .to_owned();
+            let state = c["conclusion"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .or_else(|| c["state"].as_str())
+                .or_else(|| c["status"].as_str())
+                .unwrap_or_default()
+                .to_lowercase();
+            let url = c["detailsUrl"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .or_else(|| c["targetUrl"].as_str())
+                .unwrap_or_default()
+                .to_owned();
+            let duration = crate::github::check_duration(
+                c["startedAt"].as_str().unwrap_or_default(),
+                c["completedAt"].as_str().unwrap_or_default(),
+            );
+            crate::github::Check {
+                name,
+                state,
+                url,
+                duration,
+            }
+        })
+        .collect();
+    let review_note = v["reviews"]
+        .as_array()
+        .and_then(|reviews| {
+            reviews
+                .iter()
+                .rev()
+                .find(|r| !r["body"].as_str().unwrap_or_default().trim().is_empty())
+        })
+        .map(|r| {
+            let who = r
+                .pointer("/author/login")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            let when = r["submittedAt"]
+                .as_str()
+                .and_then(|s| s.parse::<jiff::Timestamp>().ok())
+                .and_then(|ts| std::time::SystemTime::try_from(ts).ok())
+                .map(|at| crate::when::ago(at, std::time::SystemTime::now()))
+                .unwrap_or_default();
+            let body = r["body"].as_str().unwrap_or_default().trim().to_owned();
+            (who, when, body)
+        });
+    let merged_at = v["mergedAt"]
+        .as_str()
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned);
     Some(Pr {
         number: v["number"].as_u64()?,
         title: v["title"].as_str().unwrap_or_default().to_owned(),
@@ -1214,6 +1491,11 @@ pub fn read_pr(dir: &Path) -> Option<Pr> {
             .unwrap_or_default()
             .to_lowercase()
             .replace('_', " "),
+        head: v["headRefName"].as_str().unwrap_or_default().to_owned(),
+        base: v["baseRefName"].as_str().unwrap_or_default().to_owned(),
+        checks,
+        review_note,
+        merged_at,
     })
 }
 
@@ -1483,7 +1765,7 @@ mod tests {
         git(&origin, &["commit", "-q", "-m", "second"], None).unwrap();
         refresh(&here, false).unwrap();
         assert!(!here.join("b.txt").exists());
-        assert_eq!(upstream(&here).0, 1);
+        assert_eq!(upstream(&here).1, 1);
         refresh(&here, true).unwrap();
         assert!(here.join("b.txt").exists());
         let _ = std::fs::remove_dir_all(&here);
@@ -1574,7 +1856,7 @@ mod tests {
         std::fs::write(dir.join("notes.md"), "hi\n").unwrap();
         init_here(&dir).unwrap();
         assert_eq!(git(&dir, &["status", "--porcelain"], None).unwrap(), "");
-        assert_eq!(upstream(&dir), (0, false));
+        assert_eq!(upstream(&dir), (0, 0, false));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1669,14 +1951,21 @@ mod tests {
         whole.sort();
         assert_eq!(whole, ["a.txt", "b.txt"]);
         let commits = log(&dir, 5);
-        assert_eq!(commits[0].1, "second");
-        let changed = commit_diff(&dir, &commits[0].0, false).unwrap();
+        assert_eq!(commits[0].subject, "second");
+        assert_eq!(
+            (commits[0].added, commits[0].gone, commits[0].unpushed),
+            (1, 0, true)
+        );
+        assert!(commits[0].refs.iter().any(|r| r == "HEAD"));
+        assert!(commits[1].refs.iter().any(|r| r == "main"));
+        let changed = commit_diff(&dir, &commits[0].id, false).unwrap();
         assert_eq!(changed[0].path, "b.txt");
         assert_eq!(
-            commit_diff(&dir, &commits[1].0, false).unwrap()[0].path,
+            commit_diff(&dir, &commits[1].id, false).unwrap()[0].path,
             "a.txt"
         );
         assert_eq!(branches(&dir), ["u0/work", "main"]);
+        assert_eq!(upstream(&dir), (1, 0, true));
 
         rename_branch(&dir, "u0/better").unwrap();
         assert_eq!(branch(&dir).as_deref(), Some("u0/better"));
@@ -1879,6 +2168,83 @@ mod tests {
         assert!(b.patch.starts_with("diff --git a/b.txt b/b.txt\n"));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn stashes_repo_summaries_and_branch_pr_details_read_cleanly() {
+        let dir = repo("stash");
+        git(&dir, &["config", "user.email", "t@localhost"], None).unwrap();
+        git(&dir, &["config", "user.name", "Tester"], None).unwrap();
+        std::fs::write(dir.join("a.txt"), "one\nchanged\n").unwrap();
+        std::fs::write(dir.join("extra.txt"), "untracked\n").unwrap();
+
+        let summaries = repo_summaries(std::slice::from_ref(&dir));
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(
+            (
+                summaries[0].branch.as_deref(),
+                summaries[0].files,
+                summaries[0].added,
+                summaries[0].gone
+            ),
+            (Some("main"), 2, 2, 2)
+        );
+
+        stash_push(&dir, Some("WIP: carbon tokens")).unwrap();
+        assert!(!dir.join("extra.txt").exists());
+        let listed = stashes(&dir);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(
+            (
+                listed[0].index,
+                listed[0].branch.as_str(),
+                listed[0].message.as_str()
+            ),
+            (0, "main", "WIP: carbon tokens")
+        );
+        stash_apply(&dir, 0, false).unwrap();
+        assert!(dir.join("extra.txt").is_file());
+        stash_drop(&dir, 0).unwrap();
+        assert!(stashes(&dir).is_empty());
+
+        let pr_json = serde_json::json!({
+            "number": 491,
+            "title": "Carbon theme",
+            "url": "https://github.com/acme/carbon-ui/pull/491",
+            "state": "OPEN",
+            "isDraft": false,
+            "headRefName": "feat/carbon",
+            "baseRefName": "main",
+            "reviewDecision": "CHANGES_REQUESTED",
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "BLOCKED",
+            "statusCheckRollup": [{
+                "name": "unit-tests",
+                "conclusion": "FAILURE",
+                "detailsUrl": "https://github.com/acme/carbon-ui/actions/runs/9/job/1",
+                "startedAt": "2026-11-27T10:00:00Z",
+                "completedAt": "2026-11-27T10:01:42Z"
+            }],
+            "reviews": [{
+                "author": {"login": "maya"},
+                "body": "Keep the 1px border.",
+                "submittedAt": "2026-11-27T10:02:00Z"
+            }]
+        });
+        let pr = parse_pr(&pr_json).unwrap();
+        assert_eq!(
+            (pr.head.as_str(), pr.base.as_str()),
+            ("feat/carbon", "main")
+        );
+        assert_eq!(pr.checks[0].duration.as_deref(), Some("1m 42s"));
+        assert_eq!(
+            pr.review_note
+                .as_ref()
+                .map(|(w, _, b)| (w.as_str(), b.as_str())),
+            Some(("maya", "Keep the 1px border."))
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 /// Which changes the right column shows: one turn's, all of the
@@ -1899,27 +2265,32 @@ pub enum Scope {
 pub struct View {
     /// The changes in a scope git was asked for (the branch, a commit).
     pub scoped: Option<(Scope, Vec<FileDiff>)>,
-    /// The recent commits: id, subject, when.
-    pub commits: Vec<(String, String, String)>,
+    /// The recent commits on the branch.
+    pub commits: Vec<Commit>,
+    /// The stashes in the repository.
+    pub stashes: Vec<Stash>,
     /// The local branches.
     pub branches: Vec<String>,
     /// The pull request of its branch.
     pub pr: Option<Pr>,
     /// The step a git action is at.
     pub step: Option<String>,
-    /// How far its branch is behind its upstream, and whether the
-    /// repository has an origin.
-    pub upstream: (usize, bool),
+    /// How far its branch is ahead of and behind its upstream, and whether
+    /// the repository has an origin.
+    pub upstream: (usize, usize, bool),
     /// The branch its branch is compared with; none, the main one.
     pub compare_to: Option<String>,
     /// The files (as git names them) you left out of the next commit.
     pub left_out: std::collections::BTreeSet<String>,
+    /// The files you marked viewed in this session's review.
+    pub viewed: std::collections::BTreeSet<String>,
     /// The agent was asked to write a commit message: its answer goes in
     /// the commit form.
     pub writing_message: bool,
     /// The repositories its folder holds, where it is not in one itself
-    /// (`repos`), and the one git is asked about of them.
+    /// (`repos`), their summaries, and the one git is asked about of them.
     pub repos: Vec<PathBuf>,
+    pub summaries: Vec<RepoSummary>,
     pub repo: Option<PathBuf>,
 }
 
@@ -1929,14 +2300,17 @@ impl Default for View {
         Self {
             scoped: None,
             commits: Vec::new(),
+            stashes: Vec::new(),
             branches: Vec::new(),
             pr: None,
             step: None,
-            upstream: (0, true),
+            upstream: (0, 0, true),
             compare_to: None,
             left_out: std::collections::BTreeSet::new(),
+            viewed: std::collections::BTreeSet::new(),
             writing_message: false,
             repos: Vec::new(),
+            summaries: Vec::new(),
             repo: None,
         }
     }
