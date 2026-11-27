@@ -11,6 +11,7 @@ mod page;
 mod preview;
 mod repo;
 mod review;
+pub(crate) mod rules;
 mod side;
 mod sims;
 mod tabs;

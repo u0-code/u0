@@ -266,8 +266,25 @@ impl Desk {
     fn open_at(&mut self, to: To, address: &str, cx: &mut Context<Self>) {
         match to {
             #[cfg(target_os = "macos")]
-            To::Preview(key) => self.show_page(key, address, cx),
-            To::Browser => cx.open_url(address),
+            To::Preview(key) => self.show_page(key, address, false, cx),
+            To::Browser => self.browse(address, cx),
+        }
+    }
+
+    /// Hand `address` to your browser: a web address only
+    /// (`aside::rules::for_browser`), on every system; anything else, a
+    /// `preview` naming a file or another app's address, is refused and said.
+    pub(crate) fn browse(&mut self, address: &str, cx: &mut gpui::App) {
+        match crate::aside::rules::for_browser(address) {
+            Some(url) => cx.open_url(url.as_str()),
+            None => self.trouble(
+                crate::tr_with(
+                    "%{address} is not a web address: only web addresses go to your browser",
+                    &[("address", &address)],
+                ),
+                None,
+                None,
+            ),
         }
     }
 

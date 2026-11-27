@@ -3,11 +3,9 @@
 //! first shows it, hidden while another tab or session is shown, and gone
 //! with its tab. Nothing but your own choice opens one: a dev server's
 //! card or the drawer's **Open preview**, an address you type, one you
-//! opened lately. What a page may reach of its own is in `rules`.
+//! opened lately. What a page may reach is in `aside::rules`.
 
-mod rules;
-
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc, time::Instant};
 
 use gpui::component::menu::{PopupMenu, PopupMenuItem};
 use gpui::{
@@ -22,7 +20,7 @@ use u0ui::{
     typography::TypeStyled as _,
 };
 
-use super::{Column, Surface};
+use super::{Column, Surface, rules};
 use crate::{
     desk::{Desk, Popup, runs::To},
     fonts,
@@ -61,6 +59,9 @@ pub struct Page {
     /// (`rules::may_go`): a file page goes to no other file.
     opened: Rc<RefCell<String>>,
     pub view: Option<Entity<WebView>>,
+    /// When a window or download it asked for was last handed to your
+    /// browser (`rules::may_hand`).
+    handed: Option<Instant>,
 }
 
 /// What a page said, for the window.
@@ -69,7 +70,8 @@ pub enum Went {
     At(String),
     /// It asked for this address elsewhere: a window of its own, or a
     /// download. Your browser is given it if it is a web address
-    /// (`rules::for_browser`); nothing is saved.
+    /// (`rules::for_browser`), one in a while (`rules::may_hand`); nothing
+    /// is saved.
     Asked(String),
 }
 
@@ -90,7 +92,7 @@ pub fn openable(typed: &str) -> Option<url::Url> {
         // does name one (`javascript:`, `data:`) is no host's, and fails.
         url::Url::parse(&format!("http://{typed}")).ok()?
     };
-    rules::shown(url.as_str())
+    rules::shown(url.as_str(), true)
 }
 
 /// Whether a session's page is kept: while its Preview tab is open.
@@ -126,14 +128,21 @@ fn remember(lately: &mut Vec<String>, address: &str) {
 impl Desk {
     /// Show `address` in the Preview tab of the session `key`, opening the
     /// tab: the page already there goes to it. Every way a page is opened
-    /// comes here, and only a web address or a file is shown
-    /// (`rules::shown`): a `preview` in a repository's `u0.json` is what
-    /// anyone, an agent too, may have written there.
-    pub(crate) fn show_page(&mut self, key: u64, address: &str, cx: &mut Context<Self>) {
+    /// comes here, and only a web address is shown, or a file when it is
+    /// `yours` (typed, or opened lately: `rules::shown`): a `preview` in a
+    /// repository's `u0.json` is what anyone, an agent too, may have written
+    /// there.
+    pub(crate) fn show_page(
+        &mut self,
+        key: u64,
+        address: &str,
+        yours: bool,
+        cx: &mut Context<Self>,
+    ) {
         if self.sessions.at(key).is_none() {
             return;
         }
-        let Some(address) = rules::shown(address).map(String::from) else {
+        let Some(address) = rules::shown(address, yours).map(String::from) else {
             return self.trouble(
                 crate::tr_with(
                     "%{address} is not a web address or a file of yours",
@@ -159,6 +168,7 @@ impl Desk {
                         opened: Rc::new(RefCell::new(address.clone())),
                         address,
                         view: None,
+                        handed: None,
                     },
                 );
             }
@@ -178,17 +188,18 @@ impl Desk {
                     page.address = address;
                 }
             }
-            Went::Asked(address) => match rules::for_browser(&address) {
-                Some(url) => cx.open_url(url.as_str()),
-                None => self.trouble(
-                    crate::tr_with(
-                        "A page asked to open %{address}: a page may open only web addresses",
-                        &[("address", &address)],
-                    ),
-                    None,
-                    None,
-                ),
-            },
+            Went::Asked(address) => {
+                let now = Instant::now();
+                if let Some(page) = self
+                    .web
+                    .pages
+                    .get_mut(&key)
+                    .filter(|p| rules::may_hand(p.handed, now))
+                {
+                    page.handed = Some(now);
+                    self.browse(&address, cx);
+                }
+            }
         }
         cx.notify();
     }
@@ -256,7 +267,7 @@ impl Desk {
             Err(why) => {
                 let address = page.address.clone();
                 self.web.pages.remove(&key);
-                cx.open_url(&address);
+                self.browse(&address, cx);
                 self.trouble(
                     crate::tr("Couldn't show the page here: it opens in your browser"),
                     Some(why.to_string()),
@@ -290,7 +301,7 @@ impl Desk {
                 .recent(lately.clone())
                 .on_recent(move |n, _, cx| {
                     if let Some(address) = lately.get(n).cloned() {
-                        desk.update(cx, |d, cx| d.show_page(key, &address, cx));
+                        desk.update(cx, |d, cx| d.show_page(key, &address, true, cx));
                     }
                 }),
         )
@@ -346,11 +357,14 @@ impl Desk {
                     });
                 }
             })
-            .on_more(move |_, cx| {
-                desk.update(cx, |d, cx| {
-                    d.popup = Popup::Page;
-                    cx.notify();
-                });
+            .on_more({
+                let desk = desk.clone();
+                move |_, cx| {
+                    desk.update(cx, |d, cx| {
+                        d.popup = Popup::Page;
+                        cx.notify();
+                    });
+                }
             });
         if let Some(view) = view {
             let (back, forward, reload, stop) = (view.clone(), view.clone(), view.clone(), view);
@@ -373,7 +387,10 @@ impl Desk {
                     // SAFETY: on the main thread WebKit's view lives on.
                     unsafe { stop.read(cx).raw().webview().stopLoading() }
                 })
-                .on_open_external(move |_, cx| cx.open_url(&address));
+                .on_open_external({
+                    let desk = desk.clone();
+                    move |_, cx| desk.update(cx, |d, cx| d.browse(&address, cx))
+                });
         }
         // More's menu hangs from its corner, over the page.
         let menu = (self.popup == Popup::Page).then(|| {
@@ -397,6 +414,7 @@ impl Desk {
         };
         let view = self.web.pages.get(&key).and_then(|p| p.view.clone());
         let opened = address.clone();
+        let web = rules::for_browser(&address).is_some();
         menu.item(Self::menu_item(
             desk,
             crate::tr("Reload"),
@@ -411,11 +429,12 @@ impl Desk {
             crate::tr("Copy address"),
             move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(address.clone())),
         ))
-        .item(Self::menu_item(
-            desk,
-            crate::tr("Open in your browser"),
-            move |_, _, cx| cx.open_url(&opened),
-        ))
+        .item(
+            Self::menu_item(desk, crate::tr("Open in your browser"), move |d, _, cx| {
+                d.browse(&opened, cx);
+            })
+            .disabled(!web),
+        )
         .item(PopupMenuItem::Separator)
         .item(Self::menu_item(
             desk,
@@ -471,7 +490,7 @@ impl Desk {
                     .size_length(px(16.))
                     .color(primary),
             );
-        let opened = address.to_owned();
+        let (desk, opened) = (cx.entity(), address.to_owned());
         div()
             .flex()
             .flex_none()
@@ -500,13 +519,14 @@ impl Desk {
                 .flex_1()
                 .min_w(px(0.)),
             )
-            .child(
+            // A file page is yours, not your browser's.
+            .children(rules::for_browser(&opened).is_some().then(|| {
                 Button::new("page-browser", crate::tr("Open in your browser"))
                     .variant(ButtonVariant::Ghost)
                     .size(ButtonSize::Sm)
                     .icon(CarbonIcon::Launch)
-                    .on_click(move |_, _, cx| cx.open_url(&opened)),
-            )
+                    .on_click(move |_, _, cx| desk.update(cx, |d, cx| d.browse(&opened, cx)))
+            }))
     }
 
     /// The dev servers to switch the page to, from its strip.
@@ -628,7 +648,7 @@ impl Desk {
     /// An address typed in the bar: opened here when it is a page's.
     fn navigate(&mut self, key: u64, typed: &str, cx: &mut Context<Self>) {
         match openable(typed) {
-            Some(url) => self.show_page(key, url.as_str(), cx),
+            Some(url) => self.show_page(key, url.as_str(), true, cx),
             None => self.trouble(
                 crate::tr_with(
                     "%{address} is not a web address or a file of yours",

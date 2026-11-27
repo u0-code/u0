@@ -121,7 +121,8 @@ The **Preview** tab shows a web page beside the thread. With none open
 printed and the addresses **Opened lately**: choose one to open it. You
 can also type an address in its bar and press Return: a URL
 (`localhost:5173` is read as `http://localhost:5173`), or the path of an
-HTML file of yours. The drawer's **Open preview** opens its script's
+HTML file of yours (only typed, or opened lately: a file a repository's
+`u0.json` names is not shown). The drawer's **Open preview** opens its script's
 address here too.
 
 On macOS the page shows in the system's own web view (WKWebView); u0
@@ -133,8 +134,10 @@ in your browser** and **More actions** (**Reload**, **Copy address**,
 **Open in your browser**, **Close the page**). Under it, a strip names the
 dev server the page is of (its menu switches to another), the machine it
 runs on, and **Open in your browser**. A window a page asks for, or a
-download it starts, goes to your browser if it is a web address, and
-nowhere else: nothing is saved by u0. A page goes on only to web
+download it starts, goes to your browser if it is a web address (one in
+five seconds), and nowhere else: nothing is saved by u0. Only a web
+address is ever handed to your browser; a file page has no **Open in your
+browser**. A page goes on only to web
 addresses; one opened as a file stays on that file.
 
 A page opens only when you open it, never from what an agent says. It is
