@@ -205,16 +205,6 @@ pub fn row_hover() -> Hsla {
     role(ColorRole::LayerHover01)
 }
 
-/// Open / current item row fill (`state-current-background`).
-pub fn row_open() -> Hsla {
-    role(ColorRole::StateCurrentBackground)
-}
-
-/// Multi-selected item row fill (`state-selected-background`).
-pub fn row_chosen() -> Hsla {
-    role(ColorRole::StateSelectedBackground)
-}
-
 /// Primary text (`text-primary`).
 pub fn text() -> Hsla {
     role(ColorRole::TextPrimary)

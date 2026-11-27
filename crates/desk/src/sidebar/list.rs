@@ -1,71 +1,80 @@
-//! The sidebar's list, as t3code's when it groups by project: the pinned
-//! sessions of every project on top, in the order you dragged them into;
-//! each project a folder of its sessions not done, by your last message,
-//! the projects by theirs; and at the foot two shelves, folded, of the
-//! sessions snoozed (soonest back first) and settled (latest first, ten,
-//! then 25 more at a time). Where the window holds more than one server,
-//! each server's projects are under its own row, this Mac's first, as
-//! t3code groups its environments: its name, whether it is reached, and
-//! the way to reach it again. It is gpui-kit's Tree: ↑ ↓ move, → ← open
-//! and fold, Return opens; every row is one height.
+//! The Carbon sidebar thread and project list (`AppSidebar` and
+//! `SidebarStates` boards): `Pinned`, `Needs you` (oldest wait first),
+//! `ServerHeader` + `ProjectFolderHeader` groups, `Other Macs`, `Snoozed`
+//! and `Settled` shelves, keyboard navigation, and drag-and-drop.
 
+use std::f32::consts::FRAC_PI_2;
 use std::time::SystemTime;
 
 use gpui::component::{
     Sizable as _,
     button::{Button, ButtonVariants as _},
     input::Input,
-    list::ListItem,
-    menu::{DropdownMenu as _, PopupMenu, PopupMenuItem},
-    tree::{TreeEntry, TreeItem, TreeState},
+    kbd::Kbd,
+    menu::{ContextMenuExt as _, DropdownMenu as _},
+    tree::{TreeItem, TreeState},
 };
-use gpui::{App, Context, Entity, SharedString, Window, div, prelude::*, px};
+use gpui::{
+    AnyElement, App, BoxShadow, Context, Div, ElementId, Entity, Focusable as _, HighlightStyle,
+    SharedString, Stateful, StyledText, Window, div, point, prelude::*, px, radians, rgb,
+};
+use u0ui::{
+    ghost::shell::{ServerHeader, ServerState},
+    icons::{CarbonIcon, Icon as CarbonGlyph},
+    t3::{
+        Spin, Status as T3Status, fmt_elapsed,
+        review::PullRequestState,
+        shell::{
+            FolderCounts, IdentitySize, MachineKind, ProjectFavicon, PullRequestMiniBadge,
+            SidebarShelfHeader,
+        },
+    },
+    tokens::ColorRole,
+};
 
-use super::{Dragged, gist};
+use super::{Dragged, gist, menus::snooze_items};
 use crate::{
     desk::{Desk, Place, Renaming, lists, rank},
-    fonts::Weighted as _,
+    fonts::{Faces, Weighted as _},
     hub::{Host, Up},
-    session::{Session, State},
-    settings::Sort,
-    store, theme, ui,
+    session::{Item, Session, State},
+    settings::{Icon as ProjectIcon, Sort},
+    store, theme, ui, when,
 };
 
-/// A title with its tags after it, as search reads it and a row shows
-/// them: "Fix the build #ci #urgent".
-fn tagged(title: &str, tags: &[String]) -> String {
+pub(super) fn tagged(title: &str, tags: &[String]) -> String {
     tags.iter()
         .fold(title.to_owned(), |t, tag| format!("{t} #{tag}"))
 }
 
-/// How many settled sessions show at first, and how many more each time.
 const SETTLED: usize = 10;
 const SETTLED_MORE: usize = 25;
 
-/// What a row of the list is, as its id in the tree says.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Row {
-    /// A server the window holds, over its projects.
     Server(Host),
     Project(Place),
     Session(u64),
     Shelf(Shelf),
-    /// More of the settled.
     More,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Shelf {
+    Pinned,
+    NeedsYou,
     Snoozed,
     Settled,
 }
 
 impl Row {
-    fn id(&self) -> SharedString {
+    pub(super) fn id(&self) -> SharedString {
         match self {
             Self::Server(h) => format!("m:{}", h.0).into(),
             Self::Project(p) => format!("p:{}:{}", p.host.0, p.folder.display()).into(),
             Self::Session(key) => format!("s:{key}").into(),
+            Self::Shelf(Shelf::Pinned) => "h:pinned".into(),
+            Self::Shelf(Shelf::NeedsYou) => "h:needs".into(),
             Self::Shelf(Shelf::Snoozed) => "h:snoozed".into(),
             Self::Shelf(Shelf::Settled) => "h:settled".into(),
             Self::More => "more".into(),
@@ -80,6 +89,8 @@ impl Row {
                 Self::Project(Place::new(Host(n.parse().ok()?), path))
             }
             Some(("s", key)) => Self::Session(key.parse().ok()?),
+            Some(("h", "pinned")) => Self::Shelf(Shelf::Pinned),
+            Some(("h", "needs")) => Self::Shelf(Shelf::NeedsYou),
             Some(("h", "snoozed")) => Self::Shelf(Shelf::Snoozed),
             Some(("h", "settled")) => Self::Shelf(Shelf::Settled),
             _ if id == "more" => Self::More,
@@ -88,18 +99,31 @@ impl Row {
     }
 }
 
-/// The key a shelf's being open is kept under in `Desk::expanded`.
-fn shelf_key(shelf: Shelf) -> String {
-    format!("shelf-{shelf:?}")
+fn shelf_default_open(shelf: Shelf) -> bool {
+    matches!(shelf, Shelf::Pinned | Shelf::NeedsYou)
 }
 
-/// The key a server's row being folded is kept under in `Desk::expanded`.
+fn shelf_key(shelf: Shelf) -> String {
+    if shelf_default_open(shelf) {
+        format!("shelf-folded-{shelf:?}")
+    } else {
+        format!("shelf-{shelf:?}")
+    }
+}
+
+fn shelf_is_open(expanded: &std::collections::HashSet<String>, shelf: Shelf) -> bool {
+    let toggled = expanded.contains(&shelf_key(shelf));
+    if shelf_default_open(shelf) {
+        !toggled
+    } else {
+        toggled
+    }
+}
+
 fn folded_key(host: Host) -> String {
     format!("server-folded-{}", host.0)
 }
 
-/// What the tree's shape is: each row's id and whether it is open, to
-/// tell when it has to be given its rows again.
 fn shape(items: &[TreeItem], out: &mut String) {
     for item in items {
         out.push_str(&item.id);
@@ -109,7 +133,6 @@ fn shape(items: &[TreeItem], out: &mut String) {
     }
 }
 
-/// When, compactly: "now", "5m", "3h", "2d".
 pub fn compact(t: SystemTime, now: SystemTime) -> String {
     let secs = now.duration_since(t).map_or(0, |d| d.as_secs());
     match secs {
@@ -121,8 +144,6 @@ pub fn compact(t: SystemTime, now: SystemTime) -> String {
 }
 
 impl Desk {
-    /// Give the sidebar's tree its rows, where they changed; the row
-    /// chosen is the session on screen, but while the keys move it.
     pub(crate) fn sync_side(&mut self, window: &Window, cx: &mut Context<Self>) {
         let (items, order) = self.side_items(cx);
         let mut drawn = String::new();
@@ -131,8 +152,7 @@ impl Desk {
         let away = {
             let tree = self.side.read(cx);
             let open = current.and_then(|k| tree.index_of(&Row::Session(k).id()));
-            !gpui::Focusable::focus_handle(tree, cx).contains_focused(window, cx)
-                && tree.selected_index() != open
+            !tree.focus_handle(cx).contains_focused(window, cx) && tree.selected_index() != open
         };
         if drawn != self.side_shape || current != self.side_current || away {
             let reshaped = drawn != self.side_shape;
@@ -149,7 +169,6 @@ impl Desk {
         self.side_order = order;
     }
 
-    /// A folder opened or folded in the tree: kept, as the desk's.
     pub(crate) fn side_folded(&mut self, id: &str, open: bool, cx: &mut Context<Self>) {
         match Row::of(id) {
             Some(Row::Project(p)) if open => {
@@ -158,11 +177,13 @@ impl Desk {
             Some(Row::Project(p)) => {
                 self.closed.insert(p);
             }
-            Some(Row::Shelf(kind)) if open => {
-                self.expanded.insert(shelf_key(kind));
-            }
             Some(Row::Shelf(kind)) => {
-                self.expanded.remove(&shelf_key(kind));
+                let key = shelf_key(kind);
+                if open == shelf_default_open(kind) {
+                    self.expanded.remove(&key);
+                } else {
+                    self.expanded.insert(key);
+                }
             }
             Some(Row::Server(host)) if open => {
                 self.expanded.remove(&folded_key(host));
@@ -172,15 +193,34 @@ impl Desk {
             }
             _ => return,
         }
-        // The row chosen in the tree goes back to the session open.
         self.side_current = None;
         cx.notify();
     }
 
-    /// Whether the session `s` answers what is typed in the search: by
-    /// its title, branch, pull request or project (`rank`), or by what
-    /// was said in it.
-    fn answers(&self, s: &Session, query: &rank::Query, now: SystemTime) -> bool {
+    fn toggle_shelf(&mut self, kind: Shelf, cx: &mut Context<Self>) {
+        let now_open = shelf_is_open(&self.expanded, kind);
+        self.side_folded(&Row::Shelf(kind).id(), !now_open, cx);
+    }
+
+    fn toggle_project_open(&mut self, folder: &Place, cx: &mut Context<Self>) {
+        let now_open = !self.closed.contains(folder);
+        self.side_folded(&Row::Project(folder.clone()).id(), !now_open, cx);
+    }
+
+    fn toggle_server_open(&mut self, host: Host, cx: &mut Context<Self>) {
+        let now_open = !self.expanded.contains(&folded_key(host));
+        self.side_folded(&Row::Server(host).id(), !now_open, cx);
+    }
+
+    pub(super) fn matches_tags(&self, s: &Session) -> bool {
+        self.tag_filter.is_empty()
+            || self
+                .tag_filter
+                .iter()
+                .all(|wanted| s.meta.tags.iter().any(|t| t == wanted))
+    }
+
+    pub(super) fn answers(&self, s: &Session, query: &rank::Query, now: SystemTime) -> bool {
         query.is_empty()
             || self.search.found.contains(&s.key)
             || rank::session(
@@ -196,8 +236,6 @@ impl Desk {
             .is_some()
     }
 
-    /// The sessions of `folder` its folder lists: not pinned, settled,
-    /// snoozed or put away; by your last message, the latest first.
     pub(crate) fn in_project(&self, folder: &Place) -> Vec<&Session> {
         let mut here: Vec<&Session> = self
             .sessions
@@ -214,17 +252,17 @@ impl Desk {
         here
     }
 
-    /// Which of `a` and `b` the sidebar lists first, as `settings.sort`
-    /// says: the latest first, or by name.
     fn before(&self, a: &Session, b: &Session) -> std::cmp::Ordering {
         match self.settings.sort {
-            Sort::Name => (a.meta.title.to_lowercase()).cmp(&b.meta.title.to_lowercase()),
+            Sort::Name => a
+                .meta
+                .title
+                .to_lowercase()
+                .cmp(&b.meta.title.to_lowercase()),
             _ => self.sorted_at(b).cmp(&self.sorted_at(a)),
         }
     }
 
-    /// The time `s` is ordered by: your last message in it, the last thing
-    /// that happened in it, or when it began.
     fn sorted_at(&self, s: &Session) -> SystemTime {
         match self.settings.sort {
             Sort::Used | Sort::Name => lists::used(s),
@@ -233,37 +271,7 @@ impl Desk {
         }
     }
 
-    /// The tree's rows, and the sessions in the order they are listed.
-    fn side_items(&self, cx: &App) -> (Vec<TreeItem>, Vec<u64>) {
-        let typed = self.search.input.read(cx).value().trim().to_owned();
-        let query = rank::Query::new(&typed);
-        let searching = !query.is_empty();
-        let now = SystemTime::now();
-        let secs = store::secs(now);
-        let shown = |s: &&Session| {
-            (self.filter.is_empty() || self.filter.contains(&Place::project_of(s)))
-                && self.answers(s, &query, now)
-        };
-        let leaf = |s: &Session| TreeItem::new(Row::Session(s.key).id(), s.meta.title.clone());
-        let mut order = Vec::new();
-        let mut items = Vec::new();
-
-        let mut pinned: Vec<&Session> = self
-            .sessions
-            .all
-            .iter()
-            .filter(|s| s.meta.flags.pinned.is_some() && s.meta.flags.settled.is_none())
-            .filter(|s| self.listed_now(s))
-            .filter(shown)
-            .collect();
-        pinned.sort_by_key(|s| s.meta.flags.pinned);
-        for s in pinned {
-            order.push(s.key);
-            items.push(leaf(s));
-        }
-
-        // Pinned projects first, then by your last message in any of
-        // their sessions, then by name.
+    fn ordered_projects(&self) -> Vec<Place> {
         let mut folders: Vec<Place> = Vec::new();
         for p in self.projects() {
             let p = self.listed_under(&p);
@@ -286,8 +294,6 @@ impl Desk {
                 (p, last)
             })
             .collect();
-        // Server by server, this Mac's first; pinned first; then the
-        // latest first, or by name alone.
         let named = self.settings.sort == Sort::Name;
         projects.sort_by(|(a, at), (b, bt)| {
             let when = |t: SystemTime| std::cmp::Reverse((!named).then_some(t));
@@ -304,14 +310,82 @@ impl Desk {
                     self.project_name(b).to_lowercase(),
                 ))
         });
-        // Each server's under a row of its own, where there are more.
+        projects.into_iter().map(|(p, _)| p).collect()
+    }
+
+    fn side_items(&self, cx: &App) -> (Vec<TreeItem>, Vec<u64>) {
+        let typed = self.search.input.read(cx).value().trim().to_owned();
+        let query = rank::Query::new(&typed);
+        let searching = !query.is_empty();
+        let now = SystemTime::now();
+        let secs = store::secs(now);
+        let shown = |s: &&Session| {
+            (self.filter.is_empty() || self.filter.contains(&Place::project_of(s)))
+                && self.matches_tags(s)
+                && self.answers(s, &query, now)
+        };
+        let leaf = |s: &Session| TreeItem::new(Row::Session(s.key).id(), s.meta.title.clone());
+        let mut order = Vec::new();
+        let mut items = Vec::new();
+
+        let mut pinned: Vec<&Session> = self
+            .sessions
+            .all
+            .iter()
+            .filter(|s| s.meta.flags.pinned.is_some() && s.meta.flags.settled.is_none())
+            .filter(|s| self.listed_now(s))
+            .filter(shown)
+            .collect();
+        pinned.sort_by_key(|s| s.meta.flags.pinned);
+        if !pinned.is_empty() {
+            let open = searching || shelf_is_open(&self.expanded, Shelf::Pinned);
+            if open {
+                order.extend(pinned.iter().map(|s| s.key));
+            }
+            items.push(
+                TreeItem::new(Row::Shelf(Shelf::Pinned).id(), "Pinned")
+                    .expanded(open)
+                    .children(pinned.into_iter().map(leaf)),
+            );
+        }
+
+        let mut needs: Vec<&Session> = self
+            .sessions
+            .all
+            .iter()
+            .filter(|s| {
+                s.meta.flags.pinned.is_none()
+                    && s.meta.flags.settled.is_none()
+                    && self.listed_now(s)
+                    && lists::needs_you_why(s).is_some()
+            })
+            .filter(shown)
+            .collect();
+        needs.sort_by_key(|s| lists::used(s));
+        if !needs.is_empty() {
+            let open = searching || shelf_is_open(&self.expanded, Shelf::NeedsYou);
+            if open {
+                order.extend(needs.iter().map(|s| s.key));
+            }
+            items.push(
+                TreeItem::new(Row::Shelf(Shelf::NeedsYou).id(), "Needs you")
+                    .expanded(open)
+                    .children(needs.into_iter().map(leaf)),
+            );
+        }
+
+        let projects = self.ordered_projects();
         let grouped = self.machines.len() > 1;
         for m in &self.machines {
             let server_open = searching || !self.expanded.contains(&folded_key(m.host));
             let mut under = Vec::new();
-            for (folder, _) in projects.iter().filter(|(p, _)| p.host == m.host) {
-                let sessions: Vec<&Session> =
-                    self.in_project(folder).into_iter().filter(shown).collect();
+            for folder in projects.iter().filter(|p| p.host == m.host) {
+                let sessions: Vec<&Session> = self
+                    .in_project(folder)
+                    .into_iter()
+                    .filter(|s| lists::needs_you_why(s).is_none())
+                    .filter(shown)
+                    .collect();
                 if searching && sessions.is_empty() {
                     continue;
                 }
@@ -357,10 +431,10 @@ impl Desk {
             if list.is_empty() {
                 continue;
             }
-            let open = searching || self.expanded.contains(&shelf_key(shelf));
+            let open = searching || shelf_is_open(&self.expanded, shelf);
             let most = match shelf {
                 Shelf::Settled => self.settled_shown.max(SETTLED),
-                Shelf::Snoozed => usize::MAX,
+                _ => usize::MAX,
             };
             let mut children: Vec<TreeItem> = list.iter().take(most).map(|s| leaf(s)).collect();
             if list.len() > most {
@@ -378,305 +452,663 @@ impl Desk {
         (items, order)
     }
 
-    /// A row of the tree, drawn from what the desk knows now. `chosen`:
-    /// the row the keys move from; `focused`: the tree has the keys.
-    pub(crate) fn side_row(
-        &self,
-        entry: &TreeEntry,
-        chosen: bool,
-        focused: bool,
-        desk: &Entity<Self>,
-        cx: &App,
-    ) -> ListItem {
-        let faces = crate::fonts::faces(cx).clone();
-        let id = entry.item().id.clone();
-        let open = matches!(Row::of(&id), Some(Row::Session(k)) if self.current == Some(k));
-        // Rows stand a little apart, so that the ground of one lit (hovered,
-        // chosen) never runs into the next: 36 from one to the next, as
-        // t3code's.
-        let item = ListItem::new(SharedString::from(format!("row-{id}")))
-            .h(px(32.))
-            .my(px(2.))
-            .px(px(10.))
-            .rounded(px(8.))
-            // The session open keeps the open row's ground wherever the
-            // keys are (gpui-kit gives it to the row they move from too).
-            .when(open, |i| i.bg(theme::row_open()))
-            // While the tree has the keys, the row they move from is ringed,
-            // over the whole row.
-            .when(chosen && focused, |i| {
-                i.suffix(|_, _| {
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .rounded(px(8.))
-                        .border_2()
-                        .border_color(theme::faint())
-                })
-            });
-        match Row::of(&id) {
-            Some(Row::Server(host)) => self.server_row(&faces, item, host, entry, desk),
-            Some(Row::Project(folder)) => self.project_row(&faces, item, &folder, entry, desk),
-            Some(Row::Session(key)) => match self.sessions.at(key) {
-                Some(s) => self.session_row(
-                    &faces,
-                    item,
-                    s,
-                    entry.depth() > 0 && !Self::on_shelf(s),
-                    desk,
-                ),
-                None => item,
-            },
-            Some(Row::Shelf(kind)) => {
-                let count = entry.item().children.len();
-                let more = matches!(kind, Shelf::Settled)
-                    && entry
-                        .item()
-                        .children
-                        .iter()
-                        .any(|c| c.id.as_ref() == "more");
-                let count = if more { count - 1 } else { count };
-                let drop = desk.clone();
-                item.child(
-                    div()
-                        .id(SharedString::from(format!("shelf-{kind:?}")))
-                        .drag_over::<Dragged>(|st, _, _, _| st.bg(theme::row_hover()))
-                        .on_drop(move |d: &Dragged, _, cx| {
-                            drop.update(cx, |this, cx| this.dropped(d.key, &Row::Shelf(kind), cx));
-                        })
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .child(
-                            ui::text(
-                                &faces,
-                                crate::tr(match kind {
-                                    Shelf::Snoozed => "Snoozed",
-                                    Shelf::Settled => "Settled",
-                                }),
-                            )
-                            .text_size(px(crate::style::CAPTION))
-                            .text_color(theme::muted()),
-                        )
-                        .child(ui::fine(&faces, count.to_string()))
-                        .child(div().flex_1())
-                        .child(chevron(entry.item().is_expanded())),
-                )
-            }
-            Some(Row::More) => {
-                let rest = self
-                    .sessions
-                    .all
-                    .iter()
-                    .filter(|s| s.meta.flags.settled.is_some() && self.listed_now(s))
-                    .count()
-                    .saturating_sub(self.settled_shown.max(SETTLED));
-                let desk = desk.clone();
-                item.pl(px(36.))
-                    .child(
-                        ui::text(
-                            &faces,
-                            crate::tr_with("Show %{n} more", &[("n", &rest.min(SETTLED_MORE))]),
-                        )
-                        .text_size(px(crate::style::LABEL))
-                        .text_color(theme::muted()),
-                    )
-                    .on_click(move |_, _, cx| {
-                        desk.update(cx, |d, cx| {
-                            d.settled_shown = d.settled_shown.max(SETTLED) + SETTLED_MORE;
-                            cx.notify();
-                        });
-                    })
-            }
-            None => item,
-        }
-    }
+    pub(crate) fn side_list(&self, faces: &Faces, cx: &mut Context<Self>) -> Stateful<Div> {
+        let focus = self.side.read(cx).focus_handle(cx);
+        let selected_id = self
+            .side
+            .read(cx)
+            .selected_entry()
+            .map(|e| e.item().id.clone());
+        let typed = self.search.input.read(cx).value().trim().to_owned();
+        let query = rank::Query::new(&typed);
 
-    /// Whether `s` is on a shelf, where its row is slim.
-    fn on_shelf(s: &Session) -> bool {
-        s.meta.flags.settled.is_some()
-            || s.meta
-                .flags
-                .snoozed
-                .is_some_and(|t| t > store::secs(SystemTime::now()))
-    }
+        let content: Vec<AnyElement> = if query.is_empty() {
+            self.render_grouped_list(faces, selected_id.as_deref(), cx)
+        } else {
+            self.render_search_results(faces, &typed, &query, cx)
+        };
 
-    /// A server's row, over its projects: its name; how it stands where it
-    /// is not reached (being reached, out of reach and why, or turned
-    /// away), with the way to reach it again; and the chevron at its end.
-    fn server_row(
-        &self,
-        faces: &crate::fonts::Faces,
-        item: ListItem,
-        host: Host,
-        entry: &TreeEntry,
-        desk: &Entity<Self>,
-    ) -> ListItem {
-        let Some(m) = self.machine(host) else {
-            return item;
-        };
-        let (word, colour, why) = match &m.up {
-            Up::On => (None, theme::ok(), None),
-            Up::Reaching => (Some("Reaching"), theme::faint(), None),
-            Up::Lost(why) => (Some("Offline"), theme::accent(), Some(why.clone())),
-            Up::Refused(why) => (Some("Turned away"), theme::coral(), Some(why.clone())),
-        };
-        let again = !matches!(m.up, Up::On);
-        let desk = desk.clone();
-        let state = div()
-            .id(SharedString::from(format!("server-state-{}", host.0)))
+        div()
+            .id("sb-list")
+            .track_focus(&focus)
             .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(6.))
-            .child(ui::dot(colour))
-            .children(word.map(|w| ui::fine(faces, crate::tr(w))))
-            .when_some(why, |d, why| d.tooltip(ui::tip(why)));
-        item.child(
-            div()
+            .flex_col()
+            .flex_1()
+            .min_h(px(0.))
+            .overflow_y_scroll()
+            .on_key_down(cx.listener(|this, e: &gpui::KeyDownEvent, window, cx| {
+                if this.side_key(&e.keystroke, window, cx) {
+                    cx.stop_propagation();
+                }
+            }))
+            .children(content)
+    }
+
+    fn render_grouped_list(
+        &self,
+        faces: &Faces,
+        selected_id: Option<&str>,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        let desk = cx.entity();
+        let now = SystemTime::now();
+        let secs = store::secs(now);
+        let shown_project =
+            |s: &&Session| self.filter.is_empty() || self.filter.contains(&Place::project_of(s));
+        let mut groups: Vec<AnyElement> = Vec::new();
+        let push_group = |groups: &mut Vec<AnyElement>, tight: bool, group: Div| {
+            let mt = if groups.is_empty() {
+                0.
+            } else if tight {
+                4.
+            } else {
+                20.
+            };
+            groups.push(group.mt(px(mt)).flex_none().into_any_element());
+        };
+
+        let mut pinned: Vec<&Session> = self
+            .sessions
+            .all
+            .iter()
+            .filter(|s| s.meta.flags.pinned.is_some() && s.meta.flags.settled.is_none())
+            .filter(|s| self.listed_now(s) && self.matches_tags(s))
+            .filter(shown_project)
+            .collect();
+        pinned.sort_by_key(|s| s.meta.flags.pinned);
+        if !pinned.is_empty() {
+            let open = shelf_is_open(&self.expanded, Shelf::Pinned);
+            let d = desk.clone();
+            let mut grp = div().flex().flex_col().child(
+                SidebarShelfHeader::new("sb-shelf-pinned", crate::tr("Pinned"))
+                    .count(pinned.len())
+                    .expanded(open)
+                    .on_toggle(move |_, cx| {
+                        d.update(cx, |this, cx| this.toggle_shelf(Shelf::Pinned, cx));
+                    }),
+            );
+            if open {
+                for s in pinned {
+                    let kbd = selected_id == Some(Row::Session(s.key).id().as_ref());
+                    grp = grp.child(self.thread_item(faces, s, None, kbd, &desk, cx));
+                }
+            }
+            push_group(&mut groups, false, grp);
+        }
+
+        let mut needs: Vec<&Session> = self
+            .sessions
+            .all
+            .iter()
+            .filter(|s| {
+                s.meta.flags.pinned.is_none()
+                    && s.meta.flags.settled.is_none()
+                    && self.listed_now(s)
+                    && self.matches_tags(s)
+                    && lists::needs_you_why(s).is_some()
+            })
+            .filter(shown_project)
+            .collect();
+        needs.sort_by_key(|s| lists::used(s));
+        if !needs.is_empty() {
+            let open = shelf_is_open(&self.expanded, Shelf::NeedsYou);
+            let mut grp = div().flex().flex_col().child(self.needs_you_header(
+                faces,
+                needs.len(),
+                open,
+                &desk,
+            ));
+            if open {
+                for s in needs {
+                    let why = lists::needs_you_why(s).map(crate::tr).unwrap_or_default();
+                    let meta = format!("{} · {why}", self.project_on(&Place::project_of(s)));
+                    let kbd = selected_id == Some(Row::Session(s.key).id().as_ref());
+                    grp = grp.child(self.thread_item(faces, s, Some(meta), kbd, &desk, cx));
+                }
+            }
+            push_group(&mut groups, false, grp);
+        }
+
+        let projects = self.ordered_projects();
+        let multi_machine = self.machines.len() > 1;
+        for m in &self.machines {
+            let host_projects: Vec<&Place> = projects.iter().filter(|p| p.host == m.host).collect();
+            if host_projects.is_empty() {
+                continue;
+            }
+            let server_open = !self.expanded.contains(&folded_key(m.host));
+            if multi_machine {
+                let server_head =
+                    self.render_server_header(m, host_projects.len(), server_open, &desk);
+                push_group(&mut groups, false, server_head);
+            }
+            if multi_machine && !server_open {
+                continue;
+            }
+            for folder in host_projects {
+                let all_active = self.in_project(folder);
+                let counts = folder_counts(&all_active);
+                let unfiltered_len = all_active
+                    .iter()
+                    .filter(|s| lists::needs_you_why(s).is_none())
+                    .count();
+                let visible: Vec<&Session> = all_active
+                    .into_iter()
+                    .filter(|s| lists::needs_you_why(s).is_none() && self.matches_tags(s))
+                    .collect();
+                let hidden_by_tag = unfiltered_len.saturating_sub(visible.len());
+                let open = !self.closed.contains(folder);
+                let mut grp = div()
+                    .flex()
+                    .flex_col()
+                    .child(self.project_header(faces, folder, counts, open, &desk, cx));
+                if open {
+                    for s in visible {
+                        let kbd = selected_id == Some(Row::Session(s.key).id().as_ref());
+                        grp = grp.child(self.thread_item(faces, s, None, kbd, &desk, cx));
+                    }
+                    if !self.tag_filter.is_empty() && hidden_by_tag > 0 {
+                        let tags_str = self
+                            .tag_filter
+                            .iter()
+                            .map(|t| format!("#{t}"))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        let clear_desk = desk.clone();
+                        grp = grp.child(
+                            div()
+                                .id(SharedString::from(format!(
+                                    "hidden-tags-{}-{}",
+                                    folder.host.0,
+                                    folder.folder.display()
+                                )))
+                                .flex()
+                                .items_center()
+                                .gap(px(4.))
+                                .h(px(32.))
+                                .pl(px(36.))
+                                .pr(px(12.))
+                                .cursor_pointer()
+                                .on_click(move |_, _, cx| {
+                                    clear_desk.update(cx, |d, cx| d.set_tag_filter(Vec::new(), cx));
+                                })
+                                .child(
+                                    ui::text(
+                                        faces,
+                                        format!(
+                                            "{} · {}",
+                                            crate::tr_with(
+                                                "%{n} more hidden by %{tags}",
+                                                &[("n", &hidden_by_tag), ("tags", &tags_str)],
+                                            ),
+                                            crate::tr("Clear")
+                                        ),
+                                    )
+                                    .text_size(px(crate::style::CAPTION))
+                                    .text_color(theme::text2()),
+                                ),
+                        );
+                    }
+                }
+                push_group(&mut groups, false, grp);
+            }
+        }
+
+        if self.machines.len() > 1 {
+            let mut mach = div().flex().flex_col();
+            for m in self.machines.iter().skip(1) {
+                mach = mach.child(self.other_mac_row(faces, m, &desk));
+            }
+            push_group(&mut groups, false, mach);
+        }
+
+        let mut snoozed: Vec<&Session> = self
+            .sessions
+            .all
+            .iter()
+            .filter(|s| s.parent.is_none() && s.beside.is_none() && !s.meta.flags.archived)
+            .filter(|s| s.meta.flags.snoozed.is_some_and(|t| t > secs) && self.matches_tags(s))
+            .filter(shown_project)
+            .collect();
+        snoozed.sort_by_key(|s| s.meta.flags.snoozed);
+        let mut settled: Vec<&Session> = self
+            .sessions
+            .all
+            .iter()
+            .filter(|s| {
+                s.meta.flags.settled.is_some() && self.listed_now(s) && self.matches_tags(s)
+            })
+            .filter(shown_project)
+            .collect();
+        settled.sort_by_key(|s| std::cmp::Reverse(s.meta.flags.settled));
+
+        let mut prev_shelf = false;
+        for (shelf, list) in [(Shelf::Snoozed, snoozed), (Shelf::Settled, settled)] {
+            if list.is_empty() {
+                continue;
+            }
+            let open = shelf_is_open(&self.expanded, shelf);
+            let total = list.len();
+            let most = match shelf {
+                Shelf::Settled => self.settled_shown.max(SETTLED),
+                _ => usize::MAX,
+            };
+            let label = crate::tr(match shelf {
+                Shelf::Snoozed => "Snoozed",
+                _ => "Settled",
+            });
+            let toggle_desk = desk.clone();
+            let drop_desk = desk.clone();
+            let mut grp = div()
+                .id(SharedString::from(format!("shelf-wrap-{shelf:?}")))
                 .flex()
-                .items_center()
-                .gap(px(8.))
+                .flex_col()
+                .drag_over::<Dragged>(|st, _, _, _| {
+                    st.bg(theme::role(ColorRole::LayerHover01))
+                        .shadow(drop_frame())
+                })
+                .on_drop(move |d: &Dragged, _, cx| {
+                    drop_desk.update(cx, |this, cx| this.dropped(d.key, &Row::Shelf(shelf), cx));
+                })
                 .child(
-                    ui::icon(
-                        if host == Host::HERE {
-                            "laptop"
-                        } else {
-                            "server"
-                        },
-                        14.,
+                    SidebarShelfHeader::new(
+                        SharedString::from(format!("sb-shelf-{shelf:?}")),
+                        label,
                     )
-                    .flex_none()
-                    .text_color(theme::muted()),
-                )
-                .child(
-                    ui::one_line(
-                        ui::text(faces, m.name.clone())
+                    .count(total)
+                    .expanded(open)
+                    .on_toggle(move |_, cx| {
+                        toggle_desk.update(cx, |this, cx| this.toggle_shelf(shelf, cx));
+                    }),
+                );
+            if open {
+                for s in list.iter().take(most) {
+                    let meta = (shelf == Shelf::Snoozed)
+                        .then(|| {
+                            s.meta
+                                .flags
+                                .snoozed
+                                .map(|t| when::said_at(store::time(t), now, self.settings.twelve))
+                        })
+                        .flatten();
+                    let kbd = selected_id == Some(Row::Session(s.key).id().as_ref());
+                    grp = grp.child(self.thread_item(faces, s, meta, kbd, &desk, cx));
+                }
+                if total > most {
+                    let rest = (total - most).min(SETTLED_MORE);
+                    let more_desk = desk.clone();
+                    grp = grp.child(
+                        div()
+                            .id("sb-settled-more")
+                            .flex()
+                            .items_center()
+                            .h(px(32.))
+                            .pl(px(36.))
+                            .pr(px(12.))
+                            .cursor_pointer()
+                            .hover(|s| s.bg(theme::role(ColorRole::LayerHover01)))
+                            .on_click(move |_, _, cx| {
+                                more_desk.update(cx, |d, cx| {
+                                    d.settled_shown = d.settled_shown.max(SETTLED) + SETTLED_MORE;
+                                    cx.notify();
+                                });
+                            })
+                            .child(
+                                ui::text(faces, crate::tr_with("Show %{n} more", &[("n", &rest)]))
+                                    .text_size(px(crate::style::CAPTION))
+                                    .text_color(theme::text2()),
+                            ),
+                    );
+                }
+            }
+            push_group(&mut groups, prev_shelf, div().child(grp));
+            prev_shelf = true;
+        }
+
+        groups
+    }
+
+    fn needs_you_header(
+        &self,
+        faces: &Faces,
+        count: usize,
+        open: bool,
+        desk: &Entity<Self>,
+    ) -> Stateful<Div> {
+        let _ = self;
+        let desk = desk.clone();
+        let (fill, text_color) = count_colors(T3Status::NeedsYou);
+        div()
+            .id("sb-needs-head")
+            .flex()
+            .items_center()
+            .h(px(32.))
+            .px(px(8.))
+            .cursor_pointer()
+            .hover(|s| s.bg(theme::role(ColorRole::LayerHover01)))
+            .on_click(move |_, _, cx| {
+                desk.update(cx, |this, cx| this.toggle_shelf(Shelf::NeedsYou, cx));
+            })
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .px(px(4.))
+                    .child(
+                        CarbonGlyph::carbon(CarbonIcon::ChevronDown)
+                            .size_length(px(14.))
+                            .color(theme::text())
+                            .rotate(radians(if open { 0. } else { -FRAC_PI_2 })),
+                    )
+                    .child(
+                        ui::text(faces, crate::tr("Needs you"))
                             .text_size(px(crate::style::CAPTION))
                             .weight(gpui::FontWeight::SEMIBOLD)
-                            .text_color(theme::muted()),
+                            .text_color(theme::text()),
                     )
-                    .flex_1(),
-                )
-                .child(state)
-                .when(again, |d| {
-                    d.child(
-                        Button::new(SharedString::from(format!("reach-{}", host.0)))
-                            .ghost()
-                            .xsmall()
-                            .child(ui::icon("retry", 12.))
-                            .tooltip(crate::tr("Reach it again"))
-                            .on_click(move |_, _, cx| {
-                                cx.stop_propagation();
-                                desk.update(cx, |d, cx| d.reach_again(host, cx));
-                            }),
-                    )
-                })
-                .child(chevron(entry.item().is_expanded())),
-        )
+                    .child(
+                        ui::text(faces, count.to_string())
+                            .text_size(px(11.))
+                            .line_height(px(16.))
+                            .px(px(5.))
+                            .rounded(px(16.))
+                            .bg(fill)
+                            .text_color(text_color),
+                    ),
+            )
     }
 
-    /// A project's folder: its icon, its name; folded, how many sessions
-    /// it hides and a dot for the one that most needs you; on hover, a new
-    /// session in it; and the chevron at its end.
-    fn project_row(
+    fn render_server_header(
         &self,
-        faces: &crate::fonts::Faces,
-        item: ListItem,
-        folder: &Place,
-        entry: &TreeEntry,
+        m: &crate::hub::Machine,
+        project_count: usize,
+        open: bool,
         desk: &Entity<Self>,
-    ) -> ListItem {
+    ) -> Div {
+        let _ = self;
+        let (state, label, why) = match &m.up {
+            Up::On => (ServerState::Online, crate::tr("Online"), None),
+            Up::Reaching => (ServerState::Reaching, crate::tr("Reaching"), None),
+            Up::Lost(w) => (ServerState::Offline, crate::tr("Offline"), Some(w.clone())),
+            Up::Refused(w) => (
+                ServerState::TurnedAway,
+                crate::tr("Turned away"),
+                Some(w.clone()),
+            ),
+        };
+        let host = m.host;
+        let (toggle_desk, reach_desk, menu_desk) = (desk.clone(), desk.clone(), desk.clone());
+        let id_str = Row::Server(host).id();
+        let mut header = ServerHeader::new(
+            SharedString::from(format!("sb-server-{}", host.0)),
+            m.name.to_uppercase(),
+        )
+        .kind(if host == Host::HERE {
+            MachineKind::Laptop
+        } else {
+            MachineKind::Server
+        })
+        .state(state)
+        .state_label(label)
+        .count(project_count)
+        .expanded(open)
+        .reach_label(crate::tr("Reach it again"))
+        .on_toggle(move |_, cx| {
+            toggle_desk.update(cx, |d, cx| d.toggle_server_open(host, cx));
+        })
+        .on_reach(move |_, cx| {
+            reach_desk.update(cx, |d, cx| d.reach_again(host, cx));
+        });
+        if host == Host::HERE {
+            header = header.version(env!("CARGO_PKG_VERSION"));
+        }
+        if let Some(reason) = why {
+            header = header.reason(reason);
+        }
+        div().child(div().child(header).context_menu(move |menu, window, cx| {
+            Desk::side_menu(&menu_desk, &id_str, menu, window, cx)
+        }))
+    }
+
+    fn other_mac_row(&self, faces: &Faces, m: &crate::hub::Machine, desk: &Entity<Self>) -> Div {
+        let _ = self;
+        let (dot, word, show_reach) = match &m.up {
+            Up::On => (
+                div()
+                    .size(px(8.))
+                    .rounded_full()
+                    .bg(theme::role(ColorRole::SupportSuccess)),
+                crate::tr("Here"),
+                false,
+            ),
+            Up::Reaching => (
+                div()
+                    .size(px(8.))
+                    .rounded_full()
+                    .border(px(1.5))
+                    .border_color(theme::role(ColorRole::SupportWarning)),
+                crate::tr("Reaching"),
+                false,
+            ),
+            Up::Lost(_) => (
+                div()
+                    .size(px(8.))
+                    .rounded_full()
+                    .border(px(1.5))
+                    .border_color(theme::muted()),
+                crate::tr("Offline"),
+                false,
+            ),
+            Up::Refused(_) => (
+                div()
+                    .size(px(8.))
+                    .rounded_full()
+                    .bg(theme::role(ColorRole::SupportError)),
+                crate::tr("Turned away"),
+                true,
+            ),
+        };
+        let host = m.host;
+        let (menu_desk, reach_desk, toggle_desk) = (desk.clone(), desk.clone(), desk.clone());
+        let id_str = Row::Server(host).id();
+        div()
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .id(SharedString::from(format!("sb-mrow-{}", host.0)))
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .h(px(28.))
+                    .px(px(12.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(theme::role(ColorRole::LayerHover01)))
+                    .on_click(move |_, _, cx| {
+                        toggle_desk.update(cx, |d, cx| d.toggle_server_open(host, cx));
+                    })
+                    .child(
+                        CarbonGlyph::carbon(CarbonIcon::ChevronRight)
+                            .size_length(px(16.))
+                            .color(theme::muted()),
+                    )
+                    .child(ui::icon("server", 16.).text_color(theme::muted()))
+                    .child(
+                        ui::text(faces, m.name.to_uppercase())
+                            .flex_1()
+                            .min_w(px(96.))
+                            .truncate()
+                            .text_size(px(crate::style::CAPTION))
+                            .weight(gpui::FontWeight::SEMIBOLD)
+                            .text_color(theme::text2()),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_none()
+                            .items_center()
+                            .gap(px(6.))
+                            .child(dot)
+                            .child(
+                                ui::text(faces, word)
+                                    .text_size(px(crate::style::CAPTION))
+                                    .text_color(theme::text2()),
+                            ),
+                    )
+                    .context_menu(move |menu, window, cx| {
+                        Desk::side_menu(&menu_desk, &id_str, menu, window, cx)
+                    }),
+            )
+            .when(show_reach, |d| {
+                let reach_label = crate::tr_with("Reach %{name} again", &[("name", &m.name)]);
+                d.child(
+                    div()
+                        .id(SharedString::from(format!("sb-mreach-{}", host.0)))
+                        .flex()
+                        .items_center()
+                        .h(px(24.))
+                        .pl(px(60.))
+                        .pr(px(12.))
+                        .cursor_pointer()
+                        .on_click(move |_, _, cx| {
+                            reach_desk.update(cx, |d, cx| d.reach_again(host, cx));
+                        })
+                        .child(
+                            ui::text(faces, reach_label)
+                                .truncate()
+                                .text_size(px(crate::style::CAPTION))
+                                .text_color(theme::link()),
+                        ),
+                )
+            })
+    }
+
+    fn project_header(
+        &self,
+        faces: &Faces,
+        folder: &Place,
+        counts: FolderCounts,
+        open: bool,
+        desk: &Entity<Self>,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let _ = cx;
+        let project_name = self.project_name(folder);
         let group = SharedString::from(format!(
             "prow-{}-{}",
             folder.host.0,
             folder.folder.display()
         ));
-        let open = entry.item().is_expanded();
-        let hidden: Vec<&Session> = if open {
-            Vec::new()
-        } else {
-            self.in_project(folder)
+        let row_id = Row::Project(folder.clone()).id();
+        let avatar: AnyElement = match self.icon_of(folder) {
+            Some(ProjectIcon::Picture(path)) => ProjectFavicon::new(project_name.clone())
+                .size(IdentitySize::Sm)
+                .src(path)
+                .into_any_element(),
+            Some(icon @ ProjectIcon::Mark { .. }) => {
+                crate::desk::projects::project_icon(Some(icon), 20.)
+            }
+            None => ProjectFavicon::new(project_name.clone())
+                .size(IdentitySize::Sm)
+                .into_any_element(),
         };
-        // Needs you, then failed, then done, then working.
-        let dot = hidden
-            .iter()
-            .filter_map(|s| lists::status(s))
-            .min_by_key(|st| match st {
-                lists::Status::Approval | lists::Status::SignIn | lists::Status::Plan => 0,
-                lists::Status::Failed | lists::Status::Limited => 1,
-                lists::Status::Done | lists::Status::Woke => 2,
-                lists::Status::Working => 3,
-            });
-        let name = if matches!(&self.renaming, Some(Renaming::Project(f)) if f == folder) {
+        let name_el: AnyElement = if matches!(&self.renaming, Some(Renaming::Project(f)) if f == folder)
+        {
             self.rename_field().into_any_element()
         } else {
-            ui::one_line(
-                ui::text(faces, self.project_name(folder))
-                    .text_size(px(crate::style::BODY))
-                    .weight(gpui::FontWeight::MEDIUM)
-                    .text_color(theme::text().opacity(0.9)),
-            )
-            .flex_1()
-            .into_any_element()
+            ui::text(faces, project_name.clone())
+                .flex_shrink(1.)
+                .min_w(px(40.))
+                .truncate()
+                .text_size(px(crate::style::BODY))
+                .weight(gpui::FontWeight::SEMIBOLD)
+                .text_color(theme::text())
+                .into_any_element()
         };
-        let new = folder.clone();
-        let (desk, drop, onto) = (desk.clone(), desk.clone(), Row::Project(folder.clone()));
-        item.child(
+
+        let count_pills =
+            div()
+                .flex()
+                .flex_none()
+                .gap(px(2.))
+                .children(counts.visible().into_iter().map(|(st, n)| {
+                    let (bg, fg) = count_colors(st);
+                    ui::text(faces, n.to_string())
+                        .flex()
+                        .justify_center()
+                        .min_w(px(18.))
+                        .px(px(4.))
+                        .rounded(px(16.))
+                        .bg(bg)
+                        .text_size(px(11.))
+                        .line_height(px(18.))
+                        .text_color(fg)
+                }));
+
+        let (toggle_desk, add_desk, drop_desk, menu_desk) =
+            (desk.clone(), desk.clone(), desk.clone(), desk.clone());
+        let (toggle_folder, add_folder, onto) =
+            (folder.clone(), folder.clone(), Row::Project(folder.clone()));
+        let new_tip = crate::tr_with("New thread in %{name}", &[("name", &project_name)]);
+
+        div().child(
             div()
                 .id(group.clone())
-                .relative()
                 .group(group.clone())
-                .drag_over::<Dragged>(|st, _, _, _| st.bg(theme::row_hover()))
-                .on_drop(move |d: &Dragged, _, cx| {
-                    drop.update(cx, |this, cx| this.dropped(d.key, &onto, cx));
-                })
+                .relative()
                 .flex()
                 .items_center()
-                .gap(px(10.))
-                .child(crate::desk::projects::project_icon(
-                    self.icon_of(folder),
-                    16.,
-                ))
-                .child(name)
-                .when(self.prefs(folder).pinned, |d| {
-                    d.child(ui::icon("pin", 12.).flex_none().text_color(theme::faint()))
+                .gap(px(4.))
+                .h(px(32.))
+                .pr(px(8.))
+                .hover(|s| s.bg(theme::role(ColorRole::LayerHover01)))
+                .drag_over::<Dragged>(|st, _, _, _| {
+                    st.bg(theme::role(ColorRole::LayerHover01))
+                        .shadow(drop_frame())
                 })
-                // At rest, at its end: folded, the dot for the one that
-                // most needs you and how many it hides; open, the chevron.
-                // On hover, over them on the row's own ground, a new session
-                // in it and the chevron. Hover shows and hides them, never
-                // lays them out: GPUI reads the pointer again between laying
-                // out a frame and painting it, and a child laid out as gone
-                // but painted as there panics.
+                .on_drop(move |d: &Dragged, _, cx| {
+                    drop_desk.update(cx, |this, cx| this.dropped(d.key, &onto, cx));
+                })
                 .child(
                     div()
+                        .id((ElementId::from(group.clone()), "main"))
                         .flex()
-                        .flex_none()
-                        .items_center()
-                        .gap(px(8.))
-                        .group_hover(group.clone(), gpui::Styled::invisible)
-                        .children(dot.map(|st| ui::dot(st.color())))
-                        .when(!hidden.is_empty(), |d| {
-                            d.child(ui::fine(faces, hidden.len().to_string()))
-                        })
-                        .when(
-                            hidden.is_empty() && !entry.item().children.is_empty(),
-                            |d| d.child(chevron(open)),
-                        ),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .right_0()
+                        .flex_1()
+                        .min_w(px(0.))
                         .h_full()
-                        .flex()
                         .items_center()
-                        .gap(px(4.))
-                        .pl(px(4.))
-                        .bg(theme::rail().blend(theme::row_hover()))
+                        .gap(px(10.))
+                        .px(px(12.))
+                        .cursor_pointer()
+                        .on_click(move |_, _, cx| {
+                            toggle_desk
+                                .update(cx, |d, cx| d.toggle_project_open(&toggle_folder, cx));
+                        })
+                        .child(
+                            CarbonGlyph::carbon(CarbonIcon::ChevronDown)
+                                .size_length(px(16.))
+                                .color(theme::muted())
+                                .rotate(radians(if open { 0. } else { -FRAC_PI_2 }))
+                                .flex_none(),
+                        )
+                        .child(avatar)
+                        .child(name_el),
+                )
+                .child(count_pills)
+                .when(self.prefs(folder).pinned, |d| {
+                    d.child(
+                        CarbonGlyph::carbon(CarbonIcon::PinFilled)
+                            .size_length(px(14.))
+                            .color(theme::muted())
+                            .flex_none(),
+                    )
+                })
+                .child(
+                    div()
+                        .flex_none()
                         .invisible()
-                        .group_hover(group.clone(), gpui::Styled::visible)
+                        .group_hover(group, gpui::Styled::visible)
                         .child(
                             Button::new(SharedString::from(format!(
                                 "new-in-{}-{}",
@@ -685,82 +1117,381 @@ impl Desk {
                             )))
                             .ghost()
                             .xsmall()
-                            .child(ui::icon("square-pen", 14.))
-                            .accessibility_label(crate::tr_with(
-                                "New thread in %{name}",
-                                &[("name", &self.project_name(folder))],
-                            ))
-                            .tooltip(crate::tr_with(
-                                "New thread in %{name}",
-                                &[("name", &self.project_name(folder))],
-                            ))
+                            .child(
+                                CarbonGlyph::carbon(CarbonIcon::Add)
+                                    .size_length(px(16.))
+                                    .color(theme::muted()),
+                            )
+                            .accessibility_label(new_tip.clone())
+                            .tooltip(new_tip)
                             .on_click(move |_, window, cx| {
                                 cx.stop_propagation();
-                                desk.update(cx, |d, cx| d.new_in(new.clone(), window, cx));
+                                add_desk
+                                    .update(cx, |d, cx| d.new_in(add_folder.clone(), window, cx));
                             }),
-                        )
-                        .when(!entry.item().children.is_empty(), |d| {
-                            d.child(chevron(open))
-                        }),
-                ),
+                        ),
+                )
+                .context_menu(move |menu, window, cx| {
+                    Desk::side_menu(&menu_desk, &row_id, menu, window, cx)
+                }),
         )
     }
 
-    /// A session: in its folder, in under the project's name; on top or on
-    /// a shelf, slim. Its agent's logo, its title, heavier while it
-    /// wants you; at its end where it stands or when you last used it, and
-    /// on hover Snooze and Settle (or Wake, Un-settle).
-    fn session_row(
+    fn thread_item(
         &self,
-        faces: &crate::fonts::Faces,
-        item: ListItem,
+        faces: &Faces,
         s: &Session,
-        in_folder: bool,
+        meta_override: Option<String>,
+        kbd_selected: bool,
         desk: &Entity<Self>,
-    ) -> ListItem {
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let _ = cx;
         let key = s.key;
-        let open = self.current == Some(key);
-        let group = SharedString::from(format!("srow-{key}"));
-        let status = lists::status(s);
-        let now = SystemTime::now();
-        let title = s.shown_title().to_owned();
-        // Not begun: marked as a draft, as t3code marks one, not as a
-        // session with an agent's answer and a time.
+        let row_id = Row::Session(key).id();
+        if self.renaming == Some(Renaming::Session { key, here: false }) {
+            return div()
+                .flex()
+                .items_center()
+                .h(px(32.))
+                .pl(px(36.))
+                .pr(px(8.))
+                .child(self.rename_field());
+        }
+
+        let active = self.current == Some(key);
+        let selected = self.chosen.contains(&key) || self.sweep.contains(&key);
+        let highlighted = active || selected;
+        let unread = s.meta.flags.unread;
         let draft = s.state == State::Draft && s.items.is_empty();
-        // It recedes while it works or waits, and once read and finished.
-        let wants = status.is_some_and(|st| st != lists::Status::Working);
-        let name = if self.renaming == Some(Renaming::Session { key, here: false }) {
-            self.rename_field().into_any_element()
-        } else {
-            ui::one_line(
-                ui::text(faces, title.clone())
-                    .text_size(px(crate::style::BODY))
-                    .weight(if wants {
-                        gpui::FontWeight::MEDIUM
-                    } else {
-                        gpui::FontWeight::NORMAL
-                    }),
-            )
-            .flex_1()
-            .when(status == Some(lists::Status::Working), |d| d.opacity(0.7))
-            .into_any_element()
+        let st = lists::status(s);
+        let now = SystemTime::now();
+
+        let status_glyph: AnyElement = match st {
+            Some(lists::Status::Working) => {
+                Spin::new(SharedString::from(format!("spin-{key}"))).into_any_element()
+            }
+            Some(lists::Status::Approval | lists::Status::SignIn | lists::Status::Plan) => {
+                CarbonGlyph::carbon(CarbonIcon::WarningFilled)
+                    .size_length(px(16.))
+                    .color(theme::role(ColorRole::SupportWarning))
+                    .into_any_element()
+            }
+            Some(lists::Status::Failed | lists::Status::Limited) => {
+                CarbonGlyph::carbon(CarbonIcon::ErrorFilled)
+                    .size_length(px(16.))
+                    .color(theme::role(ColorRole::SupportError))
+                    .into_any_element()
+            }
+            _ if draft => CarbonGlyph::carbon(CarbonIcon::Edit)
+                .size_length(px(16.))
+                .color(theme::muted())
+                .into_any_element(),
+            _ if unread => div()
+                .size(px(8.))
+                .rounded_full()
+                .bg(theme::role(ColorRole::Interactive))
+                .into_any_element(),
+            _ if !s.items.is_empty() => CarbonGlyph::carbon(CarbonIcon::CheckmarkFilled)
+                .size_length(px(16.))
+                .color(theme::muted())
+                .into_any_element(),
+            _ => CarbonGlyph::carbon(CarbonIcon::Chat)
+                .size_length(px(16.))
+                .color(theme::muted())
+                .into_any_element(),
         };
-        let number = self
+
+        let meta_color = if highlighted {
+            theme::text2()
+        } else {
+            theme::faint()
+        };
+        let meta_text = meta_override.or_else(|| self.thread_meta_line(s));
+        let has_meta = meta_text.as_ref().is_some_and(|m| !m.is_empty());
+
+        let title_str = s.shown_title().to_owned();
+        let title_color = if highlighted || unread {
+            theme::text()
+        } else {
+            theme::text2()
+        };
+        let title_el: AnyElement = if draft {
+            let prefix = crate::tr("Unsent draft · ");
+            let full = format!("{prefix}{title_str}");
+            div()
+                .min_w(px(0.))
+                .truncate()
+                .text_size(px(crate::style::BODY))
+                .line_height(px(20.))
+                .text_color(title_color)
+                .child(StyledText::new(full).with_highlights([(
+                    0..prefix.len(),
+                    HighlightStyle {
+                        color: Some(meta_color),
+                        ..Default::default()
+                    },
+                )]))
+                .into_any_element()
+        } else {
+            ui::text(faces, title_str.clone())
+                .min_w(px(0.))
+                .truncate()
+                .text_size(px(crate::style::BODY))
+                .line_height(px(20.))
+                .weight(if unread {
+                    gpui::FontWeight::SEMIBOLD
+                } else {
+                    gpui::FontWeight::NORMAL
+                })
+                .text_color(title_color)
+                .into_any_element()
+        };
+
+        let jump = self
             .side_order
             .iter()
             .position(|k| *k == key)
             .filter(|n| self.numbers_shown && *n < 9);
-        let end = match (number, status) {
-            (Some(n), _) => ui::fine(faces, crate::keys::written(&[crate::keys::numbered(n + 1)])),
-            (None, Some(st)) => ui::text(faces, crate::tr(st.word()))
+        let working_elapsed = (st == Some(lists::Status::Working))
+            .then(|| {
+                now.duration_since(s.meta.updated)
+                    .ok()
+                    .map(|d| fmt_elapsed(d.as_secs()))
+            })
+            .flatten();
+        let right_text: AnyElement = if let Some(n) = jump {
+            Kbd::new(crate::keys::numbered(n + 1)).into_any_element()
+        } else {
+            let t = working_elapsed.unwrap_or_else(|| compact(lists::used(s), now));
+            ui::text(faces, t)
                 .text_size(px(crate::style::CAPTION))
-                .text_color(st.color()),
-            (None, None) if draft => ui::fine(faces, crate::tr("Draft")),
-            (None, None) => ui::fine(faces, compact(lists::used(s), now)),
+                .text_color(meta_color)
+                .into_any_element()
         };
-        // On hover: put it away a while, or done; back, on a shelf.
+
+        let pr_badge = s.git.pr.as_ref().map(|pr| {
+            let state = match pr.state.as_str() {
+                "merged" => PullRequestState::Merged,
+                "closed" => PullRequestState::Closed,
+                _ if pr.draft => PullRequestState::Draft,
+                _ => PullRequestState::Open,
+            };
+            PullRequestMiniBadge::new(u32::try_from(pr.number).unwrap_or(0), state)
+        });
+
+        let pinned = s.meta.flags.pinned.is_some();
         let snoozed = s.meta.flags.snoozed.is_some_and(|t| t > store::secs(now));
         let settled = s.meta.flags.settled.is_some();
+        let on_hover = self.thread_hover_actions(key, pinned, snoozed, settled, desk);
+
+        let mut tip = format!(
+            "{}\n{} · {}",
+            s.meta.title,
+            self.name_of(&s.meta.agent),
+            Desk::shown(&s.meta.folder)
+        );
+        if let Some(b) = &s.branch {
+            tip.push_str(" · ");
+            tip.push_str(b);
+        }
+        if let Some(said) = s.items.iter().rev().find_map(|i| match i {
+            Item::Agent(t) => Some(gist(t)).filter(|g| !g.is_empty()),
+            _ => None,
+        }) {
+            tip.push_str("\n\n");
+            tip.push_str(&said);
+        }
+
+        let group = SharedString::from(format!("srow-{key}"));
+        let dragged = Dragged {
+            key,
+            title: SharedString::from(ui::fit(&title_str, 40)),
+        };
+        let (click, drop, files, menu_desk) =
+            (desk.clone(), desk.clone(), desk.clone(), desk.clone());
+        let (over, up, up_out) = (desk.clone(), desk.clone(), desk.clone());
+
+        div().child(
+            div()
+                .id(group.clone())
+                .group(group.clone())
+                .relative()
+                .flex()
+                .w_full()
+                .items_start()
+                .gap(px(8.))
+                .min_h(px(if has_meta { 36. } else { 32. }))
+                .px(px(12.))
+                .py(px(if has_meta { 2. } else { 6. }))
+                .cursor_pointer()
+                .when(highlighted, |d| {
+                    d.bg(theme::role(ColorRole::LayerSelected01)).child(
+                        div()
+                            .absolute()
+                            .left_0()
+                            .top_0()
+                            .bottom_0()
+                            .w(px(3.))
+                            .bg(theme::role(ColorRole::BorderInteractive)),
+                    )
+                })
+                .when(!highlighted, |d| {
+                    d.hover(|st| st.bg(theme::role(ColorRole::LayerHover01)))
+                })
+                .when(kbd_selected, |d| {
+                    d.child(
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .border_2()
+                            .border_color(theme::role(ColorRole::Focus)),
+                    )
+                })
+                .tooltip(ui::tip(tip))
+                .child(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .justify_center()
+                        .w(px(16.))
+                        .h(px(20.))
+                        .child(status_glyph),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w(px(0.))
+                        .gap(px(2.))
+                        .child(title_el)
+                        .children(meta_text.filter(|m| !m.is_empty()).map(|m| {
+                            ui::text(faces, m)
+                                .min_w(px(0.))
+                                .truncate()
+                                .text_size(px(crate::style::CAPTION))
+                                .line_height(px(16.))
+                                .text_color(meta_color)
+                        })),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .gap(px(6.))
+                        .h(px(20.))
+                        .children(pr_badge)
+                        .when(pinned, |d| {
+                            d.child(
+                                CarbonGlyph::carbon(CarbonIcon::PinFilled)
+                                    .size_length(px(12.))
+                                    .color(theme::muted()),
+                            )
+                        })
+                        .child(right_text),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .right(px(8.))
+                        .top(px(2.))
+                        .h(px(28.))
+                        .flex()
+                        .items_center()
+                        .pl(px(4.))
+                        .bg(if highlighted {
+                            theme::role(ColorRole::LayerSelected01)
+                        } else {
+                            theme::role(ColorRole::LayerHover01)
+                        })
+                        .invisible()
+                        .group_hover(group, gpui::Styled::visible)
+                        .child(on_hover),
+                )
+                .on_click(move |e, window, cx| {
+                    click.update(cx, |this, cx| this.side_click(key, e, window, cx));
+                })
+                .on_mouse_move(move |e: &gpui::MouseMoveEvent, _, cx| {
+                    if e.pressed_button == Some(gpui::MouseButton::Left) {
+                        over.update(cx, |d, cx| d.sweep_over(key, cx));
+                    }
+                })
+                .on_mouse_up(gpui::MouseButton::Left, move |_, _, cx| {
+                    up.update(cx, Desk::sweep_end);
+                })
+                .on_mouse_up_out(gpui::MouseButton::Left, move |_, _, cx| {
+                    up_out.update(cx, Desk::sweep_end);
+                })
+                .on_drag(dragged, |d, _, _, cx| cx.new(|_| d.clone()))
+                .drag_over::<Dragged>(|st, _, _, _| {
+                    st.bg(theme::role(ColorRole::LayerHover01))
+                        .shadow(drop_frame())
+                })
+                .on_drop(move |d: &Dragged, _, cx| {
+                    drop.update(cx, |this, cx| this.dropped(d.key, &Row::Session(key), cx));
+                })
+                .drag_over::<gpui::ExternalPaths>(|st, _, _, _| {
+                    st.bg(theme::role(ColorRole::LayerHover01))
+                })
+                .on_drop(move |p: &gpui::ExternalPaths, window, cx| {
+                    files.update(cx, |this, cx| {
+                        this.show(key, window, cx);
+                        this.drop_files(p.paths(), window, cx);
+                    });
+                })
+                .context_menu(move |menu, window, cx| {
+                    Desk::side_menu(&menu_desk, &row_id, menu, window, cx)
+                }),
+        )
+    }
+
+    fn thread_meta_line(&self, s: &Session) -> Option<String> {
+        if s.state == State::Draft && s.items.is_empty() {
+            return None;
+        }
+        let mut parts: Vec<String> = Vec::new();
+        let agent = self.name_of(&s.meta.agent);
+        let short_agent = agent
+            .strip_suffix(" Code")
+            .or_else(|| agent.strip_suffix(" CLI"))
+            .unwrap_or(&agent);
+        parts.push(short_agent.to_owned());
+        if let Some(server) = self.server_chip(s.host).filter(|_| s.host != Host::HERE) {
+            parts.push(server.to_owned());
+        }
+        if matches!(
+            lists::status(s),
+            Some(lists::Status::Failed | lists::Status::Limited)
+        ) {
+            parts.push(crate::tr(lists::status(s)?.word()).to_string());
+        } else if let Some(pr) = &s.git.pr {
+            parts.push(format!("PR #{} {}", pr.number, pr.state));
+        }
+        if !s.meta.tags.is_empty() {
+            parts.push(
+                s.meta
+                    .tags
+                    .iter()
+                    .map(|t| format!("#{t}"))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            );
+        }
+        Some(parts.join(" · "))
+    }
+
+    fn thread_hover_actions(
+        &self,
+        key: u64,
+        pinned: bool,
+        snoozed: bool,
+        settled: bool,
+        desk: &Entity<Self>,
+    ) -> Div {
+        let _ = self;
         let act = |id: &str, icon: &str, tip: &str| {
             Button::new(SharedString::from(format!("{id}-{key}")))
                 .ghost()
@@ -769,17 +1500,16 @@ impl Desk {
                 .accessibility_label(crate::tr(tip))
                 .tooltip(crate::tr(tip))
         };
-        let pinned = s.meta.flags.pinned.is_some();
         let unpin = desk.clone();
-        let on_hover = div().flex().items_center().gap(px(2.)).when(pinned, |d| {
+        let row = div().flex().items_center().gap(px(2.)).when(pinned, |d| {
             d.child(act("unpin", "pin", "Unpin").on_click(move |_, _, cx| {
                 cx.stop_propagation();
                 unpin.update(cx, |d, cx| d.unpin(vec![key], cx));
             }))
         });
-        let on_hover = if snoozed || settled {
+        if snoozed || settled {
             let desk = desk.clone();
-            on_hover.child(
+            row.child(
                 act("back", "undo-2", if snoozed { "Wake" } else { "Un-settle" }).on_click(
                     move |_, _, cx| {
                         cx.stop_propagation();
@@ -795,154 +1525,25 @@ impl Desk {
             )
         } else {
             let (snooze, settle) = (desk.clone(), desk.clone());
-            on_hover
-                .child(
-                    act("snooze", "clock", "Snooze")
-                        .dropdown_menu(move |menu, _, cx| snooze_items(menu, &snooze, &[key], cx)),
-                )
-                .child(
-                    act(
-                        "settle",
-                        "check",
-                        "Settle · drag across rows to settle them too",
-                    )
-                    .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
-                        cx.stop_propagation();
-                        settle.update(cx, |d, cx| d.sweep_from(key, cx));
-                    })
-                    .on_click(|_, _, cx| cx.stop_propagation()),
-                )
-        };
-        // On hover, a card: its whole title, its agent, where it works, its
-        // branch, and the last thing the agent said.
-        let mut card = format!(
-            "{}\n{} · {}",
-            s.meta.title,
-            self.name_of(&s.meta.agent),
-            Desk::shown(&s.meta.folder)
-        );
-        if let Some(b) = &s.branch {
-            card.push_str(" · ");
-            card.push_str(b);
-        }
-        if let Some(said) = s.items.iter().rev().find_map(|i| match i {
-            crate::session::Item::Agent(t) => Some(gist(t)).filter(|g| !g.is_empty()),
-            _ => None,
-        }) {
-            card.push_str("\n\n");
-            card.push_str(&said);
-        }
-        let dragged = Dragged {
-            key,
-            title: SharedString::from(ui::fit(&title, 40)),
-        };
-        let (click, drop, files) = (desk.clone(), desk.clone(), desk.clone());
-        let (over, up, up_out) = (desk.clone(), desk.clone(), desk.clone());
-        item.when(in_folder, |d| d.pl(px(36.)))
-            .when(
-                self.chosen.contains(&key) || self.sweep.contains(&key),
-                |d| d.bg(theme::row_chosen()),
+            row.child(
+                act("snooze", "clock", "Snooze")
+                    .dropdown_menu(move |menu, _, cx| snooze_items(menu, &snooze, &[key], cx)),
             )
             .child(
-                div()
-                    .id(group.clone())
-                    .relative()
-                    .group(group.clone())
-                    .flex()
-                    .items_center()
-                    .gap(px(10.))
-                    .tooltip(ui::tip(card))
-                    // Its agent's logo, faint until the row is hovered.
-                    .child(
-                        div()
-                            .flex_none()
-                            .opacity(if open { 1. } else { 0.5 })
-                            .group_hover(group.clone(), |st| st.opacity(1.))
-                            .child(if draft {
-                                ui::icon("square-pen", 16.)
-                                    .text_color(theme::accent())
-                                    .into_any_element()
-                            } else {
-                                ui::mark(faces, &self.mark_of(&s.meta.agent), 16.)
-                            }),
-                    )
-                    .when(pinned, |d| {
-                        d.child(ui::icon("pin", 12.).flex_none().text_color(theme::faint()))
-                    })
-                    .child(name)
-                    .when(!s.meta.tags.is_empty(), |d| {
-                        d.child(
-                            ui::text(faces, tagged("", &s.meta.tags).trim().to_owned())
-                                .flex_none()
-                                .text_size(px(crate::style::CAPTION))
-                                .text_color(theme::muted()),
-                        )
-                    })
-                    .children(s.git.pr.as_ref().map(|pr| {
-                        ui::text(faces, format!("#{}", pr.number))
-                            .flex_none()
-                            .text_size(px(crate::style::CAPTION))
-                            .text_color(theme::muted())
-                    }))
-                    .child(div().flex_none().child(end))
-                    // On hover the buttons cover where it stands, on the
-                    // row's own ground.
-                    .child(
-                        div()
-                            .absolute()
-                            .right_0()
-                            .h_full()
-                            .flex()
-                            .items_center()
-                            .pl(px(4.))
-                            .bg(theme::rail().blend(if open {
-                                theme::row_open()
-                            } else {
-                                theme::row_hover()
-                            }))
-                            .invisible()
-                            .group_hover(group, gpui::Styled::visible)
-                            .child(on_hover),
-                    )
-                    // Settle held down and dragged over it settles it too;
-                    // let go anywhere, all it passed are settled.
-                    .on_mouse_move(move |e: &gpui::MouseMoveEvent, _, cx| {
-                        if e.pressed_button == Some(gpui::MouseButton::Left) {
-                            over.update(cx, |d, cx| d.sweep_over(key, cx));
-                        }
-                    })
-                    .on_mouse_up(gpui::MouseButton::Left, move |_, _, cx| {
-                        up.update(cx, Desk::sweep_end);
-                    })
-                    .on_mouse_up_out(gpui::MouseButton::Left, move |_, _, cx| {
-                        up_out.update(cx, Desk::sweep_end);
-                    })
-                    // Dragged onto another row, it takes that row's place
-                    // in the lists.
-                    .on_drag(dragged, |d, _, _, cx| cx.new(|_| d.clone()))
-                    .drag_over::<Dragged>(|st, _, _, _| st.bg(theme::row_hover()))
-                    .on_drop(move |d: &Dragged, _, cx| {
-                        drop.update(cx, |this, cx| this.dropped(d.key, &Row::Session(key), cx));
-                    })
-                    // Files dropped on it go with what you write next there.
-                    .drag_over::<gpui::ExternalPaths>(|st, _, _, _| st.bg(theme::row_hover()))
-                    .on_drop(move |p: &gpui::ExternalPaths, window, cx| {
-                        files.update(cx, |this, cx| {
-                            this.show(key, window, cx);
-                            this.drop_files(p.paths(), window, cx);
-                        });
-                    }),
+                act(
+                    "settle",
+                    "check",
+                    "Settle · drag across rows to settle them too",
+                )
+                .on_mouse_down(gpui::MouseButton::Left, move |_, _, cx| {
+                    cx.stop_propagation();
+                    settle.update(cx, |d, cx| d.sweep_from(key, cx));
+                })
+                .on_click(|_, _, cx| cx.stop_propagation()),
             )
-            .on_click(move |e, window, cx| {
-                click.update(cx, |this, cx| this.side_click(key, e, window, cx));
-            })
+        }
     }
 
-    /// The session `moved` dropped on the row `on`, as t3code's sections
-    /// take it: onto a pinned one, pinned there; onto Settled or a settled
-    /// one, settled; onto a folder or a session in one, back among the
-    /// active (unpinned, un-settled, woken). Nothing is snoozed by a drop,
-    /// which needs a time.
     pub(crate) fn dropped(&mut self, moved: u64, on: &Row, cx: &mut Context<Self>) {
         let flags = |key: u64| self.sessions.at(key).map(|s| s.meta.flags.clone());
         match on {
@@ -953,6 +1554,15 @@ impl Desk {
                 }
                 self.move_session(moved, *key, cx);
             }
+            Row::Shelf(Shelf::Pinned) => {
+                if self
+                    .sessions
+                    .at(moved)
+                    .is_some_and(|s| s.meta.flags.pinned.is_none())
+                {
+                    self.toggle_pin(moved, cx);
+                }
+            }
             Row::Shelf(Shelf::Settled) => self.undoable(lists::Undone::Settle, &[moved], cx),
             Row::Session(key) if flags(*key).is_some_and(|f| f.settled.is_some()) => {
                 self.undoable(lists::Undone::Settle, &[moved], cx);
@@ -962,14 +1572,10 @@ impl Desk {
                 f.settled = None;
                 f.snoozed = None;
             }),
-            Row::Server(_) | Row::Shelf(Shelf::Snoozed) | Row::More => {}
+            Row::Server(_) | Row::Shelf(Shelf::Snoozed | Shelf::NeedsYou) | Row::More => {}
         }
     }
 
-    /// Keys in the list, past those the tree takes (↑ ↓ → ←, ⇧F10):
-    /// Return or Space opens the session chosen, F2 renames it or its
-    /// project, Home and End go to the first and last row. Whether one
-    /// was taken.
     pub(crate) fn side_key(
         &mut self,
         k: &gpui::Keystroke,
@@ -979,37 +1585,67 @@ impl Desk {
         if k.modifiers.modified() {
             return false;
         }
-        let (row, len) = {
+        let (ix, row, is_folder, is_open, len) = {
             let tree = self.side.read(cx);
-            // The rows shown: at most every row the shape holds.
-            let len = (0..self.side_shape.len())
-                .take_while(|ix| tree.entry(*ix).is_some())
+            let len = (0..self.side_shape.len().max(1))
+                .take_while(|i| tree.entry(*i).is_some())
                 .count();
-            let row = tree.selected_entry().and_then(|e| Row::of(&e.item().id));
-            (row, len)
+            let ix = tree.selected_index();
+            let entry = tree.selected_entry();
+            let row = entry.and_then(|e| Row::of(&e.item().id));
+            let is_folder = entry.is_some_and(gpui::base::TreeEntry::is_folder);
+            let is_open = entry.is_some_and(gpui::base::TreeEntry::is_expanded);
+            (ix, row, is_folder, is_open, len)
         };
-        match (k.key.as_str(), row) {
-            ("enter" | "space", Some(Row::Session(key))) => self.show(key, window, cx),
-            ("f2", Some(Row::Session(key))) => {
-                self.begin_rename(Renaming::Session { key, here: false }, window, cx);
+        match k.key.as_str() {
+            "up" if len > 0 => {
+                let next = ix.unwrap_or(0).checked_sub(1).unwrap_or(len - 1);
+                self.side
+                    .update(cx, |tree, cx| tree.set_selected_index(Some(next), cx));
             }
-            ("f2", Some(Row::Project(folder))) => {
-                self.begin_rename(Renaming::Project(folder), window, cx);
+            "down" if len > 0 => {
+                let next = match ix {
+                    Some(i) if i + 1 < len => i + 1,
+                    _ => 0,
+                };
+                self.side
+                    .update(cx, |tree, cx| tree.set_selected_index(Some(next), cx));
             }
-            ("home" | "end", _) if len > 0 => {
-                let ix = if k.key == "home" { 0 } else { len - 1 };
-                self.side.update(cx, |tree, cx| {
-                    tree.set_selected_index(Some(ix), cx);
-                    tree.scroll_to_item(ix, gpui::ScrollStrategy::Nearest);
-                });
+            "left" if is_folder && is_open => {
+                if let Some(r) = row {
+                    self.side_folded(&r.id(), false, cx);
+                }
+            }
+            "right" if is_folder && !is_open => {
+                if let Some(r) = row {
+                    self.side_folded(&r.id(), true, cx);
+                }
+            }
+            "enter" | "space" => match row {
+                Some(Row::Session(key)) => self.show(key, window, cx),
+                Some(r) if is_folder => self.side_folded(&r.id(), !is_open, cx),
+                _ => return false,
+            },
+            "f2" => match row {
+                Some(Row::Session(key)) => {
+                    self.begin_rename(Renaming::Session { key, here: false }, window, cx);
+                }
+                Some(Row::Project(folder)) => {
+                    self.begin_rename(Renaming::Project(folder), window, cx);
+                }
+                _ => return false,
+            },
+            "home" | "end" if len > 0 => {
+                let to = if k.key == "home" { 0 } else { len - 1 };
+                self.side
+                    .update(cx, |tree, cx| tree.set_selected_index(Some(to), cx));
             }
             _ => return false,
         }
+        cx.notify();
         true
     }
 
-    /// ⌘ held a moment shows each of the first nine sessions' number, to
-    /// go to it with ⌘ and that digit; let go, their times again.
     pub(crate) fn command_held(&mut self, held: bool, cx: &mut Context<Self>) {
         if !held {
             if self.numbers_shown {
@@ -1038,9 +1674,7 @@ impl Desk {
         .detach();
     }
 
-    /// A session's row clicked: with ⌘ chosen among others (or no longer),
-    /// with ⇧ the run from the last chosen to it; else opened.
-    fn side_click(
+    pub(super) fn side_click(
         &mut self,
         key: u64,
         e: &gpui::ClickEvent,
@@ -1067,443 +1701,76 @@ impl Desk {
         cx.notify();
     }
 
-    /// The menu of the row `id`, on a right click or Shift+F10: a
-    /// session's, or with others chosen theirs together; a project's. What
-    /// it says is read from the desk first, then built with the menu's own
-    /// context, which its submenus need.
-    pub(crate) fn side_menu(
-        desk: &Entity<Self>,
-        id: &str,
-        menu: PopupMenu,
-        window: &mut Window,
-        cx: &mut Context<PopupMenu>,
-    ) -> PopupMenu {
-        let plan = {
-            let d = desk.read(cx);
-            match Row::of(id) {
-                Some(Row::Session(key)) if d.chosen.len() > 1 && d.chosen.contains(&key) => {
-                    Plan::Chosen(d.chosen.iter().copied().collect())
-                }
-                Some(Row::Session(key)) => match d.sessions.at(key) {
-                    Some(s) => Plan::Session(d.facts(s)),
-                    None => return menu,
-                },
-                Some(Row::Project(folder)) => {
-                    let pinned = d.prefs(&folder).pinned;
-                    Plan::Project(folder, pinned)
-                }
-                Some(Row::Server(host)) => Plan::Server(host),
-                _ => return menu,
-            }
-        };
-        match plan {
-            Plan::Session(f) => session_menu(menu, &f, desk, window, cx),
-            Plan::Chosen(keys) => chosen_menu(menu, &keys, desk, window, cx),
-            Plan::Project(folder, pinned) => project_menu(menu, &folder, pinned, desk),
-            Plan::Server(host) => server_menu(menu, host, desk),
-        }
-    }
-
-    /// What a session's menu says of it.
-    fn facts(&self, s: &Session) -> Facts {
-        let now = store::secs(SystemTime::now());
-        let busy = matches!(s.state, State::Working | State::Opening);
-        Facts {
-            key: s.key,
-            pinned: s.meta.flags.pinned.is_some(),
-            settled: s.meta.flags.settled.is_some(),
-            snoozed: s.meta.flags.snoozed.is_some_and(|t| t > now),
-            unread: s.meta.flags.unread,
-            kept: s.meta.flags.kept,
-            busy,
-            fork: self.can_fork(s) && !busy,
-            others: if s.meta.id.is_some() {
-                self.others(s.host, &s.meta.agent)
-            } else {
-                Vec::new()
-            },
-            new_on: s.meta.worktree.is_some().then(|| {
-                (s.branch.clone()).unwrap_or_else(|| crate::tr("its worktree").to_string())
-            }),
-            folder: s.meta.folder.display().to_string(),
-            branch: s.branch.clone(),
-            id: s.meta.id.as_ref().map(|id| id.0.to_string()),
-            link: (s.meta.id.as_ref())
-                .map(|id| crate::desk::links::Link::to_session(&s.meta.agent, &id.0)),
-        }
-    }
-}
-
-/// What a row's menu is of.
-enum Plan {
-    Session(Facts),
-    Chosen(Vec<u64>),
-    Project(Place, bool),
-    Server(Host),
-}
-
-/// What a session's menu says of it, read from the desk before it is built.
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "each is a fact of its own about the thread, not a state among several"
-)]
-struct Facts {
-    key: u64,
-    pinned: bool,
-    settled: bool,
-    snoozed: bool,
-    unread: bool,
-    kept: bool,
-    busy: bool,
-    fork: bool,
-    /// The other agents it could go on with, by id and name.
-    others: Vec<(String, String)>,
-    /// The branch a new session on its worktree would work on.
-    new_on: Option<String>,
-    folder: String,
-    branch: Option<String>,
-    id: Option<String>,
-    /// The `u0://` link that opens it.
-    link: Option<String>,
-}
-
-/// An item of a menu: its label, its icon, and what it does.
-fn item(
-    label: impl Into<gpui::SharedString>,
-    icon: &str,
-    f: impl Fn(&mut Window, &mut App) + 'static,
-) -> PopupMenuItem {
-    PopupMenuItem::new(label)
-        .icon(ui::menu_glyph(icon))
-        .on_click(move |_, window, cx| f(window, cx))
-}
-
-/// An item that copies `text`.
-fn copy_item(label: &str, text: String) -> PopupMenuItem {
-    item(crate::tr(label), "copy", move |_, cx| {
-        cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
-    })
-}
-
-/// What can be done with a session, as t3code's menu has it.
-fn session_menu(
-    menu: PopupMenu,
-    f: &Facts,
-    desk: &Entity<Desk>,
-    window: &mut Window,
-    cx: &mut Context<PopupMenu>,
-) -> PopupMenu {
-    let key = f.key;
-    let on = |g: fn(&mut Desk, u64, &mut Window, &mut Context<Desk>)| {
-        let desk = desk.clone();
-        move |window: &mut Window, cx: &mut App| desk.update(cx, |d, cx| g(d, key, window, cx))
-    };
-    let mut menu = menu
-        .item(item(
-            crate::tr("Rename"),
-            "pencil",
-            on(|d, key, window, cx| {
-                d.begin_rename(Renaming::Session { key, here: false }, window, cx);
-            }),
-        ))
-        .when(f.id.is_some(), |m| {
-            m.item(item(
-                crate::tr("Regenerate title"),
-                "retry",
-                on(|d, key, _, cx| d.retitle(key, cx)),
-            ))
-        })
-        .item(item(
-            crate::tr(if f.pinned { "Unpin" } else { "Pin" }),
-            "pin",
-            on(|d, key, _, cx| d.toggle_pin(key, cx)),
-        ))
-        .item(item(
-            crate::tr(if f.settled { "Un-settle" } else { "Settle" }),
-            "check",
-            on(|d, key, _, cx| d.toggle_settled(key, cx)),
-        ));
-    menu = if f.snoozed {
-        menu.item(item(
-            crate::tr("Wake"),
-            "clock",
-            on(|d, key, _, cx| d.wake(key, cx)),
-        ))
-    } else {
-        let desk = desk.clone();
-        menu.submenu_with_icon(
-            Some(ui::menu_glyph("clock")),
-            crate::tr("Snooze"),
-            window,
-            cx,
-            move |menu, _, cx| snooze_items(menu, &desk, &[key], cx),
-        )
-    };
-    if !f.unread {
-        menu = menu.item(item(
-            crate::tr("Mark unread"),
-            "bell",
-            on(|d, key, _, cx| d.mark_unread(key, cx)),
-        ));
-    }
-    menu = menu
-        .item(item(
-            crate::tr("Find in thread"),
-            "search",
-            on(|d, key, window, cx| {
-                d.show(key, window, cx);
-                if !d.find.open {
-                    d.toggle_find(window, cx);
-                }
-            }),
-        ))
-        .item(item(
-            crate::tr("Filter by project"),
-            "folder",
-            on(|d, key, _, cx| {
-                if let Some(p) = d.sessions.at(key).map(Place::project_of) {
-                    d.filter = vec![d.listed_under(&p)];
-                    cx.notify();
-                }
-            }),
-        ))
-        .item(item(
-            crate::tr("Project settings"),
-            "settings",
-            on(|d, key, window, cx| {
-                if let Some(p) = d.sessions.at(key).map(Place::project_of) {
-                    d.project_settings(&p, window, cx);
-                }
-            }),
-        ));
-    if let Some(branch) = &f.new_on {
-        menu = menu.item(item(
-            crate::tr_with(
-                "New thread on %{branch}",
-                &[("branch", &ui::fit(branch, 22))],
-            ),
-            "square-pen",
-            on(Desk::new_in_worktree),
-        ));
-    }
-    if f.fork {
-        menu = menu.item(item(
-            crate::tr("Branch off a copy"),
-            "branch",
-            on(|d, key, _, cx| d.fork(key, cx)),
-        ));
-    }
-    if !f.others.is_empty() {
-        let (others, hand) = (f.others.clone(), desk.clone());
-        menu = menu.submenu_with_icon(
-            Some(ui::menu_glyph("corner-up-right")),
-            crate::tr("Continue with"),
-            window,
-            cx,
-            move |mut menu, _, _| {
-                for (id, name) in &others {
-                    let (desk, id) = (hand.clone(), id.clone());
-                    menu = menu.item(PopupMenuItem::new(name.clone()).on_click(
-                        move |_, window, cx| {
-                            desk.update(cx, |d, cx| d.hand_off(key, &id, window, cx));
-                        },
-                    ));
-                }
-                menu
-            },
-        );
-    }
-    let (copy_desk, folder, branch, id, link) = (
-        desk.clone(),
-        f.folder.clone(),
-        f.branch.clone(),
-        f.id.clone(),
-        f.link.clone(),
-    );
-    menu = menu.separator().submenu_with_icon(
-        Some(ui::menu_glyph("copy")),
-        crate::tr("Copy"),
-        window,
-        cx,
-        move |menu, _, _| {
-            let desk = copy_desk.clone();
-            let menu = menu
-                .item(item(crate::tr("The conversation"), "copy", move |_, cx| {
-                    desk.update(cx, |d, cx| d.copy_thread(key, cx));
-                }))
-                .item(copy_item("Path", folder.clone()));
-            let menu = match &branch {
-                Some(b) => menu.item(copy_item("Branch", b.clone())),
-                None => menu,
-            };
-            let menu = match &link {
-                Some(l) => menu.item(copy_item("Link", l.clone())),
-                None => menu,
-            };
-            match &id {
-                Some(id) => menu.item(copy_item("Thread ID", id.clone())),
-                None => menu,
-            }
-        },
-    );
-    menu = menu.separator().item(item(
-        crate::tr(if f.kept {
-            "Let it settle on its own"
-        } else {
-            "Never settle on its own"
-        }),
-        "circle-dot",
-        on(|d, key, _, cx| d.mark(key, cx, |f| f.kept = !f.kept)),
-    ));
-    if !f.busy {
-        menu = menu
-            .item(item(
-                crate::tr("Archive"),
-                "archive",
-                on(|d, key, _, cx| d.archive(key, cx)),
-            ))
-            .item(item(
-                crate::tr("Delete"),
-                "trash",
-                on(|d, key, window, cx| d.ask_delete(vec![key], window, cx)),
-            ));
-    }
-    menu
-}
-
-/// What can be done with the sessions chosen, all at once.
-fn chosen_menu(
-    menu: PopupMenu,
-    keys: &[u64],
-    desk: &Entity<Desk>,
-    window: &mut Window,
-    cx: &mut Context<PopupMenu>,
-) -> PopupMenu {
-    let n = keys.len();
-    let each = |label: &str, icon: &str, f: fn(&mut Desk, Vec<u64>, &mut Context<Desk>)| {
-        let (desk, keys) = (desk.clone(), keys.to_vec());
-        item(crate::tr_with(label, &[("n", &n)]), icon, move |_, cx| {
-            desk.update(cx, |d, cx| f(d, keys.clone(), cx));
-        })
-    };
-    let (snooze, gone, keys) = (desk.clone(), desk.clone(), keys.to_vec());
-    menu.item(each("Unpin (%{n})", "pin", Desk::unpin))
-        .item(each("Settle (%{n})", "check", |d, keys, cx| {
-            d.undoable(lists::Undone::Settle, &keys, cx);
-        }))
-        .item(each("Mark unread (%{n})", "bell", |d, keys, cx| {
-            for key in keys {
-                d.mark_unread(key, cx);
-            }
-            d.chosen.clear();
-        }))
-        .submenu_with_icon(
-            Some(ui::menu_glyph("clock")),
-            crate::tr_with("Snooze (%{n})", &[("n", &n)]),
-            window,
-            cx,
-            move |menu, _, cx| snooze_items(menu, &snooze, &keys, cx),
-        )
-        .separator()
-        .item(item(
-            crate::tr_with("Delete (%{n})", &[("n", &n)]),
-            "trash",
-            move |window, cx| {
-                gone.update(cx, |d, cx| {
-                    let keys = std::mem::take(&mut d.chosen).into_iter().collect();
-                    d.ask_delete(keys, window, cx);
-                });
-            },
-        ))
-}
-
-/// What can be done with a project, as t3code's menu has it: begin a
-/// session in it, copy its path, pin it, and its settings.
-fn project_menu(menu: PopupMenu, folder: &Place, pinned: bool, desk: &Entity<Desk>) -> PopupMenu {
-    let on = |f: fn(&mut Desk, &Place, &mut Window, &mut Context<Desk>)| {
-        let (desk, folder) = (desk.clone(), folder.clone());
-        move |window: &mut Window, cx: &mut App| desk.update(cx, |d, cx| f(d, &folder, window, cx))
-    };
-    menu.item(item(
-        crate::tr("New thread"),
-        "square-pen",
-        on(|d, f, window, cx| d.new_in(f.clone(), window, cx)),
-    ))
-    .item(copy_item("Copy path", folder.folder.display().to_string()))
-    .item(item(
-        crate::tr(if pinned {
-            "Unpin project"
-        } else {
-            "Pin project"
-        }),
-        "pin",
-        on(|d, f, _, cx| d.toggle_project_pin(f, cx)),
-    ))
-    .item(item(
-        crate::tr("Project settings"),
-        "settings",
-        on(Desk::project_settings),
-    ))
-}
-
-/// What can be done with a server the window holds: reach it again, see
-/// its settings.
-fn server_menu(menu: PopupMenu, host: Host, desk: &Entity<Desk>) -> PopupMenu {
-    let (again, settings) = (desk.clone(), desk.clone());
-    menu.item(item(crate::tr("Reach it again"), "retry", move |_, cx| {
-        again.update(cx, |d, cx| d.reach_again(host, cx));
-    }))
-    .item(item(
-        crate::tr("Its settings"),
-        "settings",
-        move |window, cx| {
-            settings.update(cx, |d, cx| d.settings_of(host, window, cx));
-        },
-    ))
-}
-
-/// The ways to snooze the sessions `keys`, as menu items.
-fn snooze_items(menu: PopupMenu, desk: &Entity<Desk>, keys: &[u64], cx: &App) -> PopupMenu {
-    let presets = desk.read(cx).snoozes();
-    let menu = presets.into_iter().fold(menu, |menu, (label, later)| {
-        let (desk, keys) = (desk.clone(), keys.to_vec());
-        menu.item(item(&label, "clock", move |_, cx| {
-            desk.update(cx, |d, cx| d.snooze(&keys, later, cx));
-        }))
-    });
-    let (desk, keys) = (desk.clone(), keys.to_vec());
-    menu.separator()
-        .item(item(crate::tr("Custom…"), "clock", move |window, cx| {
-            desk.update(cx, |d, cx| d.snooze_page(keys.clone(), window, cx));
-        }))
-}
-
-/// A folder's chevron at its end: down when open, turned when folded.
-fn chevron(open: bool) -> gpui::Svg {
-    ui::icon(
-        if open {
-            "chevron-down"
-        } else {
-            "chevron-right"
-        },
-        12.,
-    )
-    .flex_none()
-    .text_color(theme::faint())
-}
-
-/// The input in place of a row's name, while it is renamed.
-impl Desk {
     pub(crate) fn rename_field(&self) -> gpui::Div {
         div()
             .flex_1()
             .min_w(px(0.))
-            .child(Input::new(&self.rename).xsmall())
+            .h(px(28.))
+            .px(px(6.))
+            .flex()
+            .items_center()
+            .bg(theme::role(ColorRole::Field01))
+            .border_b_1()
+            .border_color(theme::role(ColorRole::BorderStrong01))
+            .shadow(vec![BoxShadow {
+                color: theme::role(ColorRole::Focus),
+                offset: point(px(0.), px(0.)),
+                blur_radius: px(0.),
+                spread_radius: px(2.),
+                inset: true,
+            }])
+            .child(Input::new(&self.rename).appearance(false).xsmall())
     }
 }
 
-/// The desk's tree for the sidebar, its folders' opening and folding kept
-/// by the desk.
+fn count_colors(st: T3Status) -> (gpui::Hsla, gpui::Hsla) {
+    match st {
+        T3Status::NeedsYou => (
+            theme::role(ColorRole::SupportWarning),
+            rgb(0x0016_1616).into(),
+        ),
+        T3Status::Failed => (
+            theme::role(ColorRole::SupportError),
+            if theme::is_light() {
+                gpui::white()
+            } else {
+                rgb(0x0016_1616).into()
+            },
+        ),
+        T3Status::Working => (
+            theme::role(ColorRole::TagBackgroundBlue),
+            theme::role(ColorRole::TagColorBlue),
+        ),
+        _ => (theme::role(ColorRole::LayerAccent01), theme::text2()),
+    }
+}
+
+fn folder_counts(sessions: &[&Session]) -> FolderCounts {
+    let mut c = FolderCounts::default();
+    for s in sessions {
+        match lists::status(s) {
+            Some(lists::Status::Approval | lists::Status::SignIn | lists::Status::Plan) => {
+                c.needs_you += 1;
+            }
+            Some(lists::Status::Failed | lists::Status::Limited) => c.failed += 1,
+            Some(lists::Status::Working) => c.working += 1,
+            Some(lists::Status::Done | lists::Status::Woke) => c.done += 1,
+            None => {}
+        }
+    }
+    c
+}
+
+fn drop_frame() -> Vec<BoxShadow> {
+    vec![BoxShadow {
+        color: theme::role(ColorRole::BorderInteractive),
+        offset: point(px(0.), px(0.)),
+        blur_radius: px(0.),
+        spread_radius: px(2.),
+        inset: true,
+    }]
+}
+
 pub(crate) fn side_tree(window: &mut Window, cx: &mut Context<Desk>) -> Entity<TreeState> {
     let _ = window;
     let tree = cx.new(|cx| TreeState::new(cx));
@@ -1550,12 +1817,27 @@ mod tests {
             Row::Server(Host(3)),
             Row::Project(Place::new(Host(2), "/a/b: c")),
             Row::Session(42),
+            Row::Shelf(Shelf::Pinned),
+            Row::Shelf(Shelf::NeedsYou),
             Row::Shelf(Shelf::Snoozed),
             Row::Shelf(Shelf::Settled),
             Row::More,
         ] {
             assert_eq!(Row::of(&row.id()), Some(row));
         }
+    }
+
+    #[test]
+    fn shelf_defaults_keep_pinned_and_needs_you_open_and_others_folded() {
+        let mut expanded = std::collections::HashSet::new();
+        assert!(shelf_is_open(&expanded, Shelf::Pinned));
+        assert!(shelf_is_open(&expanded, Shelf::NeedsYou));
+        assert!(!shelf_is_open(&expanded, Shelf::Snoozed));
+        assert!(!shelf_is_open(&expanded, Shelf::Settled));
+        expanded.insert(shelf_key(Shelf::NeedsYou));
+        expanded.insert(shelf_key(Shelf::Settled));
+        assert!(!shelf_is_open(&expanded, Shelf::NeedsYou));
+        assert!(shelf_is_open(&expanded, Shelf::Settled));
     }
 
     #[test]

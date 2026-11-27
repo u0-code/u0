@@ -126,8 +126,8 @@ pub enum Popup {
     Repository,
     /// How to take a session back to one of your messages: by key and item.
     Rewind(u64, usize),
-    /// The projects the sidebar shows.
-    Projects,
+    /// How the sidebar sorts threads and projects.
+    SidebarSort,
     /// The project a new session works in, from its chip.
     StartIn,
     /// The writer: an agent and its model, in the settings.
@@ -222,6 +222,10 @@ pub struct Desk {
     pub sweep: Vec<u64>,
     /// The projects the sidebar shows; none chosen, all.
     pub filter: Vec<Place>,
+    /// The `#tag`s the sidebar shows; none chosen, all.
+    pub tag_filter: Vec<String>,
+    /// Whether the sidebar's inline search bar is open.
+    pub search_open: bool,
     /// Sessions deleted whose worktree you kept.
     pub keep_worktree: HashSet<u64>,
     /// The image looked at large: the session's key and its item.
@@ -574,6 +578,8 @@ impl Desk {
             renaming: None,
             zoom: None,
             filter: Vec::new(),
+            tag_filter: Vec::new(),
+            search_open: false,
             keep_worktree: HashSet::new(),
             chosen: std::collections::BTreeSet::new(),
             sweep: Vec::new(),
@@ -1614,11 +1620,15 @@ impl Desk {
             self.cancel_rename(cx);
         } else if self.find.open && typing_in(&self.find.input, cx) {
             self.toggle_find(window, cx);
-        } else if typing_in(&self.search.input, cx) {
+        } else if typing_in(&self.search.input, cx) || self.search_open {
             self.search
                 .input
                 .update(cx, |i, cx| i.set_value("", window, cx));
+            self.search_open = false;
             window.focus(&self.composer.input.focus_handle(cx), cx);
+            cx.notify();
+        } else if self.chosen.len() > 1 {
+            self.chosen.clear();
             cx.notify();
         } else if self.pages.open {
             self.close_settings(window, cx);

@@ -1085,15 +1085,33 @@ impl Desk {
         self.send_in(key, "Carry out the plan.", cx);
     }
 
-    /// Show the project `p` in the sidebar among those chosen, or no
-    /// longer; with none chosen, all are shown.
-    pub fn toggle_filter(&mut self, p: &super::Place, cx: &mut Context<Self>) {
-        if let Some(at) = self.filter.iter().position(|f| f == p) {
-            self.filter.remove(at);
+    /// Toggle `#tag` in the sidebar's tag filter; with none chosen, all
+    /// threads are shown.
+    pub fn toggle_tag_filter(&mut self, tag: &str, cx: &mut Context<Self>) {
+        if let Some(at) = self.tag_filter.iter().position(|t| t == tag) {
+            self.tag_filter.remove(at);
         } else {
-            self.filter.push(p.clone());
+            self.tag_filter.push(tag.to_owned());
         }
         cx.notify();
+    }
+
+    /// Replace the sidebar's active `#tag` filter values.
+    pub fn set_tag_filter(&mut self, tags: Vec<String>, cx: &mut Context<Self>) {
+        self.tag_filter = tags;
+        cx.notify();
+    }
+
+    /// Every `#tag` across non-archived threads, ordered most-used first, then
+    /// alphabetically.
+    pub fn all_tags(&self) -> Vec<(String, usize)> {
+        tag_counts(
+            self.sessions
+                .all
+                .iter()
+                .filter(|s| self.listed_now(s))
+                .map(|s| s.meta.tags.as_slice()),
+        )
     }
 
     /// Search what was said in each session for what is typed in the
@@ -1234,6 +1252,33 @@ impl Status {
     }
 }
 
+/// Count `#tag` occurrences across thread tag slices, ordered by descending
+/// count then name.
+pub fn tag_counts<'a>(threads: impl IntoIterator<Item = &'a [String]>) -> Vec<(String, usize)> {
+    let mut counts: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for tags in threads {
+        for tag in tags {
+            if !tag.is_empty() {
+                *counts.entry(tag.clone()).or_default() += 1;
+            }
+        }
+    }
+    let mut out: Vec<(String, usize)> = counts.into_iter().collect();
+    out.sort_by(|(a, ac), (b, bc)| bc.cmp(ac).then_with(|| a.cmp(b)));
+    out
+}
+
+/// What a thread in the sidebar's `Needs you` shelf is waiting on, when it
+/// belongs on that shelf (`Approval`, `SignIn`, or `Plan`).
+pub fn needs_you_why(s: &Session) -> Option<&'static str> {
+    match status(s)? {
+        Status::Approval => Some("Answer a permission"),
+        Status::SignIn => Some("Sign in"),
+        Status::Plan => Some("Review plan"),
+        _ => None,
+    }
+}
+
 /// Where the session `s` stands, when that is anything to say.
 pub fn status(s: &Session) -> Option<Status> {
     match &s.state {
@@ -1309,5 +1354,20 @@ mod tests {
         assert_eq!(status(&s), None);
         s.meta.flags.snoozed = Some(store::secs(SystemTime::now()) - 60);
         assert_eq!(status(&s), Some(Status::Woke));
+    }
+
+    #[test]
+    fn tags_count_most_used_first_and_needs_you_identifies_waiting_threads() {
+        let a = vec!["release".to_owned(), "docs".to_owned()];
+        let b = vec!["release".to_owned(), "bug".to_owned()];
+        assert_eq!(
+            tag_counts([a.as_slice(), b.as_slice()]),
+            vec![("release".into(), 2), ("bug".into(), 1), ("docs".into(), 1)]
+        );
+        let mut s = Session::new(2, "claude-acp", "/r".into());
+        s.state = State::SignIn;
+        assert_eq!(needs_you_why(&s), Some("Sign in"));
+        s.state = State::Working;
+        assert_eq!(needs_you_why(&s), None);
     }
 }
