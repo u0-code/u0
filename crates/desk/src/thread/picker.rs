@@ -28,6 +28,9 @@ use crate::{
     theme, ui,
 };
 
+/// What the picker leaves of the thread's column, at its edges together.
+const PICKER_MARGIN: f32 = 16.;
+
 /// What the rail has chosen: your favourites, or one agent by id.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum Rail {
@@ -238,7 +241,8 @@ impl Desk {
         }
     }
 
-    /// The picker: its three columns over its foot.
+    /// The picker: its three columns over its foot, no wider than the
+    /// thread's column: in a narrow one the list narrows.
     fn picker(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let Some(s) = self.session() else {
             return div();
@@ -248,6 +252,7 @@ impl Desk {
         div()
             .flex()
             .flex_col()
+            .max_w(self.column.size.width - px(PICKER_MARGIN))
             .rounded(px(0.))
             .bg(theme::role(u0ui::tokens::ColorRole::Layer01))
             .overflow_hidden()
@@ -263,18 +268,18 @@ impl Desk {
     }
 
     /// The rail: your favourites, then each agent switched on, the one
-    /// chosen marked at its edge.
+    /// chosen selected, with u0ui's 3px `border-interactive` rail at its
+    /// start edge: inside its button, never over the list beside it.
     fn rail(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Stateful<Div> {
         let draft = Self::is_draft(s);
         let pill = || {
             div()
                 .absolute()
-                .top(px(8.))
-                .right(px(-4.))
+                .top_0()
+                .bottom_0()
+                .left_0()
                 .w(px(3.))
-                .h(px(20.))
-                .rounded(px(2.))
-                .bg(theme::accent())
+                .bg(theme::role(u0ui::tokens::ColorRole::BorderInteractive))
         };
         let favourites = self.picker.rail == Rail::Favourites;
         let mut rail = div()
@@ -295,6 +300,7 @@ impl Desk {
                         Button::new("rail-favourites")
                             .ghost()
                             .size(px(36.))
+                            .selected(favourites)
                             .child(ui::icon("star-fill", 18.).text_color(theme::text2()))
                             .tooltip(crate::tr("Favourites"))
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -337,6 +343,7 @@ impl Desk {
                         Button::new(SharedString::from(format!("rail-{id}")))
                             .ghost()
                             .size(px(36.))
+                            .selected(chosen)
                             .disabled(bound)
                             .child(ui::mark(faces, &self.mark_of(&id), 20.))
                             .tooltip(tip)
@@ -510,7 +517,7 @@ impl Desk {
             .flex()
             .flex_col()
             .w(px(316.))
-            .flex_none()
+            .min_w(px(0.))
             .border_l_1()
             .border_r_1()
             .border_color(theme::border2())
