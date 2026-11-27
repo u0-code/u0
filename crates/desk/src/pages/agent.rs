@@ -18,7 +18,7 @@ use u0ui::{
     tokens::ColorRole,
 };
 
-use super::srow::{SRow, field};
+use super::srow::field;
 use crate::{
     desk::Desk,
     fonts::Faces,
@@ -71,7 +71,33 @@ fn foot() -> Div {
         .px(px(20.))
 }
 
+/// "Managed by" its organisation, at a section's head, where a policy locks `key`.
+fn managed(faces: &Faces, key: &str) -> Option<Div> {
+    crate::policy::locked(key).map(|by| {
+        div()
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .child(
+                u0ui::icons::Icon::carbon(CarbonIcon::Locked)
+                    .size_length(px(14.))
+                    .color(theme::role(ColorRole::IconSecondary)),
+            )
+            .child(ui::fine(
+                faces,
+                crate::tr_with("Managed by %{by}", &[("by", &by)]),
+            ))
+    })
+}
+
 impl Desk {
+    /// Whether what the settings key `key` holds can't be changed here: a
+    /// policy locks it, the settings file did not read, or the server they
+    /// are of is out of reach.
+    fn held(&self, key: &str) -> bool {
+        crate::policy::locked(key).is_some() || self.edited_unreadable() || self.edited_offline()
+    }
+
     /// The agent `id` on `host`, as Settings › Agents › its name shows it.
     pub(super) fn agent_tab(
         &self,
@@ -234,7 +260,7 @@ impl Desk {
                     )
                     .child(
                         button("get-runner", label, ButtonVariant::Ghost)
-                            .on_click(cx.listener(move |_, _, _, cx| cx.open_url(url))),
+                            .on_click(cx.listener(move |this, _, _, cx| this.browse(url, cx))),
                     );
             }
             Stage::Failed(_) => {
@@ -254,9 +280,25 @@ impl Desk {
                     button("start", crate::tr("New thread"), ButtonVariant::Tertiary)
                         .icon(CarbonIcon::Add)
                         .on_click(cx.listener(move |this, _, window, cx| {
-                            if let Some(project) = this.project() {
+                            // A project on the agent's own server; with none, a
+                            // scratch folder there.
+                            let place = (this.chosen_project())
+                                .filter(|p| p.host == host)
+                                .or_else(|| {
+                                    (this.projects().into_iter())
+                                        .find(|p| p.host == host && !this.is_scratch(p))
+                                })
+                                .or_else(|| this.scratch(host));
+                            if let Some(place) = place {
                                 this.close_settings(window, cx);
-                                this.new_session(&a, project, window, cx);
+                                this.new_session(&a, place, window, cx);
+                            } else {
+                                this.trouble(
+                                    crate::tr("There is no project to begin the thread in"),
+                                    None,
+                                    None,
+                                );
+                                cx.notify();
                             }
                         })),
                 );
@@ -267,6 +309,7 @@ impl Desk {
             let a = own(id);
             acts = acts.child(
                 button("toggle", crate::tr("Turn on"), ButtonVariant::Tertiary)
+                    .disabled(self.held("enabled"))
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_agent(host, &a, cx))),
             );
         }
@@ -310,6 +353,7 @@ impl Desk {
             let a = own(id);
             acts = acts.child(
                 button("toggle", crate::tr("Turn off"), ButtonVariant::Ghost)
+                    .disabled(self.held("enabled"))
                     .on_click(cx.listener(move |this, _, _, cx| this.toggle_agent(host, &a, cx))),
             );
         }
@@ -460,9 +504,13 @@ impl Desk {
             return div().into_any_element();
         };
         let settings = self.settings_on(host);
+        let held = self.held("enabled");
         let mut section = SettingsSection::new(crate::tr("Instances")).description(crate::tr(
             "Another instance is the agent run again with its own sign-in and settings, side by side with this one: a thread begun in it stays with it.",
         ));
+        if let Some(by) = managed(faces, "enabled") {
+            section = section.action(by);
+        }
         for (n, account) in (settings.enabled.iter())
             .filter(|e| crate::registry::instance(e).0 == agent && **e != agent)
             .enumerate()
@@ -523,6 +571,7 @@ impl Desk {
                         crate::tr("Take it away"),
                         ButtonVariant::Ghost,
                     )
+                    .disabled(held)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.drop_account(host, &drop, window, cx);
                     })),
@@ -532,7 +581,7 @@ impl Desk {
         section
             .child(
                 foot()
-                    .child(field(Input::new(&self.pages.account), faces, false, false).w(px(300.)))
+                    .child(field(Input::new(&self.pages.account), faces, false, held).w(px(300.)))
                     .child(
                         button(
                             "add-account",
@@ -540,6 +589,7 @@ impl Desk {
                             ButtonVariant::Ghost,
                         )
                         .icon(CarbonIcon::Add)
+                        .disabled(held)
                         .on_click(cx.listener(
                             move |this, _, window, cx| {
                                 this.add_account(host, &agent, window, cx);
@@ -568,9 +618,13 @@ impl Desk {
                 .pl(px(20.))
                 .pr(px(12.))
         };
+        let held = self.held("env");
         let mut section = SettingsSection::new(crate::tr("Variables")).description(crate::tr(
             "Set in the agent's environment as it starts. A secret one is kept in the macOS Keychain, never in u0's files; a value may be a 1Password reference, read by op as it starts.",
         ));
+        if let Some(by) = managed(faces, "env") {
+            section = section.action(by);
+        }
         for (n, (name, value)) in self
             .settings_on(host)
             .env
@@ -600,14 +654,20 @@ impl Desk {
                             .text_size(px(crate::style::BODY))
                             .text_color(theme::text2()),
                         )
-                        .child(ui::fine(
-                            faces,
-                            crate::tr(if value.is_some() {
-                                "Plain text"
-                            } else {
-                                "In the Keychain"
+                        // Where it comes from, badged as the board's SecretField
+                        // does: the Keychain, or a 1Password reference.
+                        .children(
+                            match value.as_deref() {
+                                None => Some("Keychain"),
+                                Some(v) if v.starts_with("op://") => Some("1Password"),
+                                Some(_) => None,
+                            }
+                            .map(|word| {
+                                Badge::new(crate::tr(word))
+                                    .variant(BadgeVariant::Purple)
+                                    .size(BadgeSize::Sm)
                             }),
-                        ))
+                        )
                         .child(
                             button(
                                 format!("drop-var-{n}"),
@@ -616,6 +676,7 @@ impl Desk {
                             )
                             .icon(CarbonIcon::Close)
                             .icon_only(true)
+                            .disabled(held)
                             .on_click(cx.listener(
                                 move |this, _, _, cx| this.drop_var(host, &agent, &var, cx),
                             )),
@@ -626,7 +687,7 @@ impl Desk {
         section.child(
             grid()
                 .child(
-                    field(Input::new(&self.pages.var_name), faces, true, false)
+                    field(Input::new(&self.pages.var_name), faces, true, held)
                         .w(px(200.))
                         .flex_none(),
                 )
@@ -635,7 +696,7 @@ impl Desk {
                         Input::new(&self.pages.var_value).mask_toggle(),
                         faces,
                         true,
-                        false,
+                        held,
                     )
                     .flex_1()
                     .min_w(px(0.)),
@@ -644,6 +705,7 @@ impl Desk {
                     Checkbox::new("var-secret")
                         .label(crate::tr("Secret"))
                         .checked(self.pages.var_secret)
+                        .disabled(held)
                         .on_checked_change(move |on, _, cx| {
                             desk.update(cx, |this, cx| {
                                 this.pages.var_secret = on;
@@ -659,6 +721,7 @@ impl Desk {
                     )
                     .icon(CarbonIcon::Add)
                     .icon_only(true)
+                    .disabled(held)
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.add_var(host, &agent, window, cx);
                     })),
@@ -671,8 +734,11 @@ impl Desk {
         let on = !self.settings_on(host).no_tools.iter().any(|t| t == id);
         let (agent, desk) = (id.to_owned(), cx.entity());
         SettingsSection::new(crate::tr("u0's tools")).child(
-            SRow::new("agent-tools", crate::tr("Give its threads u0's tools"))
-                .description(crate::tr("Each new thread of it is given u0's tools, as an MCP server: the threads u0 keeps, a diff, a task handed to another thread, a pull request, a task scheduled, a question put to you. What acts asks you here first."))
+            self.srow(
+                "no_tools",
+                crate::tr("Give its threads u0's tools"),
+                crate::tr("Each new thread of it is given u0's tools, as an MCP server: the threads u0 keeps, a diff, a task handed to another thread, a pull request, a task scheduled, a question put to you. What acts asks you here first."),
+            )
                 .switch(on, move |on, _, cx| {
                     desk.update(cx, |this, cx| {
                         let off = &mut this.settings_on_mut(host).no_tools;
@@ -718,17 +784,20 @@ impl Desk {
             ),
         };
         let a = id.to_owned();
+        let command = self.srow("commands", crate::tr("Command"), about);
+        let held = command.is_locked();
         SettingsSection::new(crate::tr("Use this command"))
             .description(crate::tr("A command of yours starts it instead of the registry's way (your own build, a version manager's): it must speak ACP on its standard input and output."))
             .child(
-                SRow::new("agent-command", crate::tr("Command")).description(about).control(
+                command.control(
                     div()
                         .flex()
                         .items_center()
                         .gap(px(8.))
-                        .child(field(Input::new(&self.pages.command), faces, true, false).w(px(240.)))
+                        .child(field(Input::new(&self.pages.command), faces, true, held).w(px(240.)))
                         .child(
                             button("save-command", crate::tr("Check that it speaks ACP"), ButtonVariant::Tertiary)
+                                .disabled(held)
                                 .on_click(cx.listener(move |this, _, _, cx| this.save_command(host, &a, cx))),
                         ),
                 ),
@@ -744,7 +813,8 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> SettingsSection {
         let mut chips = div().flex().flex_wrap().gap(px(8.)).py(px(16.)).px(px(20.));
-        let models = self.settings.models.get(id).into_iter().flatten();
+        let held = self.held("models");
+        let models = self.settings_on(host).models.get(id).into_iter().flatten();
         let mut any = false;
         for (n, m) in models.enumerate() {
             any = true;
@@ -753,6 +823,7 @@ impl Desk {
                 Badge::new(m.clone())
                     .id(SharedString::from(format!("model-{n}")))
                     .variant(BadgeVariant::Blue)
+                    .disabled(held)
                     .dismiss_label(crate::tr("Take it out"))
                     .on_dismiss(move |_, _, cx| {
                         desk.update(cx, |this, cx| this.drop_model(host, &agent, &model, cx));
@@ -762,14 +833,16 @@ impl Desk {
         let a = id.to_owned();
         SettingsSection::new(crate::tr("Your own models"))
             .description(crate::tr("Model ids of yours are offered in the composer beside those the agent lists; the agent may refuse one it does not know."))
+            .when_some(managed(faces, "models"), SettingsSection::action)
             .when(any, |s| s.child(chips))
             .child(
                 foot()
                     .when(any, |d| d.border_t_1().border_color(theme::role(ColorRole::BorderSubtle01)))
-                    .child(field(Input::new(&self.pages.model), faces, true, false).w(px(300.)))
+                    .child(field(Input::new(&self.pages.model), faces, true, held).w(px(300.)))
                     .child(
                         button("add-model", crate::tr("Add a model"), ButtonVariant::Ghost)
                             .icon(CarbonIcon::Add)
+                            .disabled(held)
                             .on_click(cx.listener(move |this, _, window, cx| this.add_model(host, &a, window, cx))),
                     ),
             )

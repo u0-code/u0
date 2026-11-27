@@ -113,7 +113,9 @@ version, **Sign in**, **Log out**, **Turn on** or **Turn off**, and
 - **Variables**: set in the agent's environment as it starts. Mark one
   **Secret** to keep it in the macOS Keychain, never in u0's files. A
   value may be a 1Password reference (`op://vault/item/field`), read with
-  `op` as the agent starts.
+  `op` as the agent starts. Each is tagged where it comes from:
+  **Keychain** or **1Password**. A setting an administrator's policy locks
+  says who manages it, and can't be changed here.
 - **u0's tools**: whether its new threads are given
   [u0's tools](tools-for-agents.md).
 - **Use this command**: a command line of yours that starts it instead of

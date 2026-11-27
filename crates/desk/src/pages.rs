@@ -159,8 +159,14 @@ impl Pages {
         };
         let shown = cx.new(|cx| SettingsState::new(window, cx));
         let settings_search = field("Search settings", window, cx);
-        cx.subscribe(&settings_search, |_, _, _: &InputEvent, cx| cx.notify())
-            .detach();
+        // What is looked for is found among the pages, not behind an agent's.
+        cx.subscribe(&settings_search, |this, input, _: &InputEvent, cx| {
+            if !input.read(cx).value().is_empty() {
+                this.pages.agent = None;
+            }
+            cx.notify();
+        })
+        .detach();
         let agent_search = field("Search the ACP registry", window, cx);
         cx.subscribe(&agent_search, |_, _, _: &InputEvent, cx| cx.notify())
             .detach();

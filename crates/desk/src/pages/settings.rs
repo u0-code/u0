@@ -21,6 +21,7 @@ use gpui::{
 use u0ui::{
     components::{
         badge::{Badge, BadgeSize},
+        breadcrumb::{Breadcrumb, BreadcrumbItem, BreadcrumbSize},
         button::{Button as CarbonButton, ButtonSize, ButtonVariant},
         form::FieldSize,
         list_box::ListItem,
@@ -399,13 +400,7 @@ impl Desk {
             let machine = self
                 .machine(self.pages.on)
                 .map_or_else(|| crate::tr("This Mac").to_string(), |m| m.name.clone());
-            let caption = |t: SharedString| {
-                ui::text(&faces, t)
-                    .flex_none()
-                    .text_size(px(crate::style::CAPTION))
-                    .line_height(px(16.))
-                    .text_color(theme::text2())
-            };
+            let desk = cx.entity();
             div()
                 .flex()
                 .flex_1()
@@ -413,26 +408,31 @@ impl Desk {
                 .items_center()
                 .gap(px(4.))
                 .child(
-                    caption(format!("{} ›", Tab::Agents.title()).into())
-                        .id("crumb-agents")
-                        .cursor_pointer()
-                        .hover(gpui::Styled::underline)
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.pick_settings_tab(Tab::Agents, window, cx);
-                        })),
+                    Breadcrumb::new("agent-crumb")
+                        .size(BreadcrumbSize::Sm)
+                        .no_trailing_slash(true)
+                        .item(BreadcrumbItem::new(Tab::Agents.title()).on_click(
+                            move |window, cx| {
+                                desk.update(cx, |this, cx| {
+                                    this.pick_settings_tab(Tab::Agents, window, cx);
+                                });
+                            },
+                        ))
+                        .item(BreadcrumbItem::new(self.name_of(&id)).current(true)),
                 )
                 .child(
-                    caption(self.name_of(&id).into())
-                        .weight(gpui::FontWeight::SEMIBOLD)
-                        .text_color(theme::text()),
-                )
-                .child(caption(
-                    format!(
-                        "· {}",
-                        crate::tr_with("on %{machine}", &[("machine", &machine)])
+                    ui::text(
+                        &faces,
+                        format!(
+                            "· {}",
+                            crate::tr_with("on %{machine}", &[("machine", &machine)])
+                        ),
                     )
-                    .into(),
-                ))
+                    .flex_none()
+                    .text_size(px(crate::style::CAPTION))
+                    .line_height(px(16.))
+                    .text_color(theme::text2()),
+                )
         });
         let top_bar = div()
             .flex()

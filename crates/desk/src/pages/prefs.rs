@@ -33,6 +33,14 @@ impl Desk {
         }
     }
 
+    /// Whether the server whose settings are edited is out of reach.
+    pub(crate) fn edited_offline(&self) -> bool {
+        self.pages.on != Host::HERE
+            && self
+                .machine(self.pages.on)
+                .is_some_and(|m| m.up != crate::hub::Up::On)
+    }
+
     /// Build a Carbon `SRow` wired to organization policy (`policy_key`) and
     /// unreadable-settings protection (`unreadable`).
     pub(crate) fn srow(
@@ -41,15 +49,11 @@ impl Desk {
         title: impl Into<SharedString>,
         about: impl Into<SharedString>,
     ) -> SRow {
-        let offline = self.pages.on != Host::HERE
-            && self
-                .machine(self.pages.on)
-                .is_some_and(|m| m.up != crate::hub::Up::On);
         SRow::new(id, title)
             .description(about)
             .policy_key(id)
             .unreadable(self.edited_unreadable())
-            .disabled(offline)
+            .disabled(self.edited_offline())
     }
 
     /// Carbon-native settings page for migrated tabs (`General`, `NewThreads`).

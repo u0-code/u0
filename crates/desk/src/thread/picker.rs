@@ -197,7 +197,13 @@ impl Desk {
             .into_iter()
             .map(|(value, name, on)| model(value, name, mine && on, false))
             .collect();
-        for own in self.settings.models.get(agent).into_iter().flatten() {
+        for own in self
+            .settings_on(s.host)
+            .models
+            .get(agent)
+            .into_iter()
+            .flatten()
+        {
             if !models.iter().any(|m| &m.value == own) {
                 models.push(model(own.clone(), own.clone(), false, false));
             }
