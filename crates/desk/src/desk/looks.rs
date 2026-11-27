@@ -86,19 +86,74 @@ impl Desk {
         }
     }
 
-    fn unique_theme_name(base: &str, cx: &App) -> String {
-        if themes::find(cx, base).is_none() && crate::theme::parse_carbon(base).is_none() {
-            return base.to_owned();
+    fn unique_theme_name(&self, base: &str, cx: &App) -> String {
+        themes::free_name(base, |n| {
+            themes::taken(cx, &self.home, n) != themes::Taken::Free
+        })
+    }
+
+    /// Make `imported` a theme of yours. Under a name taken by one of
+    /// yours, ask first: replace that one, or keep both, the import under
+    /// the next name free. A name u0's own themes have is never replaced.
+    pub(crate) fn import(
+        &mut self,
+        imported: themes::Imported,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = imported.name.clone();
+        let other = self.unique_theme_name(&name, cx);
+        let yours = match themes::taken(cx, &self.home, &name) {
+            themes::Taken::Free => return self.keep_import(imported, &name, None, window, cx),
+            themes::Taken::Ours => return self.keep_import(imported, &other, None, window, cx),
+            themes::Taken::Yours(yours) => yours,
+        };
+        let (replace, both, cancel) = (
+            crate::tr("Replace"),
+            crate::tr("Keep both"),
+            crate::tr("Cancel"),
+        );
+        let answer = window.prompt(
+            gpui::PromptLevel::Warning,
+            &crate::tr_with(
+                "You have a theme called “%{name}” already",
+                &[("name", &yours)],
+            ),
+            Some(&crate::tr_with(
+                "Replace it with the one imported, or keep both: the one imported as “%{other}”.",
+                &[("other", &other)],
+            )),
+            &[replace.as_ref(), both.as_ref(), cancel.as_ref()],
+            cx,
+        );
+        cx.spawn_in(window, async move |this, cx| {
+            let chosen = answer.await;
+            let _ = this.update_in(cx, |this, window, cx| match chosen {
+                Ok(0) => this.keep_import(imported, &name, Some(yours), window, cx),
+                Ok(1) => this.keep_import(imported, &other, None, window, cx),
+                _ => {}
+            });
+        })
+        .detach();
+    }
+
+    /// Keep `imported` as yours under `name`, in place of `replaced`.
+    fn keep_import(
+        &mut self,
+        imported: themes::Imported,
+        name: &str,
+        replaced: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(old) = replaced.filter(|old| old != name) {
+            let mut all = cx.global::<themes::Themes>().0.clone();
+            all.retain(|(t, _)| t.name != old);
+            cx.set_global(themes::Themes(all));
         }
-        for n in 2..1000 {
-            let candidate = format!("{base} {n}");
-            if themes::find(cx, &candidate).is_none()
-                && crate::theme::parse_carbon(&candidate).is_none()
-            {
-                return candidate;
-            }
-        }
-        format!("{base} custom")
+        let dark = imported.dark;
+        let (path, text) = imported.file(&self.home, name);
+        self.save_and_open_theme(path, text, name, dark, window, cx);
     }
 
     /// Create a new custom theme from the active theme of the current look,
@@ -119,7 +174,7 @@ impl Desk {
             (Some(custom), None) => custom.to_owned(),
             (None, None) => "Carbon".to_owned(),
         };
-        let name = Self::unique_theme_name(&format!("{base_label} (yours)"), cx);
+        let name = self.unique_theme_name(&format!("{base_label} (yours)"), cx);
         let (path, text) = if let Some(config) = chosen.as_deref().and_then(|n| themes::find(cx, n))
         {
             themes::duplicate(&self.home, &config, &name)
@@ -143,7 +198,7 @@ impl Desk {
         cx: &mut Context<Self>,
     ) {
         let label = crate::theme::carbon_label(base);
-        let name = Self::unique_theme_name(&format!("{label} (yours)"), cx);
+        let name = self.unique_theme_name(&format!("{label} (yours)"), cx);
         let (path, text) = themes::own_carbon(&self.home, &name, base);
         self.save_and_open_theme(path, text, &name, base.is_dark(), window, cx);
     }
@@ -160,7 +215,7 @@ impl Desk {
             return;
         };
         let dark = config.mode.is_dark();
-        let name = Self::unique_theme_name(&format!("{source_name} copy"), cx);
+        let name = self.unique_theme_name(&format!("{source_name} copy"), cx);
         let (path, text) = themes::duplicate(&self.home, &config, &name);
         self.save_and_open_theme(path, text, &name, dark, window, cx);
     }
@@ -268,10 +323,8 @@ impl Desk {
             {
                 let _ = this.update_in(cx, |this, window, cx| {
                     let read = std::fs::read_to_string(&file).map_err(|e| e.to_string());
-                    match read.and_then(|t| themes::from_vscode(&this.home, &t)) {
-                        Ok((path, text, name, dark)) => {
-                            this.save_and_open_theme(path, text, &name, dark, window, cx);
-                        }
+                    match read.and_then(|t| themes::from_vscode(&t)) {
+                        Ok(imported) => this.import(imported, window, cx),
                         Err(e) => this.trouble(
                             crate::tr("That theme could not be imported"),
                             Some(e),
@@ -299,10 +352,8 @@ impl Desk {
             {
                 let _ = this.update_in(cx, |this, window, cx| {
                     let read = std::fs::read_to_string(&file).map_err(|e| e.to_string());
-                    match read.and_then(|t| themes::from_kit_json(&this.home, &t)) {
-                        Ok((path, text, name, dark)) => {
-                            this.save_and_open_theme(path, text, &name, dark, window, cx);
-                        }
+                    match read.and_then(|t| themes::from_kit_json(&t)) {
+                        Ok(imported) => this.import(imported, window, cx),
                         Err(e) => this.trouble(
                             crate::tr("That theme could not be imported"),
                             Some(e),

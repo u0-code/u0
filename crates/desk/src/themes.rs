@@ -314,9 +314,64 @@ fn file(home: &Path, name: &str, theme: &Value) -> (PathBuf, Vec<u8>) {
     (folder(home).join(format!("{stem}.json")), text)
 }
 
-/// Validate and import a `gpui-kit` `ThemeSet` JSON file into
-/// `<home>/themes/<slug>.json`. Returns `(path, bytes, theme_name, is_dark)`.
-pub fn from_kit_json(home: &Path, text: &str) -> Result<(PathBuf, Vec<u8>, String, bool), String> {
+/// A theme read from a file of another app's, to be made one of yours
+/// under a name not taken (`Desk::import`).
+pub struct Imported {
+    pub name: String,
+    pub dark: bool,
+    pub theme: Value,
+}
+
+impl Imported {
+    /// Its file in `<home>/themes/`, under `name`.
+    pub fn file(mut self, home: &Path, name: &str) -> (PathBuf, Vec<u8>) {
+        self.theme["name"] = json!(name);
+        file(home, name, &self.theme)
+    }
+}
+
+/// Who has a theme's name.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Taken {
+    Free,
+    /// One of the themes u0 brings: never replaced.
+    Ours,
+    /// The theme of yours, by name, a theme under it would replace: one
+    /// called so, or kept in the file it would go in (names that slug
+    /// alike share a file).
+    Yours(String),
+}
+
+/// Who has `name` among the themes.
+pub fn taken(cx: &App, home: &Path, name: &str) -> Taken {
+    if crate::theme::parse_carbon(name).is_some() {
+        return Taken::Ours;
+    }
+    let path = folder(home).join(format!("{}.json", crate::git::slug(name)));
+    cx.try_global::<Themes>()
+        .and_then(|t| {
+            (t.0.iter()).find(|(t, at)| t.name == name || at.as_deref() == Some(path.as_path()))
+        })
+        .map_or(Taken::Free, |(t, _)| Taken::Yours(t.name.to_string()))
+}
+
+/// `base`, or the first of `base 2`, `base 3`, … that is not `taken`.
+pub fn free_name(base: &str, taken: impl Fn(&str) -> bool) -> String {
+    if !taken(base) {
+        return base.to_owned();
+    }
+    let mut n = 2;
+    loop {
+        let name = format!("{base} {n}");
+        if !taken(&name) {
+            return name;
+        }
+        n += 1;
+    }
+}
+
+/// Read a `gpui-kit` `ThemeSet` JSON file: its first theme.
+pub fn from_kit_json(text: &str) -> Result<Imported, String> {
     let set: ThemeSet = serde_json::from_str(text).map_err(|e| {
         crate::tr_with("it is not a gpui-kit theme file: %{e}", &[("e", &e)]).to_string()
     })?;
@@ -331,8 +386,9 @@ pub fn from_kit_json(home: &Path, text: &str) -> Result<(PathBuf, Vec<u8>, Strin
         first.name.to_string()
     };
     let dark = first.mode.is_dark();
-    let (path, bytes) = duplicate(home, &first, &name);
-    Ok((path, bytes, name, dark))
+    let mut theme = serde_json::to_value(&first).expect("a theme serializes");
+    theme["is_default"] = json!(false);
+    Ok(Imported { name, dark, theme })
 }
 
 // VS Code theme colour keys mapped onto our Carbon-bridged ThemeSet keys.
@@ -409,8 +465,8 @@ const VSCODE_MAP: [(&str, &[&str]); 19] = [
     ("base.red", &["terminal.ansiRed"]),
 ];
 
-/// Import a VS Code JSONC colour theme into `<home>/themes/<slug>.json`.
-pub fn from_vscode(home: &Path, text: &str) -> Result<(PathBuf, Vec<u8>, String, bool), String> {
+/// Read a VS Code JSONC colour theme, its colours as gpui-kit names them.
+pub fn from_vscode(text: &str) -> Result<Imported, String> {
     let theme: Value =
         jsonc_parser::parse_to_serde_value(text, &jsonc_parser::ParseOptions::default()).map_err(
             |e| crate::tr_with("it is not a theme VS Code reads: %{e}", &[("e", &e)]).to_string(),
@@ -434,8 +490,7 @@ pub fn from_vscode(home: &Path, text: &str) -> Result<(PathBuf, Vec<u8>, String,
     }
     let theme =
         json!({ "name": name, "mode": if dark { "dark" } else { "light" }, "colors": ours });
-    let (path, text) = file(home, &name, &theme);
-    Ok((path, text, name, dark))
+    Ok(Imported { name, dark, theme })
 }
 
 #[cfg(test)]
@@ -456,7 +511,9 @@ mod tests {
             },
             "tokenColors": [],
         }"##;
-        let (path, written, name, dark) = from_vscode(Path::new("/h"), text).unwrap();
+        let imported = from_vscode(text).unwrap();
+        let (name, dark) = (imported.name.clone(), imported.dark);
+        let (path, written) = imported.file(Path::new("/h"), &name);
         assert_eq!(name, "Night // Owl");
         assert!(dark);
         assert_eq!(path, Path::new("/h/themes/night-owl.json"));
@@ -480,7 +537,7 @@ mod tests {
             roles.get(&ColorRole::SupportSuccess),
             parse_hex("#22da6e").as_ref()
         );
-        assert!(from_vscode(Path::new("/h"), r#"{"colors": {}}"#).is_err());
+        assert!(from_vscode(r#"{"colors": {}}"#).is_err());
     }
 
     #[test]
@@ -506,11 +563,21 @@ mod tests {
             .unwrap(),
         )
         .unwrap();
-        let (path, _, name, dark) = from_kit_json(home, &kit_raw).unwrap();
+        let imported = from_kit_json(&kit_raw).unwrap();
+        let (name, dark) = (imported.name.clone(), imported.dark);
+        let (path, _) = imported.file(home, &name);
         assert_eq!(path, Path::new("/h/themes/midnight.json"));
         assert_eq!(name, "Midnight");
         assert!(dark);
-        assert!(from_kit_json(home, "not json").is_err());
-        assert!(from_kit_json(home, r#"{"name":"Empty","themes":[]}"#).is_err());
+        assert!(from_kit_json("not json").is_err());
+        assert!(from_kit_json(r#"{"name":"Empty","themes":[]}"#).is_err());
+    }
+
+    #[test]
+    fn an_import_under_a_name_taken_is_offered_the_next_one_free() {
+        let taken = ["Night Owl", "Night Owl 2"];
+        let is_taken = |n: &str| taken.contains(&n);
+        assert_eq!(free_name("Night Owl", is_taken), "Night Owl 3");
+        assert_eq!(free_name("Paper", is_taken), "Paper");
     }
 }
