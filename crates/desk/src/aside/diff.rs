@@ -995,8 +995,7 @@ impl Desk {
                     "The thread settles on its own (Threads \u{203a} Auto-settle merged threads). Its worktree stays until you archive it.",
                 ),
             ));
-        } else if has_repo && !origin && gh {
-            // Closed, nothing takes its place: a pull request needs a remote.
+        } else if has_repo && !origin && gh && !self.prefs(&place).closed.publish {
             let project = s.meta.project.file_name().map_or_else(
                 || Desk::shown(&s.meta.project),
                 |n| n.to_string_lossy().into_owned(),
@@ -1015,7 +1014,6 @@ impl Desk {
                         .type_style(TypeStyle::Body01)
                         .text_color(theme::role(ColorRole::TextPrimary)),
                 );
-            let offered = !self.prefs(&place).closed.publish;
             let (d_priv, d_pub, d_close) = (desk.clone(), desk.clone(), desk.clone());
             let acts = div()
                 .flex()
@@ -1051,7 +1049,7 @@ impl Desk {
                         this.set_prefs(&place, cx, |p| p.closed.publish = true);
                     });
                 });
-            cards.extend(offered.then(|| {
+            cards.push(
                 ft_card(
                     faces,
                     crate::tr_with("No remote yet \u{00b7} %{project}", &[("project", &project)]),
@@ -1062,8 +1060,8 @@ impl Desk {
                     ),
                 )
                 .relative()
-                .child(div().absolute().top(px(4.)).right(px(4.)).child(close))
-            }));
+                .child(div().absolute().top(px(4.)).right(px(4.)).child(close)),
+            );
         } else if has_repo && s.git.pr.is_none() && (!clean || ahead > 0) {
             let branch = s.branch.as_deref().unwrap_or("HEAD");
             let summary = crate::tr_with(
@@ -1102,24 +1100,31 @@ impl Desk {
                             d_commit.update(cx, |this, cx| this.toggle_commit(window, cx));
                         }),
                 )
-                .child(
-                    Button::new("create-pr-ft", crate::tr("Create PR"))
-                        .variant(ButtonVariant::Primary)
-                        .size(ButtonSize::Sm)
-                        .icon(CarbonIcon::PullRequest)
-                        .disabled(!idle)
-                        .on_click(move |_, _, cx| {
-                            d_pr.update(cx, |this, cx| this.ask_pr(key, cx));
-                        }),
-                );
+                // A pull request needs a remote to push to.
+                .when(origin, |acts| {
+                    acts.child(
+                        Button::new("create-pr-ft", crate::tr("Create PR"))
+                            .variant(ButtonVariant::Primary)
+                            .size(ButtonSize::Sm)
+                            .icon(CarbonIcon::PullRequest)
+                            .disabled(!idle)
+                            .on_click(move |_, _, cx| {
+                                d_pr.update(cx, |this, cx| this.ask_pr(key, cx));
+                            }),
+                    )
+                });
             cards.push(ft_card(
                 faces,
                 crate::tr("On its own branch, no pull request yet"),
                 line,
                 Some(acts),
-                crate::tr(
-                    "Create PR has the writer write the title and description, then commits, pushes and opens it with gh pr create.",
-                ),
+                if origin {
+                    crate::tr(
+                        "Create PR has the writer write the title and description, then commits, pushes and opens it with gh pr create.",
+                    )
+                } else {
+                    crate::tr("It has no remote: a commit stays here, and a pull request waits for one.")
+                },
             ));
         }
 

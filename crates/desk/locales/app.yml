@@ -4592,6 +4592,16 @@ _version: 2
   pt-BR: "Criar PR pede ao redator o título e a descrição, faz commit, push e abre com gh pr create."
   ru: "Создание PR поручает автору заголовок и описание, затем делает коммит, отправку и открывает PR через gh pr create."
   sv: "Skapa PR låter skribenten skriva titel och beskrivning, committar, pushar och öppnar den med gh pr create."
+"It has no remote: a commit stays here, and a pull request waits for one.":
+  zh-CN: "它没有远程：提交只留在本地，拉取请求要等有了远程再说。"
+  de: "Es hat kein Remote: Ein Commit bleibt hier, und ein Pull Request wartet auf eines."
+  es: "No tiene remoto: un commit se queda aquí, y una pull request espera a que haya uno."
+  fr: "Il n’a pas de dépôt distant : un commit reste ici, et une pull request attend qu’il y en ait un."
+  ja: "リモートがありません。コミットはここに残り、プルリクエストはリモートができるまで待ちます。"
+  ko: "원격이 없습니다. 커밋은 여기에 남고, 풀 리퀘스트는 원격이 생길 때까지 기다립니다."
+  pt-BR: "Não tem remoto: um commit fica aqui, e um pull request espera até haver um."
+  ru: "У него нет удалённого репозитория: коммит остаётся здесь, а pull request ждёт, пока он появится."
+  sv: "Det har ingen fjärr: en commit stannar här, och en pull request väntar tills det finns en."
 "Create merge commit…":
   zh-CN: "创建合并提交…"
   de: "Merge-Commit erstellen…"

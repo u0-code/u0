@@ -73,7 +73,8 @@ Under the diff:
 - A repository with no remote, where `gh` is installed, offers **Publish,
   private** or **Public** (a new GitHub repository, pushed). × closes
   the offer for the project; it comes back only once the repository has
-  had a remote and lost it.
+  had a remote and lost it. Closed, **Commit…** is offered in its place;
+  **Create PR** is offered only to a repository with a remote.
 
 u0 never changes your index or branch except when you commit.
 
