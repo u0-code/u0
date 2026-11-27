@@ -645,7 +645,12 @@ impl Tools {
     async fn send_to_session(&self, Parameters(ask): Parameters<SendTo>) -> Result<String, String> {
         let id = SessionId::new(ask.session.clone());
         self.not_mine(&ask.agent, &id)?;
-        let shown: String = ask.prompt.chars().take(80).collect();
+        // On one line, as it begins; what is left out said so.
+        let flat = ask.prompt.split_whitespace().collect::<Vec<_>>().join(" ");
+        let mut shown: String = flat.chars().take(80).collect();
+        if shown.len() < flat.len() {
+            shown = format!("{}…", shown.trim_end());
+        }
         let meta = self
             .allowed_on(
                 "send_to_session",

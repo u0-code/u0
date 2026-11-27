@@ -389,4 +389,33 @@ esac; done"#;
         let s2 = (kept.sessions.iter()).find(|m| m.title == "Other").unwrap();
         assert!(s2.flags.archived);
     }
+
+    #[test]
+    fn the_card_to_say_something_in_another_session_names_it_and_the_prompt_on_one_line() {
+        let home = tempfile::tempdir().unwrap();
+        let (server, said, mut client) = in_session(home.path(), home.path());
+        let mut other = meta(home.path(), "Other");
+        other.id = Some(agent_client_protocol::v1::schema::SessionId::new("s2"));
+        server.handle(Call::Keep(vec![other]));
+        let project = home.path().file_name().unwrap().to_string_lossy();
+        let prompt = format!("  Ask which\n\n  database {}", "x".repeat(100));
+        client.call(
+            "send_to_session",
+            &json!({"agent": "a", "session": "s2", "prompt": prompt}),
+        );
+        let card = loop {
+            if let Event::Said { event, .. } = said.recv_timeout(Duration::from_secs(10)).unwrap()
+                && let crate::acp::Event::Permission { request, .. } = *event
+            {
+                break request;
+            }
+        };
+        let shown = format!("Ask which database {}…", "x".repeat(61));
+        assert_eq!(
+            card.tool_call.fields.title.unwrap_or_default(),
+            format!("Say “{shown}” in the session “Other” (a, in {project})")
+        );
+        let offered: Vec<_> = card.options.iter().map(|o| &*o.option_id.0).collect();
+        assert_eq!(offered, ["once", "no"]);
+    }
 }
