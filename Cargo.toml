@@ -203,10 +203,10 @@ gpui-kit-assets = { git = "https://github.com/mizorewww/gpui-kit", branch = "com
 # so the whole interface scales, and the system's spell checker
 # (App::misspelled_words, spelling_guesses, learn_spelling), which the
 # composer's input asks. Written as GPUI Fast's own changes are, on
-# mizorewww/gpui-fast's `ghost` branch; `ghost-release` is its crates, built
+# mizorewww/gpui-fast's `u0` branch; `u0-release` is its crates, built
 # as GPUI Fast 0.1.19 is released.
-gpui-fast = { git = "https://github.com/mizorewww/gpui-fast", branch = "ghost-release" }
-gpui-fast-platform = { git = "https://github.com/mizorewww/gpui-fast", branch = "ghost-release" }
-gpui-fast-scheduler = { git = "https://github.com/mizorewww/gpui-fast", branch = "ghost-release" }
-gpui-fast-web = { git = "https://github.com/mizorewww/gpui-fast", branch = "ghost-release" }
-gpui-fast-wgpu = { git = "https://github.com/mizorewww/gpui-fast", branch = "ghost-release" }
+gpui-fast = { git = "https://github.com/mizorewww/gpui-fast", branch = "u0-release" }
+gpui-fast-platform = { git = "https://github.com/mizorewww/gpui-fast", branch = "u0-release" }
+gpui-fast-scheduler = { git = "https://github.com/mizorewww/gpui-fast", branch = "u0-release" }
+gpui-fast-web = { git = "https://github.com/mizorewww/gpui-fast", branch = "u0-release" }
+gpui-fast-wgpu = { git = "https://github.com/mizorewww/gpui-fast", branch = "u0-release" }

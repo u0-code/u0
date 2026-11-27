@@ -94,8 +94,8 @@ no HTML rendered from what an agent says (Markdown is the thread's format).
   `src/fast/<topic>.rs`, upstream's files holding only hooks that name
   `fast`, `script/check-upstream` green). A feature u0 needs of gpui (a
   window's zoom, the system's spell checker) is written the same way and
-  stays on the owner's fork (`mizorewww/gpui-fast`), its `ghost` branch;
-  u0 patches the gpui-fast crates from `ghost-release`, that branch
+  stays on the owner's fork (`mizorewww/gpui-fast`), its `u0` branch;
+  u0 patches the gpui-fast crates from `u0-release`, that branch
   built as a release is (`script/prepare-release.ts`). gpui-pre, the
   snapshots of Zed's gpui, is never patched, and `zed-industries/zed` is
   never sent a pull request.

@@ -2701,7 +2701,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast"
 version = "0.1.19"
-source = "git+https://github.com/mizorewww/gpui-fast?branch=ghost-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
+source = "git+https://github.com/mizorewww/gpui-fast?branch=u0-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
 dependencies = [
  "accesskit",
  "anyhow",
@@ -2767,7 +2767,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast-apple"
 version = "0.1.19"
-source = "git+https://github.com/mizorewww/gpui-fast?branch=ghost-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
+source = "git+https://github.com/mizorewww/gpui-fast?branch=u0-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
 dependencies = [
  "anyhow",
  "async-task",
@@ -2806,7 +2806,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast-linux"
 version = "0.1.19"
-source = "git+https://github.com/mizorewww/gpui-fast?branch=ghost-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
+source = "git+https://github.com/mizorewww/gpui-fast?branch=u0-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
 dependencies = [
  "accesskit",
  "accesskit_unix",
@@ -2850,7 +2850,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast-macos"
 version = "0.1.19"
-source = "git+https://github.com/mizorewww/gpui-fast?branch=ghost-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
+source = "git+https://github.com/mizorewww/gpui-fast?branch=u0-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -2891,7 +2891,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast-macros"
 version = "0.1.19"
-source = "git+https://github.com/mizorewww/gpui-fast?branch=ghost-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
+source = "git+https://github.com/mizorewww/gpui-fast?branch=u0-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
@@ -2902,7 +2902,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast-platform"
 version = "0.1.19"
-source = "git+https://github.com/mizorewww/gpui-fast?branch=ghost-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
+source = "git+https://github.com/mizorewww/gpui-fast?branch=u0-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
 dependencies = [
  "anyhow",
  "console_error_panic_hook",
@@ -2917,7 +2917,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast-scheduler"
 version = "0.1.19"
-source = "git+https://github.com/mizorewww/gpui-fast?branch=ghost-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
+source = "git+https://github.com/mizorewww/gpui-fast?branch=u0-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
 dependencies = [
  "async-task",
  "backtrace",
@@ -2932,7 +2932,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast-web"
 version = "0.1.19"
-source = "git+https://github.com/mizorewww/gpui-fast?branch=ghost-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
+source = "git+https://github.com/mizorewww/gpui-fast?branch=u0-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -2961,7 +2961,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast-wgpu"
 version = "0.1.19"
-source = "git+https://github.com/mizorewww/gpui-fast?branch=ghost-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
+source = "git+https://github.com/mizorewww/gpui-fast?branch=u0-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2988,7 +2988,7 @@ dependencies = [
 [[package]]
 name = "gpui-fast-windows"
 version = "0.1.19"
-source = "git+https://github.com/mizorewww/gpui-fast?branch=ghost-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
+source = "git+https://github.com/mizorewww/gpui-fast?branch=u0-release#447d8469830c5173fdc7cf4cf120e62ce8afe74b"
 dependencies = [
  "accesskit",
  "accesskit_windows",
