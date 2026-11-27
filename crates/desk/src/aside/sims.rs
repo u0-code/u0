@@ -106,7 +106,10 @@ impl Desk {
     /// is first shown, and read the chosen one's screen while it is shown
     /// and that one runs.
     pub(crate) fn watch_device(&mut self) {
-        if self.surface() != Some(crate::desk::Surface::Devices) {
+        let on_devices = self.surface() == Some(crate::desk::Surface::Devices);
+        let beside_file = self.viewer.beside_device
+            && matches!(self.surface(), Some(crate::desk::Surface::File(_)));
+        if !on_devices && !beside_file {
             return;
         }
         if !self.sims.asked {

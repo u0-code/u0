@@ -254,7 +254,22 @@ impl Desk {
             Some(Surface::Preview) => scrolled(self.preview_tab(faces, cx)).into_any_element(),
             Some(Surface::Output(id)) => self.output_tab(faces, s, &id, cx).into_any_element(),
         };
-        frame(head).child(body).child(
+        let split_device =
+            self.viewer.beside_device && matches!(self.surface(), Some(Surface::File(_)));
+        let main_col = frame(head).child(body);
+        let container = if split_device {
+            div()
+                .relative()
+                .flex()
+                .flex_none()
+                .h_full()
+                .overflow_hidden()
+                .child(main_col.flex_1().min_w(px(0.)))
+                .child(self.device_split_pane(faces, cx))
+        } else {
+            main_col
+        };
+        container.child(
             resize_handle::<RightEdge, RightEdge>("right-edge", gpui::Axis::Horizontal)
                 .inside(HandleEdge::Leading)
                 .on_drag(RightEdge, |edge, _, _, cx| cx.new(|_| edge.clone()))

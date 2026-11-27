@@ -272,7 +272,7 @@ impl Desk {
             .iter()
             .enumerate()
             .map(|(n, surface)| {
-                let (label, kind, closable) = self.tab_meta(s, surface);
+                let (label, kind, closable) = self.tab_meta(s, surface, cx);
                 SurfaceTab::new(format!("tab-{n}"), label, kind).closable(closable)
             })
             .collect();
@@ -336,19 +336,62 @@ impl Desk {
 
     /// A tab's display label, `SurfaceKind`, and whether it shows a permanent
     /// close button.
-    fn tab_meta(&self, s: &Session, surface: &Surface) -> (String, SurfaceKind, bool) {
+    fn tab_meta(
+        &self,
+        s: &Session,
+        surface: &Surface,
+        cx: &gpui::App,
+    ) -> (String, SurfaceKind, bool) {
         match surface {
             Surface::Details => (crate::tr("Details").into(), SurfaceKind::Details, false),
             Surface::Diff => (crate::tr("Diff").into(), SurfaceKind::Diff, false),
             Surface::Files => (crate::tr("Files").into(), SurfaceKind::Files, false),
-            Surface::File(path) => (
-                path.file_name().map_or_else(
+            Surface::File(path) => {
+                let full = if path.is_absolute() {
+                    path.clone()
+                } else {
+                    s.meta.folder.join(path)
+                };
+                let base_name = path.file_name().map_or_else(
                     || path.display().to_string(),
                     |n| n.to_string_lossy().into_owned(),
-                ),
-                SurfaceKind::Other,
-                true,
-            ),
+                );
+                let label = if self.is_file_unsaved(&full, cx) {
+                    format!("{base_name} \u{00b7} {}", crate::tr("unsaved"))
+                } else {
+                    base_name
+                };
+                let is_code = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+                    matches!(
+                        e,
+                        "rs" | "ts"
+                            | "tsx"
+                            | "js"
+                            | "jsx"
+                            | "json"
+                            | "py"
+                            | "go"
+                            | "c"
+                            | "cpp"
+                            | "h"
+                            | "css"
+                            | "html"
+                            | "htm"
+                            | "toml"
+                            | "yml"
+                            | "yaml"
+                    )
+                });
+                (
+                    label,
+                    if is_code {
+                        SurfaceKind::Diff
+                    } else {
+                        SurfaceKind::Other
+                    },
+                    true,
+                )
+            }
             Surface::Terminal => (crate::tr("Terminal").into(), SurfaceKind::Terminal, false),
             Surface::Preview => (crate::tr("Preview").into(), SurfaceKind::Browser, false),
             Surface::Devices => (crate::tr("Devices").into(), SurfaceKind::Device, false),
