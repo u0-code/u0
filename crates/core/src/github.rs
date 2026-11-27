@@ -404,7 +404,7 @@ fn template(stem: &str, text: &str) -> (String, String) {
 fn act_args(kind: Kind, n: &str, act: &Act) -> Vec<String> {
     let k = kind.gh();
     let words = |w: &[&str]| w.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
-    match act {
+    let mut args = match act {
         Act::Merge {
             how, auto, delete, ..
         } => {
@@ -490,7 +490,13 @@ fn act_args(kind: Kind, n: &str, act: &Act) -> Vec<String> {
         Act::Assignee(who) => words(&[k, "edit", n, "--add-assignee", who]),
         Act::Checkout => words(&["pr", "checkout", n]),
         Act::Rerun(run) => words(&["run", "rerun", run, "--failed"]),
+    };
+    // What GitHub's API answers is JSON, not for you: what is said
+    // of it done is "done".
+    if args[0] == "api" {
+        args.insert(1, "--silent".into());
     }
+    args
 }
 
 /// The message GitHub squashes the pull request numbered `n` (or the
@@ -800,7 +806,11 @@ mod tests {
             lines: vec![line("src/a.rs", 3, "why?"), line("src/b.rs", 9, "typo")],
         };
         let args = act_args(Kind::Pr, "7", &review);
-        assert_eq!(args[1], "repos/{owner}/{repo}/pulls/7/reviews");
+        // What the API answers is not shown as what was done.
+        assert_eq!(
+            args[1..3],
+            ["--silent", "repos/{owner}/{repo}/pulls/7/reviews"]
+        );
         assert!(args.contains(&"event=REQUEST_CHANGES".to_owned()));
         let fields: Vec<&str> = (args.iter())
             .filter(|a| a.starts_with("comments"))
@@ -825,6 +835,12 @@ mod tests {
         };
         let args = act_args(Kind::Pr, "7", &reopen);
         assert!(args.last().unwrap().contains("unresolveReviewThread"));
+        let reply = Act::Reply {
+            thread: "T1".into(),
+            body: "Fixed".into(),
+        };
+        assert_eq!(act_args(Kind::Pr, "7", &reply)[..2], ["api", "--silent"]);
+        assert_eq!(act_args(Kind::Pr, "7", &Act::Close), ["pr", "close", "7"]);
     }
 
     #[test]
