@@ -38,7 +38,7 @@ from one start to the next, so an app you set up with them keeps working:
 - The key is kept in the Keychain until you press **New key** under
   **Settings › Agents › Key for agents outside Ghost**. The old key then
   lets no one in, not even an agent already connected with it (its
-  next call is refused), and a new one is written in `mcp.json`. Where there is
+  next call is refused, and a wait it is in ends), and a new one is written in `mcp.json`. Where there is
   no Keychain (`ghost-server` on Linux), the key is made anew at each
   start.
 

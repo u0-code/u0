@@ -104,6 +104,13 @@ impl Tools {
     /// the resource `ghost://events` says each time something happens.
     #[tool]
     async fn events(&self, Parameters(ask): Parameters<Since>) -> Result<String, String> {
+        self.while_let_in(self.happened_since(ask)).await?
+    }
+}
+
+impl Tools {
+    /// What `events` gives, waited for as `ask` says.
+    async fn happened_since(&self, ask: Since) -> Result<String, String> {
         let until = Instant::now() + std::time::Duration::from_secs(ask.seconds).min(MOST);
         let (mut after, mut missed) = (ask.after, false);
         loop {

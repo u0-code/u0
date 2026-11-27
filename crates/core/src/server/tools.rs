@@ -140,6 +140,24 @@ impl Tools {
         Some((id, meta))
     }
 
+    /// `work`, unless its key stops letting it in first (New key): then
+    /// why not. What waits long (`events`, `wait_for_turn`) waits so,
+    /// and tells nothing that happened after the key was replaced.
+    async fn while_let_in<T>(
+        &self,
+        work: impl std::future::Future<Output = T>,
+    ) -> Result<T, String> {
+        let let_go = async {
+            while self.caller().is_some() {
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            }
+        };
+        tokio::select! {
+            done = work => Ok(done),
+            () = let_go => Err(LET_GO.into()),
+        }
+    }
+
     /// Who it is, while its key lets it in.
     fn caller(&self) -> Option<Caller> {
         (self.shared.callers.lock().expect("callers"))
@@ -653,10 +671,8 @@ impl Tools {
     async fn wait_for_turn(&self, Parameters(ask): Parameters<WaitFor>) -> Result<String, String> {
         let id = SessionId::new(ask.session);
         self.not_mine(&ask.agent, &id)?;
-        if !(self.shared.happened)
-            .idle(&ask.agent, &id, waited(ask.seconds))
-            .await
-        {
+        let idle = (self.shared.happened).idle(&ask.agent, &id, waited(ask.seconds));
+        if !self.while_let_in(idle).await? {
             return Err("Its turn still goes on".into());
         }
         Ok(self.shared.said_in(&ask.agent, &id, true).await)
@@ -1121,7 +1137,14 @@ esac; done"#;
         let mut kept = Client::new(home.path(), None);
         kept.call("list_sessions", &json!({}));
         assert!(!kept.result().1);
+        // One already waiting for what happens ends as the key goes.
+        let mut waiting = Client::new(home.path(), None);
+        waiting.call("events", &json!({"after": 1000, "seconds": 600}));
+        std::thread::sleep(Duration::from_millis(300));
         ghost.handle(Call::NewToolsKey);
+        let began = std::time::Instant::now();
+        assert_eq!(waiting.result(), (LET_GO.to_owned(), true));
+        assert!(began.elapsed() < Duration::from_secs(5));
         let _ = door_once(home.path(), |d| d.key != door.key);
         kept.call("list_sessions", &json!({}));
         let new = door_once(home.path(), |d| d.key != door.key).key;
