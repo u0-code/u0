@@ -17,7 +17,7 @@ const sidebars = {
       label: 'Working with agents',
       collapsed: false,
       items: [
-        'projects-and-sessions',
+        'projects-and-threads',
         'thread',
         'worktrees-and-checkpoints',
         'review',

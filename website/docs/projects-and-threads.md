@@ -1,9 +1,9 @@
 ---
-title: Projects and sessions
-description: Projects are folders; sessions are each agent's own, listed by project.
+title: Projects and threads
+description: Projects are folders; threads are each agent's own, listed by project.
 ---
 
-# Projects and sessions
+# Projects and threads
 
 ## Projects
 
@@ -16,16 +16,16 @@ A project is a folder. It does not have to be a git repository.
   popover, or in the palette, ⌘K) offers:
   - **Choose a folder…**;
   - **Clone a repository**, into the folder `projects_in` names
-    (`~/Documents/Ghost` by default; with `host_folders`, laid out as
+    (`~/Documents/u0` by default; with `host_folders`, laid out as
     `<host>/<owner>/<repo>`);
   - **New project**: a new folder there, and, where `gh` is installed, a
     private GitHub repository for it;
   - up to six folders your agents already worked in.
 - Type a path beginning with `/` or `~` to browse: Tab goes into the
   folder, ⌘Return adds what you typed, ⌫ on an empty line goes back.
-- From a terminal: `ghost <folder>` (see [CLI](reference/cli.md)).
-- A `file://` link to a folder opened with Ghost adds it and begins a
-  session.
+- From a terminal: `u0 <folder>` (see [CLI](reference/cli.md)).
+- A `file://` link to a folder opened with u0 adds it and begins a
+  thread.
 
 ### A folder of repositories
 
@@ -33,48 +33,48 @@ A project folder that is not itself a repository may hold several: each
 repository directly inside it, or one level further down (such as
 `packages/web`), up to 128, leaving out hidden folders and submodules.
 Each shows in the Diff tab's repository picker with its own changes,
-commits, commit form and pull request. A worktree session gets a folder
+commits, commit form and pull request. A worktree thread gets a folder
 laid out as the project is, with a worktree of each repository on the
-session's branch and the rest linked; each turn is checkpointed, undone
+thread's branch and the rest linked; each turn is checkpointed, undone
 and diffed in every repository.
 
 ### Project settings
 
 **Settings › Projects** (or **Project settings** on a project's menu)
 holds, for each project: its name and icon, whether it is pinned, the
-agent its new sessions begin with, whether they work in a worktree,
-whether its default branch is pulled as Ghost starts and on each fetch,
+agent its new threads begin with, whether they work in a worktree,
+whether its default branch is pulled as u0 starts and on each fetch,
 the Linear team its issues come from, and a few settings it holds
 otherwise than everywhere else (how pull requests merge, agents' credits
 in a squash, submodules, branch names by kind of work, going on when a
-limit resets, and removing archived sessions' worktrees). See `prefs` in
+limit resets, and removing archived threads' worktrees). See `prefs` in
 [settings.json](reference/settings.md#projects).
 
 Removing a project leaves its folder, worktrees and files alone.
 
-## Sessions
+## Threads
 
-Sessions belong to each agent, which lists them by project. Ghost keeps an
+Threads belong to each agent, which lists them by project. u0 keeps an
 index of those it has seen (title, pins, archive, worktree) and a record
-of each, so the list and a thread show at once. A session with a record
+of each, so the list and a thread show at once. A thread with a record
 is resumed with the agent when you write; one without (begun elsewhere)
 is loaded from the agent and recorded from then on.
 
 ### The sidebar
 
-- **Pinned** sessions from every project come first, in the order you
+- **Pinned** threads from every project come first, in the order you
   dragged them.
-- Each **project** lists its sessions that are not done. The order is
+- Each **project** lists its threads that are not done. The order is
   `sort` in settings: by your last message (default), by any activity, by
   when it began, or by name.
 - **Snoozed** and **Settled** shelves sit folded at the foot.
 
-Each row ends with the session's state: Working, Approval, Sign in,
+Each row ends with the thread's state: Working, Approval, Sign in,
 Failed, Limited, Plan, Done, Woke, or Draft.
 
 The search box matches titles, #tags, pull request numbers, branches and
 projects; from two characters on, it also searches what was said in
-every session.
+every thread.
 
 Keys in the list: ↑ ↓ → ← move and fold; Return or Space opens; F2
 renames; ⇧F10 or a right-click opens the menu. ⌘-click and ⇧-click choose
@@ -82,9 +82,9 @@ several rows. Hold ⌘ to see the numbers ⌘1–⌘9 jump to. Drag a row onto a
 pinned row to pin it, onto Settled to settle it, onto a project to make
 it active again.
 
-### A session's menu
+### A thread's menu
 
-Right-click a session (or ⇧F10):
+Right-click a thread (or ⇧F10):
 
 | Item | What it does |
 |---|---|
@@ -93,42 +93,42 @@ Right-click a session (or ⇧F10):
 | Settle / Un-settle | Mark it done, or not. |
 | Snooze / Wake | Hide it until a time: the choices from `snoozes`, or **Custom…** ("in 3h", "in 2 days", "at 5pm"). Writing in it wakes it. |
 | Mark unread | |
-| Find in session | |
+| Find in thread | |
 | Filter by project, Project settings | |
-| New session on *branch* | Begin a new session on this session's branch. |
-| Branch off a copy | A copy of the session to take another way (where the agent can fork). |
-| Continue with | Hand the session to another agent. |
-| Copy | The conversation, the path, the branch, a link, or the session's id. |
+| New thread on *branch* | Begin a new thread on this thread's branch. |
+| Branch off a copy | A copy of the thread to take another way (where the agent can fork). |
+| Continue with | Hand the thread to another agent. |
+| Copy | The conversation, the path, the branch, a link, or the thread's id. |
 | Never settle on its own / Let it settle on its own | |
-| Archive, Delete | Not while the session is busy. |
+| Archive, Delete | Not while the thread is busy. |
 
 Unpin, Settle, Snooze, Archive and Delete show a notice with **Undo** for
 five seconds; ⌘Z takes them back too. Delete asks first (see `confirm`);
-if the session alone uses its worktree, Ghost asks whether to delete the
+if the thread alone uses its worktree, u0 asks whether to delete the
 worktree too.
 
-Archived sessions and projects are in **Settings › Sessions**, with
+Archived threads and projects are in **Settings › Archive**, with
 **Restore** and **Delete**.
 
 ### Done for now
 
-A session settles (is marked done) on its own when:
+A thread settles (is marked done) on its own when:
 
 - it has been left for `settle_days` (7 by default);
 - its pull request merged or closed (`settle_merged`).
 
-A pinned session, one set to never settle, and (with `keep_with_pr`) one
+A pinned thread, one set to never settle, and (with `keep_with_pr`) one
 with an open pull request do not.
 
 ### Links
 
-Ghost opens `ghost://` links:
+u0 opens `u0://` links:
 
 | Link | What it does |
 |---|---|
-| `ghost://new?project=…&agent=…&prompt=…` | A new session in a project you have (with `pr=` or `issue=`, about that pull request or issue). A link never adds a project. |
-| `ghost://session/<agent>/<id>?prompt=…` | Open a session, with a draft. |
-| `ghost://pair?host=…#…` | Pair with a server (see [Remote control](remote.md)). |
+| `u0://new?project=…&agent=…&prompt=…` | A new thread in a project you have (with `pr=` or `issue=`, about that pull request or issue). A link never adds a project. |
+| `u0://session/<agent>/<id>?prompt=…` | Open a thread, with a draft. |
+| `u0://pair?host=…#…` | Pair with a machine (see [Remote control](remote.md)). |
 
 Invisible characters in a link's prompt are taken out, and you are told.
 A link that would replace a draft asks first.

@@ -42,22 +42,22 @@ The thread is the same for every agent:
 
 ### The top bar
 
-Click the title to rename the session. Its menu has the transcript
+Click the title to rename the thread. Its menu has the transcript
 views, **Continue with** another agent, **Open in your editor**, **Copy
-the session's id**, **Copy the pull request's address** and **Archive**.
+the thread's id**, **Copy the pull request's address** and **Archive**.
 The buttons beside it open the terminal drawer (⌘J) and show or hide the
 right column (⌥⌘B).
 
 ### Find
 
-⌘F finds in the session: Return for the next match, ⇧Return for the
+⌘F finds in the thread: Return for the next match, ⇧Return for the
 previous, Esc to close. ⌃⇧↑ and ⌃⇧↓ jump between your own messages.
 
 ### Turns: undo, restore, branch off
 
-In a git repository, Ghost checkpoints the files before and after each
+In a git repository, u0 checkpoints the files before and after each
 turn (see [Worktrees and checkpoints](worktrees-and-checkpoints.md)).
-Under a turn, while the session is idle:
+Under a turn, while the thread is idle:
 
 - **Diff** shows what the turn changed;
 - **Undo** (the last turn) or **Restore to before** (an earlier one) puts
@@ -76,7 +76,7 @@ bring back messages you sent before.
 ### Chips
 
 Under the text, chips show and change what the message goes with: the
-project; for a new session in a repository, **Worktree** and the branch
+project; for a new thread in a repository, **Worktree** and the branch
 it starts **from**; the branch; the model; the mode; and a ring showing
 how much of the agent's context is used.
 
@@ -86,18 +86,18 @@ Paste, drop or choose files and pictures (**+ › Add files or photos**),
 or **Add a window** to attach a capture of a window. HEIC and very large
 pictures are turned into JPEG. A paste of 32 KiB or more becomes an
 attachment (⇧⌘V pastes it as text instead). A dropped folder is
-@-mentioned. **+ › Add folder** gives a new session another folder to
+@-mentioned. **+ › Add folder** gives a new thread another folder to
 work in, where the agent supports it.
 
 ### @ mentions
 
-Type `@` to name, from the project: a file, another session (sent as its
+Type `@` to name, from the project: a file, another thread (sent as its
 conversation), an open pull request (sent as `gh` shows it), or a model
 (which switches to it).
 
 ### / commands
 
-Type `/` for the agent's own slash commands, and Ghost's: `clear`,
+Type `/` for the agent's own slash commands, and u0's: `clear`,
 `usage-limits`, `model`, `branch` and `copy`.
 
 ### While the agent works
@@ -145,9 +145,9 @@ composer, or else the agent's last answer.
 agents, and each agent's models. Search with **Search models…**, star a
 model to keep it among the favourites, and choose how hard it thinks
 under **Effort** (or the agent's other **Options**). ⇧⌘E opens it at the
-effort. Once a session has begun, only its agent's models are offered.
+effort. Once a thread has begun, only its agent's models are offered.
 **Send to all *n* agents** sends the message to every agent at once, each
-in a session of its own.
+in a thread of its own.
 
 ⇧⌘A opens the mode menu: the agent's modes (such as read-only, ask
 first, auto), as the agent lists them, each with its description; ⌘1–⌘9
@@ -155,13 +155,13 @@ choose one.
 
 Model ids of your own can be added on the agent's page (see
 [First run](first-run.md#an-agents-page)). What you last chose for an
-agent in a project is what its next new session there starts with.
+agent in a project is what its next new thread there starts with.
 
 ## Usage
 
-⌘U opens **Usage**: what each session cost and the tokens it took, by
-agent, by model and by session, over 24 hours, 7, 30 or 90 days, or all
-(⇧⌘1 to ⇧⌘5). Ghost computes nothing: it shows what the agents report.
+⌘U opens **Usage**: what each thread cost and the tokens it took, by
+agent, by model and by thread, over 24 hours, 7, 30 or 90 days, or all
+(⇧⌘1 to ⇧⌘5). u0 computes nothing: it shows what the agents report.
 **Limits** shows where each usage limit stands and when it resets, where
 the agent says so (Claude's adapter does). A turn a limit stopped goes on
 by itself when the limit resets (see
@@ -169,7 +169,7 @@ by itself when the limit resets (see
 
 ## Notifications
 
-When a session ends a turn, fails, or needs you while Ghost is not in
+When a thread ends a turn, fails, or needs you while u0 is not in
 front, macOS shows a notification (see `notify` and `notify_on` in
 [settings](reference/settings.md#notifications-and-background)). In
-front, Ghost shows a notice at the top right instead.
+front, u0 shows a notice at the top right instead.

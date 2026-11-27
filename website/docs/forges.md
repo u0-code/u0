@@ -10,12 +10,12 @@ projects' pull requests and issues from where their code is hosted.
 
 ## Hosts
 
-**Settings › Source control › Hosts** shows each host and how Ghost
+**Settings › Source control › Hosts** shows each host and how u0
 reaches it. A token you give there is used instead of the CLI's own
 sign-in, and is kept in the macOS Keychain, never in a file. It may be a
 1Password reference (`op://vault/item/field`), read with `op` when used.
 
-| Host | How Ghost reaches it | Token |
+| Host | How u0 reaches it | Token |
 |---|---|---|
 | GitHub | the `gh` CLI | yours from `gh auth login`, or one given here |
 | GitLab (any host whose name contains `gitlab`) | its REST API; `glab` to open merge requests | given here (also passed to `glab`) |
@@ -45,10 +45,10 @@ An item's menu:
 
 - for a pull request: **Squash and merge**, **Merge**, **Rebase and
   merge**, **Merge when its checks pass** (each deletes the branch);
-  **Ready for review** / **Convert to draft**; **A session on it, in a
+  **Ready for review** / **Convert to draft**; **A thread on it, in a
   worktree** or **checked out here**; **Copy the checkout command**;
   **Load new commits**;
-- for an issue: **A session about it**, and **Triage it** (a session that
+- for an issue: **A thread about it**, and **Triage it** (a thread that
   triages it);
 - for both: **Close** / **Reopen**, **Edit title and description**,
   **Open on its host**, **Copy its link**.
@@ -68,7 +68,7 @@ A pull request opens on its own page, with **Summary**, **Timeline**,
 - **Comment on this line** queues a comment for your next review. Finish
   with **Comment**, **Approve** or **Request changes**.
 - **Conversations** has **Reply** and **Resolve** / **Reopen**; resolved
-  and bots' threads are folded away.
+  conversations and bots' are folded away.
 - **Guide** has the writer write a review guide to read the change by. It
   says so when commits came after it was written.
 

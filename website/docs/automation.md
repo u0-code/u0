@@ -5,15 +5,15 @@ description: Run prompts on a schedule or from a webhook, and chain agents, comm
 
 # Scheduled tasks, workflows and webhooks
 
-Ghost's server runs tasks and workflows, not the window. They keep running
+u0's server runs tasks and workflows, not the window. They keep running
 while the window is closed, as long as the server runs: in the app while
-it is open, or all the time with `ghost service install` (see
-[CLI](reference/cli.md#the-launchd-service)) or `ghost-server`.
+it is open, or all the time with `u0 service install` (see
+[CLI](reference/cli.md#the-launchd-service)) or `u0-server`.
 
 ## Scheduled tasks
 
 A scheduled task says a prompt to an agent, in a project, on a schedule.
-Each run is a session of its own (or the next turn of one session) and
+Each run is a thread of its own (or the next turn of one thread) and
 shows in the sidebar like any other.
 
 Open **Settings › Scheduled tasks** and choose **New task**:
@@ -26,8 +26,8 @@ Open **Settings › Scheduled tasks** and choose **New task**:
 | **Project** | Where it works. |
 | **Each run** | **Says its prompt** to the agent, or **Begins** one of your [workflows](#workflows), the prompt (filled as a webhook's or an event's is) its input. |
 | **Schedule** | **Every** (minutes, or a duration such as `2h`), **Daily** (a time, and the days of the week; none chosen means every day), **Once** (such as `tomorrow`, `5pm`, `in 3h`), **On webhook**, or **On an event**. |
-| **Each run** | **A new session each run**, or **One session, continued** (each run is the next turn of the first run's session). |
-| **In a worktree of its own** | With a new session each run: each run works on a new branch, away from your checkout. |
+| **Each run** | **A new thread each run**, or **One thread, continued** (each run is the next turn of the first run's thread). |
+| **In a worktree of its own** | With a new thread each run: each run works on a new branch, away from your checkout. |
 
 A new task starts as Daily at 09:00 on weekdays. Each task's ⋯ menu
 has **Edit**, **Run now** and **Delete**, and its switch pauses it.
@@ -40,19 +40,19 @@ How runs behave:
 - A **Once** task removes itself after it runs successfully.
 - A finished or failed run notifies you as any turn does (see
   `notify_on` in [settings](reference/settings.md#notifications-and-background)),
-  and its session is marked unread.
+  and its thread is marked unread.
 - A failed run shows its error under the task.
 
-`ghost tasks` lists the tasks from a terminal.
+`u0 tasks` lists the tasks from a terminal.
 
 ### On an event
 
-A task **On an event** runs as something happens in a session of yours:
+A task **On an event** runs as something happens in a thread of yours:
 **A turn ends**, or **An agent asks** you something. **In this task's
-project alone** limits it to sessions in the task's project. It runs only
-on your turns, never on a turn Ghost began on its own (a task's, a
-workflow's, or one an agent said in another session), so no task runs on
-its own runs. A session an agent once said something in is still yours:
+project alone** limits it to threads in the task's project. It runs only
+on your turns, never on a turn u0 began on its own (a task's, a
+workflow's, or one an agent said in another thread), so no task runs on
+its own runs. A thread an agent once said something in is still yours:
 your next turn there runs the task again. `{{event}}` in the
 prompt is what happened, marked as data from outside (`<event
 untrusted>`).
@@ -60,7 +60,7 @@ untrusted>`).
 ### tasks.json
 
 Tasks are kept in `<home>/tasks.json`, written by the server. You can
-edit it while Ghost is closed:
+edit it while u0 is closed:
 
 ```json
 {
@@ -92,14 +92,14 @@ edit it while Ghost is closed:
 | `id` | number | The task's number. |
 | `title`, `prompt` | string | |
 | `agent` | agent id | |
-| `model`, `mode` | string or `null` | The model, and the session mode, to set. `null`: the agent's default. |
+| `model`, `mode` | string or `null` | The model, and the mode, to set. `null`: the agent's default. |
 | `project` | path | |
 | `schedule` | object | `{"every": minutes}`, `{"daily": {"minute": minutes after midnight, "days": [0–6, 0 is Sunday]}}` (an empty `days` is every day, in local time), `{"once": Unix seconds}`, or `{"hook": {"token": "<token>", "signed": bool, "only": [{"at": "body.action", "is": ["opened"]}]}}`, or `{"on": {"moment": "turn_ended" or "asks", "here": bool}}`. |
 | `workflow` | string or `null` | The workflow each run begins, its filled prompt the input. |
 | `paused` | bool | |
-| `same` | bool | One session, continued. |
+| `same` | bool | One thread, continued. |
 | `worktree` | bool | Each run in a new worktree. |
-| `session`, `next`, `last`, `runs` | | Kept by the server: the session it continues, the next run, the last run's result, the number of runs. |
+| `session`, `next`, `last`, `runs` | | Kept by the server: the thread it continues, the next run, the last run's result, the number of runs. |
 
 An unknown field is an error. A file that does not read is left alone,
 and no task runs or is saved until it is fixed or moved away.
@@ -107,8 +107,8 @@ and no task runs or is saved until it is fixed or moved away.
 ### When a usage limit stops a turn
 
 When an agent stops a turn because a usage limit was reached and says
-when the limit resets, Ghost schedules the turn to go on then: a one-time
-task that says "Continue" in the same session. The error card says when it
+when the limit resets, u0 schedules the turn to go on then: a one-time
+task that says "Continue" in the same thread. The error card says when it
 goes on, with **Don't go on** to cancel it. Turn this off with **General ›
 In the background › Go on when a limit resets** (`resume_at_reset`).
 
@@ -134,7 +134,7 @@ POST /hook/<token>
   on (`hook/<token>`), and moves with **New address**. Unsigned, the token
   is the only thing that protects the address: anyone who has it can run
   the task.
-- The address is served where Ghost listens for other devices, so
+- The address is served where u0 listens for other devices, so
   listening must be on (**Settings › Devices**, see
   [Remote control](remote.md)). The form shows
   `http://127.0.0.1:<port>/hook/<token>` and, while a tunnel is up,
@@ -155,16 +155,16 @@ POST /hook/<token>
   `{{body.<a>.<b>}}` a field of it and `{{header.<name>}}` a header, each
   wrapped in `<webhook-data untrusted>` … `</webhook-data>` so the agent
   knows it came from outside; a closing tag in what was sent is written
-  `<\/…`, so only Ghost's ends the mark. It can still try to steer the
+  `<\/…`, so only u0's ends the mark. It can still try to steer the
   agent: read it as you would anything pasted in. Without them in the
   prompt the body is not used.
-- Ghost answers `202 Accepted` when the task runs; `204 No Content` when
+- u0 answers `202 Accepted` when the task runs; `204 No Content` when
   a rule of **Only when** does not hold; `200 OK` for a delivery heard
   before; `401 Unauthorized` for a call not signed as it must be;
   `413` for a body too long; and `404 Not Found` for an unknown token, a
   paused task, or when a [policy](reference/policy.md) forbids
   webhooks.
-- A call made while Ghost is not running is not kept.
+- A call made while u0 is not running is not kept.
 
 
 ## Workflows
@@ -175,7 +175,7 @@ survives a restart: each step's result is kept as the step ends, and a
 step that fails pauses the run there.
 
 Each workflow is a JSON file of yours in `<home>/workflows/`, named by its
-file name (`release.json` is the workflow `release`). Ghost reads the
+file name (`release.json` is the workflow `release`). u0 reads the
 files each time it lists or starts one.
 
 ```json
@@ -205,7 +205,7 @@ Steps:
 
 | Step | Keys | What it does |
 |---|---|---|
-| `agent` | `name`, `prompt`; optional `agent`, `model`, `project`, `worktree`, `after` | Says `prompt` to an agent in a new session titled "workflow · step". With `after` (an earlier agent step's name) it goes on in that step's session instead. The step's result is the agent's last answer. |
+| `agent` | `name`, `prompt`; optional `agent`, `model`, `project`, `worktree`, `after` | Says `prompt` to an agent in a new thread titled "workflow · step". With `after` (an earlier agent step's name) it goes on in that step's thread instead. The step's result is the agent's last answer. |
 | `run` | `name`, `command`; optional `dir` | Runs `command` with `/bin/sh -c` in `dir` (or the project). The result is its standard output. A non-zero exit pauses the run with its error output. |
 | `ask` | `name`, `title`, `choices`; optional `stop` | Asks you, with one button per choice. Your choice is the step's result. A choice listed in `stop` stops the run. |
 
@@ -215,7 +215,7 @@ to `/bin/sh` as an argument, and each `{{name}}` becomes a reference to
 it, quoted for where it stands (bare, in double quotes or in single
 quotes): the shell never reads a value as words of the command.
 
-A command can still read a word as code itself, so Ghost reads the
+A command can still read a word as code itself, so u0 reads the
 command as bash would (with [brush-parser](https://crates.io/crates/brush-parser))
 and takes a `{{name}}` only as an argument of a command named plainly:
 `echo`, `printf` (not as its format, and not with `-v`), `cd` or a
@@ -238,7 +238,7 @@ under **Values in commands**.
 In **Settings › Workflows**, type an input (optional) and press **Start**
 beside the workflow. Under **Runs** you can show those that need you,
 those going, or all. A run shows each finished step with the first line of
-its result and **Open** (its session); a run waiting on an `ask` step
+its result and **Open** (its thread); a run waiting on an `ask` step
 shows its choices; a paused run shows why, with **Resume** (run the step
 again). **Cancel** stops a run and the turn in progress.
 

@@ -6,7 +6,7 @@ description: The Devices tab drives iOS simulators and Android emulators, for yo
 # Simulators and emulators
 
 The right column's **Devices** tab (⌘T, then V) lists the iOS simulators
-and Android emulators of the machine the session runs on. You can:
+and Android emulators of the machine the thread runs on. You can:
 
 - **Start** one, or **Power off** a running one;
 - watch its screen, frame after frame;
@@ -21,7 +21,7 @@ and Android emulators of the machine the session runs on. You can:
 If nothing is found, the tab says what is missing; **Look again** looks
 again. Where AXe is missing for iOS, the tab offers **Install AXe**, which
 runs `brew install cameroncooke/axe/axe` (AXe's own way to install it)
-only once you press it; Ghost says when it is done, or why not (for
+only once you press it; u0 says when it is done, or why not (for
 instance, when Homebrew is not installed).
 
 ## What it needs
@@ -33,7 +33,7 @@ instance, when Homebrew is not installed).
 
 ## For agents
 
-Agents use the same devices through [Ghost's tools](tools-for-agents.md):
+Agents use the same devices through [u0's tools](tools-for-agents.md):
 `list_devices`, `device_screen` (a picture of the screen) and
 `use_device` (start, stop, tap, long `press`, `swipe` from one point to
 another, `scroll` toward a side, `rotate`, type, keys, dark or light),

@@ -1,5 +1,5 @@
 // @ts-check
-// Ghost's user guide: docs only, served at the site's root, in English and
+// u0's user guide: docs only, served at the site's root, in English and
 // Simplified Chinese. Built and published to GitHub Pages by
 // .github/workflows/docs.yml.
 
@@ -7,7 +7,7 @@ import {themes as prismThemes} from 'prism-react-renderer';
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'Ghost',
+  title: 'u0',
   tagline: 'One desktop app for the coding agents you already use',
   favicon: 'img/logo.svg',
 
@@ -78,9 +78,9 @@ const config = {
         respectPrefersColorScheme: true,
       },
       navbar: {
-        title: 'Ghost',
+        title: 'u0',
         logo: {
-          alt: 'Ghost',
+          alt: 'u0',
           src: 'img/logo.svg',
         },
         items: [
@@ -94,7 +94,7 @@ const config = {
       },
       footer: {
         style: 'dark',
-        copyright: 'Ghost · Apache-2.0',
+        copyright: 'u0 · Apache-2.0',
       },
       prism: {
         theme: prismThemes.github,
