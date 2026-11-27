@@ -33,7 +33,7 @@ use crate::{
 };
 
 /// Where the batches go: the Worker in `telemetry/`.
-pub const ENDPOINT: &str = "https://ghost-telemetry.aac6fef-aed.workers.dev";
+pub const ENDPOINT: &str = "https://u0-telemetry.aac6fef-aed.workers.dev";
 
 /// Where a build on `channel` sends its batches: nowhere from a `dev`
 /// build, one made by hand, whose runs are tests and would count as use.

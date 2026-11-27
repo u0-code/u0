@@ -1,4 +1,4 @@
-// Ghost's telemetry: each batch a Ghost sends (crates/core/src/telemetry.rs),
+// u0's telemetry: each batch a u0 sends (crates/core/src/telemetry.rs),
 // checked against its schema (batch.schema.json, made from the Rust that
 // sends it) and kept as a row of D1's `batches` (schema.sql). Nothing of
 // the request is kept but the country Cloudflare reads it from: no

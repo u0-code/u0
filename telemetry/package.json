@@ -1,5 +1,5 @@
 {
-  "name": "ghost-telemetry",
+  "name": "u0-telemetry",
   "private": true,
   "type": "module",
   "devDependencies": {
