@@ -97,6 +97,14 @@ pub struct Draft {
 }
 
 impl Draft {
+    /// The other agents kept only where each gets a worktree of its own
+    /// (`worktrees`): several agents never work in one folder at once.
+    pub fn keep_apart(&mut self, worktrees: bool) {
+        if !worktrees {
+            self.also_run.clear();
+        }
+    }
+
     fn is_empty(&self) -> bool {
         self.attached.is_empty()
             && self.also_run.is_empty()
@@ -1201,6 +1209,18 @@ mod tests {
         assert_eq!(l.uri, "file:///tmp/my%20project/a%20%231.rs");
         let back = url::Url::parse(&l.uri).unwrap().to_file_path().unwrap();
         assert_eq!(back, Path::new("/tmp/my project/a #1.rs"));
+    }
+
+    #[test]
+    fn a_draft_without_worktrees_runs_on_its_own_agent_alone() {
+        let mut draft = Draft {
+            also_run: vec![("codex".into(), None)],
+            ..Draft::default()
+        };
+        draft.keep_apart(true);
+        assert_eq!(draft.also_run.len(), 1);
+        draft.keep_apart(false);
+        assert!(draft.also_run.is_empty());
     }
 
     #[test]

@@ -158,9 +158,11 @@ model to keep it among the favourites, and choose how hard it thinks
 under **Effort** (or the agent's other **Options**). ⇧⌘E opens it at the
 effort. Once a thread has begun, only its agent's models are offered.
 On a new thread, **+** beside any model adds it to **Also run on** (and
-**Send to all *n* agents** adds every usable agent), starting a thread—and
-a worktree, when **Worktree** is on—for each; **Start in the background**
-leaves you on a fresh draft after sending.
+**Send to all *n* agents** adds every usable agent), starting a thread
+and a worktree for each: adding one turns **Worktree** on, turning
+**Worktree** off leaves the thread on its own agent, and outside a git
+repository it stays on one, so several agents never work in one folder.
+**Start in the background** leaves you on a fresh draft after sending.
 
 ⇧⌘A opens the mode menu: the agent's modes (such as read-only, ask
 first, auto), as the agent lists them, each with its description; ⌘1–⌘9

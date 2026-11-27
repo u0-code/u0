@@ -21,6 +21,7 @@ impl Desk {
             && s.state == State::Draft
         {
             s.wants_worktree = on && s.git_dir().is_some();
+            self.composer.draft.keep_apart(s.wants_worktree);
         }
         self.settings.worktree = on;
         self.save_settings();

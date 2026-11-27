@@ -789,9 +789,14 @@ impl Desk {
                             .text_size(px(crate::style::CAPTION))
                             .text_color(theme::muted()),
                         )
-                        .tooltip(crate::tr("A thread each, begun with the same words"))
+                        .tooltip(crate::tr(
+                            "A thread each, begun with the same words, each in a worktree of its own",
+                        ))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if this.composer.draft.also_run.is_empty() {
+                                if !this.worktree_each() {
+                                    return cx.notify();
+                                }
                                 this.composer.draft.also_run = this
                                     .others(host, &current_agent)
                                     .into_iter()
@@ -811,18 +816,41 @@ impl Desk {
     /// Add or remove `(agent, model)` among the additional models a draft
     /// runs on ("Also run on").
     pub fn toggle_also_run(&mut self, agent: &str, model: Option<String>, cx: &mut Context<Self>) {
-        if let Some(at) = self
+        let at = self
             .composer
             .draft
             .also_run
             .iter()
-            .position(|(a, m)| a == agent && *m == model)
-        {
+            .position(|(a, m)| a == agent && *m == model);
+        if let Some(at) = at {
             self.composer.draft.also_run.remove(at);
-        } else {
+        } else if self.worktree_each() {
             self.composer.draft.also_run.push((agent.to_owned(), model));
         }
         cx.notify();
+    }
+
+    /// Before the draft on screen starts on more than one agent: each is
+    /// to get a worktree of its own, never all of them one folder. Where
+    /// there is no repository to make them from, it stays on one agent,
+    /// and says why.
+    fn worktree_each(&mut self) -> bool {
+        let Some(s) = self.current.and_then(|k| self.sessions.at_mut(k)) else {
+            return false;
+        };
+        if s.git_dir().is_none() {
+            self.trouble(
+                crate::tr("Several agents at once need a git repository"),
+                Some(
+                    crate::tr("Each works in a worktree of its own: never several in one folder")
+                        .into(),
+                ),
+                None,
+            );
+            return false;
+        }
+        s.wants_worktree = true;
+        true
     }
 
     /// Friendly label for an `(agent, model)` target in `"Also run on"`.
