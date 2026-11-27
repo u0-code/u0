@@ -46,6 +46,63 @@ impl Desk {
         }
         match &self.page {
             Page::Thread => {
+                if let Some(m) = self.guest_machine() {
+                    let now = std::time::SystemTime::now();
+                    let left_label = match m.guest_until {
+                        Some(ts) => {
+                            let w = crate::when::short_at(
+                                crate::store::time(ts),
+                                now,
+                                self.settings.twelve,
+                            );
+                            crate::tr_with(
+                                "u0 · %{host} · read only, until %{when}",
+                                &[("host", &m.name), ("when", &w)],
+                            )
+                        }
+                        None => crate::tr_with("u0 · %{host} · read only", &[("host", &m.name)]),
+                    };
+                    let on_mac = m
+                        .guest_label
+                        .clone()
+                        .unwrap_or_else(|| crate::tr("This Mac").to_string());
+                    return bar
+                        .bg(theme::role(u0ui::tokens::ColorRole::Layer01))
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap(px(6.))
+                                .text_size(px(12.))
+                                .text_color(theme::role(u0ui::tokens::ColorRole::TextSecondary))
+                                .child(
+                                    u0ui::Icon::named("dns")
+                                        .size_length(px(16.))
+                                        .color(theme::role(u0ui::tokens::ColorRole::IconSecondary))
+                                        .flex_none(),
+                                )
+                                .child(left_label),
+                        )
+                        .child(div().flex_1())
+                        .child(
+                            ui::text(faces, crate::tr_with("u0 on %{name}", &[("name", &on_mac)]))
+                                .text_size(px(12.))
+                                .text_color(theme::role(u0ui::tokens::ColorRole::TextHelper)),
+                        )
+                        .child(
+                            ui::icon_button(
+                                "toggle-aside",
+                                "panel-right",
+                                crate::keys::hint(
+                                    cx,
+                                    &crate::tr("Show or hide the right column"),
+                                    "right_column",
+                                ),
+                            )
+                            .selected(self.panes.right && self.session().is_some())
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_aside(cx))),
+                        );
+                }
                 if let Some(s) = self.session() {
                     // The title alone, as Claude sets it: a click renames
                     // it where it is, its caret opens the session's menu.
@@ -346,8 +403,15 @@ impl Desk {
                 .icon(ui::menu_glyph("copy")),
             );
         }
-        menu.separator()
-            .item(
+        menu.item(Self::menu_item(
+            desk,
+            crate::tr("Share read-only link…"),
+            |this, window, cx| {
+                this.open_pairing_dialog(true, window, cx);
+            },
+        ))
+        .separator()
+        .item(
                 Self::menu_item(desk, crate::tr("Archive"), move |this, _, cx| {
                     this.archive(key, cx);
                 })

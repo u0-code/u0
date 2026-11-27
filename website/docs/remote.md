@@ -41,7 +41,7 @@ as an access that ends does.
 
 In **Settings › Devices**, turn on **Let other devices control this
 Mac**. (The u0 menu's **Show Pairing Link…** does the same and opens
-the page.)
+the pairing dialog directly.)
 
 u0 then listens on `127.0.0.1` only, at port 4317 (the `port` in
 `<home>/devices.json`; give a second u0 on the same machine another).
@@ -116,7 +116,7 @@ fingerprint is the one the device shows before you let it in.
 Turn on **Control other Macs**. Then, under **Pair with another Mac**,
 paste the other machine's pairing link and press **Pair**. Opening a
 `u0://pair` link (from a browser, a QR scan or `open`) does the same.
-The u0 menu's **Pair a Device…** turns control on and takes you there.
+The u0 menu's **Pair a Device…** turns control on and opens the pairing dialog.
 
 u0 asks before it pairs: it names the host and the fingerprint of the
 key it made for it.

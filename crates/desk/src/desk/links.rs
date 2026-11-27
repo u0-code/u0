@@ -152,7 +152,7 @@ impl Desk {
         let here = |folder| super::Place::new(crate::hub::Host::HERE, folder);
         match link {
             Link::Folder(folder) => self.add_and_begin(&here(folder), window, cx),
-            Link::Pair { way, code } => Self::ask_pair(way, code, window, cx),
+            Link::Pair { way, code } => self.begin_pair_confirm(way, code, window, cx),
             Link::New {
                 project,
                 agent,

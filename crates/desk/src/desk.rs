@@ -1744,6 +1744,8 @@ impl Desk {
                 .settings_search
                 .update(cx, |i, cx| i.set_value("", window, cx));
             cx.notify();
+        } else if self.pages.pairing_modal.is_some() {
+            self.close_pairing_dialog(window, cx);
         } else if self.pages.open {
             self.close_settings(window, cx);
         } else if self.panes.whole && self.page == Page::Thread {
@@ -2213,6 +2215,7 @@ impl Render for Desk {
                 Page::Thread => {
                     let column = self.settings.width.column(pane);
                     middle
+                        .children(self.guest_thread_header(&faces, column))
                         .child(self.thread(&faces, column, window, cx))
                         .child(self.composer(&faces, column, window, cx))
                         .children(self.drawer(&faces, cell, cx))

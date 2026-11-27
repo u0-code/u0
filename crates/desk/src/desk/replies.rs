@@ -237,6 +237,8 @@ impl Desk {
                 m.home = welcome.home;
                 m.version = Some(welcome.version);
                 m.scope = welcome.scope;
+                m.guest_label = welcome.label;
+                m.guest_until = welcome.until;
                 if welcome.resumed {
                     if matches!(was, hub::Up::Lost(_)) {
                         self.done(crate::tr_with("%{name} is back", &[("name", &name)]), None);

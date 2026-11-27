@@ -9,6 +9,7 @@ mod flows;
 pub(crate) mod forge;
 mod hosts;
 mod looks;
+pub(crate) mod pairing;
 pub(crate) mod pr;
 mod prefs;
 mod projects;
@@ -130,6 +131,10 @@ pub struct Pages {
     pub offered: Option<(String, u64, crate::access::Grant)>,
     /// The way the next pairing link names; none, the best there is.
     pub route: Option<crate::reach::Route>,
+    /// Active Carbon pairing dialog (`Show Pairing Link…` / `Pair a Device…`).
+    pub pairing_modal: Option<pairing::PairingModal>,
+    /// Recently approved device `(label, public_key, standing)` for the green `Alert`.
+    pub recently_approved: Option<(String, String, String)>,
     /// The telemetry level on its slider, and the batch it would send,
     /// as the server last showed it.
     pub level: Entity<gpui::component::slider::SliderState>,
@@ -241,6 +246,8 @@ impl Pages {
             grant: crate::access::Grant::default(),
             offered: None,
             route: None,
+            pairing_modal: None,
+            recently_approved: None,
             changes: instructions_field(
                 &settings.writer.changes,
                 "As the repository's recent commits do",

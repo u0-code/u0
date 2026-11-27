@@ -312,8 +312,95 @@ impl Desk {
 
     /// In place of the line, for a session you do not write in: one
     /// archived, until it is restored; a subagent's, which answers to its
-    /// parent, not to you.
+    /// parent, not to you; on a server paired read-only, a disabled dock.
     fn shut(&self, faces: &Faces, s: &Session, column: f32, cx: &mut Context<Self>) -> Option<Div> {
+        if let Some(m) = self
+            .machine(s.host)
+            .filter(|m| m.host != crate::hub::Host::HERE && m.scope == crate::access::Scope::Read)
+        {
+            let placeholder = crate::tr_with(
+                "One suggestion at a time. You can write the next one after %{host} answers.",
+                &[("host", &m.name)],
+            );
+            let note = crate::tr_with(
+                "Read only: you watch the threads, diffs and files of %{host}'s projects, and change nothing. Permission cards, terminals and settings stay with %{host}.",
+                &[("host", &m.name)],
+            );
+            return Some(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_none()
+                    .items_center()
+                    .pb(px(16.))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(12.))
+                            .w(px(column))
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .bg(theme::role(u0ui::tokens::ColorRole::Layer01))
+                                    .child(
+                                        div()
+                                            .min_h(px(64.))
+                                            .px(px(16.))
+                                            .pt(px(12.))
+                                            .pb(px(8.))
+                                            .text_size(px(14.))
+                                            .line_height(px(20.))
+                                            .text_color(theme::role(
+                                                u0ui::tokens::ColorRole::TextDisabled,
+                                            ))
+                                            .child(placeholder),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .items_center()
+                                            .gap(px(12.))
+                                            .h(px(36.))
+                                            .px(px(16.))
+                                            .text_size(px(12.))
+                                            .text_color(theme::role(
+                                                u0ui::tokens::ColorRole::TextDisabled,
+                                            ))
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .items_center()
+                                                    .gap(px(6.))
+                                                    .child(crate::tr("Attach"))
+                                                    .child(
+                                                        u0ui::Icon::carbon(
+                                                            u0ui::icons::CarbonIcon::Add,
+                                                        )
+                                                        .size_length(px(16.))
+                                                        .color(theme::role(
+                                                            u0ui::tokens::ColorRole::IconDisabled,
+                                                        )),
+                                                    ),
+                                            )
+                                            .child(
+                                                div()
+                                                    .flex_1()
+                                                    .child(crate::tr("Up to 4 files · 10 MB")),
+                                            )
+                                            .child(crate::tr("Send")),
+                                    ),
+                            )
+                            .child(
+                                ui::text(faces, note)
+                                    .text_size(px(12.))
+                                    .line_height(px(16.))
+                                    .text_color(theme::role(u0ui::tokens::ColorRole::TextHelper)),
+                            ),
+                    ),
+            );
+        }
         let (icon, says, button) = if s.meta.flags.archived {
             let key = s.key;
             (

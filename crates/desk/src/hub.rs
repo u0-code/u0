@@ -119,6 +119,10 @@ pub struct Machine {
     pub cli_versions: HashMap<PathBuf, String>,
     /// What this Mac may do there, as its welcome said: all, on its own.
     pub scope: crate::access::Scope,
+    /// What this Mac called itself when pairing there, if told by welcome.
+    pub guest_label: Option<String>,
+    /// When this Mac's access ends there (seconds since 1970), if limited.
+    pub guest_until: Option<u64>,
     /// Its ports brought here (a dev server's), each while it is held.
     pub forwards: Vec<link::Forward>,
     /// The build of u0 it runs, as its welcome said.
@@ -145,6 +149,8 @@ impl Machine {
             cli_versions: HashMap::new(),
             version: None,
             scope: crate::access::Scope::Full,
+            guest_label: None,
+            guest_until: None,
             forwards: Vec::new(),
         }
     }

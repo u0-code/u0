@@ -693,14 +693,10 @@ pub fn handle(cx: &mut App, shown: &Shown) {
     on::<StartSpeaking>(cx, shown, |d, _, cx| d.read_aloud(cx));
     on::<CheckForUpdates>(cx, shown, Desk::check_update_shown);
     on::<PairDevice>(cx, shown, |d, window, cx| {
-        d.set_control(true, window, cx);
-        d.open_tab(Tab::Devices, window, cx);
-        d.pages.pair_link.update(cx, |i, cx| i.focus(window, cx));
+        d.open_pair_another_dialog(None, window, cx);
     });
     on::<ShowPairingCode>(cx, shown, |d, window, cx| {
-        d.share(crate::share::Share::Serve(true));
-        d.new_link();
-        d.open_tab(Tab::Devices, window, cx);
+        d.open_pairing_dialog(false, window, cx);
     });
     on::<ZoomWindow>(cx, shown, |_, window, _| window.zoom_window());
     cx.on_action(|_: &BringAllToFront, cx| cx.activate(true));

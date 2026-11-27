@@ -9,7 +9,6 @@
 
 use gpui::component::{
     Disableable as _, Sizable as _,
-    checkbox::Checkbox,
     input::Input,
     setting::{SettingGroup, SettingPage},
     switch::Switch,
@@ -203,7 +202,18 @@ impl Desk {
                     vec![Self::pair_field(w)],
                 ));
         }
-        page
+        page.group(group(
+            crate::tr("Add u0 to an agent"),
+            vec![
+                whole(w, &[], |_, _, _| {
+                    super::pairing::add_u0_to_agent_card("devices-mcp").into_any_element()
+                }),
+                whole(w, &[], |_, faces, _| {
+                    super::pairing::install_u0_elsewhere_card("devices-install", faces)
+                        .into_any_element()
+                }),
+            ],
+        ))
     }
 
     /// Whether this Mac controls others, as kept.
@@ -854,10 +864,10 @@ impl Desk {
     }
 
     /// Pair with the server whose link is pasted.
-    fn pair(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn pair(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let pasted = self.pages.pair_link.read(cx).value().trim().to_owned();
         match crate::reach::pairing(&pasted) {
-            Some((way, code)) => Self::ask_pair(way, code, window, cx),
+            Some((way, code)) => self.begin_pair_confirm(way, code, window, cx),
             None => self.trouble(
                 crate::tr("That is not a pairing link"),
                 Some(crate::tr("It begins u0://pair").into()),
@@ -867,71 +877,9 @@ impl Desk {
         cx.notify();
     }
 
-    /// Ask before pairing with the server `way` by `code`, showing the
-    /// fingerprint of the key this Mac makes for it; and, where this Mac's
-    /// own server is in this window, whether it pairs back.
-    pub(crate) fn ask_pair(
-        way: crate::reach::Way,
-        code: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        use gpui::component::WindowExt as _;
-        let key = Key::generate();
-        let kept = key.kept().to_owned();
-        let print = key::fingerprint(&key.public());
-        let host = way.host.clone();
-        let desk = cx.entity();
-        // Whether it pairs both ways, as the sheet's box is ticked.
-        let ticked = std::rc::Rc::new(std::cell::Cell::new(false));
-        window.open_alert_dialog(cx, move |alert, _, cx| {
-            let offer = desk.read(cx).machines[0].local().is_some();
-            let both = offer && ticked.get();
-            let faces = crate::fonts::faces(cx).clone();
-            let mut about = div().flex().flex_col().gap(px(12.)).child(ui::text(
-                &faces,
-                crate::tr_with(
-                    "This Mac makes a key for it and sends only its public half, %{print}. %{host} lists it under the devices that control it.",
-                    &[("print", &print), ("host", &host)],
-                ),
-            ));
-            if offer {
-                let ticked = ticked.clone();
-                about = about.child(
-                    Checkbox::new("pair-both")
-                        .label(crate::tr_with("Also let %{host} control this Mac", &[("host", &host)]))
-                        .checked(both)
-                        .on_click(move |on, window, _| {
-                            ticked.set(*on);
-                            window.refresh();
-                        }),
-                );
-            }
-            if both {
-                about = about.child(ui::fine(
-                    &faces,
-                    crate::tr_with(
-                        "This Mac listens, and %{host} pairs back with a key of its own, which this Mac lists under the devices that control it.",
-                        &[("host", &host)],
-                    ),
-                ));
-            }
-            let (desk, way, code, kept) = (desk.clone(), way.clone(), code.clone(), kept.clone());
-            alert
-                .title(crate::tr_with("Pair with %{host}?", &[("host", &host)]))
-                .description(about)
-                .ok_text(crate::tr("Pair"))
-                .show_cancel(true)
-                .on_ok(move |_, _, cx| {
-                    desk.update(cx, |d, cx| d.pair_with(&way, &code, &kept, both, cx));
-                    true
-                })
-        });
-    }
-
     /// Pair with the server `way` by `code` with the key kept as
     /// `kept`; `both` ways, if this Mac can be reached back.
-    fn pair_with(
+    pub(crate) fn pair_with(
         &mut self,
         way: &crate::reach::Way,
         code: &str,
