@@ -1315,7 +1315,7 @@ impl Desk {
                     "%{name} has this thread open elsewhere too",
                     &[("name", &agent_name)],
                 ))
-                .body(crate::tr("That process does not see what you send here."));
+                .body(crate::tr("Another process, such as a terminal, runs it as well. What you send here goes on in u0, and that process does not see it: write in one place at a time, or branch off a copy to go on apart."));
             if self.can_fork(s) {
                 let (desk, key) = (cx.entity(), s.key);
                 banner = banner.action(
