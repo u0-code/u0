@@ -1039,7 +1039,7 @@ impl Desk {
                 .show_cancel(true)
                 .on_ok(move |_, window, cx| {
                     desk.update(cx, |d, cx| {
-                        if d.draft_in(&p) != Some(key) {
+                        if d.draft_in(&p) != Some(key) || d.current != Some(key) {
                             return;
                         }
                         d.clear_draft(key, window, cx);
@@ -1303,28 +1303,52 @@ impl Desk {
     }
 
     /// Begin the session the composer was drawn for with none on screen,
-    /// what was typed in it kept: a thread of its own, with the agent and
-    /// choices the composer showed. The project's draft, which no row
-    /// shows, is left as it was, not written over.
-    pub(crate) fn begin_unbegun(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// what was typed in it kept (`sending`: as it is sent). The
+    /// project's draft, which no row shows, is never written over nor
+    /// hidden behind another: it is what the composer becomes, as
+    /// `mention::Start` says.
+    pub(crate) fn begin_unbegun(
+        &mut self,
+        sending: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(drawn) = self.unbegun() else { return };
-        let mut p = Place::project_of(&drawn);
-        if p.folder == self.scratch_dir(p.host) {
-            let Some(folder) = self.scratch(p.host) else {
-                return;
-            };
-            p = folder;
-        }
+        let (agent, mut p) = (drawn.meta.agent.clone(), Place::project_of(&drawn));
         let typed = self.typed(cx);
-        let key = self.sessions.take_key();
-        let s = self.begun_in(key, &drawn.meta.agent, p);
-        self.sessions.all.push(s);
-        self.show(key, window, cx);
+        let draft = self.draft_in(&p);
+        let holds = draft.is_some_and(|key| self.draft_holds(key, cx));
+        let key = match mention::Start::of(draft, holds, !typed.is_empty(), sending) {
+            mention::Start::Stay => return,
+            mention::Start::Back(key) => return self.show(key, window, cx),
+            mention::Start::Into(key) => {
+                self.show(key, window, cx);
+                if self.sessions.at(key).is_some_and(|s| s.meta.agent != agent) {
+                    self.switch_agent(&agent, cx);
+                }
+                key
+            }
+            mention::Start::Apart | mention::Start::New => {
+                if p.folder == self.scratch_dir(p.host) {
+                    let Some(folder) = self.scratch(p.host) else {
+                        return;
+                    };
+                    p = folder;
+                }
+                let key = self.sessions.take_key();
+                let s = self.begun_in(key, &agent, p);
+                self.sessions.all.push(s);
+                self.show(key, window, cx);
+                key
+            }
+        };
         if !typed.is_empty() {
             self.put_line(&typed, window, cx);
         }
-        // What went with it is the new session's: it was kept as session 0.
-        if let Some(draft) = self.composer.drafts.remove(&0) {
+        // What went with it is the session's now: it was kept as session 0.
+        if let Some(draft) = self.composer.drafts.remove(&0)
+            && self.current == Some(key)
+        {
             self.composer.draft = draft;
         }
     }

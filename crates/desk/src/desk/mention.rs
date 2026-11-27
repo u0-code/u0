@@ -129,6 +129,38 @@ pub fn holds(s: &Session, text: &str, draft: Option<&Draft>) -> bool {
         || s.begin.is_some()
 }
 
+/// What the composer drawn with no thread on screen becomes, as it is
+/// clicked or sent, beside the project's `draft` (which `holds` something
+/// of yours, or not) and what is `typed` in it. Each project keeps one
+/// draft, and nothing in one is written over or hidden behind another.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Start {
+    /// The draft comes back as it was: nothing typed would go over it.
+    Back(u64),
+    /// The draft, empty, takes what was typed, with the agent shown.
+    Into(u64),
+    /// Both hold something, and it is sent: a thread of its own, sent at
+    /// once, so the draft stays the project's one.
+    Apart,
+    /// Both hold something, and it is only clicked: left as it is, to be
+    /// sent apart.
+    Stay,
+    /// There is no draft: one is begun.
+    New,
+}
+
+impl Start {
+    pub fn of(draft: Option<u64>, holds: bool, typed: bool, sending: bool) -> Self {
+        match draft {
+            None => Self::New,
+            Some(key) if !holds => Self::Into(key),
+            Some(key) if !typed => Self::Back(key),
+            Some(_) if sending => Self::Apart,
+            Some(_) => Self::Stay,
+        }
+    }
+}
+
 /// The draft of the session left (`from`; none for the composer drawn
 /// with no session on screen, kept as session 0) put away in `drafts`,
 /// and that of the session `to` brought back into `on`: a session that
@@ -265,7 +297,7 @@ impl Desk {
     /// else said and left to go on while a new one is begun beside it.
     /// While a picture is still being read for it, it waits for that.
     pub(crate) fn send_typed(&mut self, other: bool, window: &mut Window, cx: &mut Context<Self>) {
-        self.begin_unbegun(window, cx);
+        self.begin_unbegun(true, window, cx);
         let text = self.typed(cx);
         if text.is_empty() {
             return;
@@ -1254,6 +1286,21 @@ mod tests {
         assert!(holds(&s, "", Some(&d)));
         s.begin = Some(crate::session::Begin::Pr(2, "p".into()));
         assert!(holds(&s, "", None));
+    }
+
+    #[test]
+    fn clicking_the_start_page_never_hides_the_projects_draft_behind_another() {
+        // A click with nothing typed brings the draft back, as it was.
+        assert_eq!(Start::of(Some(4), true, false, false), Start::Back(4));
+        // A click with something typed beside a draft that holds some:
+        // nothing is begun, so no second draft hides the first.
+        assert_eq!(Start::of(Some(4), true, true, false), Start::Stay);
+        // Sent so: a thread of its own, sent at once; the draft stays.
+        assert_eq!(Start::of(Some(4), true, true, true), Start::Apart);
+        // An empty draft is used, not doubled; none is begun.
+        assert_eq!(Start::of(Some(4), false, true, false), Start::Into(4));
+        assert_eq!(Start::of(Some(4), false, false, true), Start::Into(4));
+        assert_eq!(Start::of(None, false, false, false), Start::New);
     }
 
     #[test]

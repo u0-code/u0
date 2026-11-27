@@ -85,8 +85,10 @@ copy** to go on apart.
   for another agent, it keeps all that but the model and options. A
   thread begun about an issue, a pull request, a failed workflow step
   or a link's prompt asks before it takes the place of a draft that
-  holds something. What you send from the empty start page goes in a
-  thread of its own, and the draft stays.
+  holds something. On the empty start page, the composer is the
+  project's draft: clicked, it brings the draft back; what you typed
+  there beside a draft that holds something is sent in a thread of its
+  own, and the draft stays.
 
 Each row ends with the thread's state: Working, Approval, Sign in,
 Failed, Limited, Plan, Done, or Woke.
