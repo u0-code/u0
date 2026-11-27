@@ -1069,10 +1069,7 @@ impl Desk {
             && sp.other == key
             && let Some(old) = self.current
         {
-            self.split = Some(crate::thread::Split {
-                other: old,
-                other_left: !sp.other_left,
-            });
+            self.split = Some(sp.swapped(old));
         }
         if self.current != Some(key) {
             // Words chosen in the session left are not copied from this one.

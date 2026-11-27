@@ -32,6 +32,32 @@ pub struct Split {
     pub other_left: bool,
 }
 
+impl Split {
+    /// The split once its other pane is the one shown, `shown` (the pane
+    /// focused till now) the other: on the side the other was not.
+    pub fn swapped(self, shown: u64) -> Self {
+        Self {
+            other: shown,
+            other_left: !self.other_left,
+        }
+    }
+
+    /// What is left of `split`, and of the pane `current`, once the
+    /// session `gone` is archived or forgotten: its pane closes, and where
+    /// it was the one shown, the other is.
+    fn without(
+        split: Option<Self>,
+        current: Option<u64>,
+        gone: u64,
+    ) -> (Option<Self>, Option<u64>) {
+        match split {
+            Some(sp) if sp.other == gone => (None, current),
+            Some(sp) if current == Some(gone) => (None, Some(sp.other)),
+            _ => (split, current),
+        }
+    }
+}
+
 impl Desk {
     /// Open `key` in a split pane beside the current thread (`Open beside`,
     /// `⇧↵` in the command palette).
@@ -68,10 +94,7 @@ impl Desk {
         };
         self.split = None;
         self.bring(sp.other, window, cx);
-        self.split = Some(Split {
-            other: cur,
-            other_left: !sp.other_left,
-        });
+        self.split = Some(sp.swapped(cur));
         window.focus(
             &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
             cx,
@@ -98,13 +121,7 @@ impl Desk {
 
     /// Keep `split` valid when session `gone` is archived or forgotten.
     pub(crate) fn clean_split(&mut self, gone: u64) {
-        if self.split.is_some_and(|sp| sp.other == gone) {
-            self.split = None;
-        } else if self.current == Some(gone)
-            && let Some(sp) = self.split.take()
-        {
-            self.current = Some(sp.other);
-        }
+        (self.split, self.current) = Split::without(self.split, self.current, gone);
     }
 
     /// Header bar for one split pane (`ph` / `ph--focus` in `SplitSideChat`).
@@ -507,5 +524,34 @@ impl Desk {
                         .child(ProjectMonogram::new(project).size(IdentitySize::Xs)),
                 ),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Split;
+
+    #[test]
+    fn focusing_the_other_pane_twice_puts_both_back() {
+        let sp = Split {
+            other: 2,
+            other_left: true,
+        };
+        let once = sp.swapped(1);
+        assert_eq!((once.other, once.other_left), (1, false));
+        let twice = once.swapped(2);
+        assert_eq!((twice.other, twice.other_left), (2, true));
+    }
+
+    #[test]
+    fn a_split_pane_archived_closes_and_the_one_shown_gone_shows_the_other() {
+        let sp = Some(Split {
+            other: 2,
+            other_left: false,
+        });
+        assert!(matches!(Split::without(sp, Some(1), 2), (None, Some(1))));
+        assert!(matches!(Split::without(sp, Some(1), 1), (None, Some(2))));
+        let (kept, shown) = Split::without(sp, Some(1), 9);
+        assert_eq!((kept.map(|s| s.other), shown), (Some(2), Some(1)));
     }
 }
