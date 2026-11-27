@@ -19775,16 +19775,6 @@ _version: 2
   pt-BR: "O thread, sua worktree e seus checkpoints serão removidos permanentemente."
   ru: "Тред, его рабочее дерево и контрольные точки будут удалены навсегда."
   sv: "Tråden, dess arbetsträd och dess kontrollpunkter tas bort permanent."
-"This Mac (127.0.0.1)":
-  zh-CN: "这台 Mac (127.0.0.1)"
-  de: "Dieser Mac (127.0.0.1)"
-  es: "Este Mac (127.0.0.1)"
-  fr: "Ce Mac (127.0.0.1)"
-  ja: "この Mac (127.0.0.1)"
-  ko: "이 Mac (127.0.0.1)"
-  pt-BR: "Este Mac (127.0.0.1)"
-  ru: "Этот Mac (127.0.0.1)"
-  sv: "Den här Mac-datorn (127.0.0.1)"
 "This Mac alone at first. From elsewhere, through Tailscale, every network, or a cloudflared tunnel you start.":
   zh-CN: "初始仅限本机。若从别处连接，可通过 Tailscale、所有网络或你启动的 cloudflared 隧道。"
   de: "Zunächst nur dieser Mac. Von außerhalb über Tailscale, alle Netzwerke oder einen eigenen cloudflared-Tunnel."

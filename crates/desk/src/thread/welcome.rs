@@ -11,8 +11,12 @@ use gpui::{
     AnyElement, Context, Div, Entity, FontWeight, SharedString, Window, div, prelude::*, px,
 };
 use u0ui::{
-    components::{Button, ButtonSize, ButtonVariant, Checkbox, Tabs, TabsTrigger},
+    components::{
+        Button, ButtonSize, ButtonVariant, Checkbox, Tabs, TabsTrigger, form::FieldSize,
+        list_box::ListItem, select::Select,
+    },
     icons::{CarbonIcon, Icon, IconSize},
+    theme::LayerLevel,
     tokens::{ColorRole, TypeStyle},
     typography::TypeStyled as _,
     u0::{
@@ -276,7 +280,6 @@ impl Desk {
                 )
         };
         let desk_pair = cx.entity();
-        let desk_dev = cx.entity();
         let devices_card = card_shell(
             crate::tr("Your other devices"),
             crate::tr("Pair another Mac, or the u0 phone app, to follow threads and answer approvals."),
@@ -340,30 +343,9 @@ impl Desk {
                                 .child(crate::tr("Reached by")),
                         )
                         .child(
-                            div()
-                                .id("wl-reach-open")
-                                .flex()
-                                .items_center()
-                                .justify_between()
-                                .h(px(32.))
-                                .px(px(12.))
-                                .bg(theme::role(ColorRole::Field02))
-                                .border_b_1()
-                                .border_color(theme::role(ColorRole::BorderStrong02))
-                                .cursor_pointer()
-                                .on_click(move |_, window, cx| {
-                                    desk_dev.update(cx, |d, cx| d.open_tab(Tab::Devices, window, cx));
-                                })
-                                .child(
-                                    div()
-                                        .type_style(TypeStyle::BodyCompact01)
-                                        .child(crate::tr("This Mac (127.0.0.1)")),
-                                )
-                                .child(
-                                    Icon::carbon(CarbonIcon::ChevronDown)
-                                        .size(IconSize::S16)
-                                        .color(theme::role(ColorRole::IconPrimary)),
-                                ),
+                            self.route_select("wl-reach", cx)
+                                .size(FieldSize::Sm)
+                                .layer(LayerLevel::Two),
                         )
                         .child(
                             div()
@@ -661,40 +643,33 @@ impl Desk {
         };
 
         let machine_row = || {
-            (self.machines.len() > 1).then(|| {
-                let mut row = div().flex().items_center().gap(px(6.));
-                for m in &self.machines {
-                    let on = m.host == host;
-                    let mh = m.host;
-                    row = row.child(
-                        Button::new(
-                            SharedString::from(format!("np-host-{}", m.host.0)),
-                            m.name.clone(),
-                        )
-                        .variant(if on {
-                            ButtonVariant::Secondary
-                        } else {
-                            ButtonVariant::Ghost
-                        })
-                        .size(ButtonSize::Sm)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.onboarding.host = mh;
-                            cx.notify();
-                        })),
-                    );
-                }
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(4.))
-                    .child(
-                        div()
-                            .type_style(TypeStyle::Label01)
-                            .text_color(theme::role(ColorRole::TextSecondary))
-                            .child(crate::tr("Machine")),
-                    )
-                    .child(row)
-            })
+            let desk = cx.entity();
+            let hosts: Vec<Host> = self.machines.iter().map(|m| m.host).collect();
+            let items: Vec<ListItem> = (self.machines.iter())
+                .map(|m| ListItem::labeled(m.host.0.to_string(), m.name.clone()))
+                .collect();
+            div().w(px(256.)).child(
+                Select::new("np-machine")
+                    .label(crate::tr("Machine"))
+                    .size(FieldSize::Sm)
+                    .layer(LayerLevel::Two)
+                    .items(items)
+                    .value(Some(SharedString::from(host.0.to_string())))
+                    .on_value_change(move |val, _, cx| {
+                        let picked = val.and_then(|v| {
+                            hosts
+                                .iter()
+                                .copied()
+                                .find(|h| h.0.to_string() == v.as_ref())
+                        });
+                        if let Some(h) = picked {
+                            desk.update(cx, |this, cx| {
+                                this.onboarding.host = h;
+                                cx.notify();
+                            });
+                        }
+                    }),
+            )
         };
 
         let open_panel = {
@@ -703,7 +678,7 @@ impl Desk {
                 .flex()
                 .flex_col()
                 .gap(px(20.))
-                .children(machine_row())
+                .child(machine_row())
                 .child(
                     div()
                         .flex()
@@ -761,7 +736,7 @@ impl Desk {
                 .flex()
                 .flex_col()
                 .gap(px(20.))
-                .children(machine_row())
+                .child(machine_row())
                 .child(
                     div()
                         .flex()
@@ -844,7 +819,7 @@ impl Desk {
                 .flex()
                 .flex_col()
                 .gap(px(20.))
-                .children(machine_row())
+                .child(machine_row())
                 .child(
                     div()
                         .flex()

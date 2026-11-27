@@ -228,7 +228,14 @@ fn main() {
                 window.focus(&input, cx);
                 // Asked once the composer has the keys, so the sheet takes
                 // them from it and Escape reaches the sheet.
-                shown.desk.update(cx, |d, cx| d.ask_telemetry(window, cx));
+                shown.desk.update(cx, |d, cx| {
+                    // The Welcome page says how this Mac is reached.
+                    if d.settings.needs_welcome() {
+                        let look = proto::Call::Share(share::Share::Look);
+                        d.call(hub::Host::HERE, look);
+                    }
+                    d.ask_telemetry(window, cx);
+                });
             })
             .expect("the desk");
         cx.activate(true);

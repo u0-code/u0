@@ -84,7 +84,9 @@ The host is the way chosen under **Reached by**: **Best** (the tunnel
 while it is up, then Tailscale, then the local network, then
 `127.0.0.1:<port>`), or one of them. A link on a network also carries
 `pin=`, the SHA-256 of this Mac's certificate, so the device trusts this
-Mac alone there. The link works once, for ten minutes.
+Mac alone there. The link works once, for ten minutes. The Welcome
+page's **Your other devices** offers the same choice, each way shown with
+the address it gives (`This Mac (127.0.0.1:4317)`).
 
 Above it, choose what the next link lets in; each choice makes a new
 link at once:

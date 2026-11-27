@@ -846,48 +846,11 @@ impl Desk {
                 });
             });
 
-        let mut kinds: Vec<Route> = self
-            .pages
-            .shared
-            .as_ref()
-            .and_then(|s| s.routes.as_ref().ok())
-            .map(|r| r.iter().map(|(route, _)| *route).collect())
-            .unwrap_or_default();
-        kinds.dedup();
-        let mut route_items = vec![ListItem::labeled(
-            "best",
-            crate::tr("Best: tunnel, then Tailscale, then this network"),
-        )];
-        for r in &kinds {
-            route_items.push(ListItem::labeled(r.name(), crate::tr(r.name())));
-        }
-        let route_val: SharedString = self
-            .pages
-            .route
-            .map_or_else(|| "best".into(), |r| r.name().into());
-        let desk_route = cx.entity();
-        let route_select = Select::new("pair-grant-route")
+        let route_select = self
+            .route_select("pair-grant-route", cx)
             .label(crate::tr("Reached by"))
             .size(FieldSize::Sm)
-            .layer(LayerLevel::Two)
-            .items(route_items)
-            .value(Some(route_val))
-            .on_value_change(move |val, _, cx| {
-                if let Some(v) = val {
-                    let picked = match v.as_ref() {
-                        "Tunnel" => Some(Route::Tunnel),
-                        "Tailscale" => Some(Route::Tailscale),
-                        "Local network" => Some(Route::Lan),
-                        "This Mac" => Some(Route::Here),
-                        _ => None,
-                    };
-                    desk_route.update(cx, |this, cx| {
-                        this.pages.route = picked;
-                        this.new_link();
-                        cx.notify();
-                    });
-                }
-            });
+            .layer(LayerLevel::Two);
 
         let now_secs = store::secs(SystemTime::now());
         let live = self.pages.shared.as_ref().and_then(|s| s.offer);
@@ -1276,5 +1239,46 @@ impl Desk {
             both: false,
         };
         self.open_pair_another_dialog(Some(pending), window, cx);
+    }
+}
+
+impl Desk {
+    /// "Reached by": the way a pairing link names, as the server says
+    /// each reaches it (`This Mac (127.0.0.1:4317)`), or the best there is.
+    pub(crate) fn route_select(&self, id: &'static str, cx: &mut Context<Self>) -> Select {
+        let mut routes: Vec<(Route, String)> = (self.pages.shared.as_ref())
+            .and_then(|s| s.routes.as_ref().ok())
+            .cloned()
+            .unwrap_or_default();
+        routes.dedup_by_key(|(r, _)| *r);
+        let mut items = vec![ListItem::labeled(
+            "best",
+            crate::tr("Best: tunnel, then Tailscale, then this network"),
+        )];
+        for (r, host) in &routes {
+            items.push(ListItem::labeled(
+                r.name(),
+                format!("{} ({host})", crate::tr(r.name())),
+            ));
+        }
+        let value: SharedString =
+            (self.pages.route).map_or_else(|| "best".into(), |r| r.name().into());
+        let desk = cx.entity();
+        Select::new(id)
+            .items(items)
+            .value(Some(value))
+            .on_value_change(move |val, _, cx| {
+                let picked = val.and_then(|v| {
+                    routes
+                        .iter()
+                        .map(|(r, _)| *r)
+                        .find(|r| r.name() == v.as_ref())
+                });
+                desk.update(cx, |this, cx| {
+                    this.pages.route = picked;
+                    this.new_link();
+                    cx.notify();
+                });
+            })
     }
 }
