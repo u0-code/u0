@@ -189,41 +189,62 @@ impl Tools {
         input: &impl Serialize,
     ) -> Result<Meta, String> {
         let (id, meta) = self.session().ok_or(OUTSIDE)?;
-        self.ask(tool, title, input, &meta.agent, id).await?;
+        self.ask(tool, title, input, &meta.agent, id, false).await?;
         Ok(meta)
     }
 
     /// Ask you whether `tool` may do what `title` says to the session
-    /// `on` of `agent`: in the session it calls from, for one in a
-    /// session of Ghost's; for one outside Ghost where your settings let
-    /// it act, in the session it acts on. That session, as kept.
+    /// `on` of `agent`, `title` given how that session is named on the
+    /// card: in the session it calls from, for one in a session of
+    /// Ghost's, which names the other by its title, agent and project and
+    /// is asked each time (a yes for always there would be a yes to any
+    /// session); for one outside Ghost where your settings let it act, or
+    /// on another device, in the session it acts on ("this session").
+    /// That session, as kept.
     async fn allowed_on(
         &self,
         tool: &'static str,
-        title: String,
+        title: impl FnOnce(&str) -> String,
         input: &impl Serialize,
         agent: &str,
         on: &SessionId,
     ) -> Result<Meta, String> {
         let meta = (self.shared.meta(agent, on)).ok_or("Ghost keeps no such session")?;
-        match self.caller() {
-            Some(Caller::Session(..)) => self.allowed(tool, title, input).await.map(|_| meta),
-            Some(Caller::Outside) if Settings::load(&self.shared.home).0.outside_acts => {
-                let title = format!("An agent outside Ghost: {title}");
-                self.ask(tool, title, input, agent, on.clone()).await?;
-                Ok(meta)
+        let (card, title) = match self.caller() {
+            Some(Caller::Session(from, Some(own))) if from == agent && own == *on => {
+                (None, title("this session"))
             }
-            Some(Caller::Device(Scope::Full)) => {
-                let title = format!("An agent on another device: {title}");
-                self.ask(tool, title, input, agent, on.clone()).await?;
-                Ok(meta)
+            Some(Caller::Session(from, Some(own))) => {
+                let project = meta.project.file_name().unwrap_or_default();
+                let named = format!(
+                    "the session “{}” ({agent}, in {})",
+                    meta.title,
+                    project.to_string_lossy()
+                );
+                (Some((from, own)), title(&named))
             }
-            _ => Err(READS.into()),
-        }
+            Some(Caller::Outside) if Settings::load(&self.shared.home).0.outside_acts => (
+                None,
+                format!("An agent outside Ghost: {}", title("this session")),
+            ),
+            Some(Caller::Device(Scope::Full)) => (
+                None,
+                format!("An agent on another device: {}", title("this session")),
+            ),
+            Some(Caller::Session(_, None)) => return Err(OUTSIDE.into()),
+            _ => return Err(READS.into()),
+        };
+        let (from, own, once) = match card {
+            Some((from, own)) => (from, own, true),
+            None => (agent.to_owned(), on.clone(), false),
+        };
+        self.ask(tool, title, input, &from, own, once).await?;
+        Ok(meta)
     }
 
     /// Ask you, on a permission card in the session `id` of `agent`,
-    /// whether `tool` may do what `title` says with `input`.
+    /// whether `tool` may do what `title` says with `input`; `once`, with
+    /// no yes for always, whatever was allowed always before.
     async fn ask(
         &self,
         tool: &'static str,
@@ -231,14 +252,15 @@ impl Tools {
         input: &impl Serialize,
         agent: &str,
         id: SessionId,
+        once: bool,
     ) -> Result<(), String> {
-        if self.always.lock().expect("always").contains(tool) {
+        if !once && self.always.lock().expect("always").contains(tool) {
             return Ok(());
         }
         // Every agent outside Ghost comes in by the one key `mcp.json`
         // holds: a yes for always would be a yes to each of them; and
         // some tools are asked each time whoever calls (`EACH_TIME`).
-        let each_time = self.caller() == Some(Caller::Outside) || EACH_TIME.contains(&tool);
+        let each_time = once || self.caller() == Some(Caller::Outside) || EACH_TIME.contains(&tool);
         let options = [
             Some(PermissionOption::new(
                 "once",
@@ -627,7 +649,7 @@ impl Tools {
         let meta = self
             .allowed_on(
                 "send_to_session",
-                format!("Say “{shown}”"),
+                |s| format!("Say “{shown}” in {s}"),
                 &ask,
                 &ask.agent,
                 &id,
@@ -694,7 +716,7 @@ impl Tools {
         let meta = self
             .allowed_on(
                 "interrupt_session",
-                "Stop its turn".into(),
+                |s| format!("Stop the turn of {s}"),
                 &ask,
                 &ask.agent,
                 &id,

@@ -127,7 +127,7 @@ impl Tools {
             .ok()
             .and_then(|k| k.as_str().map(|k| k.replace('_', " ")))
             .unwrap_or_default();
-        let title = format!("Answer “{asks}” with “{}” ({kind})", option.name);
+        let title = |s: &str| format!("Answer “{asks}” with “{}” ({kind}) in {s}", option.name);
         (self.allowed_on("answer_request", title, &ask, &ask.agent, &id)).await?;
         let chosen = SelectedPermissionOutcome::new(option.option_id.clone());
         agent.respond(
@@ -156,7 +156,7 @@ impl Tools {
         if ask.said().is_empty() {
             return Err("Say what to change: pin, archive, title or tags".into());
         }
-        let title = format!("Organise this session: {}", ask.said());
+        let title = |s: &str| format!("Organise {s}: {}", ask.said());
         (self.allowed_on("organize_session", title, &ask, &ask.agent, &id)).await?;
         // Read again as it is now, once you allowed it: what changed in it
         // while the card was open stays.
@@ -247,7 +247,13 @@ esac; done"#;
         // Asked in s1, each time: no "always" for it.
         client.call("answer_request", &answer);
         let title = answer_card(&server, &said, "always");
-        assert_eq!(title, "Answer “Delete it” with “Yes” (allow once)");
+        let project = home.path().file_name().unwrap().to_string_lossy();
+        assert_eq!(
+            title,
+            format!(
+                "Answer “Delete it” with “Yes” (allow once) in the session “Other” (a, in {project})"
+            )
+        );
         assert_eq!(client.result(), ("You did not allow it".to_owned(), true));
         client.call("answer_request", &answer);
         answer_card(&server, &said, "once");
@@ -327,5 +333,60 @@ esac; done"#;
         );
         client.call("organize_session", &json!({"agent": "a", "session": "s1"}));
         assert!(client.result().1, "nothing to change");
+    }
+
+    #[test]
+    fn organising_another_session_names_it_on_the_card_and_is_asked_each_time() {
+        let home = tempfile::tempdir().unwrap();
+        let (server, said, mut client) = in_session(home.path(), home.path());
+        let mut other = meta(home.path(), "Other");
+        other.id = Some(agent_client_protocol::v1::schema::SessionId::new("s2"));
+        server.handle(Call::Keep(vec![other]));
+        let project = home.path().file_name().unwrap().to_string_lossy();
+        // Its own session, allowed always: a yes for always to it alone.
+        client.call(
+            "organize_session",
+            &json!({"agent": "a", "session": "s1", "pin": true}),
+        );
+        assert_eq!(
+            answer_card(&server, &said, "always"),
+            "Organise this session: pin it"
+        );
+        assert!(!client.result().1);
+        let archive = json!({"agent": "a", "session": "s2", "archive": true});
+        client.call("organize_session", &archive);
+        let (n, card) = loop {
+            if let Event::Said { event, .. } = said.recv_timeout(Duration::from_secs(10)).unwrap()
+                && let crate::acp::Event::Permission { id, request } = *event
+            {
+                break (id, request);
+            }
+        };
+        assert_eq!(
+            card.tool_call.fields.title.as_deref(),
+            Some(&*format!(
+                "Organise the session “Other” (a, in {project}): archive it"
+            ))
+        );
+        assert_eq!(&*card.session_id.0, "s1", "asked where it was called from");
+        let offered: Vec<_> = card.options.iter().map(|o| &*o.option_id.0).collect();
+        assert_eq!(offered, ["once", "no"], "no yes for always to any session");
+        server.handle(Call::Answer {
+            agent: "a".into(),
+            request: n,
+            answer: crate::acp::Answer::Permission(
+                agent_client_protocol::v1::schema::RequestPermissionOutcome::Selected(
+                    agent_client_protocol::v1::schema::SelectedPermissionOutcome::new("no"),
+                ),
+            ),
+        });
+        assert!(client.result().1, "you said no");
+        // Asked again, though its own was allowed always.
+        client.call("organize_session", &archive);
+        answer_card(&server, &said, "once");
+        assert!(!client.result().1);
+        let kept = server.shared.index.lock().unwrap().clone().unwrap();
+        let s2 = (kept.sessions.iter()).find(|m| m.title == "Other").unwrap();
+        assert!(s2.flags.archived);
     }
 }

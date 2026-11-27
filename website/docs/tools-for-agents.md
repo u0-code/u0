@@ -121,7 +121,10 @@ There are two kinds of caller:
   the branch deleted. `merge_pr`, `start_workflow`, `change_task`,
   `remove_worktree`, `answer_request` and `resolve_thread` never offer **Always allow**: what they do cannot be
   undone, and text an agent reads (a pull request, a CI log, code) could
-  steer what it asks of them.
+  steer what it asks of them. Nor does a tool that acts on another
+  session (`send_to_session`, `interrupt_session`, `organize_session`,
+  `answer_request`), whose card names that session by its title, agent
+  and project: a yes for always would be a yes to any session.
 - **An agent outside Ghost** (below). It reads: `list_sessions`,
   `read_session`, `read_diff`, `wait_for_turn`, `events`, `list_devices`,
   `device_screen`, and each tool that lists, finds or reads above (a
