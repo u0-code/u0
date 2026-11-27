@@ -748,15 +748,18 @@ impl Desk {
         let desk_vscode = cx.entity();
         let desk_kit = cx.entity();
         let desk_new = cx.entity();
+        // The search keeps room to read what is typed; the buttons go
+        // under it where a language's words leave too little.
         let toolbar = div()
             .flex()
+            .flex_wrap()
             .items_center()
             .gap(px(8.))
             .child(
                 div()
                     .flex()
                     .flex_1()
-                    .min_w(px(0.))
+                    .min_w(px(220.))
                     .items_center()
                     .gap(px(8.))
                     .h(px(32.))

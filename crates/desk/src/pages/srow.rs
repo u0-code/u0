@@ -190,11 +190,8 @@ impl SRow {
         self
     }
 
-    /// Carbon `ContentSwitcher` (`ToggleGroup`, `sm` 32px) for 2–3 choices.
-    #[allow(
-        clippy::cast_precision_loss,
-        reason = "segment counts and character lengths are tiny UI integers"
-    )]
+    /// Carbon `ContentSwitcher` (`ToggleGroup`, `sm` 32px) for 2–3 choices,
+    /// each as wide as its label is in the language shown.
     pub fn segmented<T: Copy + PartialEq + 'static>(
         mut self,
         choices: impl IntoIterator<Item = (SharedString, T)>,
@@ -203,16 +200,10 @@ impl SRow {
     ) -> Self {
         let locked = self.is_locked();
         let list: Vec<(SharedString, T)> = choices.into_iter().collect();
-        let max_chars = list
-            .iter()
-            .map(|(l, _)| l.chars().count())
-            .max()
-            .unwrap_or(4);
-        let per_seg = (max_chars as f32 * 8.6 + 38.).max(86.);
-        let seg_w = (per_seg * list.len() as f32).clamp(240., 360.);
         let active_ix = list.iter().position(|(_, v)| *v == current).unwrap_or(0);
         let values: Vec<T> = list.iter().map(|(_, v)| *v).collect();
         let mut group = ToggleGroup::new((self.id.clone(), "seg"))
+            .fit_content(true)
             .size(ToggleSize::Sm)
             .value([active_ix.to_string()]);
         for (ix, (label, _)) in list.into_iter().enumerate() {
@@ -229,7 +220,7 @@ impl SRow {
                 on_pick(picked, window, cx);
             }
         });
-        self.control = Some(div().w(px(seg_w)).child(group).into_any_element());
+        self.control = Some(group.into_any_element());
         self
     }
 
