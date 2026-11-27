@@ -1235,6 +1235,29 @@ pub struct Prefs {
     /// Environment variables and `secret:<NAME>` references given to agents and actions in this project.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub env: std::collections::BTreeMap<String, String>,
+    /// What you closed of what u0 offers here, until it says something new.
+    #[serde(default, skip_serializing_if = "Closed::is_none")]
+    pub closed: Closed,
+}
+
+/// What you closed of what u0 offers in a project.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Closed {
+    /// The mark of the changes whose bar above the composer you closed:
+    /// once they change, it shows again.
+    #[serde(default)]
+    pub changes: Option<String>,
+    /// The offer to publish it, while it has no remote: once it has one,
+    /// it is offered again should it lose it.
+    #[serde(default)]
+    pub publish: bool,
+}
+
+impl Closed {
+    fn is_none(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 /// The options and mode last chosen in a session of one agent.

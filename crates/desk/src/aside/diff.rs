@@ -931,6 +931,7 @@ impl Desk {
         let file_count = files_of(s, &Scope::All).map_or(0, |f| f.len());
         let clean = file_count == 0;
         let has_repo = s.git_dir().is_some();
+        let place = crate::desk::Place::project_of(s);
         let desk = cx.entity();
 
         let mut cards: Vec<Div> = Vec::new();
@@ -995,6 +996,7 @@ impl Desk {
                 ),
             ));
         } else if has_repo && !origin && gh {
+            // Closed, nothing takes its place: a pull request needs a remote.
             let project = s.meta.project.file_name().map_or_else(
                 || Desk::shown(&s.meta.project),
                 |n| n.to_string_lossy().into_owned(),
@@ -1013,7 +1015,8 @@ impl Desk {
                         .type_style(TypeStyle::Body01)
                         .text_color(theme::role(ColorRole::TextPrimary)),
                 );
-            let (d_priv, d_pub) = (desk.clone(), desk.clone());
+            let offered = !self.prefs(&place).closed.publish;
+            let (d_priv, d_pub, d_close) = (desk.clone(), desk.clone(), desk.clone());
             let acts = div()
                 .flex()
                 .flex_wrap()
@@ -1038,15 +1041,29 @@ impl Desk {
                             });
                         }),
                 );
-            cards.push(ft_card(
-                faces,
-                crate::tr_with("No remote yet \u{00b7} %{project}", &[("project", &project)]),
-                line,
-                Some(acts),
-                crate::tr(
-                    "A new GitHub repository under your gh login, pushed. Offered where gh is installed.",
-                ),
-            ));
+            let close = Button::new("pub-close", crate::tr("Close"))
+                .variant(ButtonVariant::Ghost)
+                .size(ButtonSize::Sm)
+                .icon(CarbonIcon::Close)
+                .icon_only(true)
+                .on_click(move |_, _, cx| {
+                    d_close.update(cx, |this, cx| {
+                        this.set_prefs(&place, cx, |p| p.closed.publish = true);
+                    });
+                });
+            cards.extend(offered.then(|| {
+                ft_card(
+                    faces,
+                    crate::tr_with("No remote yet \u{00b7} %{project}", &[("project", &project)]),
+                    line,
+                    Some(acts),
+                    crate::tr(
+                        "A new GitHub repository under your gh login, pushed. Offered where gh is installed.",
+                    ),
+                )
+                .relative()
+                .child(div().absolute().top(px(4.)).right(px(4.)).child(close))
+            }));
         } else if has_repo && s.git.pr.is_none() && (!clean || ahead > 0) {
             let branch = s.branch.as_deref().unwrap_or("HEAD");
             let summary = crate::tr_with(

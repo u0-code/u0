@@ -296,7 +296,10 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   nothing is saved over it. A project's `prefs` hold its own settings
   (`over`, a sparse settings.json of the keys `Settings::PROJECT` names;
   any other key refuses the file) and what its new sessions of each agent
-  begin with (`last`: the options and mode last chosen).
+  begin with (`last`: the options and mode last chosen), and what you
+  closed of what u0 offers there until it says something new (`closed`:
+  the changes bar, by a mark of its changes; the offer to publish, until
+  it has a remote).
 - `~/.u0/viewed.json` (the desk's) holds the files of each pull
   request you marked viewed, by its address, each with a mark of its
   changes (`review::File::mark`): a file that changes since shows unviewed.

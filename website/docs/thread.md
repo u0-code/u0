@@ -103,6 +103,10 @@ Write a task or a question and press Return (see `send` in
 [settings](reference/settings.md#chat-and-composer) for ⌘Return). ↑ and ↓
 bring back messages you sent before.
 
+While the folder has uncommitted changes, a bar above the composer counts
+them, with **Review changes** and **Commit changes**. × closes it for the
+project until the changes change.
+
 ### Chips
 
 Under the text, chips show and change what the message goes with: the
