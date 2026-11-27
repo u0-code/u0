@@ -431,10 +431,18 @@ fn touch(axe: &PathBuf, udid: &str, act: &Act) -> Result<Vec<u8>, String> {
         _ => 1,
     };
     let args = axe_says(act, scale).ok_or("An iOS simulator does not do that")?;
-    let args: Vec<&str> = (args.iter().map(String::as_str))
-        .chain(["--udid", udid])
-        .collect();
-    run(axe, &args)
+    run(axe, &with_udid(&args, udid))
+}
+
+/// What `AXe` is told, `udid` named right after its command: before a `--`
+/// that ends its options, as `type` has.
+fn with_udid<'a>(args: &'a [String], udid: &'a str) -> Vec<&'a str> {
+    let (command, rest) = args
+        .split_first()
+        .map_or(("", &[][..]), |(c, r)| (c.as_str(), r));
+    ([command, "--udid", udid].into_iter())
+        .chain(rest.iter().map(String::as_str))
+        .collect()
 }
 
 /// What `AXe` is told to do `act`, its points in pixels divided by
@@ -468,7 +476,8 @@ fn axe_says(act: &Act, scale: u32) -> Option<Vec<String>> {
         ]),
         Act::Scroll { toward } => said(&["gesture", &format!("scroll-{}", toward.name())]),
         Act::Rotate { right } => said(&["rotate", if *right { "right" } else { "left" }]),
-        Act::Type { text } => said(&["type", text]),
+        // Words beginning with `-` are typed, not read as options.
+        Act::Type { text } => said(&["type", "--", text]),
         Act::Key { key: Key::Home } => said(&["button", "home"]),
         _ => return None,
     })
@@ -707,6 +716,17 @@ mod tests {
         assert_eq!(
             words(axe_says(&Act::Rotate { right: true }, 3)),
             "rotate right"
+        );
+        let typed = axe_says(
+            &Act::Type {
+                text: "--help".into(),
+            },
+            3,
+        )
+        .unwrap();
+        assert_eq!(
+            with_udid(&typed, "U"),
+            ["type", "--udid", "U", "--", "--help"]
         );
         assert_eq!(
             words(input_of(&swipe, (1080, 2400))),
