@@ -56,8 +56,8 @@ struct Model {
 }
 
 impl Desk {
-    /// The chip that opens the picker: the agent's logo, its model, how
-    /// hard it thinks.
+    /// Carbon `.t3-cctl` model chip inside the composer footer: the agent's
+    /// mark, its model name and a 12px chevron, opening the 3-column picker.
     pub(crate) fn model_chip(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Popover {
         let base =
             Self::option_name(s, &Category::Model).unwrap_or_else(|| self.name_of(&s.meta.agent));
@@ -66,24 +66,29 @@ impl Desk {
         } else {
             base
         };
-        let effort = Self::option_name(s, &Category::ThoughtLevel);
         let open = self.picker_open();
+        let ink = theme::role(if open {
+            u0ui::tokens::ColorRole::TextPrimary
+        } else {
+            u0ui::tokens::ColorRole::TextSecondary
+        });
         let chip = ui::opener("chip-model")
-            .h(px(28.))
-            .px(px(7.))
-            .max_w(px(224.))
+            .h(px(32.))
+            .px(px(8.))
+            .rounded(px(0.))
+            .max_w(px(210.))
             .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.))
             .child(ui::one_line(
                 ui::text(faces, model)
-                    .text_size(px(crate::style::LABEL))
-                    .text_color(theme::text2()),
+                    .text_size(px(12.))
+                    .line_height(px(16.))
+                    .text_color(ink),
             ))
-            .children(effort.map(|e| {
-                ui::text(faces, e)
-                    .flex_none()
-                    .text_size(px(crate::style::LABEL))
-                    .text_color(if open { theme::text2() } else { theme::faint() })
-            }))
+            .child(
+                u0ui::icons::Icon::carbon(u0ui::icons::CarbonIcon::ChevronDown)
+                    .size_length(px(12.))
+                    .color(ink.opacity(0.7)),
+            )
             .tooltip(crate::keys::hint(
                 cx,
                 &crate::tr("Choose the model"),
@@ -91,9 +96,7 @@ impl Desk {
             ));
         let search = gpui::Focusable::focus_handle(self.menu_search.read(cx), cx);
         let (desk, drawn, faces) = (cx.entity(), cx.entity(), faces.clone());
-        over_box(Popover::new("model-picker"), Anchor::BottomRight)
-            // Wider than the room left of the chip, it stays over the
-            // session's column, not the sidebar.
+        over_box(Popover::new("model-picker"), Anchor::BottomLeft)
             .boundary(self.column)
             .p(px(0.))
             .open(open)
@@ -109,6 +112,38 @@ impl Desk {
                 });
             })
             .content(move |_, _, cx| drawn.update(cx, |d, cx| d.picker(&faces, cx)))
+    }
+
+    /// Carbon `.t3-cctl` reasoning-effort control (`EffortGlyph` + level name)
+    /// when the session's agent exposes a `ThoughtLevel` option.
+    pub(super) fn effort_chip(
+        &self,
+        s: &Session,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        if !self.composer.also_run.is_empty() && Self::is_draft(s) {
+            return None;
+        }
+        let effort = Self::option_name(s, &Category::ThoughtLevel)?;
+        let level = effort_level_of(&effort);
+        let open = self.picker_open();
+        let desk = cx.entity();
+        Some(
+            u0ui::t3::composer::ComposerControl::new("chip-effort", crate::tr("Effort"))
+                .active(open)
+                .child(u0ui::t3::composer::EffortGlyph::new(level))
+                .child(SharedString::from(effort))
+                .on_click(move |window, cx| {
+                    desk.update(cx, |this, cx| {
+                        if this.picker_open() {
+                            this.close_popup(window, cx);
+                        } else {
+                            this.open_model(window, cx);
+                        }
+                    });
+                })
+                .into_any_element(),
+        )
     }
 
     /// Whether the picker is open, or a menu within it.
@@ -234,7 +269,8 @@ impl Desk {
         div()
             .flex()
             .flex_col()
-            .rounded(px(8.))
+            .rounded(px(0.))
+            .bg(theme::role(u0ui::tokens::ColorRole::Layer01))
             .overflow_hidden()
             .child(
                 div()
@@ -915,6 +951,23 @@ impl Desk {
             self.pick_model(&chosen, window, cx);
             self.close_popup(window, cx);
         }
+    }
+}
+
+/// Map an agent's thought-level label onto `EffortGlyph`'s 5-bar scale.
+fn effort_level_of(name: &str) -> u0ui::t3::composer::EffortLevel {
+    use u0ui::t3::composer::EffortLevel;
+    let low = name.trim().to_ascii_lowercase();
+    if low.contains("min") || low == "none" || low == "off" {
+        EffortLevel::Minimal
+    } else if low.contains("low") {
+        EffortLevel::Low
+    } else if low.contains("max") || low.contains("xhigh") || low.contains("ultra") {
+        EffortLevel::Max
+    } else if low.contains("high") {
+        EffortLevel::High
+    } else {
+        EffortLevel::Medium
     }
 }
 

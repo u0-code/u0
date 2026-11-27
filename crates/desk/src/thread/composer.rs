@@ -1,35 +1,51 @@
-//! The box you write in, as Claude's: a + for what goes with it, the
-//! line, dictation and Send; over it what waits on you, the changes made
-//! and what is queued; under it where the session works and the agent,
-//! its model, its mode and how full its context is.
+//! Carbon `ThreadComposer` (`ThreadComposer.dc.html` and `ComposerStates.dc.html`):
+//! notices (`ComposerBannerStack`), changed-files bar, `/` and `@` suggestion
+//! menu (`ComposerCommandMenu`), queued follow-ups (`.tc-later`), live
+//! dictation bar (`.tc-dict`), attached/mentioned pills (`.tc-chips`), the
+//! square `field-01` message box with 32px context/attachment chips, ghost
+//! suggestion (`Tab` to accept), and the 40px Carbon footer (`+`, model,
+//! effort, mode, context meter, dictation and `ComposerPrimaryActions`).
 
 use gpui::component::{
     Selectable as _, Sizable as _,
-    attachment::{
-        Attachment, AttachmentContent, AttachmentDescription, AttachmentGroup, AttachmentMedia,
-        AttachmentTitle,
-    },
-    button::{Button, ButtonVariants as _},
-    input::{Enter, Escape, IndentInline, MoveDown, MoveUp, Textarea},
-    list::ListItem,
+    input::{Enter, Escape, IndentInline, Input as KitInput, MoveDown, MoveUp, Textarea},
     menu::PopupMenu,
     popover::Popover,
     progress::ProgressCircle,
-    speech::{SpeechButton, SpeechIndicator},
+    speech::{SpeechButton, SpeechIndicator, SpeechStatus},
 };
-use gpui::{Context, Div, Entity, SharedString, Window, div, prelude::*, px};
+use gpui::{
+    AnyElement, Context, Div, Entity, FontWeight, InteractiveElement as _, IntoElement,
+    MouseButton, ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled as _,
+    Window, div, prelude::FluentBuilder as _, px,
+};
+use u0ui::{
+    components::{
+        button::{Button as CarbonButton, ButtonSize, ButtonVariant},
+        kbd::Kbd,
+    },
+    icons::{CarbonIcon, Icon as CarbonGlyph},
+    t3::composer::{
+        AttachmentImage, AttachmentImageState, BannerKind, CommandMenuItem, CommandMenuSection,
+        ComposerAttachmentStrip, ComposerBanner, ComposerBannerStack, ComposerCommandMenu,
+        ComposerPrimaryActions, ComposerState, ContextChip, ContextChipKind, PrimaryActionTexts,
+        ReadOnlyComposerBar,
+    },
+    tokens::ColorRole,
+    u0::composer::{ChipKind, ComposerChip},
+};
 
 use crate::{
     desk::{Desk, Popup, mention},
     fonts::Faces,
     keys::{EditQueued, SendAside, Stash},
-    session::{Session, State},
+    session::{Context as TextKind, Session, State},
     theme, ui,
 };
 
 impl Desk {
-    /// The box you write in, what asks for you over it, and the chips
-    /// under it; for a session you do not write in, why.
+    /// Carbon `ThreadComposer`: notices and menus above, `.tc` stack in the
+    /// middle, and workspace/worktree/stash/later controls underneath.
     pub(crate) fn composer(
         &self,
         faces: &Faces,
@@ -37,7 +53,6 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        // The session's, or with none on screen, the one not begun yet.
         let unbegun = self.unbegun();
         let Some(s) = self.session().or(unbegun.as_ref()) else {
             return div();
@@ -46,180 +61,403 @@ impl Desk {
             return shut;
         }
         let name = self.name_of(&s.meta.agent);
-        // What you might say next stands in the empty line, Tab to take.
-        let suggested = self.suggestion(s.key, cx);
+        let working = matches!(s.state, State::Working | State::Opening);
+        let waiting_approval = s.waiting().is_some();
+        let suggested = self.suggestion(s.key, cx).map(SharedString::from);
         let offline = self
             .machine(s.host)
             .filter(|m| m.up != crate::hub::Up::On)
             .map(|m| m.name.clone());
-        let says = match (offline, suggested) {
-            (Some(server), _) => crate::tr_with("Sent once %{name} is back", &[("name", &server)]),
-            (None, Some(next)) => SharedString::from(next.to_owned()),
-            (None, None) if s.items.is_empty() => crate::tr("Describe a task or ask a question"),
-            (None, None) => crate::tr("Reply"),
+        let placeholder = if let Some(server) = offline {
+            crate::tr_with("Sent once %{name} is back", &[("name", &server)])
+        } else if suggested.is_some() {
+            SharedString::default()
+        } else if waiting_approval {
+            crate::tr("Reply, or answer the card above")
+        } else if working {
+            crate::tr("Waits its turn, or ⇧⌘↵ steers")
+        } else if s.items.is_empty() {
+            crate::tr("Ask for a change. @ to mention, / for commands")
+        } else {
+            crate::tr_with(
+                "Reply to %{name}. @ to mention, / for commands",
+                &[("name", &name)],
+            )
         };
-        // Said again only when it changes: setting it draws the line again.
         self.composer.input.update(cx, |i, cx| {
-            if *i.presentation().placeholder() != says {
-                i.set_placeholder(says, window, cx);
+            if *i.presentation().placeholder() != placeholder {
+                i.set_placeholder(placeholder, window, cx);
             }
         });
+
         let focused =
             gpui::Focusable::focus_handle(self.composer.input.read(cx), cx).is_focused(window);
-        // Dictation, heard on this Mac: gpui-kit's speech button, its bars
-        // moving with your voice; again, finished.
-        let dictate =
-            (self.speech.as_ref()).map(|s| SpeechButton::new(&s.state).with_size(px(28.)));
+        let offers = self.offers_menu(s, &name, column, cx);
+        let has_offers = offers.is_some();
+        let banners = self.banners_above(s, &name, column, cx);
+
         div()
             .flex()
             .flex_col()
             .flex_none()
             .items_center()
             .pb(px(16.))
-            // Not begun: a press anywhere in it begins it, before what was
-            // pressed does its part.
             .when(self.current.is_none(), |d| {
                 d.capture_any_mouse_down(cx.listener(|this, _, window, cx| {
                     this.begin_unbegun(window, cx);
                 }))
             })
-            .children(self.prompt_link_banner(column, cx))
-            .children(self.side_question(faces, s, column, cx))
             .children(self.children_asking(faces, s, column, cx))
-            .children(self.sign_in_banner(faces, s, &name, column, cx))
-            .children(self.offers_menu(faces, column, cx))
-            .children(Self::goal_row(faces, s, column, cx))
+            .children(banners)
             .children(Self::changes_row(faces, s, column, cx))
-            .children(self.queued_list(faces, s, column, cx))
-            .children(self.held_banner(column, cx))
-            .children(Self::branch_banner(s, column))
+            .children(offers)
             .children(self.also_run_row(faces, s, column, cx))
-            .child(
-                div()
-                    .id("composer")
-                    .flex()
-                    .flex_col()
-                    .w(px(column))
-                    .on_drop(
-                        cx.listener(|this, paths: &gpui::ExternalPaths, window, cx| {
-                            this.drop_files(paths.paths(), window, cx);
-                        }),
-                    )
-                    // A session dragged from the sidebar goes with it.
-                    .on_drop(
-                        cx.listener(|this, d: &crate::sidebar::Dragged, window, cx| {
-                            this.drop_session(d.key, window, cx);
-                        }),
-                    )
-                    .rounded(px(12.))
-                    .bg(theme::panel())
-                    .border_1()
-                    .border_color(if focused {
-                        theme::off_track()
-                    } else {
-                        theme::border2()
-                    })
-                    .children(self.replying_row(faces, cx))
-                    .children(self.attached_row(cx))
-                    .children(self.chip_preview_row(faces, cx))
-                    .children(self.note_row(cx))
-                    .children(self.dictation_row(faces, cx))
-                    // The +, the line and the mic on one middle: a line as
-                    // tall as the buttons, the text in its middle, the same
-                    // room above and below; a longer message grows upward,
-                    // the buttons at its foot.
-                    .child(
-                        div()
-                            .flex()
-                            .items_end()
-                            .gap(px(4.))
-                            .px(px(7.))
-                            .py(px(LINE_PAD))
-                            .child(self.add_menu(s, cx))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_w(px(0.))
-                                    .min_h(px(28.))
-                                    .flex()
-                                    .flex_col()
-                                    .justify_center()
-                                    .px(px(4.))
-                                    .child(self.composer_line(cx)),
-                            )
-                            .children(dictate)
-                            .children(self.send_button(s, window, cx)),
-                    )
-                    .children(self.over_limit(faces, cx)),
-            )
-            .child(self.chips(faces, s, column, cx))
+            .child(self.tc_stack(faces, s, &name, column, focused, has_offers, suggested, cx))
+            .child(self.workspace_strip(faces, s, column, cx))
     }
 
-    /// While you dictate, what is heard as it comes, with the way to
-    /// finish (Done) or let it go (Esc); while the writer cleans it up,
-    /// the way to go on without it.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the composer stack coordinates session, focus, offer guard and ghost suggestion"
+    )]
+    fn tc_stack(
+        &self,
+        faces: &Faces,
+        s: &Session,
+        agent_name: &str,
+        column: f32,
+        focused: bool,
+        has_offers: bool,
+        suggested: Option<SharedString>,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let ctx_strip = self.attached_row(cx);
+        let has_ctx = ctx_strip.is_some();
+        let pad_top = if has_ctx { 10. } else { 14. };
+        let frame = theme::role(if focused {
+            ColorRole::Focus
+        } else {
+            ColorRole::BorderSubtle01
+        });
+        let suggest_overlay = suggested.map(|next| {
+            let accept_text = next.to_string();
+            div()
+                .id("composer-suggest")
+                .absolute()
+                .top(px(pad_top))
+                .left(px(16.))
+                .right(px(16.))
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .cursor_text()
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.composer.suggested = None;
+                    this.put_line(&accept_text, window, cx);
+                    let fh = gpui::Focusable::focus_handle(this.composer.input.read(cx), cx);
+                    window.focus(&fh, cx);
+                }))
+                .child(
+                    ui::text(faces, next)
+                        .min_w(px(0.))
+                        .truncate()
+                        .italic()
+                        .text_size(px(14.))
+                        .line_height(px(20.))
+                        .text_color(theme::role(ColorRole::TextSecondary)),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .gap(px(4.))
+                        .text_size(px(12.))
+                        .text_color(theme::role(ColorRole::TextHelper))
+                        .child(Kbd::new("Tab"))
+                        .child(crate::tr("to accept")),
+                )
+        });
+
+        let dictate: AnyElement = if let Some(sp) = &self.speech {
+            SpeechButton::new(&sp.state)
+                .with_size(px(32.))
+                .into_any_element()
+        } else {
+            let desk_mic = cx.entity();
+            CarbonButton::new(
+                "composer-mic",
+                crate::keys::hint(cx, &crate::tr("Dictate"), "dictate"),
+            )
+            .variant(ButtonVariant::Ghost)
+            .size(ButtonSize::Sm)
+            .icon(CarbonIcon::Microphone)
+            .icon_only(true)
+            .on_click(move |_, window, cx| {
+                desk_mic.update(cx, |this, cx| this.dictate(window, cx));
+            })
+            .into_any_element()
+        };
+
+        let foot_left = div()
+            .flex()
+            .items_center()
+            .gap(px(2.))
+            .min_w(px(0.))
+            .overflow_hidden()
+            .child(self.add_menu(s, cx))
+            .child(self.model_chip(faces, s, cx))
+            .children(self.effort_chip(s, cx))
+            .children(self.mode_chip(faces, s, cx));
+
+        let foot_right = div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(6.))
+            .children(self.context_meter(faces, s, cx))
+            .child(dictate)
+            .child(self.primary_actions(s, has_offers, cx));
+
+        let box_el = div()
+            .id("composer")
+            .flex()
+            .flex_col()
+            .w_full()
+            .rounded(px(0.))
+            .bg(theme::role(ColorRole::Field01))
+            .border_1()
+            .border_color(frame)
+            .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
+            .on_drop(
+                cx.listener(|this, paths: &gpui::ExternalPaths, window, cx| {
+                    this.drop_files(paths.paths(), window, cx);
+                }),
+            )
+            .on_drop(
+                cx.listener(|this, d: &crate::sidebar::Dragged, window, cx| {
+                    this.drop_session(d.key, window, cx);
+                }),
+            )
+            .children(self.replying_row(faces, cx))
+            .children(ctx_strip)
+            .children(self.chip_preview_row(faces, cx))
+            .children(self.note_row(faces, cx))
+            .child(
+                div()
+                    .relative()
+                    .min_h(px(64.))
+                    .pt(px(pad_top - 2.))
+                    .pb(px(6.))
+                    .px(px(12.))
+                    .child(self.composer_line(cx))
+                    .children(suggest_overlay),
+            )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(8.))
+                    .min_h(px(40.))
+                    .px(px(8.))
+                    .pb(px(8.))
+                    .child(foot_left)
+                    .child(foot_right),
+            );
+
+        div()
+            .flex()
+            .flex_col()
+            .w(px(column))
+            .gap(px(8.))
+            .children(self.queued_list(faces, s, agent_name, cx))
+            .children(self.dictation_row(faces, cx))
+            .children(self.mention_chips(faces, s, cx))
+            .child(box_el)
+    }
+
+    /// `.tc-dict` (`ThreadComposer.dc.html`): Apple's on-device speech bar, or
+    /// the Writer tidying punctuation and names.
     fn dictation_row(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<Div> {
         let d = self.dictation.as_ref()?;
         let speech = &self.speech.as_ref()?.state;
-        let listening =
-            speech.read(cx).status() == gpui::component::speech::SpeechStatus::Recording;
-        let (said, end) = match (&d.cleaning, listening) {
-            (Some(_), _) => (crate::tr("Cleaning up what you said…").into(), "Skip"),
-            (None, true) if d.heard.is_empty() => (crate::tr("Listening…").into(), "Done"),
-            (None, true) => (d.heard.clone(), "Done"),
-            (None, false) if d.heard.is_empty() => (
-                crate::tr("Waiting for speech recognition…").into(),
-                "Cancel",
-            ),
-            (None, false) => (d.heard.clone(), "Cancel"),
-        };
+        let listening = speech.read(cx).status() == SpeechStatus::Recording;
         let cleaning = d.cleaning.is_some();
+        let (word, detail, action_label, finish_on_click) = if cleaning {
+            (
+                crate::tr("Tidying"),
+                crate::tr("The Writer fixes punctuation and names"),
+                crate::tr("Skip"),
+                false,
+            )
+        } else if listening {
+            let text = if d.heard.is_empty() {
+                crate::tr("Listening…")
+            } else {
+                SharedString::from(d.heard.clone())
+            };
+            (crate::tr("Listening"), text, crate::tr("Done"), true)
+        } else {
+            let text = if d.heard.is_empty() {
+                crate::tr("Waiting for speech recognition…")
+            } else {
+                SharedString::from(d.heard.clone())
+            };
+            (crate::tr("Listening"), text, crate::tr("Cancel"), false)
+        };
+        let desk_act = cx.entity();
         Some(
             div()
                 .flex()
                 .items_center()
                 .gap(px(8.))
-                .px(px(12.))
-                .pt(px(8.))
-                .child(SpeechIndicator::new(speech).with_size(px(14.)))
+                .min_h(px(36.))
+                .pl(px(12.))
+                .pr(px(4.))
+                .bg(theme::role(ColorRole::Layer01))
+                .border_1()
+                .border_color(theme::role(ColorRole::BorderSubtle01))
+                .child(if listening {
+                    SpeechIndicator::new(speech)
+                        .with_size(px(16.))
+                        .into_any_element()
+                } else {
+                    CarbonGlyph::carbon(CarbonIcon::Microphone)
+                        .size_length(px(16.))
+                        .color(theme::role(ColorRole::IconPrimary))
+                        .flex_none()
+                        .into_any_element()
+                })
                 .child(
-                    ui::text(faces, said)
+                    ui::text(faces, word)
+                        .flex_none()
+                        .text_size(px(14.))
+                        .line_height(px(20.))
+                        .font_weight(FontWeight::SEMIBOLD),
+                )
+                .child(
+                    ui::text(faces, detail)
                         .flex_1()
                         .min_w(px(0.))
                         .truncate()
-                        .text_color(if d.heard.is_empty() {
-                            theme::muted()
-                        } else {
-                            theme::text()
-                        }),
+                        .text_size(px(14.))
+                        .line_height(px(20.))
+                        .text_color(theme::role(ColorRole::TextSecondary)),
                 )
                 .child(
-                    Button::new("dictation-end")
-                        .small()
-                        .ghost()
-                        .label(crate::tr(end))
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            if end == "Done" {
-                                this.finish_dictation(cx);
-                            } else {
-                                this.cancel_dictation(window, cx);
-                            }
-                        })),
-                )
-                .when(!cleaning, |row| {
-                    row.child(ui::fine(faces, crate::tr("Esc")).text_color(theme::muted()))
-                }),
+                    CarbonButton::new("dictation-end", action_label)
+                        .variant(ButtonVariant::Ghost)
+                        .size(ButtonSize::Sm)
+                        .on_click(move |_, window, cx| {
+                            desk_act.update(cx, |this, cx| {
+                                if finish_on_click {
+                                    this.finish_dictation(cx);
+                                } else {
+                                    this.cancel_dictation(window, cx);
+                                }
+                            });
+                        }),
+                ),
         )
     }
 
-    /// The line itself: gpui-kit's text area, with the composer's own keys
-    /// over it. ⌘S puts what is typed aside (or takes it back), ⇧⌘Return
-    /// sends it the other way, or with nothing typed steers in what was
-    /// queued first; ⌥↑ at its start takes back the last queued to edit;
-    /// a new line in a list begins its next item; ↑ and ↓ on its first
-    /// and last lines go back through what was sent; Escape lets go of a
-    /// send waiting for its pictures; an image pasted goes with what you
-    /// say.
+    /// `.tc-chips` (`ThreadComposer.dc.html`): extra folders (`s.meta.also`)
+    /// and `@` mentions currently named in the composer line.
+    fn mention_chips(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
+        use crate::desk::mention::Offer;
+        let typed = self.composer.input.read(cx).value().to_string();
+        let draft = s.state == State::Draft && s.items.is_empty();
+        let key = s.key;
+        let mut pills: Vec<AnyElement> = Vec::new();
+
+        for (n, folder) in s.meta.also.iter().enumerate() {
+            let label = Desk::shown(folder);
+            let remove_label = crate::tr_with("Remove %{name}", &[("name", &label)]);
+            pills.push(tc_pill(
+                faces,
+                SharedString::from(format!("tc-also-{n}")),
+                CarbonIcon::Folder,
+                label,
+                draft.then(|| {
+                    let desk = cx.entity();
+                    (
+                        remove_label,
+                        Box::new(move |_: &mut Window, cx: &mut gpui::App| {
+                            desk.update(cx, |this, cx| {
+                                if let Some(sess) = this.sessions.at_mut(key)
+                                    && n < sess.meta.also.len()
+                                {
+                                    sess.meta.also.remove(n);
+                                }
+                                cx.notify();
+                            });
+                        }) as Box<dyn Fn(&mut Window, &mut gpui::App)>,
+                    )
+                }),
+            ));
+        }
+
+        for (n, m) in self.composer.mentions.iter().enumerate() {
+            if !typed.contains(&m.token) {
+                continue;
+            }
+            let (icon, label) = match &m.what {
+                Offer::File(f) => (CarbonIcon::Document, f.clone()),
+                Offer::Session { title, .. } => (CarbonIcon::Chat, ui::fit(title, 32)),
+                Offer::Pr { number, title } => (
+                    CarbonIcon::PullRequest,
+                    format!("#{number} {}", ui::fit(title, 24)),
+                ),
+                Offer::Issue { number, title } => (
+                    CarbonIcon::Ticket,
+                    format!("#{number} {}", ui::fit(title, 24)),
+                ),
+                Offer::Model { label, .. } => (CarbonIcon::Bot, format!("@{label}")),
+                Offer::Command { .. } | Offer::Own { .. } => continue,
+            };
+            let remove_label = crate::tr_with("Remove %{name}", &[("name", &label)]);
+            let tok = m.token.clone();
+            let desk = cx.entity();
+            pills.push(tc_pill(
+                faces,
+                SharedString::from(format!("tc-mention-{n}")),
+                icon,
+                label,
+                Some((
+                    remove_label,
+                    Box::new(move |window: &mut Window, cx: &mut gpui::App| {
+                        desk.update(cx, |this, cx| {
+                            let cur = this.composer.input.read(cx).value().to_string();
+                            let cleaned = cur
+                                .replace(&format!("{tok} "), "")
+                                .replace(&tok, "")
+                                .trim_start()
+                                .to_owned();
+                            this.put_line(&cleaned, window, cx);
+                            if n < this.composer.mentions.len() {
+                                this.composer.mentions.remove(n);
+                            }
+                            cx.notify();
+                        });
+                    }),
+                )),
+            ));
+        }
+
+        (!pills.is_empty()).then(|| {
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(px(4.))
+                .children(pills)
+        })
+    }
+
+    /// The multi-line input itself, preserving all keyboard actions and paste
+    /// handling (`Stash`, `SendAside`, `EditQueued`, list continuation, `Tab`
+    /// suggestion accept, `Escape`, `↑`/`↓` prompt recall, image/long paste).
     fn composer_line(&self, cx: &mut Context<Self>) -> Div {
         let desk = cx.entity().downgrade();
         div()
@@ -288,12 +526,9 @@ impl Desk {
                 }
             }))
             .child(
-                // Small: 2 above and below the text, not Medium's 8, so a
-                // line fits inside the buttons' 28 and sits on their middle.
                 Textarea::new(&self.composer.input)
                     .small()
                     .appearance(false)
-                    // ⇧⌘V puts what is pasted in the line, whatever it is.
                     .on_paste(move |item, window, cx| {
                         !window.modifiers().shift
                             && desk
@@ -303,16 +538,13 @@ impl Desk {
             )
     }
 
-    /// What the writer thinks you will say next in the session `key`,
-    /// while nothing is typed there.
     fn suggestion<'a>(&'a self, key: u64, cx: &gpui::App) -> Option<&'a str> {
         let (k, next) = self.composer.suggested.as_ref()?;
         (*k == key && self.composer.input.read(cx).value().is_empty()).then_some(next.as_str())
     }
 
-    /// In place of the line, for a session you do not write in: one
-    /// archived, until it is restored; a subagent's, which answers to its
-    /// parent, not to you; on a server paired read-only, a disabled dock.
+    /// Read-only composer bar (`ReadOnlyComposerBar`) for archived or subagent
+    /// threads.
     fn shut(&self, faces: &Faces, s: &Session, column: f32, cx: &mut Context<Self>) -> Option<Div> {
         if let Some(m) = self
             .machine(s.host)
@@ -401,14 +633,18 @@ impl Desk {
                     ),
             );
         }
-        let (icon, says, button) = if s.meta.flags.archived {
+        let bar = if s.meta.flags.archived {
             let key = s.key;
-            (
-                "archive",
-                crate::tr("Archived. Restore it to write in it again."),
-                ui::button("restore", crate::tr("Restore"), ui::Weight::Secondary)
-                    .on_click(cx.listener(move |this, _, _, cx| this.restore(key, cx))),
-            )
+            let desk = cx.entity();
+            ReadOnlyComposerBar::new(crate::tr("Archived. Restore it to write in it again."))
+                .action(
+                    CarbonButton::new("restore", crate::tr("Restore"))
+                        .variant(ButtonVariant::Ghost)
+                        .size(ButtonSize::Sm)
+                        .on_click(move |_, _, cx| {
+                            desk.update(cx, |this, cx| this.restore(key, cx));
+                        }),
+                )
         } else {
             let up = s.parent?;
             let parent = self
@@ -416,45 +652,215 @@ impl Desk {
                 .at(up)
                 .map(|p| ui::fit(&p.meta.title, 40))
                 .unwrap_or_default();
-            (
-                "user",
-                crate::tr_with(
-                    "A subagent of “%{parent}”: it answers to it.",
-                    &[("parent", &parent)],
-                ),
-                ui::button("to-parent", crate::tr("Back to it"), ui::Weight::Secondary)
-                    .on_click(cx.listener(move |this, _, window, cx| this.show(up, window, cx))),
+            let desk = cx.entity();
+            ReadOnlyComposerBar::new(crate::tr_with(
+                "A subagent of “%{parent}”: it answers to it.",
+                &[("parent", &parent)],
+            ))
+            .action(
+                CarbonButton::new("to-parent", crate::tr("Back to it"))
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Sm)
+                    .on_click(move |_, window, cx| {
+                        desk.update(cx, |this, cx| this.show(up, window, cx));
+                    }),
             )
         };
         Some(
-            div().flex().flex_none().justify_center().pb(px(18.)).child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(12.))
-                    .w(px(column))
-                    .px(px(14.))
-                    .py(px(10.))
-                    .rounded(px(12.))
-                    .border_1()
-                    .border_color(theme::border2())
-                    .child(ui::icon(icon, 16.).text_color(theme::faint()))
-                    .child(
-                        ui::text(faces, says)
-                            .flex_1()
-                            .text_size(px(crate::style::LABEL))
-                            .text_color(theme::text2()),
-                    )
-                    .child(button),
-            ),
+            div()
+                .flex()
+                .flex_none()
+                .justify_center()
+                .pb(px(18.))
+                .child(div().w(px(column)).child(bar)),
         )
     }
 
-    /// Under the box, as Claude sets them: where it works (its project,
-    /// a worktree of its own, its branch) and what was put aside or is
-    /// to be said later at the left; the agent and its model, its mode
-    /// and how full its context is at the right.
-    fn chips(&self, faces: &Faces, s: &Session, column: f32, cx: &mut Context<Self>) -> Div {
+    /// Context window meter (`14px` ring + tabular `%`), or red character
+    /// count when over `mention::LIMIT`.
+    fn context_meter(&self, faces: &Faces, s: &Session, cx: &gpui::App) -> Option<AnyElement> {
+        let chars = self.typed(cx).chars().count();
+        if chars > mention::LIMIT {
+            let text = format!("{}k / {}k", chars / 1000, mention::LIMIT / 1000);
+            return Some(
+                div()
+                    .id("context-over")
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(6.))
+                    .px(px(6.))
+                    .child(
+                        div()
+                            .size(px(10.))
+                            .rounded_full()
+                            .bg(theme::role(ColorRole::SupportError)),
+                    )
+                    .child(
+                        ui::mono(faces, text)
+                            .text_size(px(12.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .text_color(theme::role(ColorRole::TextPrimary)),
+                    )
+                    .into_any_element(),
+            );
+        }
+        let u = s.usage.as_ref().filter(|u| u.size > 0)?;
+        let share = (u.used as f32 / u.size as f32).clamp(0., 1.);
+        let pct = (share * 100.).round() as u32;
+        Some(
+            div()
+                .id("context-used")
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(5.))
+                .px(px(6.))
+                .h(px(32.))
+                .child(
+                    ProgressCircle::new("context-ring")
+                        .value(share * 100.)
+                        .color(if share >= 0.9 {
+                            theme::role(ColorRole::SupportError)
+                        } else {
+                            theme::role(ColorRole::IconSecondary)
+                        })
+                        .size(px(14.)),
+                )
+                .child(
+                    ui::mono(faces, format!("{pct}%"))
+                        .text_size(px(12.))
+                        .text_color(theme::role(ColorRole::TextSecondary)),
+                )
+                .tooltip(ui::tip(crate::tr_with(
+                    "%{share}% of the context used",
+                    &[("share", &pct)],
+                )))
+                .into_any_element(),
+        )
+    }
+
+    /// Primary Send / Steer / Queue / Stop controls (`ComposerPrimaryActions`).
+    fn primary_actions(&self, s: &Session, has_offers: bool, cx: &mut Context<Self>) -> AnyElement {
+        let working = matches!(s.state, State::Working | State::Opening);
+        let typed = self.typed(cx);
+        let empty = typed.is_empty();
+        let over = typed.chars().count() > mention::LIMIT;
+        let key = s.key;
+        let force = working
+            && self
+                .stopping
+                .is_some_and(|(k, t)| k == key && t.elapsed() > std::time::Duration::from_secs(8));
+        if force {
+            let desk = cx.entity();
+            return div()
+                .id("force-stop-wrap")
+                .tooltip(ui::tip(crate::tr(
+                    "It would not stop: its process is ended, and started again when wanted",
+                )))
+                .child(
+                    CarbonButton::new("force-stop", crate::tr("Force stop"))
+                        .variant(ButtonVariant::Danger)
+                        .size(ButtonSize::Sm)
+                        .on_click(move |_, _, cx| {
+                            desk.update(cx, |this, cx| this.force_stop(key, cx));
+                        }),
+                )
+                .into_any_element();
+        }
+        // Editing a queued message: Return saves it back in its place.
+        // A new thread run on several agents: one button says how many.
+        let special = if self.composer.editing_queued.is_some() && !empty {
+            Some(("save-queued", crate::tr("Save to queue")))
+        } else if s.state == State::Draft
+            && s.items.is_empty()
+            && !self.composer.also_run.is_empty()
+            && !empty
+            && !over
+        {
+            let total = self.composer.also_run.len() + 1;
+            Some((
+                "run-many",
+                crate::tr_with("Run %{n} agents", &[("n", &total)]),
+            ))
+        } else {
+            None
+        };
+        if let Some((id, label)) = special {
+            let desk = cx.entity();
+            return CarbonButton::new(id, label)
+                .variant(ButtonVariant::Primary)
+                .size(ButtonSize::Sm)
+                .on_click(move |_, window, cx| {
+                    desk.update(cx, |this, cx| this.send_typed(false, window, cx));
+                })
+                .into_any_element();
+        }
+
+        let other = if self.return_sends(cx) {
+            "⌘Return"
+        } else {
+            "⇧⌘Return"
+        };
+        let texts = PrimaryActionTexts {
+            send: crate::tr_with(
+                "Send · %{keys} to go on in the background",
+                &[("keys", &other)],
+            ),
+            steer: crate::tr("Steer"),
+            steer_title: crate::tr("Interrupt the current step and send now"),
+            queue: crate::tr("Queue"),
+            queue_title: crate::tr("Send after this turn finishes"),
+            stop: crate::tr("Stop"),
+            stop_title: crate::keys::hint(cx, &crate::tr("Stop the turn"), "stop").into(),
+            stop_short: crate::keys::hint(cx, &crate::tr("Stop the turn"), "stop").into(),
+            ..PrimaryActionTexts::default()
+        };
+        let state = if working {
+            ComposerState::Running
+        } else {
+            ComposerState::Idle
+        };
+        let disabled = empty || over || has_offers || self.dictation.is_some();
+        let desk_send = cx.entity();
+        let desk_queue = cx.entity();
+        let desk_steer = cx.entity();
+        let desk_stop = cx.entity();
+        ComposerPrimaryActions::new("composer-primary", state)
+            .texts(texts)
+            .disabled(disabled)
+            .empty(empty || over || has_offers || self.dictation.is_some())
+            .on_send(move |window, cx| {
+                desk_send.update(cx, |this, cx| this.send_typed(false, window, cx));
+            })
+            .on_queue(move |window, cx| {
+                desk_queue.update(cx, |this, cx| {
+                    let flip = this.settings.steer;
+                    this.send_typed(flip, window, cx);
+                });
+            })
+            .on_steer(move |window, cx| {
+                desk_steer.update(cx, |this, cx| {
+                    let flip = !this.settings.steer;
+                    this.send_typed(flip, window, cx);
+                });
+            })
+            .on_stop(move |_, cx| {
+                desk_stop.update(cx, Self::stop);
+            })
+            .into_any_element()
+    }
+
+    /// Compact workspace strip below the composer box: project folder,
+    /// worktree toggle / base branch, stashed prompts (`⌘S`) and scheduled
+    /// prompts (`Say it later`).
+    fn workspace_strip(
+        &self,
+        faces: &Faces,
+        s: &Session,
+        column: f32,
+        cx: &mut Context<Self>,
+    ) -> Div {
         let draft = s.state == State::Draft && s.items.is_empty();
         let mut row = div()
             .flex()
@@ -462,15 +868,20 @@ impl Desk {
             .gap(px(2.))
             .w(px(column))
             .h(px(28.))
-            .mt(px(8.))
+            .mt(px(6.))
             .child(self.project_chip(faces, s, draft, cx));
         if draft && s.git_dir().is_some() {
             let on = s.wants_worktree;
             row = row.child(
                 ui::opener("worktree")
-                    .h(px(28.))
+                    .h(px(26.))
+                    .rounded(px(0.))
                     .selected(on)
-                    .child(ui::icon("branch", 14.).text_color(theme::faint()))
+                    .child(
+                        CarbonGlyph::carbon(CarbonIcon::Branch)
+                            .size_length(px(14.))
+                            .color(theme::role(ColorRole::IconSecondary)),
+                    )
                     .child(chip_text(faces, crate::tr("Worktree")))
                     .tooltip(crate::tr(if on {
                         "A worktree of its own on a new branch: your folder is left as it is"
@@ -489,18 +900,13 @@ impl Desk {
                     Some(crate::session::Begin::Pr(n, _)) => format!("#{n}"),
                     None => s.branch.clone().unwrap_or_else(|| "HEAD".into()),
                 };
-                row = row.child(
-                    ui::text(
-                        faces,
-                        crate::tr_with(
-                            "%{n} worktrees from %{branch}, one per agent",
-                            &[("n", &total), ("branch", &base)],
-                        ),
-                    )
-                    .px(px(6.))
-                    .text_size(px(crate::style::CAPTION))
-                    .text_color(theme::faint()),
-                );
+                row = row.child(chip_text(
+                    faces,
+                    crate::tr_with(
+                        "%{n} worktrees from %{branch}, one per agent",
+                        &[("n", &total), ("branch", &base)],
+                    ),
+                ));
             }
         } else if let Some(branch) = &s.branch {
             row = row.child(
@@ -509,16 +915,21 @@ impl Desk {
                     .flex_none()
                     .items_center()
                     .gap(px(6.))
-                    .px(px(7.))
-                    .child(ui::icon("branch", 14.).text_color(theme::faint()))
-                    .child(chip_text(faces, ui::fit(branch, 24))),
+                    .px(px(8.))
+                    .child(
+                        CarbonGlyph::carbon(CarbonIcon::Branch)
+                            .size_length(px(14.))
+                            .color(theme::role(ColorRole::IconSecondary)),
+                    )
+                    .child(chip_text(faces, ui::fit(branch, 28))),
             );
         }
         if draft {
             let bg_on = self.composer.in_background;
             row = row.child(
                 ui::opener("start-bg")
-                    .h(px(28.))
+                    .h(px(26.))
+                    .rounded(px(0.))
                     .selected(bg_on)
                     .child(chip_text(faces, crate::tr("Start in the background")))
                     .on_click(cx.listener(|this, _, _, cx| {
@@ -533,53 +944,33 @@ impl Desk {
         if s.meta.id.is_some() && s.parent.is_none() {
             row = row.child(self.later_menu(faces, s, cx));
         }
-        row = row
-            .child(div().flex_1())
-            .child(self.model_chip(faces, s, cx))
-            .children(self.mode_chip(faces, s, cx));
-        if let Some(u) = s.usage.as_ref().filter(|u| u.size > 0) {
-            let share = u.used as f32 / u.size as f32;
-            row = row.child(
-                div()
-                    .id("context-used")
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .justify_center()
-                    .size(px(28.))
-                    .child(
-                        ProgressCircle::new("context-ring")
-                            .value(share * 100.)
-                            .color(theme::accent())
-                            .size(px(16.)),
-                    )
-                    .tooltip(ui::tip(crate::tr_with(
-                        "%{share}% of the context used",
-                        &[("share", &(share * 100.).round())],
-                    ))),
-            );
-        }
         row
     }
 
-    /// Where the session works: on a new one, a menu of the projects (on
-    /// each server the window holds) and a folder of your choosing; after,
-    /// its folder's name, and its server's where there are more.
     fn project_chip(
         &self,
         faces: &Faces,
         s: &Session,
         draft: bool,
         cx: &mut Context<Self>,
-    ) -> gpui::AnyElement {
+    ) -> AnyElement {
         let named = self.project_on(&crate::desk::Place::project_of(s));
         let says = |chevron: bool| {
             ui::opener("project-chip")
-                .h(px(28.))
-                .child(ui::icon("folder", 14.).text_color(theme::faint()))
+                .h(px(26.))
+                .rounded(px(0.))
+                .child(
+                    CarbonGlyph::carbon(CarbonIcon::Folder)
+                        .size_length(px(14.))
+                        .color(theme::role(ColorRole::IconSecondary)),
+                )
                 .child(chip_text(faces, ui::fit(&named, 28)))
                 .when(chevron, |b| {
-                    b.child(ui::icon("chevron-down", 11.).text_color(theme::faint()))
+                    b.child(
+                        CarbonGlyph::carbon(CarbonIcon::ChevronDown)
+                            .size_length(px(12.))
+                            .color(theme::role(ColorRole::IconSecondary)),
+                    )
                 })
         };
         if !draft {
@@ -596,11 +987,8 @@ impl Desk {
         .into_any_element()
     }
 
-    /// The projects a new session can work in, under their server's name
-    /// where there are more, and a folder of this Mac's to choose.
     fn work_in_menu(&self, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
         let here = self.session().map(crate::desk::Place::folder_of);
-        // Each has its icon, so the one chosen is ticked at the end.
         menu = menu.check_side(gpui::component::Side::Right);
         let mut server = None;
         for p in self.projects() {
@@ -630,11 +1018,19 @@ impl Desk {
         )
     }
 
-    /// The + at the box's left: what can go with what you write.
+    /// `+` attach trigger in the Carbon footer left group.
     fn add_menu(&self, s: &Session, cx: &mut Context<Self>) -> Popover {
-        let button = ui::icon_button("add", "plus", crate::tr("Add files, a window, a command"))
-            .size(px(28.))
-            .text_color(theme::muted());
+        let button = ui::opener("add")
+            .size(px(32.))
+            .px(px(0.))
+            .rounded(px(0.))
+            .justify_center()
+            .child(
+                CarbonGlyph::carbon(CarbonIcon::Add)
+                    .size_length(px(16.))
+                    .color(theme::role(ColorRole::IconPrimary)),
+            )
+            .tooltip(crate::tr("Add files, a window, a command"));
         let able = s.state == State::Draft
             && self
                 .slot(s.host, &s.meta.agent)
@@ -720,159 +1116,7 @@ impl Desk {
                     })
                 }),
         )
-        .offset(px(4. + LINE_PAD + 1.))
-    }
-
-    /// Send, once something is written; while a turn goes on, as it will
-    /// be sent: queued or steering it, the other with ⌘ held (a click
-    /// with ⌘ sends it so); Stop while a turn goes on and nothing is
-    /// written; Force stop when asked to stop and still going a while
-    /// after. Nothing while what is written is too long to send.
-    fn send_button(&self, s: &Session, window: &Window, cx: &mut Context<Self>) -> Option<Button> {
-        let working = matches!(s.state, State::Working | State::Opening);
-        let typed = self.typed(cx);
-        let key = s.key;
-        let force = working
-            && self
-                .stopping
-                .is_some_and(|(k, t)| k == key && t.elapsed() > std::time::Duration::from_secs(8));
-        let round = |b: Button| b.size(px(28.)).rounded(px(14.));
-        let other = if self.return_sends(cx) {
-            "⌘Return"
-        } else {
-            "⇧⌘Return"
-        };
-        Some(if force {
-            ui::button("force-stop", crate::tr("Force stop"), ui::Weight::Secondary)
-                .danger()
-                .tooltip(crate::tr(
-                    "It would not stop: its process is ended, and started again when wanted",
-                ))
-                .on_click(cx.listener(move |this, _, _, cx| this.force_stop(key, cx)))
-        } else if self.composer.editing_queued.is_some() && !typed.is_empty() {
-            ui::button(
-                "save-queued",
-                crate::tr("Save to queue"),
-                ui::Weight::Primary,
-            )
-            .on_click(cx.listener(|this, _, window, cx| this.send_typed(false, window, cx)))
-        } else if s.state == State::Draft
-            && s.items.is_empty()
-            && !self.composer.also_run.is_empty()
-            && !typed.is_empty()
-            && typed.chars().count() <= mention::LIMIT
-        {
-            let total = self.composer.also_run.len() + 1;
-            ui::button(
-                "run-many",
-                crate::tr_with("Run %{n} agents", &[("n", &total)]),
-                ui::Weight::Primary,
-            )
-            .on_click(cx.listener(|this, _, window, cx| this.send_typed(false, window, cx)))
-        } else if working && typed.is_empty() {
-            round(ui::icon_button(
-                "stop",
-                "square",
-                crate::keys::hint(cx, &crate::tr("Stop the turn"), "stop"),
-            ))
-            .on_click(cx.listener(|this, _, _, cx| this.stop(cx)))
-        } else if typed.is_empty() || typed.chars().count() > mention::LIMIT {
-            return None;
-        } else {
-            let (icon, tip) = if !working {
-                (
-                    "arrow-up",
-                    crate::tr_with(
-                        "Send · %{keys} to go on in the background",
-                        &[("keys", &other)],
-                    ),
-                )
-            } else if self.settings.steer != window.modifiers().platform {
-                (
-                    "corner-up-right",
-                    crate::tr_with(
-                        "Steer: stop the turn and say it now · ⌘-click or %{keys} to queue it",
-                        &[("keys", &other)],
-                    ),
-                )
-            } else {
-                (
-                    "list-plus",
-                    crate::tr_with(
-                        "Queue it for when this turn ends · ⌘-click or %{keys} to steer",
-                        &[("keys", &other)],
-                    ),
-                )
-            };
-            round(ui::icon_button("send", icon, tip).primary()).on_click(cx.listener(
-                move |this, e: &gpui::ClickEvent, window, cx| {
-                    this.send_typed(working && e.modifiers().platform, window, cx);
-                },
-            ))
-        })
-    }
-
-    /// Under the line, once what is written is longer than a message may
-    /// be: by how much, and a button to attach it as a file instead.
-    fn over_limit(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<Div> {
-        let count = self.typed(cx).chars().count();
-        (count > mention::LIMIT).then(|| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .px(px(14.))
-                .pb(px(8.))
-                .child(
-                    ui::text(
-                        faces,
-                        crate::tr_with(
-                            "%{count} characters: %{over} over the %{limit} a message may hold. Cut it, or send it in parts.",
-                            &[
-                                ("count", &count),
-                                ("over", &(count - mention::LIMIT)),
-                                ("limit", &mention::LIMIT),
-                            ],
-                        ),
-                    )
-                    .flex_1()
-                    .text_size(px(crate::style::CAPTION))
-                    .text_color(theme::coral()),
-                )
-                .child(
-                    ui::button(
-                        "attach-over-limit",
-                        crate::tr("Attach as file"),
-                        ui::Weight::Secondary,
-                    )
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.attach_typed_as_file(window, cx);
-                    })),
-                )
-        })
-    }
-
-    /// Safety notice when a `u0://` link pre-filled a prompt into the draft.
-    fn prompt_link_banner(&self, column: f32, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        if !self.composer.from_link {
-            return None;
-        }
-        let desk = cx.entity().downgrade();
-        Some(
-            gpui::component::alert::Alert::info(
-                "prompt-link-banner",
-                crate::tr("Review it before sending — nothing runs until you send it."),
-            )
-            .title(crate::tr("Opened from a prompt link"))
-            .w(px(column))
-            .mb(px(8.))
-            .on_close(move |_, _, cx| {
-                let _ = desk.update(cx, |this, cx| {
-                    this.composer.from_link = false;
-                    cx.notify();
-                });
-            }),
-        )
+        .offset(px(10.))
     }
 
     /// Multi-model fanout strip ("Also run on") above a draft's composer.
@@ -992,435 +1236,579 @@ impl Desk {
         )
     }
 
-    /// Over the box, while what you sent waits for its pictures to be
-    /// read: that it goes once they are, and the way to keep it back.
-    fn held_banner(&self, column: f32, cx: &mut Context<Self>) -> Option<impl IntoElement> {
-        self.composer.held?;
-        let n = self.composer.reading;
-        let desk = cx.entity().downgrade();
-        Some(
-            gpui::component::alert::Alert::info(
-                "held",
-                crate::tr("Edit, or press Escape, to keep it back"),
-            )
-            .title(if n == 1 {
-                crate::tr("Sending once the picture is ready")
-            } else {
-                crate::tr_with("Sending once %{n} pictures are ready", &[("n", &n)])
-            })
-            .w(px(column))
-            .mb(px(8.))
-            .on_close(move |_, _, cx| {
-                let _ = desk.update(cx, |this, cx| {
-                    this.composer.held = None;
-                    cx.notify();
-                });
-            }),
-        )
-    }
+    /// Notices above the composer (`ComposerBannerStack` + `ComposerBanner`).
+    fn banners_above(
+        &self,
+        s: &Session,
+        agent_name: &str,
+        column: f32,
+        cx: &mut Context<Self>,
+    ) -> Option<Div> {
+        let mut banners: Vec<AnyElement> = Vec::new();
 
-    /// Over the box, where the folder's branch changed since you last said
-    /// something in the session: what goes next goes on on another branch.
-    fn branch_banner(s: &Session, column: f32) -> Option<impl IntoElement> {
-        let (was, now) = (s.ran_on.as_ref()?, s.branch.as_ref()?);
-        (was != now).then(|| {
-            gpui::component::alert::Alert::warning(
-                SharedString::from(format!("branch-{}", s.key)),
-                crate::tr_with(
+        if self.composer.from_link {
+            let desk = cx.entity();
+            banners.push(
+                ComposerBanner::new("banner-prompt-link", BannerKind::Info)
+                    .title(crate::tr("Opened from a prompt link"))
+                    .body(crate::tr(
+                        "Review it before sending — nothing runs until you send it.",
+                    ))
+                    .on_dismiss(move |_, cx| {
+                        desk.update(cx, |this, cx| {
+                            this.composer.from_link = false;
+                            cx.notify();
+                        });
+                    })
+                    .into_any_element(),
+            );
+        }
+
+        if let Some(up) = s.beside {
+            let title = self
+                .sessions
+                .at(up)
+                .map(|p| ui::fit(&p.meta.title, 40))
+                .unwrap_or_default();
+            let key = s.key;
+            let answered = s
+                .items
+                .iter()
+                .any(|i| matches!(i, crate::session::Item::Agent(_)));
+            let mut banner = ComposerBanner::new("banner-beside", BannerKind::Info)
+                .icon(CarbonIcon::Chat)
+                .body(crate::tr_with(
+                    "A side question of “%{title}”: it does not go in it.",
+                    &[("title", &title)],
+                ));
+            if answered {
+                let desk_add = cx.entity();
+                banner = banner.action(
+                    CarbonButton::new("answer-back", crate::tr("Add the answer to it"))
+                        .variant(ButtonVariant::Tertiary)
+                        .size(ButtonSize::Sm)
+                        .on_click(move |_, window, cx| {
+                            desk_add.update(cx, |this, cx| this.answer_back(key, window, cx));
+                        }),
+                );
+            }
+            let desk_back = cx.entity();
+            banner = banner.action(
+                CarbonButton::new("beside-back", crate::tr("Back to it"))
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Sm)
+                    .on_click(move |_, window, cx| {
+                        desk_back.update(cx, |this, cx| this.show(up, window, cx));
+                    }),
+            );
+            banners.push(banner.into_any_element());
+        }
+
+        if let Some(crate::hub::Auth::Needed(why)) =
+            self.slot(s.host, &s.meta.agent).map(|x| &x.auth)
+        {
+            let (host, a, b) = (s.host, s.meta.agent.clone(), s.meta.agent.clone());
+            let desk_in = cx.entity();
+            let desk_re = cx.entity();
+            banners.push(
+                ComposerBanner::new("banner-signin", BannerKind::Warning)
+                    .title(crate::tr_with(
+                        "%{name} needs you to sign in",
+                        &[("name", &agent_name)],
+                    ))
+                    .body(why.clone())
+                    .action(
+                        CarbonButton::new("sign-in-now", crate::tr("Sign in"))
+                            .variant(ButtonVariant::Primary)
+                            .size(ButtonSize::Sm)
+                            .on_click(move |_, _, cx| {
+                                desk_in.update(cx, |this, cx| this.sign_in_agent(host, &a, cx));
+                            }),
+                    )
+                    .action(
+                        CarbonButton::new("signed-in", crate::tr("I've signed in"))
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Sm)
+                            .on_click(move |_, _, cx| {
+                                desk_re.update(cx, |this, cx| this.recheck_auth(host, &b, cx));
+                            }),
+                    )
+                    .into_any_element(),
+            );
+        }
+
+        if let Some(goal) = &s.goal {
+            let (label, said) = if goal.paused {
+                ("Resume", "/goal resume")
+            } else {
+                ("Pause", "/goal pause")
+            };
+            let desk_toggle = cx.entity();
+            let desk_clear = cx.entity();
+            banners.push(
+                ComposerBanner::new("banner-goal", BannerKind::Info)
+                    .icon(CarbonIcon::CheckmarkOutline)
+                    .title(crate::tr(if goal.paused { "Goal, paused" } else { "Goal" }))
+                    .body(goal.objective.clone())
+                    .action(
+                        CarbonButton::new("goal-toggle", crate::tr(label))
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Sm)
+                            .on_click(move |_, _, cx| {
+                                desk_toggle.update(cx, |this, cx| this.say(said, cx));
+                            }),
+                    )
+                    .action(
+                        CarbonButton::new("goal-clear", crate::tr("Clear"))
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Sm)
+                            .on_click(move |_, _, cx| {
+                                desk_clear.update(cx, |this, cx| this.say("/goal clear", cx));
+                            }),
+                    )
+                    .into_any_element(),
+            );
+        }
+
+        if self.composer.held.is_some() {
+            let n = self.composer.reading;
+            let desk = cx.entity();
+            banners.push(
+                ComposerBanner::new("banner-held", BannerKind::Progress)
+                    .title(if n == 1 {
+                        crate::tr("Sending once the picture is ready")
+                    } else {
+                        crate::tr_with("Sending once %{n} pictures are ready", &[("n", &n)])
+                    })
+                    .body(crate::tr("Edit, or press Escape, to keep it back"))
+                    .on_dismiss(move |_, cx| {
+                        desk.update(cx, |this, cx| {
+                            this.composer.held = None;
+                            cx.notify();
+                        });
+                    })
+                    .into_any_element(),
+            );
+        }
+
+        if let (Some(was), Some(now)) = (&s.ran_on, &s.branch)
+            && was != now
+        {
+            banners.push(
+                ComposerBanner::new(
+                    SharedString::from(format!("banner-branch-{}", s.key)),
+                    BannerKind::Warning,
+                )
+                .title(crate::tr("The branch changed"))
+                .body(crate::tr_with(
                     "It last ran on %{was}; what you send now goes on on %{now}.",
                     &[("was", was), ("now", now)],
-                ),
-            )
-            .title(crate::tr("The branch changed"))
-            .w(px(column))
-            .mb(px(8.))
+                ))
+                .into_any_element(),
+            );
+        }
+
+        let count = self.typed(cx).chars().count();
+        if count > mention::LIMIT {
+            let desk_attach = cx.entity();
+            banners.push(
+                ComposerBanner::new("banner-over-limit", BannerKind::Error)
+                    .title(crate::tr("This message is too long"))
+                    .body(crate::tr_with(
+                        "%{count} characters: %{over} over the %{limit} a message may hold. Cut it, or send it in parts.",
+                        &[
+                            ("count", &count),
+                            ("over", &(count - mention::LIMIT)),
+                            ("limit", &mention::LIMIT),
+                        ],
+                    ))
+                    .action(
+                        CarbonButton::new("attach-over-limit", crate::tr("Attach as file"))
+                            .variant(ButtonVariant::Primary)
+                            .size(ButtonSize::Sm)
+                            .on_click(move |_, window, cx| {
+                                desk_attach.update(cx, |this, cx| {
+                                    this.attach_typed_as_file(window, cx);
+                                });
+                            }),
+                    )
+                    .into_any_element(),
+            );
+        }
+
+        (!banners.is_empty()).then(|| {
+            div()
+                .w(px(column))
+                .mb(px(8.))
+                .child(ComposerBannerStack::new("composer-banners").children(banners))
         })
     }
 
-    /// Over the box, while the session has a goal (`/goal`): what done
-    /// means, whether it is paused, and the agent's own commands to pause,
-    /// take up or clear it.
-    fn goal_row(faces: &Faces, s: &Session, column: f32, cx: &mut Context<Self>) -> Option<Div> {
-        let goal = s.goal.as_ref()?;
-        let command = |id: &'static str, label: &'static str, said: &'static str| {
-            ui::button(id, crate::tr(label), ui::Weight::Quiet)
-                .on_click(cx.listener(move |this, _, _, cx| this.say(said, cx)))
-        };
-        Some(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .w(px(column))
-                .mb(px(8.))
-                .px(px(12.))
-                .py(px(6.))
-                .rounded(px(10.))
-                .border_1()
-                .border_color(theme::border2())
-                .child(ui::icon("circle-dot", 14.).text_color(if goal.paused {
-                    theme::faint()
-                } else {
-                    theme::accent()
-                }))
-                .child(
-                    chip_text(
-                        faces,
-                        crate::tr(if goal.paused { "Goal, paused" } else { "Goal" }),
-                    )
-                    .flex_none(),
-                )
-                .child(
-                    ui::one_line(
-                        chip_text(faces, goal.objective.clone()).text_color(theme::text()),
-                    )
-                    .flex_1()
-                    .min_w(px(0.)),
-                )
-                .child(if goal.paused {
-                    command("goal-resume", "Resume", "/goal resume")
-                } else {
-                    command("goal-pause", "Pause", "/goal pause")
-                })
-                .child(command("goal-clear", "Clear", "/goal clear")),
-        )
-    }
-
-    /// Over the box, while the session has changed files: where, how
-    /// much, and the way to commit them.
+    /// Square Carbon changed-files bar above the composer.
     fn changes_row(faces: &Faces, s: &Session, column: f32, cx: &mut Context<Self>) -> Option<Div> {
         let files = s.total.as_ref().filter(|f| !f.is_empty())?;
+        let file_count = files.len();
         let (added, gone) = files
             .iter()
             .fold((0, 0), |(a, g), f| (a + f.added, g + f.gone));
-        let repo = s.meta.worktree.as_ref().map_or(&s.meta.folder, |w| &w.repo);
-        let repo = repo.file_name().map_or_else(
-            || repo.display().to_string(),
-            |n| n.to_string_lossy().into_owned(),
-        );
+        let count_text = if file_count == 1 {
+            crate::tr("1 file changed")
+        } else {
+            crate::tr_with("%{n} files changed", &[("n", &file_count)])
+        };
+        let desk_review = cx.entity();
+        let desk_commit = cx.entity();
         Some(
             div()
                 .flex()
                 .items_center()
                 .gap(px(8.))
                 .w(px(column))
+                .min_h(px(40.))
                 .mb(px(8.))
-                .px(px(12.))
-                .py(px(6.))
-                .rounded(px(10.))
+                .pl(px(16.))
+                .pr(px(4.))
+                .py(px(4.))
+                .bg(theme::role(ColorRole::Layer01))
                 .border_1()
-                .border_color(theme::border2())
-                .child(ui::icon("folder", 14.).text_color(theme::faint()))
-                .child(chip_text(faces, repo))
+                .border_color(theme::role(ColorRole::BorderSubtle01))
+                .child(
+                    ui::text(faces, count_text)
+                        .text_size(px(14.))
+                        .font_weight(FontWeight::SEMIBOLD),
+                )
+                .child(ui::counts(faces, added, gone, 12.))
                 .children(s.branch.clone().map(|b| {
                     div()
                         .flex()
                         .items_center()
                         .gap(px(4.))
-                        .child(ui::icon("branch", 13.).text_color(theme::faint()))
+                        .child(
+                            CarbonGlyph::carbon(CarbonIcon::Branch)
+                                .size_length(px(13.))
+                                .color(theme::role(ColorRole::IconSecondary)),
+                        )
                         .child(chip_text(faces, ui::fit(&b, 24)))
                 }))
-                .child(ui::counts(faces, added, gone, crate::style::CAPTION))
                 .child(div().flex_1())
                 .child(
-                    ui::button(
-                        "commit-changes",
-                        crate::tr("Commit changes"),
-                        ui::Weight::Secondary,
-                    )
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.open_surface(crate::desk::Surface::Diff, cx);
-                        if !this.review.committing {
-                            this.toggle_commit(window, cx);
-                        }
-                    })),
+                    CarbonButton::new("review-changes", crate::tr("Review changes"))
+                        .variant(ButtonVariant::Ghost)
+                        .size(ButtonSize::Sm)
+                        .on_click(move |_, _, cx| {
+                            desk_review.update(cx, |this, cx| {
+                                this.open_surface(crate::desk::Surface::Diff, cx);
+                            });
+                        }),
+                )
+                .child(
+                    CarbonButton::new("commit-changes", crate::tr("Commit changes"))
+                        .variant(ButtonVariant::Secondary)
+                        .size(ButtonSize::Sm)
+                        .on_click(move |_, window, cx| {
+                            desk_commit.update(cx, |this, cx| {
+                                this.open_surface(crate::desk::Surface::Diff, cx);
+                                if !this.review.committing {
+                                    this.toggle_commit(window, cx);
+                                }
+                            });
+                        }),
                 ),
         )
     }
 
-    /// An agent that wants a sign-in says so above the line, with its
-    /// way to sign in, before anything said to it is refused.
-    fn sign_in_banner(
+    /// `/` commands and `@` mentions rendered via `u0ui::t3::composer::ComposerCommandMenu`.
+    fn offers_menu(
         &self,
-        faces: &Faces,
-        s: &Session,
-        name: &str,
+        _s: &Session,
+        agent_name: &str,
         column: f32,
         cx: &mut Context<Self>,
     ) -> Option<Div> {
-        let Some(crate::hub::Auth::Needed(why)) = self.slot(s.host, &s.meta.agent).map(|x| &x.auth)
-        else {
-            return None;
-        };
-        let (host, a, b) = (s.host, s.meta.agent.clone(), s.meta.agent.clone());
-        Some(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .w(px(column))
-                .mb(px(8.))
-                .px(px(14.))
-                .py(px(10.))
-                .rounded(px(12.))
-                .bg(theme::rail())
-                .border_1()
-                .border_color(theme::border2())
-                .child(ui::icon("alert", 16.).text_color(theme::accent()))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w(px(0.))
-                        .child(
-                            ui::text(
-                                faces,
-                                crate::tr_with("%{name} needs you to sign in", &[("name", &name)]),
-                            )
-                            .text_size(px(crate::style::LABEL)),
-                        )
-                        .child(ui::one_line(
-                            ui::text(faces, why.clone())
-                                .text_size(px(crate::style::CAPTION))
-                                .text_color(theme::faint()),
-                        )),
-                )
-                .child(
-                    ui::button("sign-in-now", crate::tr("Sign in"), ui::Weight::Primary).on_click(
-                        cx.listener(move |this, _, _, cx| {
-                            this.sign_in_agent(host, &a, cx);
-                        }),
-                    ),
-                )
-                .child(
-                    ui::button("signed-in", crate::tr("I've signed in"), ui::Weight::Quiet)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.recheck_auth(host, &b, cx);
-                        })),
+        use crate::desk::mention::Offer;
+        let typed = self.typed(cx);
+        let (_, list) = self.offers(&typed).filter(|(_, o)| !o.is_empty())?;
+        let chosen = self.composer.offer.min(list.len() - 1);
+
+        // Preserve flat `offers` index ordering across sections so `on_select`
+        // maps 1-to-1 onto `take_offer(idx)`.
+        let mut sections: Vec<CommandMenuSection> = Vec::new();
+        for offer in list {
+            let (group_label, icon, title, about) = match offer {
+                Offer::Command { name, about } => (
+                    crate::tr_with("%{agent}'s commands", &[("agent", &agent_name)]),
+                    CarbonIcon::Terminal,
+                    format!("/{name}"),
+                    about,
                 ),
+                Offer::Own { name, about } => {
+                    let glyph = match name {
+                        "clear" => CarbonIcon::Add,
+                        "usage-limits" => CarbonIcon::Time,
+                        "model" => CarbonIcon::Bot,
+                        "branch" => CarbonIcon::Fork,
+                        _ => CarbonIcon::Copy,
+                    };
+                    (
+                        crate::tr("u0's own"),
+                        glyph,
+                        format!("/{name}"),
+                        crate::tr(about).to_string(),
+                    )
+                }
+                Offer::Pr { number, title } => (
+                    crate::tr("Pull requests"),
+                    CarbonIcon::PullRequest,
+                    format!("#{number} {title}"),
+                    crate::tr("pull request").to_string(),
+                ),
+                Offer::Model { label, .. } => (
+                    crate::tr("Models"),
+                    CarbonIcon::Bot,
+                    format!("@{label}"),
+                    crate::tr("switch to this model").to_string(),
+                ),
+                Offer::Session { title, .. } => (
+                    crate::tr("Threads"),
+                    CarbonIcon::Chat,
+                    title,
+                    crate::tr("thread").to_string(),
+                ),
+                Offer::Issue { number, title } => (
+                    crate::tr("Issues"),
+                    CarbonIcon::Ticket,
+                    format!("#{number} {title}"),
+                    crate::tr("issue").to_string(),
+                ),
+                Offer::File(f) => (crate::tr("Files"), CarbonIcon::Document, f, String::new()),
+            };
+            let mut item = CommandMenuItem::new(title).icon(icon);
+            if !about.is_empty() {
+                item = item.description(about);
+            }
+            match sections.last_mut() {
+                Some(tail_sec) if tail_sec.label == group_label => tail_sec.items.push(item),
+                _ => sections.push(CommandMenuSection::new(group_label, vec![item])),
+            }
+        }
+
+        let desk = cx.entity();
+        Some(
+            div().w(px(column)).mb(px(8.)).child(
+                ComposerCommandMenu::new("composer-offers", sections)
+                    .active_index(chosen)
+                    .on_select(move |idx, window, cx| {
+                        desk.update(cx, |this, cx| this.take_offer(idx, window, cx));
+                    }),
+            ),
         )
     }
 
-    /// What is offered for the word being typed: the agent's commands
-    /// after `/`, after `@` files, sessions and pull requests. ↑ and ↓
-    /// choose one, Return or Tab takes it.
-    fn offers_menu(&self, faces: &Faces, column: f32, cx: &mut Context<Self>) -> Option<Div> {
-        let typed = self.typed(cx);
-        let agent_name = self
-            .session()
-            .map(|s| self.name_of(&s.meta.agent))
-            .unwrap_or_default();
-        self.offers(&typed)
-            .filter(|(_, o)| !o.is_empty())
-            .map(|(_, list)| {
-                use crate::desk::mention::Offer;
-                let mut menu = div().flex().flex_col().p(px(6.)).w(px(column));
-                let chosen = self.composer.offer.min(list.len() - 1);
-                let mut last_group = String::new();
-                for (n, offer) in list.into_iter().enumerate() {
-                    let group = match &offer {
-                        Offer::Command { .. } => {
-                            crate::tr_with("%{name}'s commands", &[("name", &agent_name)])
-                                .to_string()
-                        }
-                        Offer::Own { .. } => crate::tr("u0's").to_string(),
-                        Offer::Model { .. } => crate::tr("Models").to_string(),
-                        Offer::File(_) => crate::tr("Files").to_string(),
-                        Offer::Session { .. } => crate::tr("Threads").to_string(),
-                        Offer::Pr { .. } => crate::tr("Pull requests").to_string(),
-                        Offer::Issue { .. } => crate::tr("Issues").to_string(),
-                    };
-                    if group != last_group {
-                        last_group.clone_from(&group);
-                        menu = menu.child(
-                            ui::text(faces, group)
-                                .px(px(8.))
-                                .pt(px(if n == 0 { 2. } else { 8. }))
-                                .pb(px(2.))
-                                .text_size(px(crate::style::CAPTION))
-                                .text_color(theme::faint()),
-                        );
-                    }
-                    let (icon, name, about) = match offer {
-                        Offer::Command { name, about } => ("terminal", format!("/{name}"), about),
-                        Offer::Own { name, about } => {
-                            ("u0", format!("/{name}"), crate::tr(about).to_string())
-                        }
-                        Offer::Model { label, .. } => (
-                            "sliders",
-                            format!("@{label}"),
-                            crate::tr("switch to this model").into(),
-                        ),
-                        Offer::File(f) => ("file", f, String::new()),
-                        Offer::Session { title, .. } => ("list", title, crate::tr("thread").into()),
-                        Offer::Pr { number, title } => (
-                            "pull-request",
-                            format!("#{number} {title}"),
-                            crate::tr("pull request").into(),
-                        ),
-                        Offer::Issue { number, title } => (
-                            "circle-dot",
-                            format!("#{number} {title}"),
-                            crate::tr("issue").into(),
-                        ),
-                    };
-                    menu = menu.child(
-                        ListItem::new(SharedString::from(format!("offer-{n}")))
-                            .selected(n == chosen)
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(10.))
-                                    .child(ui::icon(icon, 14.).text_color(theme::faint()))
-                                    .child(
-                                        ui::one_line(
-                                            ui::mono(faces, name)
-                                                .text_size(px(crate::style::CAPTION))
-                                                .text_color(theme::text()),
-                                        )
-                                        .w_auto()
-                                        .max_w(px(360.)),
-                                    )
-                                    .child(
-                                        ui::one_line(
-                                            ui::text(faces, about)
-                                                .text_size(px(crate::style::CAPTION))
-                                                .text_color(theme::faint()),
-                                        )
-                                        .flex_1(),
-                                    ),
-                            )
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.take_offer(n, window, cx);
-                            })),
-                    );
-                }
-                div().mb(px(8.)).child(ui::menu("offers").child(menu))
-            })
-    }
-
-    /// What is attached, as gpui-kit's attachments: an image with its
-    /// picture, a file with its name and size, a long paste with its
-    /// length; each can be taken out.
-    fn attached_row(&self, cx: &mut Context<Self>) -> Option<AttachmentGroup> {
+    /// Context & attachment row inside `.t3-composer-box` (`ComposerAttachmentStrip`
+    /// for 32px image thumbnails and uploading spinners, `ContextChip` for files
+    /// and text excerpts).
+    fn attached_row(&self, cx: &mut Context<Self>) -> Option<Div> {
         use crate::desk::mention::Attached;
-        (!self.composer.attached.is_empty()).then(|| {
-            let mut row = AttachmentGroup::new("attached").px(px(10.)).pt(px(10.));
-            for (n, a) in self.composer.attached.iter().enumerate() {
-                let (media, title, about) = match a {
-                    Attached::Image { mime, bytes } => (
-                        AttachmentMedia::new().src(gpui::ImageSource::Image(std::sync::Arc::new(
-                            gpui::Image::from_bytes(
-                                gpui::ImageFormat::from_mime_type(mime)
-                                    .unwrap_or(gpui::ImageFormat::Png),
-                                bytes.clone(),
-                            ),
-                        ))),
-                        crate::tr_with("Image %{n}", &[("n", &(n + 1))]).to_string(),
-                        crate::tidy::shown(bytes.len() as u64),
-                    ),
-                    Attached::File(path) => (
-                        AttachmentMedia::new().child(ui::icon("file", 16.)),
-                        path.file_name().map_or_else(
-                            || path.display().to_string(),
-                            |f| f.to_string_lossy().into_owned(),
-                        ),
-                        std::fs::metadata(path)
-                            .map(|m| crate::tidy::shown(m.len()))
-                            .unwrap_or_default(),
-                    ),
-                    Attached::Text(chip) => (
-                        AttachmentMedia::new().child(ui::icon(
-                            match chip.kind {
-                                crate::session::Context::Paste => "list",
-                                crate::session::Context::Quote => "reply",
-                                crate::session::Context::Terminal => "terminal",
-                                crate::session::Context::Review => "square-pen",
-                            },
-                            16.,
-                        )),
-                        if chip.note.is_empty() {
-                            crate::tr(chip.kind.name()).to_string()
-                        } else {
-                            format!(
-                                "{}: {}",
-                                crate::tr(chip.kind.name()),
-                                ui::fit(&chip.note, 24)
-                            )
-                        },
-                        ui::fit(chip.text.lines().next().unwrap_or_default(), 32),
-                    ),
-                };
-                row = row.child(
-                    Attachment::new()
-                        .id(SharedString::from(format!("attached-{n}")))
-                        .small()
-                        .media(media)
-                        .content(
-                            AttachmentContent::new()
-                                .title(AttachmentTitle::new(title))
-                                .description(AttachmentDescription::new(about)),
-                        )
-                        .when(matches!(a, Attached::Text(_)), |c| {
-                            c.tooltip(crate::tr("Click to write a note on it"))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.toggle_chip_preview(n, cx);
-                                }))
-                        })
-                        .on_remove(cx.listener(move |this, _, _, cx| this.detach(n, cx))),
-                );
+        if self.composer.attached.is_empty() && self.composer.reading == 0 {
+            return None;
+        }
+
+        let mut images: Vec<(usize, AttachmentImage)> = Vec::new();
+        let mut chips: Vec<AnyElement> = Vec::new();
+
+        for (n, a) in self.composer.attached.iter().enumerate() {
+            match a {
+                Attached::Image { mime, bytes } => {
+                    let src =
+                        gpui::ImageSource::Image(std::sync::Arc::new(gpui::Image::from_bytes(
+                            gpui::ImageFormat::from_mime_type(mime)
+                                .unwrap_or(gpui::ImageFormat::Png),
+                            bytes.clone(),
+                        )));
+                    let name = crate::tr_with("Image %{n}", &[("n", &(n + 1))]);
+                    images.push((n, AttachmentImage::new(name).source(src)));
+                }
+                Attached::File(path) => {
+                    let title = path.file_name().map_or_else(
+                        || path.display().to_string(),
+                        |f| f.to_string_lossy().into_owned(),
+                    );
+                    let kind = if path
+                        .extension()
+                        .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+                    {
+                        ContextChipKind::DocPdf
+                    } else {
+                        ContextChipKind::File
+                    };
+                    let size = std::fs::metadata(path)
+                        .ok()
+                        .map(|m| crate::tidy::shown(m.len()));
+                    let desk = cx.entity();
+                    let remove_label = crate::tr_with("Remove %{name}", &[("name", &title)]);
+                    let mut chip =
+                        ContextChip::new(SharedString::from(format!("att-file-{n}")), kind, title)
+                            .in_composer(true)
+                            .remove_label(remove_label)
+                            .on_remove(move |_, cx| {
+                                desk.update(cx, |this, cx| this.detach(n, cx));
+                            });
+                    if let Some(sz) = size {
+                        chip = chip.meta(sz);
+                    }
+                    chips.push(chip.into_any_element());
+                }
+                Attached::Text(c) => {
+                    let kind = match c.kind {
+                        TextKind::Quote => ContextChipKind::Citation,
+                        TextKind::Terminal => ContextChipKind::Terminal,
+                        TextKind::Review => ContextChipKind::ReviewComment,
+                        TextKind::Paste => ContextChipKind::File,
+                    };
+                    let first_line = ui::fit(c.text.lines().next().unwrap_or_default(), 28);
+                    let title = if c.note.is_empty() {
+                        format!("{} · {first_line}", crate::tr(c.kind.name()))
+                    } else {
+                        format!("{}: {}", crate::tr(c.kind.name()), ui::fit(&c.note, 24))
+                    };
+                    let remove_label = crate::tr_with("Remove %{name}", &[("name", &title)]);
+                    let desk_click = cx.entity();
+                    let desk_rm = cx.entity();
+                    let chip =
+                        ContextChip::new(SharedString::from(format!("att-text-{n}")), kind, title)
+                            .in_composer(true)
+                            .remove_label(remove_label)
+                            .on_click(move |_, cx| {
+                                desk_click.update(cx, |this, cx| this.toggle_chip_preview(n, cx));
+                            })
+                            .on_remove(move |_, cx| {
+                                desk_rm.update(cx, |this, cx| this.detach(n, cx));
+                            });
+                    chips.push(chip.into_any_element());
+                }
             }
-            row
-        })
+        }
+
+        let mut strip_images: Vec<AttachmentImage> =
+            images.iter().map(|(_, img)| img.clone()).collect();
+        for r in 0..self.composer.reading {
+            strip_images.push(
+                AttachmentImage::new(SharedString::from(format!("uploading-{r}")))
+                    .state(AttachmentImageState::Uploading),
+            );
+        }
+
+        let image_indices: Vec<(SharedString, usize)> =
+            images.into_iter().map(|(ix, img)| (img.name, ix)).collect();
+        let desk_img = cx.entity();
+
+        Some(
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(px(8.))
+                .pt(px(14.))
+                .px(px(16.))
+                .when(!strip_images.is_empty(), |row| {
+                    row.child(
+                        ComposerAttachmentStrip::new("composer-images", strip_images, Vec::new())
+                            .in_composer(true)
+                            .on_remove(move |name, _, cx| {
+                                if let Some((_, ix)) =
+                                    image_indices.iter().find(|(n, _)| *n == name)
+                                {
+                                    let ix = *ix;
+                                    desk_img.update(cx, |this, cx| this.detach(ix, cx));
+                                }
+                            }),
+                    )
+                })
+                .children(chips),
+        )
     }
 
-    /// Under the chips, while one is being noted: the field for your note
-    /// on it, going back to where it was quoted from, and copying the
-    /// chips to paste in another draft.
-    fn note_row(&self, cx: &mut Context<Self>) -> Option<Div> {
+    /// Expanded excerpt preview (`ComposerChip`) and note field when a text
+    /// chip is clicked (`self.composer.noting`).
+    fn note_row(&self, _faces: &Faces, cx: &mut Context<Self>) -> Option<Div> {
         use crate::desk::mention::{Attached, Chip};
         let n = self.composer.noting?;
         let Some(Attached::Text(chip)) = self.composer.attached.get(n) else {
             return None;
         };
+        let kind = match chip.kind {
+            TextKind::Quote => ChipKind::Quote,
+            TextKind::Terminal => ChipKind::TerminalOutput,
+            TextKind::Review => ChipKind::ReviewComment,
+            TextKind::Paste => ChipKind::Quote,
+        };
+        let has_origin = matches!(chip, Chip { from: Some(_), .. });
+        let desk_rm = cx.entity();
+        let desk_back = cx.entity();
+        let desk_copy = cx.entity();
+        let preview = ComposerChip::new("composer-chip-preview", kind, crate::tr(chip.kind.name()))
+            .excerpt(chip.text.clone())
+            .on_remove(move |_, cx| {
+                desk_rm.update(cx, |this, cx| this.detach(n, cx));
+            });
+
         Some(
             div()
                 .flex()
-                .items_center()
-                .gap(px(6.))
-                .px(px(10.))
-                .pt(px(8.))
+                .flex_col()
+                .gap(px(8.))
+                .px(px(16.))
+                .pt(px(10.))
+                .child(preview)
                 .child(
                     div()
-                        .flex_1()
-                        .child(gpui::component::input::Input::new(&self.composer.note).small()),
-                )
-                .when(matches!(chip, Chip { from: Some(_), .. }), |d| {
-                    d.child(
-                        ui::button("chip-back", crate::tr("Show where"), ui::Weight::Quiet)
-                            .h(px(24.))
-                            .on_click(
-                                cx.listener(move |this, _, window, cx| this.go_back(n, window, cx)),
-                            ),
-                    )
-                })
-                .child(
-                    ui::button("chips-copy", crate::tr("Copy chips"), ui::Weight::Quiet)
-                        .h(px(24.))
-                        .on_click(cx.listener(|this, _, _, cx| this.copy_chips(cx))),
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w(px(0.))
+                                .h(px(32.))
+                                .px(px(8.))
+                                .flex()
+                                .items_center()
+                                .bg(theme::role(ColorRole::Field02))
+                                .border_b_1()
+                                .border_color(theme::role(ColorRole::BorderStrong01))
+                                .child(
+                                    KitInput::new(&self.composer.note).appearance(false).small(),
+                                ),
+                        )
+                        .when(has_origin, |d| {
+                            d.child(
+                                CarbonButton::new("chip-back", crate::tr("Show where"))
+                                    .variant(ButtonVariant::Ghost)
+                                    .size(ButtonSize::Sm)
+                                    .on_click(move |_, window, cx| {
+                                        desk_back.update(cx, |this, cx| {
+                                            this.go_back(n, window, cx);
+                                        });
+                                    }),
+                            )
+                        })
+                        .child(
+                            CarbonButton::new("chips-copy", crate::tr("Copy chips"))
+                                .variant(ButtonVariant::Ghost)
+                                .size(ButtonSize::Sm)
+                                .on_click(move |_, _, cx| {
+                                    desk_copy.update(cx, Self::copy_chips);
+                                }),
+                        ),
                 ),
         )
     }
 
-    /// Over the line, where a quote of a message of a thread goes with
-    /// it: "Replying to" its first words, which go back to it.
     fn replying_row(&self, faces: &Faces, cx: &mut Context<Self>) -> Option<gpui::Stateful<Div>> {
         use crate::desk::mention::{Attached, Chip};
         let (n, text) = (self.composer.attached.iter().enumerate()).find_map(|(n, a)| match a {
             Attached::Text(Chip {
-                kind: crate::session::Context::Quote,
+                kind: TextKind::Quote,
                 from: Some(_),
                 text,
                 ..
@@ -1433,10 +1821,14 @@ impl Desk {
                 .flex()
                 .items_center()
                 .gap(px(6.))
-                .px(px(12.))
-                .pt(px(8.))
+                .px(px(16.))
+                .pt(px(10.))
                 .cursor_pointer()
-                .child(ui::icon("reply", 12.).text_color(theme::faint()))
+                .child(
+                    CarbonGlyph::carbon(CarbonIcon::Quotes)
+                        .size_length(px(13.))
+                        .color(theme::role(ColorRole::IconSecondary)),
+                )
                 .child(ui::one_line(ui::fine(
                     faces,
                     crate::tr_with(
@@ -1451,117 +1843,152 @@ impl Desk {
         )
     }
 
-    /// What was said while the turn goes on, waiting its turn: each can
-    /// be said now (the turn is stopped first), edited in place, or removed.
+    /// `.tc-later` (`ThreadComposer.dc.html`): messages waiting their turn
+    /// while the agent works (`Earlier`, `Send now`, `Edit`).
     fn queued_list(
         &self,
         faces: &Faces,
         s: &Session,
-        column: f32,
+        agent_name: &str,
         cx: &mut Context<Self>,
     ) -> Option<Div> {
-        (!s.meta.queued.is_empty()).then(|| {
-            let count = s.meta.queued.len();
-            let mut list = div()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .w(px(column))
-                .mb(px(8.))
-                .px(px(12.))
-                .py(px(8.))
-                .rounded(px(10.))
-                .border_1()
-                .border_color(theme::border2())
-                .child(chip_text(
-                    faces,
-                    if count == 1 {
-                        crate::tr("1 message queued")
-                    } else {
-                        crate::tr_with("%{count} messages queued", &[("count", &count)])
-                    },
-                ));
-            for (n, text) in s.meta.queued.iter().enumerate() {
-                let editing = self.composer.editing_queued == Some(n);
-                list = list.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .when(editing, |d| {
-                            d.px(px(6.))
-                                .py(px(2.))
-                                .bg(theme::role(u0ui::tokens::ColorRole::StateCurrentBackground))
-                        })
-                        .child(ui::icon("clock", 12.).text_color(theme::faint()))
-                        .child(
-                            ui::one_line(
-                                ui::text(faces, text.clone())
-                                    .text_size(px(crate::style::CAPTION))
-                                    .text_color(theme::text2()),
-                            )
-                            .flex_1(),
+        if s.meta.queued.is_empty() {
+            return None;
+        }
+        let count = s.meta.queued.len();
+        let head = if count == 1 {
+            crate::tr_with(
+                "%{n} waits its turn · sent in order when %{name}'s turn ends",
+                &[("n", &count), ("name", &agent_name)],
+            )
+        } else {
+            crate::tr_with(
+                "%{n} wait their turn · sent in order when %{name}'s turn ends",
+                &[("n", &count), ("name", &agent_name)],
+            )
+        };
+        let mut list = div()
+            .flex()
+            .flex_col()
+            .bg(theme::role(ColorRole::Layer01))
+            .border_1()
+            .border_color(theme::role(ColorRole::BorderSubtle01))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .h(px(32.))
+                    .pl(px(12.))
+                    .pr(px(8.))
+                    .child(
+                        CarbonGlyph::carbon(CarbonIcon::Time)
+                            .size_length(px(16.))
+                            .color(theme::role(ColorRole::IconSecondary))
+                            .flex_none(),
+                    )
+                    .child(
+                        ui::text(faces, head)
+                            .flex_1()
+                            .min_w(px(0.))
+                            .truncate()
+                            .text_size(px(12.))
+                            .line_height(px(16.))
+                            .text_color(theme::role(ColorRole::TextSecondary)),
+                    ),
+            );
+
+        for (n, text) in s.meta.queued.iter().enumerate() {
+            let editing = self.composer.editing_queued == Some(n);
+            let desk_up = cx.entity();
+            let desk_now = cx.entity();
+            let desk_ed = cx.entity();
+            let desk_rm = cx.entity();
+            list = list.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(4.))
+                    .min_h(px(32.))
+                    .pl(px(12.))
+                    .pr(px(4.))
+                    .border_t_1()
+                    .border_color(theme::role(ColorRole::BorderSubtle01))
+                    .when(editing, |d| {
+                        d.bg(theme::role(ColorRole::StateCurrentBackground))
+                    })
+                    .child(
+                        ui::text(faces, text.clone())
+                            .flex_1()
+                            .min_w(px(0.))
+                            .truncate()
+                            .text_size(px(14.))
+                            .line_height(px(20.)),
+                    )
+                    .when(editing, |d| {
+                        d.child(
+                            ui::text(faces, crate::tr("Editing in the composer"))
+                                .text_size(px(12.))
+                                .text_color(theme::link()),
                         )
-                        .when(editing, |d| {
-                            d.child(
-                                ui::text(faces, crate::tr("Editing in the composer"))
-                                    .text_size(px(crate::style::CAPTION))
-                                    .text_color(theme::link()),
+                    })
+                    .when(n > 0 && !editing, |d| {
+                        d.child(
+                            CarbonButton::new(
+                                SharedString::from(format!("queue-up-{n}")),
+                                crate::tr("Earlier"),
                             )
-                        })
-                        .when(n > 0 && !editing, |d| {
-                            d.child(
-                                ui::icon_button(
-                                    SharedString::from(format!("queue-up-{n}")),
-                                    "arrow-up",
-                                    crate::tr("Earlier"),
-                                )
-                                .size(px(22.))
-                                .on_click(
-                                    cx.listener(move |this, _, _, cx| this.queue_earlier(n, cx)),
-                                ),
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Sm)
+                            .on_click(move |_, _, cx| {
+                                desk_up.update(cx, |this, cx| this.queue_earlier(n, cx));
+                            }),
+                        )
+                    })
+                    .child(
+                        CarbonButton::new(
+                            SharedString::from(format!("steer-{n}")),
+                            crate::tr("Send now"),
+                        )
+                        .variant(ButtonVariant::Ghost)
+                        .size(ButtonSize::Sm)
+                        .on_click(move |_, _, cx| {
+                            desk_now.update(cx, |this, cx| this.steer(n, cx));
+                        }),
+                    )
+                    .when(!editing, |d| {
+                        d.child(
+                            CarbonButton::new(
+                                SharedString::from(format!("unqueue-{n}")),
+                                crate::tr("Edit"),
                             )
-                        })
-                        .when(!editing, |d| {
-                            d.child(
-                                ui::button(
-                                    SharedString::from(format!("steer-{n}")),
-                                    crate::tr("Send now"),
-                                    ui::Weight::Quiet,
-                                )
-                                .on_click(cx.listener(move |this, _, _, cx| this.steer(n, cx))),
-                            )
-                            .child(
-                                ui::icon_button(
-                                    SharedString::from(format!("unqueue-{n}")),
-                                    "pencil",
-                                    crate::tr("Edit"),
-                                )
-                                .size(px(22.))
-                                .on_click(cx.listener(
-                                    move |this, _, window, cx| {
-                                        this.unqueue(n, window, cx);
-                                    },
-                                )),
-                            )
-                        })
-                        .child(
-                            ui::icon_button(
-                                SharedString::from(format!("queue-rm-{n}")),
-                                "x",
-                                crate::tr("Remove from queue"),
-                            )
-                            .size(px(22.))
-                            .on_click(cx.listener(move |this, _, _, cx| this.remove_queued(n, cx))),
-                        ),
-                );
-            }
-            list
-        })
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Sm)
+                            .icon(CarbonIcon::Edit)
+                            .icon_only(true)
+                            .on_click(move |_, window, cx| {
+                                desk_ed.update(cx, |this, cx| this.unqueue(n, window, cx));
+                            }),
+                        )
+                    })
+                    .child(
+                        CarbonButton::new(
+                            SharedString::from(format!("queue-rm-{n}")),
+                            crate::tr("Remove from queue"),
+                        )
+                        .variant(ButtonVariant::Ghost)
+                        .size(ButtonSize::Sm)
+                        .icon(CarbonIcon::TrashCan)
+                        .icon_only(true)
+                        .on_click(move |_, _, cx| {
+                            desk_rm.update(cx, |this, cx| this.remove_queued(n, cx));
+                        }),
+                    ),
+            );
+        }
+        Some(list)
     }
 
-    /// What a subagent of this session asks before it goes on, answered
-    /// here as in its own thread.
     fn children_asking(
         &self,
         faces: &Faces,
@@ -1595,72 +2022,66 @@ impl Desk {
             })
             .collect()
     }
+}
 
-    /// A side question: what is asked here stays out of the session it
-    /// was asked of; its answer can be taken back there.
-    fn side_question(
-        &self,
-        faces: &Faces,
-        s: &Session,
-        column: f32,
-        cx: &mut Context<Self>,
-    ) -> Option<Div> {
-        s.beside.map(|up| {
-            let title = self
-                .sessions
-                .at(up)
-                .map(|p| ui::fit(&p.meta.title, 40))
-                .unwrap_or_default();
-            let key = s.key;
-            let answered = s
-                .items
-                .iter()
-                .any(|i| matches!(i, crate::session::Item::Agent(_)));
-            div()
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .w(px(column))
-                .mb(px(8.))
-                .px(px(14.))
-                .py(px(8.))
-                .rounded(px(12.))
-                .border_1()
-                .border_color(theme::border2())
-                .child(ui::icon("bulb", 15.).text_color(theme::faint()))
-                .child(
-                    ui::text(
-                        faces,
-                        crate::tr_with(
-                            "A side question of “%{title}”: it does not go in it.",
-                            &[("title", &title)],
-                        ),
-                    )
-                    .flex_1()
-                    .text_size(px(crate::style::LABEL))
-                    .text_color(theme::text2()),
-                )
-                .when(answered, |d| {
-                    d.child(
-                        ui::button(
-                            "answer-back",
-                            crate::tr("Add the answer to it"),
-                            ui::Weight::Secondary,
-                        )
-                        .on_click(cx.listener(
-                            move |this, _, window, cx| {
-                                this.answer_back(key, window, cx);
-                            },
-                        )),
-                    )
-                })
-                .child(
-                    ui::button("beside-back", crate::tr("Back to it"), ui::Weight::Quiet).on_click(
-                        cx.listener(move |this, _, window, cx| this.show(up, window, cx)),
+type RemoveHandler = Box<dyn Fn(&mut Window, &mut gpui::App)>;
+
+/// One `.tc-chip` pill (`28px` height, `rounded_full`, `layer-accent-01`,
+/// `16px` Carbon icon, `12px` mono label, `20px` circular `Close`).
+fn tc_pill(
+    faces: &Faces,
+    id: SharedString,
+    icon: CarbonIcon,
+    label: String,
+    on_remove: Option<(SharedString, RemoveHandler)>,
+) -> AnyElement {
+    let hover_bg = theme::role(ColorRole::LayerHover01);
+    let rm_id = SharedString::from(format!("{id}-rm"));
+    div()
+        .id(id)
+        .flex()
+        .items_center()
+        .gap(px(6.))
+        .h(px(28.))
+        .pl(px(8.))
+        .pr(px(if on_remove.is_some() { 4. } else { 8. }))
+        .rounded_full()
+        .bg(theme::role(ColorRole::LayerAccent01))
+        .child(
+            CarbonGlyph::carbon(icon)
+                .size_length(px(16.))
+                .color(theme::role(ColorRole::IconSecondary))
+                .flex_none(),
+        )
+        .child(
+            ui::mono(faces, label)
+                .text_size(px(12.))
+                .line_height(px(16.))
+                .text_color(theme::role(ColorRole::TextPrimary)),
+        )
+        .when_some(on_remove, |pill, (rm_label, handler)| {
+            pill.child(
+                div()
+                    .id(rm_id)
+                    .role(gpui::Role::Button)
+                    .tooltip(ui::tip(rm_label))
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_center()
+                    .size(px(20.))
+                    .rounded_full()
+                    .cursor_pointer()
+                    .hover(move |s| s.bg(hover_bg))
+                    .on_click(move |_, window, cx| handler(window, cx))
+                    .child(
+                        CarbonGlyph::carbon(CarbonIcon::Close)
+                            .size_length(px(14.))
+                            .color(theme::role(ColorRole::IconSecondary)),
                     ),
-                )
+            )
         })
-    }
+        .into_any_element()
 }
 
 /// A menu of the composer, opened upward from its mark at `corner` over
@@ -1669,19 +2090,14 @@ pub(super) fn over_box(menu: Popover, corner: gpui::Anchor) -> Popover {
     menu.anchor(corner).offset(px(4.))
 }
 
-/// Room above and below the line in the box: with the line's 28 and the
-/// border, the box is Claude's 44 high.
-const LINE_PAD: f32 = 7.;
-
 /// A menu of the composer's at its left.
 pub(super) fn over_line(menu: Popover) -> Popover {
     over_box(menu, gpui::Anchor::BottomLeft)
 }
 
-/// What a chip under the box says.
 fn chip_text(faces: &Faces, text: impl Into<SharedString>) -> Div {
     ui::text(faces, text)
         .flex_none()
-        .text_size(px(crate::style::LABEL))
-        .text_color(theme::text2())
+        .text_size(px(12.))
+        .text_color(theme::role(ColorRole::TextSecondary))
 }

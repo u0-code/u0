@@ -22,8 +22,9 @@ impl Desk {
     fn popup_chip(faces: &Faces, icon: &'static str, count: usize, tip: &'static str) -> Button {
         ui::opener(SharedString::from(format!("chip-{icon}")))
             .h(px(26.))
-            .px(px(7.))
-            .text_color(theme::faint())
+            .px(px(8.))
+            .rounded(px(0.))
+            .text_color(theme::role(u0ui::tokens::ColorRole::TextSecondary))
             .child(ui::icon(icon, 14.))
             .when(count > 0, |d| {
                 d.child(ui::text(faces, count.to_string()).text_size(px(crate::style::CAPTION)))

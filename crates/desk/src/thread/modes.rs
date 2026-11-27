@@ -91,7 +91,8 @@ fn mode_icon(id: &str, name: &str) -> &'static str {
 }
 
 impl Desk {
-    /// The composer's mode chip: the mode's name, its menu over it.
+    /// Carbon `.t3-cctl` mode chip in the composer footer: `Locked` glyph,
+    /// the mode's name as listed by the agent, and a 12px chevron.
     pub(crate) fn mode_chip(
         &self,
         faces: &Faces,
@@ -99,17 +100,32 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> Option<Popover> {
         let name = Self::mode_name(s)?;
-        let icon = modes_of(s)
-            .and_then(|(_, m)| m.into_iter().find(|m| m.on))
-            .map_or("user", |m| mode_icon(&m.id, &m.name));
+        let open = self.popup == Popup::Mode;
+        let ink = theme::role(if open {
+            u0ui::tokens::ColorRole::TextPrimary
+        } else {
+            u0ui::tokens::ColorRole::TextSecondary
+        });
         let chip = ui::opener("chip-mode")
-            .h(px(28.))
-            .px(px(7.))
-            .child(ui::icon(icon, 14.).text_color(theme::faint()))
+            .h(px(32.))
+            .px(px(8.))
+            .rounded(px(0.))
+            .selected(open)
+            .child(
+                u0ui::icons::Icon::carbon(u0ui::icons::CarbonIcon::Locked)
+                    .size_length(px(16.))
+                    .color(ink),
+            )
             .child(
                 ui::text(faces, name)
-                    .text_size(px(crate::style::LABEL))
-                    .text_color(theme::text2()),
+                    .text_size(px(12.))
+                    .line_height(px(16.))
+                    .text_color(ink),
+            )
+            .child(
+                u0ui::icons::Icon::carbon(u0ui::icons::CarbonIcon::ChevronDown)
+                    .size_length(px(12.))
+                    .color(ink.opacity(0.7)),
             )
             .tooltip(crate::keys::hint(cx, &crate::tr("Choose the mode"), "mode"));
         let faces = faces.clone();
@@ -120,7 +136,7 @@ impl Desk {
                 move |d, menu, desk, _| d.mode_menu(&faces, menu, desk),
                 cx,
             ),
-            Anchor::BottomRight,
+            Anchor::BottomLeft,
         ))
     }
 
@@ -153,12 +169,17 @@ impl Desk {
         )
     }
 
-    /// The session's modes as Claude lists them: each one's name over what
+    /// The session's modes as the agent lists them: each one's name over what
     /// it does, the one now ticked, ⌘1 to ⌘9 beside the first nine.
     fn mode_menu(&self, faces: &Faces, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
-        // Each has its icon, so the one chosen is ticked at the end.
-        menu = (menu.label(crate::tr("Mode · this thread")).min_w(px(300.)))
-            .check_side(gpui::component::Side::Right);
+        let header = match self.session() {
+            Some(s) => crate::tr_with(
+                "Mode · listed by %{name}",
+                &[("name", &self.name_of(&s.meta.agent))],
+            ),
+            None => crate::tr("Mode · this thread"),
+        };
+        menu = (menu.label(header).min_w(px(320.))).check_side(gpui::component::Side::Right);
         let Some((config, modes)) = self.session().and_then(modes_of) else {
             return menu;
         };

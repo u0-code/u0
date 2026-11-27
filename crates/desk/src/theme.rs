@@ -238,11 +238,6 @@ pub fn quiet() -> Hsla {
     role(ColorRole::TextPlaceholder)
 }
 
-/// Disabled / off track (`toggle-off`).
-pub fn off_track() -> Hsla {
-    role(ColorRole::ToggleOff)
-}
-
 /// Success status (`support-success`).
 pub fn ok() -> Hsla {
     role(ColorRole::SupportSuccess)
