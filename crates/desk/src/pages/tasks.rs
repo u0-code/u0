@@ -198,8 +198,15 @@ impl Desk {
             })),
             Some(Err(why)) => {
                 let why = why.clone();
-                list.push(whole(w, &[], move |_, _, _| {
-                    ui::trouble(why.clone()).into_any_element()
+                list.push(whole(w, &[], move |d, _, _| {
+                    crate::desk::banners::banner(
+                        "tasks-bad-file",
+                        u0ui::components::alert::AlertVariant::Error,
+                        crate::tr("tasks.json does not read"),
+                        d.tidy_why(&why),
+                        None,
+                        None,
+                    )
                 }));
             }
             Some(Ok(tasks)) if tasks.is_empty() => {

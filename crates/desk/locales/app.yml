@@ -20898,6 +20898,37 @@ _version: 2
   ru: "u0 ищет симуляторы iOS через Xcode и эмуляторы Android через Android SDK."
   sv: "u0 letar efter iOS-simulatorer med Xcode och Android-emulatorer med Android SDK."
 
+"tasks.json does not read":
+  zh-CN: "无法读取 tasks.json"
+  de: "tasks.json lässt sich nicht lesen"
+  es: "tasks.json no se puede leer"
+  fr: "Impossible de lire tasks.json"
+  ja: "tasks.json を読み込めません"
+  ko: "tasks.json을 읽을 수 없습니다"
+  pt-BR: "tasks.json não pôde ser lido"
+  ru: "Не удалось прочитать tasks.json"
+  sv: "tasks.json går inte att läsa"
+"runs.json does not read":
+  zh-CN: "无法读取 runs.json"
+  de: "runs.json lässt sich nicht lesen"
+  es: "runs.json no se puede leer"
+  fr: "Impossible de lire runs.json"
+  ja: "runs.json を読み込めません"
+  ko: "runs.json을 읽을 수 없습니다"
+  pt-BR: "runs.json não pôde ser lido"
+  ru: "Не удалось прочитать runs.json"
+  sv: "runs.json går inte att läsa"
+"devices.json does not read":
+  zh-CN: "无法读取 devices.json"
+  de: "devices.json lässt sich nicht lesen"
+  es: "devices.json no se puede leer"
+  fr: "Impossible de lire devices.json"
+  ja: "devices.json を読み込めません"
+  ko: "devices.json을 읽을 수 없습니다"
+  pt-BR: "devices.json não pôde ser lido"
+  ru: "Не удалось прочитать devices.json"
+  sv: "devices.json går inte att läsa"
+
 "tomorrow, next week, YYYY-MM-DD":
   zh-CN: "tomorrow、next week、YYYY-MM-DD"
   de: "tomorrow, next week, YYYY-MM-DD"

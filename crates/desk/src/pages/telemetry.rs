@@ -153,7 +153,10 @@ impl Desk {
     /// (`Dialogs` board), where refusing ("Keep telemetry off") is never
     /// harder than agreeing, and nothing above Off goes until confirmed.
     pub(crate) fn ask_telemetry(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.settings.telemetry.is_some() {
+        if self.settings.telemetry.is_some()
+            || self.settings_refused.is_some()
+            || crate::policy::current().is_err()
+        {
             return;
         }
         let desk = cx.entity();

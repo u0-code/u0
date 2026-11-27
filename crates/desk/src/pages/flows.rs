@@ -142,8 +142,8 @@ impl Desk {
         )
     }
 
-    /// The workflow files that do not read, each with why and, on this
-    /// Mac, Open; none, nothing.
+    /// What does not read: runs.json, said in a banner, and the workflow
+    /// files, each with why and, on this Mac, Open; none, nothing.
     fn unreadable_flows(&self, cx: &mut Context<Self>) -> Option<Div> {
         let folder = crate::workflows::folder(self.home_on(self.pages.on));
         let here = self.pages.on == crate::hub::Host::HERE;
@@ -215,7 +215,24 @@ impl Desk {
                     })
             })
             .collect();
-        (!rows.is_empty()).then(|| div().flex().flex_col().gap(px(8.)).children(rows))
+        let runs_bad = self.flows.runs.as_ref().err().map(|why| {
+            crate::desk::banners::banner(
+                "runs-bad-file",
+                u0ui::components::alert::AlertVariant::Error,
+                crate::tr("runs.json does not read"),
+                self.tidy_why(why),
+                None,
+                None,
+            )
+        });
+        (runs_bad.is_some() || !rows.is_empty()).then(|| {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .children(runs_bad)
+                .children(rows)
+        })
     }
 
     /// Full Workflows workspace page (`Workflows` board).

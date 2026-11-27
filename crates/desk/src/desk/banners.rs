@@ -16,9 +16,9 @@ use crate::{
     theme, when,
 };
 
-/// Build a Carbon low-contrast `Alert` (`InlineNotification` /
-/// `ActionableNotification`), with an optional external support link under
-/// its subtitle and an optional ghost action button.
+/// Build a full-width Carbon low-contrast `Alert` (`InlineNotification` /
+/// `ActionableNotification`), with an optional external support link below it
+/// (`.bnb-acts`) and an optional ghost action button.
 pub(crate) fn banner(
     id: impl Into<gpui::ElementId>,
     variant: AlertVariant,
@@ -26,21 +26,26 @@ pub(crate) fn banner(
     body: impl Into<SharedString>,
     link: Option<(&str, SharedString)>,
     action: Option<AlertAction>,
-) -> Alert {
+) -> AnyElement {
     let id = id.into();
-    let body = body.into();
-    let desc: AnyElement = match link {
-        None => div().child(body).into_any_element(),
+    let alert = Alert::new(id.clone())
+        .full_width(true)
+        .variant(variant)
+        .title(title)
+        .description(body.into())
+        .when_some(action, Alert::action);
+    match link {
+        None => alert.into_any_element(),
         Some((url, label)) => {
             let url = url.to_owned();
             div()
                 .flex()
                 .flex_col()
-                .gap(px(4.))
-                .child(body)
+                .gap(px(8.))
+                .child(alert)
                 .child(
                     div()
-                        .id((id.clone(), "support-link"))
+                        .id((id, "support-link"))
                         .cursor_pointer()
                         .type_style(TypeStyle::BodyCompact01)
                         .text_color(color(ColorRole::LinkPrimary))
@@ -50,12 +55,7 @@ pub(crate) fn banner(
                 )
                 .into_any_element()
         }
-    };
-    Alert::new(id)
-        .variant(variant)
-        .title(title)
-        .description(desc)
-        .when_some(action, Alert::action)
+    }
 }
 
 /// Short display host/path of a support URL (`https://it.example.com/u0` →
@@ -67,6 +67,23 @@ fn short_support(url: &str) -> &str {
 }
 
 impl Desk {
+    /// Shorten raw `<home>` paths inside file-reading errors so `~/.u0/…` is
+    /// shown as `~` and custom `U0_HOME` directories do not form long unbroken
+    /// paths.
+    pub(crate) fn tidy_why(&self, why: &str) -> String {
+        let raw = self.home.to_string_lossy();
+        if raw.is_empty() {
+            return why.to_owned();
+        }
+        let shown = Self::shown(&self.home);
+        if shown.starts_with('~') {
+            why.replace(raw.as_ref(), &shown)
+        } else {
+            why.replace(&format!("{raw}/"), "")
+                .replace(raw.as_ref(), "u0")
+        }
+    }
+
     /// Whether the settings shown on `host` are read-only (unreadable file,
     /// broken policy, or offline server).
     pub(crate) fn settings_readonly(&self, host: Host) -> bool {
@@ -94,6 +111,7 @@ impl Desk {
             let again = AlertAction::new(crate::tr("Read them again")).on_click(move |_, cx| {
                 desk.update(cx, Self::read_settings_again);
             });
+            let tidy = self.tidy_why(why);
             out.push(
                 div()
                     .px(px(16.))
@@ -104,7 +122,7 @@ impl Desk {
                         crate::tr("Your settings did not read"),
                         crate::tr_with(
                             "%{why} u0 runs on its defaults and saves nothing until it reads.",
-                            &[("why", why)],
+                            &[("why", &tidy)],
                         ),
                         None,
                         Some(again),
@@ -216,7 +234,7 @@ impl Desk {
             "sidebar-bad-sessions",
             AlertVariant::Warning,
             crate::tr("sessions.json does not read"),
-            why.to_owned(),
+            self.tidy_why(why),
             None,
             None,
         )))
@@ -254,7 +272,7 @@ impl Desk {
         if on == Host::HERE
             && let Err(bad) = crate::policy::current()
         {
-            out.push(Self::bad_policy_banner("settings-bad-policy", bad).into_any_element());
+            out.push(Self::bad_policy_banner("settings-bad-policy", bad));
         } else if let Some(why) = match on {
             Host::HERE => self.settings_refused.clone(),
             _ => self.machine(on).and_then(|m| m.refused.clone()),
@@ -270,19 +288,16 @@ impl Desk {
                     "settings.json did not read, so these are the defaults, and a change would not be kept. Each control is off until the file reads.",
                 )
             } else {
-                SharedString::from(why)
+                SharedString::from(self.tidy_why(&why))
             };
-            out.push(
-                banner(
-                    "settings-bad-settings",
-                    AlertVariant::Error,
-                    crate::tr("Nothing here is saved"),
-                    body,
-                    None,
-                    again,
-                )
-                .into_any_element(),
-            );
+            out.push(banner(
+                "settings-bad-settings",
+                AlertVariant::Error,
+                crate::tr("Nothing here is saved"),
+                body,
+                None,
+                again,
+            ));
         } else if on != Host::HERE
             && let Some(m) = self.machine(on).filter(|m| m.up != Up::On)
         {
@@ -291,17 +306,14 @@ impl Desk {
             let again = AlertAction::new(crate::tr("Reach again")).on_click(move |_, cx| {
                 desk.update(cx, |this, cx| this.reach_again(on, cx));
             });
-            out.push(
-                banner(
-                    "settings-offline-server",
-                    AlertVariant::Warning,
-                    crate::tr_with("%{name} is offline: read only", &[("name", &name)]),
-                    crate::tr("Its settings are shown as it last sent them, and can be changed again once it is back. u0 tries it on its own, waiting longer each time, up to 30 seconds."),
-                    None,
-                    Some(again),
-                )
-                .into_any_element(),
-            );
+            out.push(banner(
+                "settings-offline-server",
+                AlertVariant::Warning,
+                crate::tr_with("%{name} is offline: read only", &[("name", &name)]),
+                crate::tr("Its settings are shown as it last sent them, and can be changed again once it is back. u0 tries it on its own, waiting longer each time, up to 30 seconds."),
+                None,
+                Some(again),
+            ));
         } else if on == Host::HERE
             && let Some(org) = crate::policy::organization()
         {
@@ -311,20 +323,17 @@ impl Desk {
                     crate::tr_with("Questions go to %{url}", &[("url", &short_support(u))]),
                 )
             });
-            out.push(
-                banner(
-                    "settings-managed-policy",
-                    AlertVariant::Info,
-                    crate::tr_with("Managed by %{by}", &[("by", &org)]),
-                    crate::tr_with(
-                        "Some settings here are set by %{org}’s policy: each shows a lock, its value and who set it.",
-                        &[("org", &org)],
-                    ),
-                    link,
-                    None,
-                )
-                .into_any_element(),
-            );
+            out.push(banner(
+                "settings-managed-policy",
+                AlertVariant::Info,
+                crate::tr_with("Managed by %{by}", &[("by", &org)]),
+                crate::tr_with(
+                    "Some settings here are set by %{org}’s policy: each shows a lock, its value and who set it.",
+                    &[("org", &org)],
+                ),
+                link,
+                None,
+            ));
         }
 
         if tab == Tab::Keybindings
@@ -337,20 +346,18 @@ impl Desk {
                     let path = path.clone();
                     desk.update(cx, |this, _| this.edit(path, None));
                 });
-            out.push(
-                banner(
-                    "settings-bad-keys",
-                    AlertVariant::Warning,
-                    crate::tr("keybindings.json did not read, so it is ignored"),
-                    crate::tr_with(
-                        "%{why} u0 uses its own keys meanwhile and logs why; this page leaves the file untouched rather than writing over it.",
-                        &[("why", &why)],
-                    ),
-                    None,
-                    Some(open),
-                )
-                .into_any_element(),
-            );
+            let tidy = self.tidy_why(&why);
+            out.push(banner(
+                "settings-bad-keys",
+                AlertVariant::Warning,
+                crate::tr("keybindings.json did not read, so it is ignored"),
+                crate::tr_with(
+                    "%{why} u0 uses its own keys meanwhile and logs why; this page leaves the file untouched rather than writing over it.",
+                    &[("why", &tidy)],
+                ),
+                None,
+                Some(open),
+            ));
         }
 
         (!out.is_empty()).then(|| {
@@ -379,7 +386,7 @@ impl Desk {
         })
     }
 
-    fn bad_policy_banner(id: &'static str, bad: &crate::policy::BadPolicy) -> Alert {
+    fn bad_policy_banner(id: &'static str, bad: &crate::policy::BadPolicy) -> AnyElement {
         let title = match &bad.organization {
             Some(org) => crate::tr_with("%{org}’s policy does not read", &[("org", org)]),
             None => crate::tr("The policy does not read"),

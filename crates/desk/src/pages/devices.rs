@@ -170,14 +170,37 @@ impl Desk {
         if let Some(b) = banners {
             page = page.group(b);
         }
+        let devices_err = self
+            .pages
+            .shared
+            .as_ref()
+            .and_then(|s| s.devices.as_ref().err().cloned());
         page = page.group(
             SettingGroup::new().items(
                 std::iter::once(serve)
-                    .chain(failed.map(|why| {
-                        whole(w, &[], move |_, _, _| {
-                            ui::trouble(why.clone()).into_any_element()
+                    .chain(devices_err.map(|why| {
+                        whole(w, &[], move |d, _, _| {
+                            crate::desk::banners::banner(
+                                "devices-bad-file",
+                                u0ui::components::alert::AlertVariant::Error,
+                                crate::tr("devices.json does not read"),
+                                d.tidy_why(&why),
+                                None,
+                                None,
+                            )
                         })
                     }))
+                    .chain(
+                        failed
+                            .filter(|_| {
+                                self.pages.shared.as_ref().is_none_or(|s| s.devices.is_ok())
+                            })
+                            .map(|why| {
+                                whole(w, &[], move |_, _, _| {
+                                    ui::trouble(why.clone()).into_any_element()
+                                })
+                            }),
+                    )
                     .chain([controlling])
                     .collect::<Vec<_>>(),
             ),
@@ -194,13 +217,14 @@ impl Desk {
                     self.devices(w),
                 ));
         }
-        if control {
-            page = page
-                .group(group(crate::tr("Macs this Mac controls"), self.machines(w)))
-                .group(group(
+        if control || self.pages.servers_refused.is_some() {
+            page = page.group(group(crate::tr("Macs this Mac controls"), self.machines(w)));
+            if control {
+                page = page.group(group(
                     crate::tr("Pair with another Mac"),
                     vec![Self::pair_field(w)],
                 ));
+            }
         }
         page.group(group(
             crate::tr("Add u0 to an agent"),
@@ -664,16 +688,15 @@ impl Desk {
             .map_or(0, |k| k.port);
         let mut rows: Vec<gpui::component::setting::SettingItem> = Vec::new();
         if let Some(why) = self.pages.servers_refused.clone() {
-            rows.push(whole(w, &[], move |_, _, _| {
+            rows.push(whole(w, &[], move |d, _, _| {
                 crate::desk::banners::banner(
                     "servers-bad",
                     u0ui::components::alert::AlertVariant::Error,
                     crate::tr("Couldn't read your machines"),
-                    why.clone(),
+                    d.tidy_why(&why),
                     None,
                     None,
                 )
-                .into_any_element()
             }));
         }
         rows.extend((self.pages.servers.held(port)).map(|s| {
