@@ -139,45 +139,63 @@ impl Desk {
         vec![group(crate::tr("Telemetry"), items)]
     }
 
-    /// Ask, as u0 first opens, how much it may tell: Share at the level
-    /// the slider stands at, or Don't share (Escape too), which is Off;
-    /// nothing above Off goes until Share is pressed.
+    /// Ask, as u0 first opens, how much it may tell: Carbon `ConsentSheet`
+    /// (`Dialogs` board), where refusing ("Keep telemetry off") is never
+    /// harder than agreeing, and nothing above Off goes until confirmed.
     pub(crate) fn ask_telemetry(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.settings.telemetry.is_some() {
             return;
         }
         let desk = cx.entity();
-        window.open_alert_dialog(cx, move |alert, _, cx| {
-            let faces = crate::fonts::faces(cx).clone();
-            let state = desk.read(cx).pages.level.clone();
-            let about = div()
-                .flex()
-                .flex_col()
-                .gap(px(12.))
-                .child(ui::text(
-                    &faces,
-                    crate::tr("u0 can send its makers counts of how it is used, never what you or your agents write, nor paths or names. Choose how much; Settings › Telemetry changes it later."),
-                ))
-                .child(levels(&state, &faces, cx));
-            let choose = |desk: Entity<Desk>, level: Option<Level>| {
-                move |_: &gpui::ClickEvent, _: &mut Window, cx: &mut gpui::App| {
-                    desk.update(cx, |d, cx| {
-                        let level = level.unwrap_or_else(|| level_of(d.pages.level.read(cx)));
-                        d.settings.telemetry = Some(level);
-                        d.save_settings_on(Host::HERE);
-                        cx.notify();
-                    });
-                    true
-                }
-            };
-            alert
-                .title(crate::tr("Help make u0 better?"))
-                .description(about)
-                .show_cancel(true)
-                .cancel_text(crate::tr("Don't share"))
-                .ok_text(crate::tr("Share"))
-                .on_cancel(choose(desk.clone(), Some(Level::Off)))
-                .on_ok(choose(desk.clone(), None))
+        let shown = cx.new(|cx| {
+            crate::desk::Over::new(
+                desk.clone(),
+                |_, _, cx| {
+                    use u0ui::ghost::settings::{ConsentSheet, ConsentTexts};
+                    let desk = cx.entity();
+                    let texts = ConsentTexts {
+                        title: std::rc::Rc::new(|a| {
+                            crate::tr_with("Welcome to %{app}", &[("app", &a)])
+                        }),
+                        intro: std::rc::Rc::new(|_| {
+                            crate::tr(
+                                "Choose what you share to help improve u0. Nothing is sent until you continue, and you can change it any time in Settings › Telemetry.",
+                            )
+                        }),
+                        slider: crate::tr("Telemetry"),
+                        levels: Level::ALL.map(|l| crate::tr(l.name())),
+                        describe: Level::ALL.map(|l| crate::tr(l.about())),
+                        share_nothing: crate::tr("Keep telemetry off"),
+                        proceed: crate::tr("Continue"),
+                    };
+                    ConsentSheet::new("first-run-telemetry")
+                        .app_name("u0")
+                        .default_level(1)
+                        .texts(texts)
+                        .on_continue(move |lvl, window, cx| {
+                            window.close_dialog(cx);
+                            let chosen = Level::try_from(u8::try_from(lvl).unwrap_or(0))
+                                .unwrap_or(Level::Off);
+                            desk.update(cx, |d, cx| {
+                                d.settings.telemetry = Some(chosen);
+                                d.save_settings_on(Host::HERE);
+                                cx.notify();
+                            });
+                        })
+                        .into_any_element()
+                },
+                cx,
+            )
+        });
+        window.open_dialog(cx, move |dialog, _, _| {
+            dialog
+                .w(px(512.))
+                .p_0()
+                .rounded_none()
+                .border_0()
+                .close_button(false)
+                .overlay_closable(false)
+                .child(shown.clone())
         });
     }
 }

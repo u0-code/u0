@@ -144,7 +144,34 @@ impl Desk {
         let Some(s) = self.session() else {
             return frame(top());
         };
+        let inspecting = self.split.is_some().then(|| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(6.))
+                .min_w(px(0.))
+                .max_w(px(168.))
+                .pr(px(6.))
+                .child(
+                    div()
+                        .size(px(8.))
+                        .flex_none()
+                        .rounded_full()
+                        .bg(theme::role(u0ui::tokens::ColorRole::BorderInteractive)),
+                )
+                .child(
+                    ui::text(
+                        faces,
+                        crate::tr_with("Inspecting %{title}", &[("title", &s.shown_title())]),
+                    )
+                    .min_w(px(0.))
+                    .truncate()
+                    .text_size(px(crate::style::CAPTION))
+                    .text_color(theme::muted()),
+                )
+        });
         let head = top()
+            .children(inspecting)
             .child(self.strip(faces, s, cx))
             .when(self.surface() == Some(Surface::Details), |d| {
                 d.child(self.details_chooser(cx))

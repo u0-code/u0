@@ -89,11 +89,8 @@ impl Desk {
             .children(self.held_banner(column, cx))
             .children(Self::branch_banner(s, column))
             .children(self.also_run_row(faces, s, column, cx))
-            .child(match s.eliciting().filter(|_| !self.composer.typing()) {
-                // What the agent asks for stands in its place till answered,
-                // once you pause typing.
-                Some(e) => self.form_panel(faces, s, e, column, cx).into_any_element(),
-                None => div()
+            .child(
+                div()
                     .id("composer")
                     .flex()
                     .flex_col()
@@ -148,9 +145,8 @@ impl Desk {
                             .children(dictate)
                             .children(self.send_button(s, window, cx)),
                     )
-                    .children(self.over_limit(faces, cx))
-                    .into_any_element(),
-            })
+                    .children(self.over_limit(faces, cx)),
+            )
             .child(self.chips(faces, s, column, cx))
     }
 

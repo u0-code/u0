@@ -79,6 +79,18 @@ enum Act {
     Link(crate::store::Link),
     /// A tag put on the session on screen, or taken off where it was.
     Tag(String),
+    /// Switch or hand off the thread to another agent (`Switch agent`).
+    SwitchAgent(String),
+    /// Approve a waiting permission request right from the palette.
+    Approve(
+        u64,
+        u64,
+        agent_client_protocol::v1::schema::PermissionOption,
+    ),
+    /// Send pending diff review comments to the thread's agent.
+    SendComments,
+    /// Open the commit form in the Diff column.
+    Commit,
 }
 
 /// What the palette looks through: everything, the project's files
@@ -395,11 +407,12 @@ impl Desk {
             window.open_dialog(cx, move |dialog, window, _| {
                 let desk = desk.clone();
                 dialog
-                    .w(px(576.))
+                    .w(px(640.))
                     .margin_top((window.viewport_size().height * 0.1).max(px(52.)))
                     .p_0()
-                    .rounded(px(16.))
-                    .border_color(theme::text().opacity(0.08))
+                    .rounded_none()
+                    .bg(theme::role(u0ui::tokens::ColorRole::Layer01))
+                    .border_color(theme::role(u0ui::tokens::ColorRole::BorderSubtle01))
                     .close_button(false)
                     .keyboard(false)
                     .overlay_closable(true)
@@ -533,6 +546,11 @@ impl Desk {
                 "bulb",
                 crate::tr("Ask a side question"),
                 Act::Beside,
+            ));
+            rows.push(Row::new(
+                "sliders",
+                crate::tr("Switch agent"),
+                Act::Sub(Sub::Agent),
             ));
             rows.push(Row::new(
                 "list",
@@ -717,7 +735,11 @@ impl Desk {
             None => (false, typed),
         };
         if typed.is_empty() {
-            let mut groups = vec![(crate::tr("Actions").to_string(), self.actions(cx))];
+            let mut groups = Vec::new();
+            if !only_actions && let Some(this_thread) = self.this_thread_group(cx) {
+                groups.push(this_thread);
+            }
+            groups.push((crate::tr("Actions").to_string(), self.actions(cx)));
             if !only_actions {
                 let mut recent: Vec<&crate::session::Session> = sessions
                     .filter(|s| Some(s.key) != self.current && s.state != State::Draft)
@@ -866,6 +888,104 @@ impl Desk {
         out
     }
 
+    /// Contextual `"This thread · <title>"` top group (`Palette` board) when a
+    /// thread is open and nothing is typed yet.
+    fn this_thread_group(&self, cx: &gpui::App) -> Option<(String, Vec<Row>)> {
+        use agent_client_protocol::v1::schema::PermissionOptionKind;
+        let s = self.session()?;
+        if s.state == State::Draft && s.items.is_empty() {
+            return None;
+        }
+        let mut rows = Vec::new();
+        if let Some(asked) = s.items.iter().rev().find_map(|i| match i {
+            crate::session::Item::Asked(a) if a.chosen.is_none() => Some(a),
+            _ => None,
+        }) && let Some(opt) = asked
+            .options
+            .iter()
+            .find(|o| o.kind == PermissionOptionKind::AllowOnce)
+            .or_else(|| {
+                asked
+                    .options
+                    .iter()
+                    .find(|o| o.kind == PermissionOptionKind::AllowAlways)
+            })
+        {
+            rows.push(
+                Row::new(
+                    "alert",
+                    crate::tr_with("%{option}: the waiting request", &[("option", &opt.name)]),
+                    Act::Approve(s.key, asked.id, opt.clone()),
+                )
+                .sub(asked.title.clone()),
+            );
+        }
+        if let Some(files) = s.total.as_ref().filter(|f| !f.is_empty()) {
+            let added: usize = files.iter().map(|f| f.added).sum();
+            let gone: usize = files.iter().map(|f| f.gone).sum();
+            let stat = if files.len() == 1 {
+                crate::tr_with(
+                    "1 uncommitted file, +%{added} −%{gone}",
+                    &[("added", &added), ("gone", &gone)],
+                )
+            } else {
+                crate::tr_with(
+                    "%{n} uncommitted files, +%{added} −%{gone}",
+                    &[("n", &files.len()), ("added", &added), ("gone", &gone)],
+                )
+            };
+            rows.push(Row {
+                keys: crate::keys::keys_of(cx, "review"),
+                ..Row::new("list", crate::tr("Review changes"), Act::Key("review")).sub(stat)
+            });
+        }
+        if !self.review.comments.is_empty() {
+            let n = self.review.comments.len();
+            let agent = self.name_of(&s.meta.agent);
+            let locs = self
+                .review
+                .comments
+                .iter()
+                .take(2)
+                .map(|(p, line, _)| {
+                    format!(
+                        "{}:{line}",
+                        p.file_name().unwrap_or_default().to_string_lossy()
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(" · ");
+            let label = if n == 1 {
+                crate::tr_with("Send 1 pending comment to %{name}", &[("name", &agent)])
+            } else {
+                crate::tr_with(
+                    "Send %{n} pending comments to %{name}",
+                    &[("n", &n), ("name", &agent)],
+                )
+            };
+            rows.push(Row::new("reply", label, Act::SendComments).sub(locs));
+        }
+        if let Some(files) = s.total.as_ref().filter(|f| !f.is_empty()) {
+            let commit_label = if files.len() == 1 {
+                crate::tr("Commit 1 file…")
+            } else {
+                crate::tr_with("Commit %{n} files…", &[("n", &files.len())])
+            };
+            let mut row = Row::new("check", commit_label, Act::Commit);
+            if let Some(branch) = &s.branch {
+                row = row.sub(branch.clone());
+            }
+            rows.push(row);
+        }
+        (!rows.is_empty()).then(|| {
+            (
+                crate::tr_with("This thread · %{title}", &[("title", &s.shown_title())])
+                    .to_string(),
+                rows,
+            )
+        })
+    }
+
     /// The open pull requests and issues of the project on screen, to
     /// begin a session from.
     fn github_rows(&self) -> Vec<(&'static str, Vec<Row>)> {
@@ -998,6 +1118,28 @@ impl Desk {
                         s.meta.tags.push(tag);
                     }
                     self.save_index();
+                }
+            }
+            Act::SwitchAgent(agent) => {
+                if let Some(s) = self.session() {
+                    let (key, draft) = (s.key, s.state == State::Draft && s.items.is_empty());
+                    if draft {
+                        self.switch_agent(&agent, cx);
+                    } else {
+                        self.hand_off(key, &agent, window, cx);
+                    }
+                }
+            }
+            Act::Approve(key, req_id, option) => {
+                self.choose(key, req_id, &option, cx);
+            }
+            Act::SendComments => {
+                self.send_comments(window, cx);
+            }
+            Act::Commit => {
+                self.show_changes(crate::git::Scope::All, cx);
+                if !self.review.committing {
+                    self.toggle_commit(window, cx);
                 }
             }
         }
@@ -1307,8 +1449,9 @@ fn foot(through: Through, back: bool, page: bool) -> gpui::Div {
     };
     let enter = match through {
         Through::Everything => "Select",
-        Through::Files | Through::Words => "Open file",
+        Through::Files | Through::Words => "Open",
     };
+    let beside = matches!(through, Through::Files | Through::Everything);
     let esc = if back { "Back" } else { "Close" };
     div()
         .flex()
@@ -1317,12 +1460,13 @@ fn foot(through: Through, back: bool, page: bool) -> gpui::Div {
         .px(px(16.))
         .py(px(10.))
         .border_t_1()
-        .border_color(theme::text().opacity(0.07))
-        .bg(theme::text().opacity(0.025))
-        .text_size(px(crate::style::BODY))
+        .border_color(theme::role(u0ui::tokens::ColorRole::BorderSubtle01))
+        .bg(theme::role(u0ui::tokens::ColorRole::Layer01))
+        .text_size(px(crate::style::CAPTION))
         .text_color(theme::muted())
         .child(hint(&["↑", "↓"], "Navigate"))
-        .child(hint(&["Enter"], enter))
+        .child(hint(&["↵"], enter))
+        .when(beside, |d| d.child(hint(&["⇧↵"], "Open beside")))
         .child(hint(&["Esc"], esc))
         .when(page, |d| d.child(hint(&["⌫"], "Back")))
 }

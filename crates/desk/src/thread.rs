@@ -9,6 +9,7 @@
 
 mod cards;
 mod composer;
+mod dialogs;
 pub mod drawer;
 pub mod drawn;
 mod fold;
@@ -18,12 +19,17 @@ mod later;
 mod lines;
 mod modes;
 mod picker;
+mod split;
 mod start;
+mod welcome;
 
+pub use dialogs::ThreadDialogs;
 pub use lines::{Find, Line};
 pub use picker::Picker;
 pub mod output;
+pub use split::Split;
 mod topbar;
+pub use welcome::Onboarding;
 
 use std::{path::Path, sync::Arc};
 
@@ -451,10 +457,14 @@ impl Desk {
         &self,
         faces: &Faces,
         column: f32,
+        window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         if !self.lines.is_empty() {
             return self.thread_list(column, cx).into_any_element();
+        }
+        if self.projects().is_empty() && self.current.is_none() {
+            return self.no_projects_view(faces, window, cx);
         }
         let mut col = div().flex().flex_col().w(px(column)).py(px(28.));
         let fresh = self.session();
@@ -580,6 +590,48 @@ impl Desk {
                     ),
                 )
         });
+        let subagents = {
+            use u0ui::t3::timeline::{SubagentBar, SubagentStatus};
+            let statuses: Vec<SubagentStatus> = self
+                .sessions
+                .all
+                .iter()
+                .filter(|c| c.parent == Some(s.key))
+                .map(|c| {
+                    if c.sub.needs_you {
+                        SubagentStatus::Waiting
+                    } else if c.sub.working() {
+                        SubagentStatus::Running
+                    } else if matches!(c.state, crate::session::State::Broken(_)) {
+                        SubagentStatus::Failed
+                    } else {
+                        SubagentStatus::Completed
+                    }
+                })
+                .collect();
+            (!statuses.is_empty()).then(|| {
+                let desk = cx.entity();
+                div().mt(px(8.)).child(
+                    SubagentBar::new(SharedString::from(format!("subbar-{}", s.key)), statuses)
+                        .texts(
+                            |n| {
+                                if n == 1 {
+                                    crate::tr("1 subagent")
+                                } else {
+                                    crate::tr_with("%{n} subagents", &[("n", &n)])
+                                }
+                            },
+                            |n| crate::tr_with("%{n} running", &[("n", &n)]),
+                            crate::tr("View all"),
+                        )
+                        .on_view_all(move |_, cx| {
+                            desk.update(cx, |this, cx| {
+                                this.open_surface(crate::aside::Surface::Details, cx);
+                            });
+                        }),
+                )
+            })
+        };
         div()
             .flex()
             .flex_col()
@@ -630,6 +682,7 @@ impl Desk {
             )
             .children(setup)
             .children(handoff)
+            .children(subagents)
     }
 
     /// The folders a draft works in beside its own (the composer's + adds
@@ -1045,21 +1098,14 @@ impl Desk {
             Item::Tool(tool) => self.tool(faces, s, i, tool, cx).into_any_element(),
             Item::Asked(asked) => self.asked(faces, s, &key, asked, cx).into_any_element(),
             // What it asked for: answered, a quiet row with the answer;
-            // waiting, where to answer it.
-            Item::Elicited(e) => step()
-                .child(ui::icon("user", 16.).text_color(theme::faint()))
-                .child(verb(
-                    faces,
-                    match &e.answered {
-                        Some(said) => format!("{} · {said}", e.message),
-                        None => crate::tr_with(
-                            "%{message} · answer it below",
-                            &[("message", &e.message)],
-                        )
-                        .to_string(),
-                    },
-                ))
-                .into_any_element(),
+            // waiting, an inline card right in the thread.
+            Item::Elicited(e) => match &e.answered {
+                Some(said) => step()
+                    .child(ui::icon("user", 16.).text_color(theme::faint()))
+                    .child(verb(faces, format!("{} · {said}", e.message)))
+                    .into_any_element(),
+                None => self.inline_elicit_card(faces, s, e, cx),
+            },
             Item::Plan(plan) => {
                 let steps = plan_steps(plan);
                 let done = steps
@@ -1466,7 +1512,7 @@ impl Desk {
                                 .child(
                                     ui::button(
                                         "reading-quote",
-                                        crate::tr("Quote in your reply"),
+                                        crate::tr("Cite in composer"),
                                         ui::Weight::Secondary,
                                     )
                                     .on_click(cx.listener(
@@ -1482,6 +1528,45 @@ impl Desk {
                                             this.quote(&text, from, window, cx);
                                         },
                                     )),
+                                )
+                                .when(
+                                    self.reading
+                                        .and_then(|(k, _)| self.sessions.at(k))
+                                        .is_some_and(|s| self.can_fork(s) && s.beside.is_none()),
+                                    |d| {
+                                        d.child(
+                                            ui::button(
+                                                "reading-side",
+                                                crate::tr("Ask in side chat"),
+                                                ui::Weight::Quiet,
+                                            )
+                                            .on_click(
+                                                cx.listener(|this, _, _, cx| {
+                                                    let reader = this.reader.read(cx);
+                                                    let chosen = reader.selected_value();
+                                                    let text = if chosen.is_empty() {
+                                                        reader.value().to_string()
+                                                    } else {
+                                                        chosen.to_string()
+                                                    };
+                                                    if let Some((key, _)) = this.reading.take() {
+                                                        this.side_line.update(cx, |i, _| {
+                                                            let _ = i;
+                                                        });
+                                                        this.ask_beside(key, cx);
+                                                        if !text.trim().is_empty() {
+                                                            cx.write_to_clipboard(
+                                                                gpui::ClipboardItem::new_string(
+                                                                    text,
+                                                                ),
+                                                            );
+                                                        }
+                                                    }
+                                                    cx.notify();
+                                                }),
+                                            ),
+                                        )
+                                    },
                                 )
                                 .child(
                                     ui::icon_button("reading-close", "x", crate::tr("Close"))

@@ -91,12 +91,7 @@ impl Desk {
                             .text_color(theme::faint());
                     bar = bar
                         .child(named)
-                        .child(self.menu(
-                            Popup::Title,
-                            caret,
-                            |d, menu, desk, _| d.title_menu(menu, desk),
-                            cx,
-                        ))
+                        .child(self.menu(Popup::Title, caret, Self::title_menu, cx))
                         .child(div().flex_1());
                 } else {
                     bar = bar.child(div().flex_1());
@@ -156,14 +151,160 @@ impl Desk {
         bar
     }
 
-    /// Under the title's caret: how the transcript shows (⌃O goes round),
-    /// then the session's folder in your editor, its id and pull request
-    /// to copy, and archiving it.
-    fn title_menu(&self, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
+    /// Thread menu under the title's caret (`Dialogs` board): Rename, Pin,
+    /// Settle, Snooze, Open beside, Branch, New side chat, Copy thread link,
+    /// Share read only, Link PR, Tags, Transcript view, Switch/Continue agent,
+    /// Archive and Delete.
+    fn title_menu(&self, mut menu: PopupMenu, desk: &Entity<Self>, cx: &gpui::App) -> PopupMenu {
         let Some(s) = self.session() else {
             return menu;
         };
-        menu = menu.label(crate::tr("Transcript view")).min_w(px(240.));
+        let key = s.key;
+        let pinned = s.meta.flags.pinned.is_some();
+        let settled = s.meta.flags.settled.is_some();
+        let can_fork = self.can_fork(s);
+        let repo = s.repo;
+        let pr = s.git.pr.is_some();
+        let link_str = s
+            .meta
+            .id
+            .as_ref()
+            .map(|id| crate::desk::links::Link::to_session(&s.meta.agent, &id.0));
+        let pin_keys = crate::keys::written(&crate::keys::keys_of(cx, "pin"));
+        let settle_keys = crate::keys::written(&crate::keys::keys_of(cx, "settle"));
+        let with_key = |label: gpui::SharedString, shortcut: &str| {
+            if shortcut.is_empty() {
+                label.to_string()
+            } else {
+                format!("{label}    {shortcut}")
+            }
+        };
+
+        menu = menu
+            .min_w(px(272.))
+            .item(
+                Self::menu_item(
+                    desk,
+                    with_key(crate::tr("Rename"), "F2"),
+                    move |this, window, cx| {
+                        this.begin_rename(Renaming::Session { key, here: true }, window, cx);
+                    },
+                )
+                .icon(ui::menu_glyph("pencil")),
+            )
+            .item(
+                Self::menu_item(
+                    desk,
+                    with_key(crate::tr(if pinned { "Unpin" } else { "Pin" }), &pin_keys),
+                    move |this, _, cx| this.toggle_pin(key, cx),
+                )
+                .icon(ui::menu_glyph("pin")),
+            )
+            .item(
+                Self::menu_item(
+                    desk,
+                    with_key(
+                        crate::tr(if settled { "Un-settle" } else { "Settle" }),
+                        &settle_keys,
+                    ),
+                    move |this, _, cx| this.toggle_settled(key, cx),
+                )
+                .icon(ui::menu_glyph("check")),
+            )
+            .item(
+                Self::menu_item(desk, crate::tr("Snooze…"), move |this, window, cx| {
+                    this.open_snooze_dialog(vec![key], window, cx);
+                })
+                .icon(ui::menu_glyph("clock")),
+            )
+            .separator()
+            .item(
+                Self::menu_item(desk, crate::tr("Open beside"), move |this, window, cx| {
+                    this.open_beside(key, window, cx);
+                })
+                .icon(ui::menu_glyph("panel-right")),
+            );
+        if can_fork {
+            menu = menu.item(
+                Self::menu_item(
+                    desk,
+                    crate::tr("Branch a new thread from here"),
+                    move |this, _, cx| this.fork(key, cx),
+                )
+                .icon(ui::menu_glyph("branch")),
+            );
+            if s.beside.is_none() {
+                menu = menu.item(
+                    Self::menu_item(desk, crate::tr("New side chat"), move |this, _, cx| {
+                        this.ask_beside(key, cx);
+                    })
+                    .icon(ui::menu_glyph("bulb")),
+                );
+            }
+        }
+        menu = menu
+            .separator()
+            .item(
+                Self::menu_item(desk, crate::tr("Copy thread link"), move |this, _, cx| {
+                    if let Some(url) = &link_str {
+                        cx.write_to_clipboard(gpui::ClipboardItem::new_string(url.clone()));
+                        this.done(crate::tr("Copied"), None);
+                        cx.notify();
+                    } else {
+                        this.copy_of_session(|s| s.meta.id.as_ref().map(|i| i.0.to_string()), cx);
+                    }
+                })
+                .icon(ui::menu_glyph("copy")),
+            )
+            .item(
+                Self::menu_item(
+                    desk,
+                    crate::tr("Share read only with a device…"),
+                    |this, window, cx| {
+                        this.pages.grant.scope = crate::access::Scope::Read;
+                        this.share(crate::share::Share::Serve(true));
+                        this.new_link();
+                        this.open_tab(crate::pages::Tab::Devices, window, cx);
+                    },
+                )
+                .icon(ui::menu_glyph("laptop")),
+            );
+        if repo {
+            menu = menu.item(
+                Self::menu_item(
+                    desk,
+                    crate::tr("Link a pull request…"),
+                    move |this, window, cx| {
+                        this.open_link_pr_dialog(key, window, cx);
+                    },
+                )
+                .icon(ui::menu_glyph("pull-request")),
+            );
+        }
+        menu = menu.item(
+            Self::menu_item(desk, crate::tr("Tags…"), |this, window, cx| {
+                this.open_tag_page(window, cx);
+            })
+            .icon(ui::menu_glyph("list")),
+        );
+
+        let others = if s.meta.id.is_some() {
+            self.others(s.host, &s.meta.agent)
+        } else {
+            Vec::new()
+        };
+        if !others.is_empty() {
+            menu = menu.separator();
+            for (id, name) in others {
+                menu = menu.item(Self::menu_item(
+                    desk,
+                    crate::tr_with("Continue with %{name}", &[("name", &name)]),
+                    move |this, window, cx| this.hand_off(key, &id, window, cx),
+                ));
+            }
+        }
+
+        menu = menu.separator().label(crate::tr("Transcript view"));
         for (says, view) in [
             ("Answers only", View::Zen),
             ("Calls that went wrong", View::Quiet),
@@ -179,58 +320,39 @@ impl Desk {
                 .checked(on),
             );
         }
-        let (key, pr) = (s.key, s.git.pr.is_some());
-        let others = if s.meta.id.is_some() {
-            self.others(s.host, &s.meta.agent)
-        } else {
-            Vec::new()
-        };
-        // The agents to go on with are a group of their own, not more ways
-        // to show the transcript.
-        if !others.is_empty() {
-            menu = menu.separator();
-        }
-        for (id, name) in others {
-            menu = menu.item(Self::menu_item(
-                desk,
-                crate::tr_with("Continue with %{name}", &[("name", &name)]),
-                move |this, window, cx| this.hand_off(key, &id, window, cx),
-            ));
-        }
-        menu = menu
-            .separator()
-            .item(Self::menu_item(
-                desk,
-                crate::tr("Open in your editor"),
-                |this, _, _| {
-                    if let Some(s) = this.session() {
-                        this.edit(s.meta.folder.clone(), None);
-                    }
-                },
-            ))
-            .item(Self::menu_item(
-                desk,
-                crate::tr("Copy the thread's id"),
-                |this, _, cx| {
-                    this.copy_of_session(|s| s.meta.id.as_ref().map(|i| i.0.to_string()), cx);
-                },
-            ));
+        menu = menu.separator().item(
+            Self::menu_item(desk, crate::tr("Open in your editor"), |this, _, _| {
+                if let Some(s) = this.session() {
+                    this.edit(s.meta.folder.clone(), None);
+                }
+            })
+            .icon(ui::menu_glyph("folder")),
+        );
         if pr {
-            menu = menu.item(Self::menu_item(
-                desk,
-                crate::tr("Copy the pull request's address"),
-                |this, _, cx| {
-                    this.copy_of_session(|s| s.git.pr.as_ref().map(|p| p.url.clone()), cx);
-                },
-            ));
+            menu = menu.item(
+                Self::menu_item(
+                    desk,
+                    crate::tr("Copy the pull request's address"),
+                    |this, _, cx| {
+                        this.copy_of_session(|s| s.git.pr.as_ref().map(|p| p.url.clone()), cx);
+                    },
+                )
+                .icon(ui::menu_glyph("copy")),
+            );
         }
-        menu.item(Self::menu_item(
-            desk,
-            crate::tr("Archive"),
-            move |this, _, cx| {
-                this.archive(key, cx);
-            },
-        ))
+        menu.separator()
+            .item(
+                Self::menu_item(desk, crate::tr("Archive"), move |this, _, cx| {
+                    this.archive(key, cx);
+                })
+                .icon(ui::menu_glyph("archive")),
+            )
+            .item(
+                Self::menu_item(desk, crate::tr("Delete…"), move |this, window, cx| {
+                    this.ask_delete(vec![key], window, cx);
+                })
+                .icon(ui::menu_glyph("trash")),
+            )
     }
 
     /// Show the transcript as `view` says, and keep it so.

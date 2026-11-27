@@ -20,7 +20,7 @@ use gpui::component::{
         QuestionnaireSubmit, QuestionnaireTitle,
     },
 };
-use gpui::{AppContext as _, Context, Div, Window, div, prelude::*, px};
+use gpui::{AppContext as _, Context, Window, div, prelude::*, px};
 
 use crate::{
     acp::Answer,
@@ -252,17 +252,178 @@ impl Desk {
         self.forms.insert(id, state);
     }
 
-    /// In place of the composer, what the agent asks for: the form, a
-    /// question at a time, or the page to open; either can be declined.
-    pub(super) fn form_panel(
+    /// Inline card in the thread for an unanswered elicitation (`ThreadQuestions`
+    /// board): `RequestCard` for URL elicitations, `UserInputCard` for choice
+    /// questionnaires, and `Questionnaire` for numeric/freeform schemas, while
+    /// leaving the main composer open below.
+    pub(super) fn inline_elicit_card(
         &self,
         faces: &Faces,
         s: &Session,
         e: &Elicit,
-        column: f32,
         cx: &mut Context<Self>,
-    ) -> Div {
+    ) -> gpui::AnyElement {
+        use u0ui::t3::timeline::{
+            InputOption, InputQuestion, RequestCard, UserInputCard, UserInputTexts,
+        };
         let (agent, key, id) = (s.meta.agent.clone(), s.key, e.id);
+        let title = crate::tr_with("%{name} asks", &[("name", &self.name_of(&agent))]);
+        if let Some(url) = e.url.clone() {
+            let desk_yes = cx.entity();
+            let desk_no = cx.entity();
+            let (agent_yes, agent_no) = (agent.clone(), agent);
+            let url_preview = url.clone();
+            return RequestCard::new(
+                gpui::SharedString::from(format!("elicit-url-{id}")),
+                title,
+                crate::tr("Open the page"),
+                crate::tr("Decline"),
+            )
+            .body(e.message.clone())
+            .preview(
+                ui::mono(faces, url_preview)
+                    .text_size(px(crate::style::CAPTION))
+                    .text_color(theme::text2()),
+            )
+            .on_primary(move |_, cx| {
+                cx.open_url(&url);
+                desk_yes.update(cx, |this, cx| {
+                    let yes = CreateElicitationResponse::new(ElicitationAction::Accept(
+                        ElicitationAcceptAction::new(),
+                    ));
+                    let words = crate::tr_with("Opened %{url}", &[("url", &url)]);
+                    this.answer_form(&agent_yes, key, id, Answer::Form(yes), &words, cx);
+                });
+            })
+            .on_secondary(move |_, cx| {
+                desk_no.update(cx, |this, cx| {
+                    let no = CreateElicitationResponse::new(ElicitationAction::Decline);
+                    this.answer_form(
+                        &agent_no,
+                        key,
+                        id,
+                        Answer::Form(no),
+                        &crate::tr("Declined"),
+                        cx,
+                    );
+                });
+            })
+            .into_any_element();
+        }
+        if let Some(schema) = &e.form
+            && !schema.properties.is_empty()
+            && schema.properties.values().all(|p| !listed(p).is_empty())
+        {
+            type ChoicePairs = Vec<(String, String)>;
+            let prop_meta: Vec<(String, ElicitationPropertySchema, ChoicePairs)> = schema
+                .properties
+                .iter()
+                .map(|(name, p)| (name.clone(), p.clone(), listed(p)))
+                .collect();
+            let qs: Vec<InputQuestion> = prop_meta
+                .iter()
+                .map(|(name, p, opts)| {
+                    let q_text = match p {
+                        ElicitationPropertySchema::String(s) => {
+                            s.title.clone().or_else(|| s.description.clone())
+                        }
+                        ElicitationPropertySchema::Boolean(b) => {
+                            b.title.clone().or_else(|| b.description.clone())
+                        }
+                        ElicitationPropertySchema::Array(a) => {
+                            a.title.clone().or_else(|| a.description.clone())
+                        }
+                        _ => None,
+                    }
+                    .unwrap_or_else(|| {
+                        if prop_meta.len() == 1 && !e.message.trim().is_empty() {
+                            e.message.clone()
+                        } else {
+                            name.clone()
+                        }
+                    });
+                    let allow_other = matches!(p, ElicitationPropertySchema::String(_));
+                    let options = opts
+                        .iter()
+                        .map(|(val, label)| {
+                            let is_def = match p {
+                                ElicitationPropertySchema::String(s) => {
+                                    s.default.as_deref() == Some(val.as_str())
+                                }
+                                ElicitationPropertySchema::Boolean(b) => {
+                                    b.default.map(|d| d.to_string()).as_deref()
+                                        == Some(val.as_str())
+                                }
+                                _ => false,
+                            };
+                            InputOption::new(label.clone()).default_choice(is_def)
+                        })
+                        .collect();
+                    InputQuestion::new(q_text, options).allow_other(allow_other)
+                })
+                .collect();
+            let desk_sub = cx.entity();
+            let desk_skip = cx.entity();
+            let (agent_sub, agent_skip) = (agent.clone(), agent);
+            let texts = UserInputTexts {
+                title: title.clone(),
+                progress: std::rc::Rc::new(|i, n| {
+                    crate::tr_with("Question %{i} of %{n}", &[("i", &i), ("n", &n)])
+                }),
+                other_placeholder: crate::tr("Something else…"),
+                back: crate::tr("Back"),
+                skip: crate::tr("Decline"),
+                next: crate::tr("Next question"),
+                submit_one: crate::tr("Submit answer"),
+                submit_all: crate::tr("Submit answers"),
+            };
+            return UserInputCard::new(gpui::SharedString::from(format!("elicit-card-{id}")), qs)
+                .title(title)
+                .texts(texts)
+                .on_submit(move |answers, _, cx| {
+                    let mut out = BTreeMap::new();
+                    for (idx, chosen_label) in answers {
+                        let Some((name, p, opts)) = prop_meta.get(idx) else {
+                            continue;
+                        };
+                        let raw = opts
+                            .iter()
+                            .find(|(_, l)| l == chosen_label.as_ref())
+                            .map_or_else(|| chosen_label.to_string(), |(v, _)| v.clone());
+                        let val = match p {
+                            ElicitationPropertySchema::Boolean(_) => {
+                                ElicitationContentValue::Boolean(raw == "true")
+                            }
+                            ElicitationPropertySchema::Array(_) => {
+                                ElicitationContentValue::StringArray(vec![raw])
+                            }
+                            _ => ElicitationContentValue::String(raw),
+                        };
+                        out.insert(name.clone(), val);
+                    }
+                    let words = said(&out);
+                    let resp = CreateElicitationResponse::new(ElicitationAction::Accept(
+                        ElicitationAcceptAction::new().content(out),
+                    ));
+                    desk_sub.update(cx, |this, cx| {
+                        this.answer_form(&agent_sub, key, id, Answer::Form(resp), &words, cx);
+                    });
+                })
+                .on_skip(move |_, cx| {
+                    desk_skip.update(cx, |this, cx| {
+                        let no = CreateElicitationResponse::new(ElicitationAction::Decline);
+                        this.answer_form(
+                            &agent_skip,
+                            key,
+                            id,
+                            Answer::Form(no),
+                            &crate::tr("Declined"),
+                            cx,
+                        );
+                    });
+                })
+                .into_any_element();
+        }
         let decline = {
             let agent = agent.clone();
             ui::button("form-decline", crate::tr("Decline"), ui::Weight::Quiet).on_click(
@@ -283,12 +444,11 @@ impl Desk {
             .flex()
             .flex_col()
             .gap(px(10.))
-            .w(px(column))
+            .w_full()
             .p(px(14.))
-            .rounded(px(12.))
-            .bg(theme::panel())
+            .bg(theme::role(u0ui::tokens::ColorRole::Layer01))
             .border_1()
-            .border_color(theme::border2())
+            .border_color(theme::role(u0ui::tokens::ColorRole::BorderSubtle01))
             .child(
                 div()
                     .flex()
@@ -296,33 +456,16 @@ impl Desk {
                     .gap(px(8.))
                     .child(ui::icon("user", 15.).text_color(theme::accent()))
                     .child(
-                        ui::text(
-                            faces,
-                            crate::tr_with("%{name} asks", &[("name", &self.name_of(&agent))]),
-                        )
-                        .flex_1()
-                        .text_size(px(crate::style::CAPTION))
-                        .text_color(theme::faint()),
+                        ui::text(faces, title)
+                            .flex_1()
+                            .text_size(px(crate::style::CAPTION))
+                            .text_color(theme::faint()),
                     )
                     .child(decline),
             )
             .child(ui::text(faces, e.message.clone()).text_size(px(crate::style::BODY)));
-        if let Some(url) = e.url.clone() {
-            return panel.child(div().flex().justify_end().child(
-                ui::button("form-open", crate::tr("Open the page"), ui::Weight::Primary).on_click(
-                    cx.listener(move |this, _, _, cx| {
-                        cx.open_url(&url);
-                        let yes = CreateElicitationResponse::new(ElicitationAction::Accept(
-                            ElicitationAcceptAction::new(),
-                        ));
-                        let words = crate::tr_with("Opened %{url}", &[("url", &url)]);
-                        this.answer_form(&agent, key, id, Answer::Form(yes), &words, cx);
-                    }),
-                ),
-            ));
-        }
         let (Some(state), Some(schema)) = (self.forms.get(&id), &e.form) else {
-            return panel;
+            return panel.into_any_element();
         };
         let mut form = Questionnaire::new(state).child(QuestionnaireProgress::new(state));
         for (name, p) in &schema.properties {
@@ -338,15 +481,17 @@ impl Desk {
                     .child(QuestionnaireError::new(state, name.clone())),
             );
         }
-        panel.child(
-            form.child(
-                QuestionnaireActions::new(state)
-                    .child(QuestionnairePrevious::new(state))
-                    .child(QuestionnaireSkip::new(state))
-                    .child(QuestionnaireNext::new(state))
-                    .child(QuestionnaireSubmit::new(state)),
-            ),
-        )
+        panel
+            .child(
+                form.child(
+                    QuestionnaireActions::new(state)
+                        .child(QuestionnairePrevious::new(state))
+                        .child(QuestionnaireSkip::new(state))
+                        .child(QuestionnaireNext::new(state))
+                        .child(QuestionnaireSubmit::new(state)),
+                ),
+            )
+            .into_any_element()
     }
 }
 

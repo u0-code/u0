@@ -281,8 +281,11 @@ impl Desk {
             if !before.iter().any(|(k, _)| *k == key) {
                 before.push((key, was));
             }
-            if self.current == Some(key) && matches!(what, Undone::Archive | Undone::Delete) {
-                self.current = None;
+            if matches!(what, Undone::Archive | Undone::Delete) {
+                self.clean_split(key);
+                if self.current == Some(key) {
+                    self.current = None;
+                }
             }
         }
         if what == Undone::Settle {
@@ -425,13 +428,12 @@ impl Desk {
     /// goes too. Each is deleted after a moment in which it can be taken
     /// back; until then it is only hidden.
     pub fn ask_delete(&mut self, keys: Vec<u64>, window: &mut Window, cx: &mut Context<Self>) {
-        // Its worktree, where no other session works in it.
         let alone = match keys.as_slice() {
             [key] => self
                 .sessions
                 .at(*key)
-                .and_then(|s| s.meta.worktree.clone())
-                .filter(|wt| {
+                .and_then(|s| s.meta.worktree.as_ref())
+                .is_some_and(|wt| {
                     self.sessions
                         .all
                         .iter()
@@ -439,11 +441,12 @@ impl Desk {
                         .count()
                         == 1
                 }),
-            _ => None,
+            _ => false,
         };
-        match alone {
-            Some(wt) => Self::ask_worktree(keys[0], &wt.path, window, cx),
-            None => self.ask_first(self.settings.confirm.delete, Undone::Delete, keys, cx),
+        if alone || self.settings.confirm.delete {
+            self.open_delete_dialog(keys, window, cx);
+        } else {
+            self.undoable(Undone::Delete, &keys, cx);
         }
     }
 
@@ -473,39 +476,6 @@ impl Desk {
                     desk.update(cx, |d, cx| d.undoable(what, &keys, cx));
                     true
                 })
-        });
-    }
-
-    /// Whether the worktree at `path`, which the session `key` alone works
-    /// in, is deleted with it; then the session is.
-    fn ask_worktree(key: u64, path: &std::path::Path, window: &mut Window, cx: &mut Context<Self>) {
-        use gpui::component::WindowExt as _;
-        let desk = cx.entity();
-        let said = crate::tr_with(
-            "This thread is the only one linked to this worktree: %{path}. Delete the worktree too?",
-            &[("path", &Desk::shown(path))],
-        );
-        window.defer(cx, move |window, cx| {
-            window.open_alert_dialog(cx, move |alert, _, _| {
-                let (yes, no) = (desk.clone(), desk.clone());
-                alert
-                    .title(crate::tr("Delete the worktree too?"))
-                    .description(said.clone())
-                    .ok_text(crate::tr("Delete worktree"))
-                    .cancel_text(crate::tr("Keep it"))
-                    .show_cancel(true)
-                    .on_ok(move |_, _, cx| {
-                        yes.update(cx, |d, cx| d.undoable(Undone::Delete, &[key], cx));
-                        true
-                    })
-                    .on_cancel(move |_, _, cx| {
-                        no.update(cx, |d, cx| {
-                            d.keep_worktree.insert(key);
-                            d.undoable(Undone::Delete, &[key], cx);
-                        });
-                        true
-                    })
-            });
         });
     }
 

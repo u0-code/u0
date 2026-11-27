@@ -293,6 +293,12 @@ pub struct Desk {
     pub sessions: crate::sessions::Sessions,
     /// The session on screen, by key.
     pub current: Option<u64>,
+    /// A second thread open beside `current` (`SplitSideChat`).
+    pub split: Option<crate::thread::Split>,
+    /// Modal dialog state for thread actions (`Dialogs`).
+    pub dialogs: crate::thread::ThreadDialogs,
+    /// First-run setup and empty-projects state (`Welcome`, `NoProjects`).
+    pub onboarding: crate::thread::Onboarding,
     pub page: Page,
     pub popup: Popup,
     /// The scheduled tasks, and the one being written.
@@ -594,6 +600,8 @@ impl Desk {
         .detach();
 
         let pages = crate::pages::Pages::new(&settings, window, cx);
+        let dialogs = crate::thread::ThreadDialogs::new(window, cx);
+        let onboarding = crate::thread::Onboarding::new(window, cx);
         let registry = registry::kept(&home).unwrap_or_default();
         hub::on_path(tx.clone());
         let mut desk = Self {
@@ -657,6 +665,9 @@ impl Desk {
             slots: Vec::new(),
             sessions: crate::sessions::Sessions::new(),
             current: None,
+            split: None,
+            dialogs,
+            onboarding,
             page: Page::Thread,
             popup: Popup::Closed,
             picker: crate::thread::Picker::default(),
@@ -1027,6 +1038,15 @@ impl Desk {
 
     /// Put the session `key` on screen, opening it if it is closed.
     pub(crate) fn bring(&mut self, key: u64, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(sp) = self.split
+            && sp.other == key
+            && let Some(old) = self.current
+        {
+            self.split = Some(crate::thread::Split {
+                other: old,
+                other_left: !sp.other_left,
+            });
+        }
         if self.current != Some(key) {
             // Words chosen in the session left are not copied from this one.
             gpui::base::TextSelection::clear(window, cx);
@@ -1259,6 +1279,7 @@ impl Desk {
         {
             self.remove_checkout(wt, key);
         }
+        self.clean_split(key);
         if self.current == Some(key) {
             self.current = None;
         }
@@ -1995,6 +2016,17 @@ impl Render for Desk {
         self.show_confirm(window, cx);
         let faces = fonts::faces(cx).clone();
         let lights = lights_room(window);
+        if self.settings.needs_welcome() {
+            return fonts::with_fallbacks(div())
+                .relative()
+                .flex()
+                .size_full()
+                .bg(theme::bg())
+                .font_family(faces.ui.clone())
+                .text_size(px(BODY))
+                .text_color(theme::text())
+                .child(self.welcome_view(&faces, lights, cx));
+        }
         let width = f32::from(window.viewport_size().width);
         let left = self.left_width().min(width - MIDDLE_LEAST).max(LEFT_LEAST);
         let thread_page = self.page == Page::Thread && self.session().is_some();
@@ -2004,45 +2036,73 @@ impl Render for Desk {
         // right one first.
         let left_beside = self.panes.left && width - left >= THREAD_LEAST;
         let right_shown = self.panes.right && thread_page && !whole;
+        let rail_room = if right_shown && self.split.is_some() {
+            40.
+        } else {
+            0.
+        };
         let right_beside = right_shown
-            && width - if left_beside { left } else { 0. } - self.right_width() >= THREAD_LEAST;
+            && width - if left_beside { left } else { 0. } - self.right_width() - rail_room
+                >= THREAD_LEAST;
         let pane = width
             - if left_beside { left } else { 0. }
-            - if right_beside { self.right_width() } else { 0. };
+            - if right_beside {
+                self.right_width() + rail_room
+            } else {
+                0.
+            };
         self.column = gpui::Bounds::new(
             gpui::point(px(if left_beside { left } else { 0. }), px(0.)),
             gpui::size(px(pane), window.viewport_size().height),
         );
-        let middle = div()
-            .relative()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w(px(0.))
-            .h_full()
-            // Nothing in it paints over the columns beside it.
-            .overflow_hidden()
-            // Your picture, faint under the thread and what is beside it.
-            .children(self.settings.backdrop.clone().map(|path| {
-                gpui::img(path)
-                    .absolute()
-                    .size_full()
-                    .object_fit(gpui::ObjectFit::Cover)
-                    .opacity(0.16)
-            }))
-            .child(self.topbar(&faces, lights, cx));
-
         let cell = crate::thread::drawer::grid(window, &faces, self.settings.terminal_size);
-        let middle = match self.page.clone() {
-            Page::Thread => {
-                let column = self.settings.width.column(pane);
-                middle
-                    .child(self.thread(&faces, column, cx))
-                    .child(self.composer(&faces, column, window, cx))
-                    .children(self.drawer(&faces, cell, cx))
+        let split_middle = (self.page == Page::Thread)
+            .then(|| {
+                self.split_middle(
+                    &faces,
+                    lights,
+                    left_beside,
+                    pane,
+                    right_shown,
+                    cell,
+                    window,
+                    cx,
+                )
+            })
+            .flatten();
+        let middle = if let Some(split_div) = split_middle {
+            split_div
+        } else {
+            let middle = div()
+                .relative()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w(px(0.))
+                .h_full()
+                // Nothing in it paints over the columns beside it.
+                .overflow_hidden()
+                // Your picture, faint under the thread and what is beside it.
+                .children(self.settings.backdrop.clone().map(|path| {
+                    gpui::img(path)
+                        .absolute()
+                        .size_full()
+                        .object_fit(gpui::ObjectFit::Cover)
+                        .opacity(0.16)
+                }))
+                .child(self.topbar(&faces, lights, cx));
+
+            match self.page.clone() {
+                Page::Thread => {
+                    let column = self.settings.width.column(pane);
+                    middle
+                        .child(self.thread(&faces, column, window, cx))
+                        .child(self.composer(&faces, column, window, cx))
+                        .children(self.drawer(&faces, cell, cx))
+                }
+                Page::Agent(host, id) => middle.child(self.agent_page(&faces, host, &id, cx)),
+                Page::Forge(_) => middle.child(self.forge_page(&faces, cx)),
             }
-            Page::Agent(host, id) => middle.child(self.agent_page(&faces, host, &id, cx)),
-            Page::Forge(_) => middle.child(self.forge_page(&faces, cx)),
         };
         let right = match &self.page {
             Page::Thread if whole => Some(self.aside(&faces, cell, cx).flex_1()),
@@ -2057,6 +2117,9 @@ impl Render for Desk {
             Page::Agent(_, id) => Some(self.about(&faces, id, cx)),
             _ => None,
         };
+        let split_rail = (self.page == Page::Thread && right_beside)
+            .then(|| self.split_rail(cx))
+            .flatten();
         fonts::with_fallbacks(div())
             .relative()
             .flex()
@@ -2109,6 +2172,7 @@ impl Render for Desk {
             })
             .when(!whole, |d| d.child(middle))
             .children(right)
+            .children(split_rail)
             .when(self.panes.left && !left_beside, |d| {
                 d.child(over(self.sidebar(&faces, lights, left, cx).left_0()))
             })

@@ -28,6 +28,8 @@ pub enum Sub {
     Link,
     /// Tags of the session on screen: those used anywhere, or a new one.
     Tag,
+    /// Switch or hand off this thread's coding agent (`Dialogs` board).
+    Agent,
 }
 
 impl Sub {
@@ -43,6 +45,7 @@ impl Sub {
             Self::Snooze => "Snooze until…",
             Self::Link => "Link a pull request or issue",
             Self::Tag => "Tag the thread",
+            Self::Agent => "Switch agent",
         }
     }
 
@@ -56,6 +59,7 @@ impl Sub {
             Self::Make => "Project name",
 
             Self::Snooze => "In 3h, in 2 days, at 5pm…",
+            Self::Agent => "Choose an agent for this thread",
         }
     }
 }
@@ -140,20 +144,58 @@ impl Desk {
         self.palette_page(Sub::Add, window, cx);
     }
 
-    /// Keys the palette's pages take before its line does: ⌫ with
-    /// nothing typed goes back; in Add project, Tab goes into the folder
-    /// chosen and ⌘Return takes the path typed. Whether one was taken.
+    /// Open the Tag subpage in the command palette (`Tags…` in thread menu).
+    pub fn open_tag_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.palette.open {
+            self.toggle_palette(window, cx);
+        }
+        self.palette_page(Sub::Tag, window, cx);
+    }
+
+    /// Keys the palette's pages (and `⇧↵` Open beside) take before its line
+    /// does: ⌫ with nothing typed goes back; in Add project, Tab goes into
+    /// the folder chosen and ⌘Return takes the path typed; `⇧Return` opens a
+    /// thread or file beside.
     pub(crate) fn palette_keys(
         &mut self,
         k: &Keystroke,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(&(sub, _)) = self.palette.pages.last().filter(|_| self.palette.open) else {
+        if !self.palette.open {
+            return false;
+        }
+        let m = &k.modifiers;
+        if k.key == "enter"
+            && m.shift
+            && !m.platform
+            && !m.alt
+            && !m.control
+            && let Some(at) = self.palette.state.read(cx).selected_index()
+            && let Some(row) = self
+                .palette_groups(cx)
+                .into_iter()
+                .nth(at.section)
+                .and_then(|(_, rows)| rows.into_iter().nth(at.row))
+        {
+            match row.act {
+                Act::Go(key) => {
+                    self.close_palette(window, cx);
+                    self.open_beside(key, window, cx);
+                    return true;
+                }
+                Act::File(name) => {
+                    self.close_palette(window, cx);
+                    self.open_file(&name, cx);
+                    return true;
+                }
+                _ => {}
+            }
+        }
+        let Some(&(sub, _)) = self.palette.pages.last() else {
             return false;
         };
         let typed = self.palette.state.read(cx).query(cx).to_string();
-        let m = &k.modifiers;
         match k.key.as_str() {
             "backspace" if typed.is_empty() && !m.modified() => self.palette_pop(window, cx),
             "tab" if sub == Sub::Add && is_path(&typed) && !m.modified() => {
@@ -374,6 +416,64 @@ impl Desk {
                     ..Row::new("sun", crate::tr(word), Act::Look(look))
                 })
                 .collect();
+                return narrowed(rows, typed);
+            }
+            Sub::Agent => {
+                let host = self.session().map_or(crate::hub::Host::HERE, |s| s.host);
+                let current_agent = self.session().map(|s| s.meta.agent.as_str());
+                let rows = self
+                    .slots
+                    .iter()
+                    .filter(|slot| slot.host == host)
+                    .map(|slot| {
+                        let id = slot.entry.id.clone();
+                        let base = crate::registry::instance(&id).0;
+                        let accounts = self
+                            .slots
+                            .iter()
+                            .filter(|o| {
+                                o.host == host && crate::registry::instance(&o.entry.id).0 == base
+                            })
+                            .count();
+                        let model = slot.probe.as_ref().and_then(|p| {
+                            p.options
+                                .iter()
+                                .find(|o| {
+                                    o.category.as_ref()
+                                        == Some(
+                                            &agent_client_protocol::v1::schema::SessionConfigOptionCategory::Model,
+                                        )
+                                })
+                                .and_then(|o| crate::thread::select_choices(&o.kind))
+                                .map(|(cur, _)| cur)
+                        });
+                        let title = match model {
+                            Some(m) => format!("{} · {m}", slot.entry.name),
+                            None => slot.entry.name.clone(),
+                        };
+                        let detail = match (&slot.stage, &slot.auth) {
+                            (crate::hub::Stage::Missing(_), _) => {
+                                crate::tr("Not installed").to_string()
+                            }
+                            (_, crate::hub::Auth::Needed(_)) => {
+                                crate::tr("Installed · needs sign-in").to_string()
+                            }
+                            _ if accounts > 1 => crate::tr_with(
+                                "Ready · %{n} accounts",
+                                &[("n", &accounts)],
+                            )
+                            .to_string(),
+                            _ => crate::tr("Ready").to_string(),
+                        };
+                        Row {
+                            lead: Lead::Mark(self.mark_of(&id)),
+                            sub: Some(detail),
+                            end: (current_agent == Some(id.as_str()))
+                                .then(|| (crate::tr("Current").to_string(), crate::theme::faint())),
+                            ..Row::new("", title, Act::SwitchAgent(id))
+                        }
+                    })
+                    .collect();
                 return narrowed(rows, typed);
             }
             Sub::Add if is_path(typed) => {

@@ -278,6 +278,9 @@ pub struct Settings {
     /// from 0 to 3; none until you chose one, as u0 first opens.
     #[serde(default)]
     pub telemetry: Option<crate::telemetry::Level>,
+    /// Whether the first-run setup screen has been completed or dismissed.
+    #[serde(default)]
+    pub welcomed: bool,
     /// The PRs and Issues pages' views you saved, as t3code's saved views.
     #[serde(default)]
     pub views: Vec<SavedView>,
@@ -885,12 +888,19 @@ impl Default for Settings {
             tidy_after: None,
             sort: Sort::Used,
             telemetry: None,
+            welcomed: false,
             views: Vec::new(),
         }
     }
 }
 
 impl Settings {
+    /// Whether u0 should open on the first-run setup screen (`Welcome`):
+    /// before setup is completed, while no projects or telemetry choice exist.
+    #[must_use]
+    pub fn needs_welcome(&self) -> bool {
+        !self.welcomed && self.folders.is_empty() && self.telemetry.is_none()
+    }
     /// These settings as a device that may only read is told them, as
     /// `Event::for_reader` tells it what happens: no value of an agent's
     /// variables (each as if kept secret), nor any command line of yours
@@ -1166,6 +1176,17 @@ mod tests {
         assert_eq!(c, Confirm::default());
         assert!(c.delete && c.terminal && !c.unpin && !c.archive);
         assert_eq!(c.quit, Quit::Hold);
+    }
+
+    #[test]
+    fn a_fresh_home_needs_welcome_until_completed_or_configured() {
+        let mut s = Settings::default();
+        assert!(s.needs_welcome());
+        s.welcomed = true;
+        assert!(!s.needs_welcome());
+        let mut with_folder = Settings::default();
+        with_folder.used(Path::new("/project"));
+        assert!(!with_folder.needs_welcome());
     }
 
     #[test]

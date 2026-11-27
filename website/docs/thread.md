@@ -26,10 +26,11 @@ The thread is the same for every agent:
   what to do instead; **Revise…** answers a plan with changes; sending in
   the composer while a card waits also rejects once and sends your
   message. Answered, the card becomes a line ("You allowed once").
-- **Forms**: when an agent asks for input, the composer becomes a form,
-  one question at a time, which you can **Decline**.
-- **Subagents** at work or waiting get tabs over the thread; × hides a
-  tab while the subagent goes on.
+- **Forms**: when an agent asks for input, an inline question card appears
+  right in the thread, one question at a time, which you can **Decline** while
+  keeping the composer open below.
+- **Subagents** at work or waiting show a summary bar in the thread and get
+  tabs over it; × hides a tab while the subagent goes on.
 
 ### The transcript view
 
@@ -45,11 +46,14 @@ The thread is the same for every agent:
 
 ### The top bar
 
-Click the title to rename the thread. Its menu has the transcript
-views, **Continue with** another agent, **Open in your editor**, **Copy
-the thread's id**, **Copy the pull request's address** and **Archive**.
-The buttons beside it open the terminal drawer (⌘J) and show or hide the
-right column (⌥⌘B).
+Click the title to rename the thread. Its menu has **Rename**, **Pin**,
+**Settle**, **Snooze…**, **Open beside** (placing two threads side by side, or
+press ⇧Return on a thread in ⌘K), **Branch a new thread from here**, **New
+side chat**, **Copy thread link**, **Share read only with a device…**, **Link
+a pull request…**, **Tags…**, the transcript views, **Continue with** another
+agent, **Open in your editor**, **Archive** and **Delete…**. The buttons
+beside it open the terminal drawer (⌘J) and show or hide the right column
+(⌥⌘B).
 
 ### Find
 

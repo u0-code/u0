@@ -89,21 +89,6 @@ pub struct Composer {
     pub noting: Option<usize>,
     pub note: Entity<InputState>,
     pub drafts: std::collections::HashMap<u64, Vec<Attached>>,
-    /// When you last typed in it: what an agent asks for waits till you
-    /// pause (`typing`).
-    pub typed: Option<std::time::Instant>,
-}
-
-/// How long after your last key what an agent asks for waits to take the
-/// composer's place, as t3code's typing guard: a key meant for your
-/// message never lands in its form.
-const PAUSE: std::time::Duration = std::time::Duration::from_millis(1500);
-
-impl Composer {
-    /// Whether you are typing in it: a key pressed within `PAUSE`.
-    pub fn typing(&self) -> bool {
-        self.typed.is_some_and(|t| t.elapsed() < PAUSE)
-    }
 }
 
 /// What was put aside (⌘S): its text, kept between runs (see
@@ -136,13 +121,6 @@ impl Composer {
         cx.subscribe_in(&input, window, |this, input, e: &InputEvent, window, cx| {
             match e {
                 InputEvent::Change => {
-                    // Drawn again once you pause, for what waits on it.
-                    this.composer.typed = Some(std::time::Instant::now());
-                    cx.spawn(async move |this, cx| {
-                        cx.background_executor().timer(PAUSE).await;
-                        let _ = this.update(cx, |_, cx| cx.notify());
-                    })
-                    .detach();
                     this.composer.offer = 0;
                     this.composer.recalled = None;
                     // Editing what waits to go keeps it back.
@@ -195,7 +173,6 @@ impl Composer {
             noting: None,
             note,
             drafts: std::collections::HashMap::new(),
-            typed: None,
         }
     }
 }

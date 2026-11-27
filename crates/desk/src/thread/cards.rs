@@ -353,7 +353,7 @@ impl Desk {
                 } else {
                     "Put the files back as they were before this turn"
                 }))
-                .on_click(cx.listener(move |this, _, _, cx| this.undo(turn, cx))),
+                .on_click(cx.listener(move |this, _, window, cx| this.ask_undo(turn, window, cx))),
             );
         }
         Some(tools)
