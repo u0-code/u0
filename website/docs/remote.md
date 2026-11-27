@@ -159,8 +159,11 @@ machine and its key from the Keychain.
 A dev server that a terminal on another Mac runs opens here: **Open**
 (in the column's Servers, the drawer's Open preview, or ⌘-click on its
 address) brings its port to this Mac over a link of its own, signed in as
-the window is, and opens it in your browser at `127.0.0.1` on a port of
-this Mac's. Only a Mac that may do everything there can open one.
+the window is, and opens it at `127.0.0.1` on a port of this Mac's: in
+the Preview tab when opened from there or from Open preview, in your
+browser otherwise. While a page in the Preview tab is of such a port, a
+note under its strip says so, with **Stop forwarding**. Only a Mac that
+may do everything there can open one.
 
 ### When a link drops
 

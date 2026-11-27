@@ -6,6 +6,9 @@
 mod diff;
 mod files;
 mod output;
+#[cfg(target_os = "macos")]
+mod page;
+mod preview;
 mod repo;
 mod review;
 mod side;
@@ -13,6 +16,8 @@ mod sims;
 mod tabs;
 
 pub use files::Viewer;
+#[cfg(target_os = "macos")]
+pub use page::{Web, Went};
 pub use sims::Sims;
 pub use tabs::{Column, Surface};
 
@@ -251,7 +256,7 @@ impl Desk {
             }
             Some(Surface::Side(key)) => self.side_chat(faces, key, cx).into_any_element(),
             Some(Surface::Devices) => scrolled(self.sims_tab(faces, cx)).into_any_element(),
-            Some(Surface::Preview) => self.preview_tab(faces, cx).into_any_element(),
+            Some(Surface::Preview) => self.preview_tab(cx).into_any_element(),
             Some(Surface::Output(id)) => self.output_tab(faces, s, &id, cx).into_any_element(),
         };
         let split_device =
@@ -401,201 +406,6 @@ impl Desk {
                 .count(s.turns.len())
                 .child(rows),
         )
-    }
-
-    /// The `Preview` tab (`TerminalBrowser` board): 36px subtitle bar + `.pv-row`
-    /// cards on `Layer02` that open dev servers in the system browser.
-    fn preview_tab(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let desk = cx.entity();
-        let servers = self.dev_servers();
-        let subtitle = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .h(px(36.))
-            .px(px(16.))
-            .border_b_1()
-            .border_color(theme::role(ColorRole::BorderSubtle01))
-            .child(
-                ui::one_line(
-                    ui::text(
-                        faces,
-                        crate::tr("Dev servers your terminals printed · they open in your browser"),
-                    )
-                    .type_style(TypeStyle::Label01)
-                    .text_color(theme::role(ColorRole::TextSecondary)),
-                )
-                .flex_1()
-                .min_w(px(0.)),
-            );
-
-        let mut rows = div().flex().flex_col();
-        if servers.is_empty() {
-            rows = rows.child(div().px(px(16.)).pt(px(16.)).child(empty(
-                faces,
-                crate::tr("Dev servers your terminals print show here and open in your browser."),
-            )));
-        } else {
-            let running = crate::tr("running");
-            for (i, srv) in servers.into_iter().enumerate() {
-                let (host, url, copy_url) = (srv.host, srv.url.clone(), srv.url.clone());
-                let (d_open, d_stop) = (desk.clone(), desk.clone());
-                let head_meta = match &srv.command {
-                    Some(cmd) => format!("{cmd} \u{00b7} {} \u{00b7} {running}", srv.machine),
-                    None => format!("{} \u{00b7} {running}", srv.machine),
-                };
-                let port_meta = if let Some((there, here)) = srv.forwarded {
-                    Some(
-                        crate::tr_with(
-                            "Port %{there} on %{machine}, forwarded to 127.0.0.1:%{here} on this Mac over its own signed link",
-                            &[("there", &there), ("machine", &srv.machine), ("here", &here)],
-                        )
-                        .to_string(),
-                    )
-                } else {
-                    url::Url::parse(&srv.url)
-                        .ok()
-                        .and_then(|u| u.port_or_known_default())
-                        .map(|port| {
-                            crate::tr_with("Port %{port} on this Mac", &[("port", &port)])
-                                .to_string()
-                        })
-                };
-
-                rows = rows.child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(8.))
-                        .px(px(16.))
-                        .py(px(12.))
-                        .bg(theme::role(ColorRole::Layer02))
-                        .border_b_1()
-                        .border_color(theme::role(ColorRole::BorderSubtle01))
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(8.))
-                                .child(
-                                    div()
-                                        .size(px(8.))
-                                        .flex_none()
-                                        .rounded_full()
-                                        .bg(theme::role(ColorRole::SupportSuccess)),
-                                )
-                                .child(
-                                    ui::text(faces, srv.title)
-                                        .flex_none()
-                                        .type_style(TypeStyle::HeadingCompact01)
-                                        .text_color(theme::role(ColorRole::TextPrimary)),
-                                )
-                                .child(
-                                    ui::one_line(
-                                        ui::text(faces, head_meta)
-                                            .type_style(TypeStyle::Label01)
-                                            .text_color(theme::role(ColorRole::TextSecondary)),
-                                    )
-                                    .flex_1()
-                                    .min_w(px(0.)),
-                                ),
-                        )
-                        .child(
-                            ui::mono(faces, srv.url)
-                                .type_style(TypeStyle::Code01)
-                                .text_color(theme::role(ColorRole::TextPrimary)),
-                        )
-                        .children(port_meta.map(|m| {
-                            ui::text(faces, m)
-                                .type_style(TypeStyle::Label01)
-                                .text_color(theme::role(ColorRole::TextSecondary))
-                        }))
-                        .child(
-                            div()
-                                .flex()
-                                .flex_wrap()
-                                .items_center()
-                                .gap(px(8.))
-                                .child(
-                                    Button::new(
-                                        SharedString::from(format!("pv-open-{i}")),
-                                        crate::tr("Open in browser"),
-                                    )
-                                    .variant(ButtonVariant::Primary)
-                                    .size(ButtonSize::Sm)
-                                    .icon(CarbonIcon::Launch)
-                                    .on_click(
-                                        move |_, _, cx| {
-                                            let target = url.clone();
-                                            d_open.update(cx, |this, cx| {
-                                                this.open_address(host, target, cx);
-                                            });
-                                        },
-                                    ),
-                                )
-                                .child(
-                                    Button::new(
-                                        SharedString::from(format!("pv-copy-{i}")),
-                                        crate::tr("Copy address"),
-                                    )
-                                    .variant(ButtonVariant::Ghost)
-                                    .size(ButtonSize::Sm)
-                                    .icon(CarbonIcon::Copy)
-                                    .on_click(
-                                        move |_, _, cx| {
-                                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(
-                                                copy_url.clone(),
-                                            ));
-                                        },
-                                    ),
-                                )
-                                .children(srv.forwarded.map(|(there, _)| {
-                                    Button::new(
-                                        SharedString::from(format!("pv-stop-{i}")),
-                                        crate::tr("Stop forwarding"),
-                                    )
-                                    .variant(ButtonVariant::Ghost)
-                                    .size(ButtonSize::Sm)
-                                    .on_click(
-                                        move |_, _, cx| {
-                                            d_stop.update(cx, |this, cx| {
-                                                this.stop_forward(host, there, cx);
-                                            });
-                                        },
-                                    )
-                                })),
-                        ),
-                );
-            }
-        }
-
-        rows = rows.child(
-            ui::text(
-                faces,
-                crate::tr(
-                    "u0 draws no web pages. ⌘-click an address in a terminal opens it the same way. To show the agent what you see, add a screenshot to the composer with + › Add a window.",
-                ),
-            )
-            .px(px(16.))
-            .py(px(12.))
-            .type_style(TypeStyle::Label01)
-            .text_color(theme::role(ColorRole::TextSecondary)),
-        );
-
-        div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_h(px(0.))
-            .child(subtitle)
-            .child(
-                div()
-                    .id("preview-scroll")
-                    .flex_1()
-                    .min_h(px(0.))
-                    .child(rows)
-                    .overflow_y_scrollbar(),
-            )
     }
 
     /// Linked pull requests and issues (`u0ui::u0::panels::LinkedItemsSection`).
@@ -1092,7 +902,12 @@ impl Desk {
                         )
                         .h(px(22.))
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.open_address(host, open.clone(), cx);
+                            this.open_address(
+                                host,
+                                open.clone(),
+                                crate::desk::runs::To::Browser,
+                                cx,
+                            );
                         })),
                     )
                     .child(

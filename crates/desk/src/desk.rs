@@ -155,6 +155,10 @@ pub enum Popup {
     TaskFlow,
     /// The project Settings' choices a project may hold are set for.
     Scope,
+    /// The menu of the page in the Preview tab, from its More.
+    Page,
+    /// The dev servers the page in the Preview tab can switch to.
+    PageServers,
 }
 
 /// Which side columns show.
@@ -355,6 +359,9 @@ pub struct Desk {
     pub signing: Option<(hub::Host, String)>,
     /// The right column's tabs, by session.
     pub columns: HashMap<u64, Column>,
+    /// The pages the Preview tabs show, in the system's webview.
+    #[cfg(target_os = "macos")]
+    pub web: crate::aside::Web,
     /// The line a side chat in the column is asked in.
     /// The Files tab and the file read in the column.
     pub viewer: Viewer,
@@ -701,6 +708,8 @@ impl Desk {
             find: crate::thread::Find::new(window, cx),
             signing: None,
             columns: HashMap::new(),
+            #[cfg(target_os = "macos")]
+            web: crate::aside::Web::default(),
             viewer: Viewer::new(window, cx),
             forge: forge::Forge::new(&settings::home(), window, cx),
             tab_scroll: gpui::ScrollHandle::new(),
@@ -2151,6 +2160,10 @@ impl Render for Desk {
         // column beside it that would leave it less lies over it instead, the
         // right one first (`WindowSizes`).
         let (left, left_beside, left_over, right_shown, right_beside) = self.layout_columns(width);
+        // The webview of a Preview tab is shown only while the column it is
+        // in is drawn, before anything is laid out over it.
+        #[cfg(target_os = "macos")]
+        self.sync_web(thread_page && (whole || right_shown), window, cx);
         if left_beside && self.panes.left_over {
             self.panes.left_over = false;
         }

@@ -122,15 +122,36 @@ pub struct Writing {
     pub stop: bool,
 }
 
+/// Where an address is opened: in your browser, or in the Preview tab of
+/// a session, by its key (on a system u0 shows no page on, your browser).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum To {
+    Browser,
+    Preview(u64),
+}
+
 /// A running dev server printed by a terminal, local or forwarded.
 pub struct DevServer {
     pub title: String,
     pub command: Option<String>,
     pub machine: String,
     pub host: Host,
+    /// Where it is reached from this Mac: as printed, or at the port it
+    /// is forwarded to.
     pub url: String,
+    /// As its terminal printed it, on its own machine: what is opened.
+    pub printed: String,
     /// `(remote_port, local_port)` when forwarded from a paired machine.
     pub forwarded: Option<(u16, u16)>,
+}
+
+impl DevServer {
+    /// The port it listens on, as printed.
+    pub fn port(&self) -> Option<u16> {
+        url::Url::parse(&self.printed)
+            .ok()
+            .and_then(|u| u.port_or_known_default())
+    }
 }
 
 impl Desk {
@@ -174,7 +195,7 @@ impl Desk {
                 .map(|f| (f.there, f.port));
             let url = match forwarded {
                 Some((_, local)) => here_at(&raw_url, local),
-                None => raw_url,
+                None => raw_url.clone(),
             };
             out.push(DevServer {
                 title: t.script.clone().unwrap_or_else(|| t.title.clone()),
@@ -182,16 +203,23 @@ impl Desk {
                 machine,
                 host: t.host,
                 url,
+                printed: raw_url,
                 forwarded,
             });
         }
         out
     }
     /// Open `address`, a local one printed on the server `host` (a dev
-    /// server's): as it is on this Mac's own; on another, once its port is
-    /// brought here over a link of its own (`link::forward`), kept while
-    /// that server is held.
-    pub(crate) fn open_address(&mut self, host: Host, address: String, cx: &mut Context<Self>) {
+    /// server's), where `to` says: as it is on this Mac's own; on another,
+    /// once its port is brought here over a link of its own
+    /// (`link::forward`), kept while that server is held.
+    pub(crate) fn open_address(
+        &mut self,
+        host: Host,
+        address: String,
+        to: To,
+        cx: &mut Context<Self>,
+    ) {
         let Some(m) = self.machine(host) else { return };
         let there = url::Url::parse(&address)
             .ok()
@@ -202,18 +230,31 @@ impl Desk {
             .and_then(|u| u.port_or_known_default());
         let (Some(server), Some(there), false) = (m.paired.clone(), there, host == Host::HERE)
         else {
-            return cx.open_url(&address);
+            return self.open_at(to, address, cx);
         };
         match m.forwards.iter().find(|f| f.there == there) {
-            Some(f) => cx.open_url(&here_at(&address, f.port)),
+            Some(f) => {
+                let here = here_at(&address, f.port);
+                self.open_at(to, here, cx);
+            }
             None => crate::hub::forward(
                 host,
                 server,
                 there,
                 self.settings.forward_port,
                 address,
+                to,
                 self.tx.clone(),
             ),
+        }
+    }
+
+    /// Open `address`, reachable from this Mac, where `to` says.
+    fn open_at(&mut self, to: To, address: String, cx: &mut Context<Self>) {
+        match to {
+            #[cfg(target_os = "macos")]
+            To::Preview(key) => self.show_page(key, address, cx),
+            _ => cx.open_url(&address),
         }
     }
 
@@ -222,15 +263,17 @@ impl Desk {
         &mut self,
         host: Host,
         address: &str,
+        to: To,
         result: Result<crate::link::Forward, String>,
         cx: &mut Context<Self>,
     ) {
         match result {
             Ok(forward) => {
-                cx.open_url(&here_at(address, forward.port));
+                let here = here_at(address, forward.port);
                 if let Some(m) = self.machine_mut(host) {
                     m.forwards.push(forward);
                 }
+                self.open_at(to, here, cx);
             }
             Err(why) => self.trouble(
                 crate::tr_with("Couldn't open %{address} here", &[("address", &address)]),

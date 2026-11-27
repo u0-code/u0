@@ -30,7 +30,7 @@ use crate::{
     aside::Surface,
     desk::{
         Desk,
-        runs::{self, Layout},
+        runs::{self, Layout, To},
     },
     fonts::Faces,
     terminal::Terminal,
@@ -181,7 +181,10 @@ impl Desk {
                     .icon_only(true)
                     .on_click(move |_, _, cx| {
                         let target = url.clone();
-                        d_prev.update(cx, |this, cx| this.open_address(host, target, cx));
+                        d_prev.update(cx, |this, cx| {
+                            let to = this.current.map_or(To::Browser, To::Preview);
+                            this.open_address(host, target, to, cx);
+                        });
                     }),
             );
         }
@@ -579,7 +582,7 @@ impl Desk {
                             && let Some(url) = t.link_at(at)
                         {
                             let host = t.host;
-                            this.open_address(host, url, cx);
+                            this.open_address(host, url, To::Browser, cx);
                         } else if e.modifiers.platform
                             && crate::markdown::path_like(&t.word_text(at))
                         {

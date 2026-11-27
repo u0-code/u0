@@ -19,6 +19,11 @@ u0-core = { path = "crates/core" }
 # The interface: gpui-kit, on GPUI Fast (longbridge/gpui-fast), the fork of
 # Zed's gpui that takes changes for use outside Zed.
 gpui = { package = "gpui-kit", version = "=0.11.0", default-features = false, features = ["component", "assets", "syntect", "speech", "gpui-fast"] }
+# A page you open in the Preview tab, in the system's own webview
+# (WKWebView on macOS): gpui-kit's, on GPUI Fast's window composition so
+# u0's menus and dialogs draw above it; wry, the webview it drives.
+gpui-webview = { version = "=0.11.0", features = ["gpui-fast"] }
+wry = { package = "lb-wry", version = "0.53.3" }
 # The design system: IBM Carbon v11 on gpui-kit, with Material Symbols Sharp
 # icons and IBM Plex fonts bundled.
 u0ui = { git = "https://github.com/u0-code/gpui-u0ui" }
@@ -198,6 +203,7 @@ gpui-base = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-
 gpui-component = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech-settings" }
 gpui-component-macros = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech-settings" }
 gpui-kit-assets = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech-settings" }
+gpui-webview = { git = "https://github.com/mizorewww/gpui-kit", branch = "combined-cjk-kbd-menus-tab-diff-speech-settings" }
 # Features of gpui that GPUI Fast, which takes only performance work and
 # bug fixes, will not: a window's contents drawn zoomed (Window::set_zoom),
 # so the whole interface scales, and the system's spell checker

@@ -58,8 +58,12 @@ pub enum Msg {
     Forwarded {
         host: Host,
         address: String,
+        to: crate::desk::runs::To,
         result: Result<link::Forward, String>,
     },
+    /// What the page of a session's Preview tab, by its key, did.
+    #[cfg(target_os = "macos")]
+    Page(u64, crate::aside::Went),
 }
 
 pub type Sender = mpsc::UnboundedSender<Msg>;
@@ -280,11 +284,13 @@ pub fn forward(
     there: u16,
     first_port: u16,
     address: String,
+    to: crate::desk::runs::To,
     tx: Sender,
 ) {
     off(tx, move || Msg::Forwarded {
         host,
         address,
+        to,
         result: server
             .reach()
             .and_then(|(way, key)| link::forward(way, key.kept().to_owned(), there, first_port)),

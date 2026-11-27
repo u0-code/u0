@@ -1,6 +1,6 @@
 ---
 title: Review, commit and pull request
-description: The right column's Diff, Files, Pull request, Details and Side chat tabs.
+description: The right column's Diff, Files, Pull request, Details, Preview and Side chat tabs.
 ---
 
 # Review, commit and pull request
@@ -16,6 +16,7 @@ others; with its menu open, a letter picks one:
 | Letter | Tab |
 |---|---|
 | T | Terminal |
+| B | Preview |
 | F | Files |
 | D | Diff |
 | P | Pull request (titled `#N` once there is one) |
@@ -113,6 +114,32 @@ began), **Plan**, **Background tasks**, **Servers**, **Terminals**,
 **Lineage** and **Linked** (pull requests and issues linked to it).
 **Choose what shows here** hides sections (`hidden_details`).
 
+## Preview
+
+The **Preview** tab shows a web page beside the thread. With none open
+(**No page open**), it lists the **Dev servers** the thread's terminals
+printed and the addresses **Opened lately**: choose one to open it. You
+can also type an address in its bar and press Return: a URL
+(`localhost:5173` is read as `http://localhost:5173`), or the path of an
+HTML file of yours. The drawer's **Open preview** opens its script's
+address here too.
+
+On macOS the page shows in the system's own web view (WKWebView); u0
+bundles no browser engine, and its menus and dialogs draw above the page.
+The bar has **Back**, **Forward**, **Reload** (**Stop** while it loads),
+the address, **Viewport** (**Responsive**, **iPhone 16**, **iPad**,
+**Desktop 1440**: a width wider than the column is zoomed to fit), **Open
+in your browser** and **More actions** (**Reload**, **Copy address**,
+**Open in your browser**, **Close the page**). Under it, a strip names the
+dev server the page is of (its menu switches to another), the machine it
+runs on, and **Open in your browser**. A page that asks for a window of
+its own opens it in your browser.
+
+A page opens only when you open it, never from what an agent says. It is
+hidden while another tab or thread is shown, and closed with its tab. On
+Windows and Linux, u0 shows no page yet: a dev server opens in your
+browser.
+
 ## Side chat
 
 The **Side chat** tab asks the agent a question beside the thread: it
@@ -151,7 +178,7 @@ drawer's **Scripts**:
 | `wait` | With `worktree`: the first message waits until it has run. |
 | `settle` | Run it in the thread's worktree each time the thread settles. |
 | `stop` | Stop it, and close its terminal, when the thread settles. |
-| `preview` | The address **Open preview** opens. |
+| `preview` | The address **Open preview** opens in the Preview tab. |
 | `sparse` | A file of sparse-checkout patterns (non-cone) for new worktrees. |
 
 Unknown keys are an error. **Add a script to u0.json** in the drawer

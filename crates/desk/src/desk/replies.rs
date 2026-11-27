@@ -166,8 +166,11 @@ impl Desk {
             Msg::Forwarded {
                 host,
                 address,
+                to,
                 result,
-            } => self.forwarded(host, &address, result, cx),
+            } => self.forwarded(host, &address, to, result, cx),
+            #[cfg(target_os = "macos")]
+            Msg::Page(key, went) => self.page_went(key, went, cx),
             Msg::Paired(paired) => {
                 self.pages.pairing = false;
                 self.read_servers();
