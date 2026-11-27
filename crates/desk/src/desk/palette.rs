@@ -81,6 +81,8 @@ enum Act {
     Tag(String),
     /// Switch or hand off the thread to another agent (`Switch agent`).
     SwitchAgent(String),
+    /// The thread's item `n` (a waiting request) brought into view.
+    Reveal(usize),
     /// Approve a waiting permission request right from the palette.
     Approve(
         u64,
@@ -923,34 +925,28 @@ impl Desk {
     /// Contextual `"This thread · <title>"` top group (`Palette` board) when a
     /// thread is open and nothing is typed yet.
     fn this_thread_group(&self, cx: &gpui::App) -> Option<(String, Vec<Row>)> {
-        use agent_client_protocol::v1::schema::PermissionOptionKind;
         let s = self.session()?;
         if s.state == State::Draft && s.items.is_empty() {
             return None;
         }
         let mut rows = Vec::new();
-        if let Some(asked) = s.items.iter().rev().find_map(|i| match i {
-            crate::session::Item::Asked(a) if a.chosen.is_none() => Some(a),
+        if let Some((n, asked)) = s.items.iter().enumerate().rev().find_map(|(n, i)| match i {
+            crate::session::Item::Asked(a) if a.chosen.is_none() => Some((n, a)),
             _ => None,
-        }) && let Some(opt) = asked
-            .options
-            .iter()
-            .find(|o| o.kind == PermissionOptionKind::AllowOnce)
-            .or_else(|| {
-                asked
-                    .options
-                    .iter()
-                    .find(|o| o.kind == PermissionOptionKind::AllowAlways)
-            })
-        {
-            rows.push(
-                Row::new(
+        }) {
+            let row = match once(&asked.options) {
+                Some(opt) => Row::new(
                     "alert",
                     crate::tr_with("%{option}: the waiting request", &[("option", &opt.name)]),
                     Act::Approve(s.key, asked.id, opt.clone()),
-                )
-                .sub(asked.title.clone()),
-            );
+                ),
+                None => Row::new(
+                    "alert",
+                    crate::tr("Review the waiting request"),
+                    Act::Reveal(n),
+                ),
+            };
+            rows.push(row.sub(asked.title.clone()));
         }
         if let Some(files) = s.total.as_ref().filter(|f| !f.is_empty()) {
             let added: usize = files.iter().map(|f| f.added).sum();
@@ -1165,6 +1161,7 @@ impl Desk {
                     }
                 }
             }
+            Act::Reveal(n) => self.reveal_item(n, cx),
             Act::Approve(key, req_id, option) => {
                 self.choose(key, req_id, &option, cx);
             }
@@ -1506,6 +1503,18 @@ fn foot(through: Through, back: bool, page: bool) -> gpui::Div {
         .when(page, |d| d.child(hint(&["⌫"], "Back")))
 }
 
+/// What one ↵ in the palette may answer a waiting request with: the
+/// agent's option to allow it once, and only that. Anything that stands
+/// past this request is chosen on its card, with what it says.
+fn once(
+    options: &[agent_client_protocol::v1::schema::PermissionOption],
+) -> Option<&agent_client_protocol::v1::schema::PermissionOption> {
+    use agent_client_protocol::v1::schema::PermissionOptionKind;
+    options
+        .iter()
+        .find(|o| o.kind == PermissionOptionKind::AllowOnce)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1521,5 +1530,15 @@ mod tests {
         );
         // ⌘K itself: closed.
         assert_eq!(back_from(Through::Everything, Some(Through::Files)), None);
+    }
+
+    #[test]
+    fn the_palette_never_allows_a_request_for_good() {
+        use agent_client_protocol::v1::schema::{PermissionOption, PermissionOptionKind as K};
+        let opt = |id: &str, kind| PermissionOption::new(id.to_owned(), id.to_owned(), kind);
+        let standing = [opt("always", K::AllowAlways), opt("no", K::RejectOnce)];
+        assert!(once(&standing).is_none());
+        let both = [opt("always", K::AllowAlways), opt("yes", K::AllowOnce)];
+        assert_eq!(once(&both).map(|o| o.kind), Some(K::AllowOnce));
     }
 }

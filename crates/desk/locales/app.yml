@@ -22449,3 +22449,13 @@ _version: 2
   pt-BR: "Uma conversa cada, começada com as mesmas palavras, cada uma em sua própria worktree"
   ru: "По треду на каждого, начатому с тех же слов, каждый в своём рабочем дереве"
   sv: "En tråd var, började med samma ord, var och en i ett eget arbetsträd"
+"Review the waiting request":
+  zh-CN: "查看等待中的请求"
+  de: "Wartende Anfrage ansehen"
+  es: "Revisar la solicitud en espera"
+  fr: "Examiner la demande en attente"
+  ja: "待機中のリクエストを確認"
+  ko: "대기 중인 요청 검토"
+  pt-BR: "Revisar a solicitação em espera"
+  ru: "Посмотреть ожидающий запрос"
+  sv: "Granska den väntande begäran"

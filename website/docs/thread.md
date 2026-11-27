@@ -26,6 +26,10 @@ The thread is the same for every agent:
   what to do instead; **Revise…** answers a plan with changes; sending in
   the composer while a card waits also rejects once and sends your
   message. Answered, the card becomes a line ("You allowed once").
+  ⌘K offers the waiting request's allow-once option; anything that
+  stands past it is chosen on the card, so where the agent offers no
+  allow-once, ⌘K offers **Review the waiting request** and shows the
+  card.
 - **Forms**: when an agent asks for input, an inline question card appears
   right in the thread, one question at a time, which you can **Decline** while
   keeping the composer open below.
