@@ -131,12 +131,13 @@ address here too.
 On macOS the page shows in the system's own web view (WKWebView); u0
 bundles no browser engine, and its menus and dialogs draw above the page.
 The bar has **Back**, **Forward**, **Reload** (**Stop** while it loads),
-the address, **Viewport** (**Responsive**, **iPhone 16**, **iPad**,
-**Desktop 1440**: a width wider than the column is zoomed to fit), **Open
-in your browser** and **More actions** (**Reload**, **Copy address**,
-**Open in your browser**, **Close the page**). Under it, a strip names the
-dev server the page is of (its menu switches to another), the machine it
-runs on, and **Open in your browser**. A window a page asks for, or a
+the address and **More actions**: **Reload**, **Copy address**, **Open in
+your browser**, the **Viewport** (**Responsive**, **iPhone 16**, **iPad**,
+**Desktop 1440**: a width wider than the column is zoomed to fit) and
+**Close the page**. Under it, a strip names the dev server the page is of
+(its menu switches to another), the machine it runs on, and **Open in
+your browser**; a page of a port brought from another Mac says so under
+the strip, with **Stop forwarding**. A window a page asks for, or a
 download it starts, goes to your browser if it is a web address (one in
 five seconds), and nowhere else: nothing is saved by u0. Only a web
 address is ever handed to your browser; a file page has no **Open in your

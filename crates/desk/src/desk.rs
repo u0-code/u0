@@ -156,12 +156,6 @@ pub enum Popup {
     TaskFlow,
     /// The project Settings' choices a project may hold are set for.
     Scope,
-    /// The menu of the page in the Preview tab, from its More.
-    #[cfg(target_os = "macos")]
-    Page,
-    /// The dev servers the page in the Preview tab can switch to.
-    #[cfg(target_os = "macos")]
-    PageServers,
 }
 
 /// Which side columns show.
