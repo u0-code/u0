@@ -589,7 +589,12 @@ impl Desk {
                 self.pages.processes = (agents, processes);
             }
             Event::Troubles(lines) => self.pages.troubles = lines,
-            Event::Telemetry(batch) => self.pages.sent = Some(batch),
+            Event::Telemetry { batch, install_id } => {
+                self.pages.sent = Some(batch);
+                if install_id.is_some() {
+                    self.pages.install_id = install_id;
+                }
+            }
             // What the server says is here: each agent restaged, those
             // that can start started, those not here installed.
             Event::Here(here) => {
@@ -803,7 +808,7 @@ impl Desk {
                 | Event::Secrets { .. }
                 | Event::Weighed { .. }
                 | Event::Troubles(_)
-                | Event::Telemetry(_)
+                | Event::Telemetry { .. }
                 | Event::Shared(_)
                 | Event::Offered { .. }
                 | Event::Tasks(_)

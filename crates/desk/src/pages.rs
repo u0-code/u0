@@ -68,7 +68,7 @@ pub struct Pages {
     /// The server the pages of a server's own are of: its agents,
     /// projects, tasks, sharing and what it keeps.
     pub on: crate::hub::Host,
-    pub sizes: Vec<(String, u64)>,
+    pub sizes: crate::tidy::StorageReport,
     pub tidied: Option<String>,
     pub command: Entity<InputState>,
     pub model: Entity<InputState>,
@@ -104,7 +104,9 @@ pub struct Pages {
     pub processes: (Vec<(String, u32)>, crate::diagnostics::Processes),
     /// Those processes as gpui-kit's tree.
     pub process_tree: Entity<gpui::component::tree::TreeState>,
-    pub troubles: Vec<String>,
+    pub troubles: Vec<crate::diagnostics::LogTrouble>,
+    /// Random install id read from `telemetry.json` for About and Telemetry.
+    pub install_id: Option<String>,
     /// How sharing this u0 stands, as its server last said.
     pub shared: Option<crate::share::Shared>,
     /// The named tunnel's address and token as you write them.
@@ -181,7 +183,7 @@ impl Pages {
             prefix,
             snoozes,
             recording: None,
-            sizes: Vec::new(),
+            sizes: crate::tidy::StorageReport::default(),
             tidied: None,
             command: field("/path/to/agent --acp", window, cx),
             model: field("a model id", window, cx),
@@ -201,6 +203,7 @@ impl Pages {
             processes: Default::default(),
             process_tree: cx.new(|cx| gpui::component::tree::TreeState::new(cx)),
             troubles: Vec::new(),
+            install_id: None,
 
             tokens: crate::forge::Host::ALL.map(|_| {
                 cx.new(|cx| {

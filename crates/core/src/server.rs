@@ -451,7 +451,10 @@ impl Server {
                 prompt,
             } => self.shared.say_in(tag, agent, session, project, prompt),
             Call::Workflows => self.say_flows(),
+            Call::SetWorkflow(flow) => self.set_workflow(flow),
+            Call::DropWorkflow(name) => self.drop_workflow(&name),
             Call::StartFlow { workflow, input } => self.start_flow(workflow, input),
+            Call::RerunFlowFrom { run, step } => self.rerun_flow_from(run, step),
             Call::AnswerFlow { run, choice } => self.answer_flow(run, choice),
             Call::ResumeFlow(run) => self.resume_flow(run),
             Call::CancelFlow(run) => self.cancel_flow(run),
@@ -709,15 +712,15 @@ impl Server {
                 acp::runtime().spawn_blocking(move || git::drop_checkpoints(&dir, &uid));
             }
             Call::Place { key, calls } => self.off(move || repo::place(key, calls)),
-            Call::Sizes { worktrees } => {
+            Call::Sizes { kept } => {
                 let home = self.shared.home.clone();
-                self.off(move || Event::Sizes(tidy::sizes(&home, &worktrees)));
+                self.off(move || Event::Sizes(tidy::report(&home, &kept)));
             }
             Call::Tidy { what, kept } => {
                 let (home, send) = (self.shared.home.clone(), self.shared.send.clone());
                 self.off(move || {
                     send(Event::Tidied(tidy::tidy(&home, what, &kept)));
-                    Event::Sizes(tidy::sizes(&home, &kept.under))
+                    Event::Sizes(tidy::report(&home, &kept))
                 });
             }
             Call::Forges => self.off(|| Event::Forges(crate::forge::seen())),

@@ -198,16 +198,11 @@ impl Facts {
             .collect();
         let devices: crate::access::Kept =
             crate::whole::read_json(&home.join("devices.json")).unwrap_or_default();
-        // This process, and what it runs.
+        // This process, and what it runs (`processes` includes `me` at depth 0).
         let me = std::process::id();
-        let children: u64 = (crate::diagnostics::processes(me).procs.iter())
+        let held_kb: u64 = (crate::diagnostics::processes(me).procs.iter())
             .map(|p| p.kb)
             .sum();
-        let own = sysinfo::System::new().ok().map_or(0, |mut system| {
-            let pid = sysinfo::Pid::from_u32(me);
-            system.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[pid]), true);
-            system.process(pid).map_or(0, |p| p.memory() / 1024)
-        });
         let major = sysinfo::System::os_version().unwrap_or_default();
         Self {
             build: Build {
@@ -224,7 +219,7 @@ impl Facts {
             agents,
             servers: crate::servers::Servers::load(home).map_or(0, |s| s.servers.len()),
             listening: devices.serve,
-            memory_mb: (own + children) / 1024,
+            memory_mb: held_kb / 1024,
         }
     }
 }
@@ -591,15 +586,28 @@ impl Telemetry {
                 // is what goes.
                 let shown = self.change(|kept| {
                     let id = match level {
-                        Level::Off => String::new(),
-                        _ => (kept.id.get_or_insert_with(crate::access::random::<16>)).clone(),
+                        Level::Off => None,
+                        _ => {
+                            Some((kept.id.get_or_insert_with(crate::access::random::<16>)).clone())
+                        }
                     };
-                    batch(level, &id, &kept.counts, &facts)
+                    let b = batch(level, id.as_deref().unwrap_or(""), &kept.counts, &facts);
+                    (b, id.or_else(|| kept.id.clone()))
                 });
-                say(Event::Telemetry(shown.map_or_else(
-                    || "telemetry.json does not read, so nothing is sent.".to_owned(),
-                    |b| serde_json::to_string_pretty(&b).expect("a batch serializes"),
-                )));
+                let (batch_json, install_id) = match shown {
+                    Some((b, id)) => (
+                        serde_json::to_string_pretty(&b).expect("a batch serializes"),
+                        id,
+                    ),
+                    None => (
+                        "telemetry.json does not read, so nothing is sent.".to_owned(),
+                        None,
+                    ),
+                };
+                say(Event::Telemetry {
+                    batch: batch_json,
+                    install_id,
+                });
             }
         }
     }

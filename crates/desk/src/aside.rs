@@ -1209,7 +1209,7 @@ impl Desk {
                     Use::Cost { amount, currency } => {
                         cost = Some((*amount, currency.clone()));
                     }
-                    Use::Limit(_) => {}
+                    Use::Limit(_) | Use::Turn | Use::LimitPaused => {}
                 }
             }
             if in_tok > 0 || out_tok > 0 {

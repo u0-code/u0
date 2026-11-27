@@ -69,7 +69,7 @@ impl Server {
 
     /// Run the task `id` now, unless a run of it goes on.
     pub(super) fn run_task(&self, id: u64) {
-        self.shared.run(id, str::to_owned);
+        self.shared.run_with(id, None, str::to_owned);
     }
 
     /// The tasks as they are, to the desk.
@@ -205,7 +205,7 @@ impl Shared {
             Err(_) => Vec::new(),
         };
         for id in due {
-            self.run(id, str::to_owned);
+            self.run_with(id, None, str::to_owned);
         }
     }
 
@@ -246,7 +246,18 @@ impl Shared {
                 return Hooked::Again;
             }
         }
-        self.run(id, |prompt| call.fill(prompt));
+        let filled = {
+            let body = call.body.to_vec();
+            let headers = call.headers.clone();
+            move |prompt: &str| {
+                (tasks::Call {
+                    headers,
+                    body: &body,
+                })
+                .fill(prompt)
+            }
+        };
+        self.run_with(id, Some("Webhook".into()), filled);
         Hooked::Ran
     }
 
@@ -259,15 +270,21 @@ impl Shared {
             return;
         }
         let meta = self.meta(&m.agent, &m.session);
-        let (moment, said) = match &m.what {
-            Happened::TurnEnded(how) => {
-                (tasks::Moment::TurnEnded, format!("its turn ended ({how})"))
-            }
-            Happened::Asks { title, .. } => {
-                (tasks::Moment::Asks, format!("its agent asks: {title}"))
-            }
-        };
         let title = meta.as_ref().map_or("", |m| m.title.as_str());
+        let (moment, said, note) = match &m.what {
+            Happened::TurnEnded(how) => (
+                tasks::Moment::TurnEnded,
+                format!("its turn ended ({how})"),
+                format!("after a turn in “{title}”"),
+            ),
+            Happened::Asks {
+                title: question, ..
+            } => (
+                tasks::Moment::Asks,
+                format!("its agent asks: {question}"),
+                format!("after a question in “{title}”"),
+            ),
+        };
         let said = format!("In “{title}” ({} thread {}): {said}", m.agent, m.session.0);
         let event = tasks::untrusted("event", &said);
         let due: Vec<u64> = match &*self.tasks.lock().expect("tasks") {
@@ -285,26 +302,48 @@ impl Shared {
             Err(_) => Vec::new(),
         };
         for id in due {
-            self.run(id, |prompt| prompt.replace("{{event}}", &event));
+            let ev = event.clone();
+            self.run_with(id, Some(note.clone()), move |prompt| {
+                prompt.replace("{{event}}", &ev)
+            });
         }
     }
 
     /// Run the task `id`: its run marked going, its next one set, and its
     /// prompt (filled by `fill`, for what ran it) said, or its workflow
     /// begun with it; then how it went kept.
-    pub(super) fn run(&self, id: u64, fill: impl FnOnce(&str) -> String) {
+    pub(super) fn run_with(
+        &self,
+        id: u64,
+        triggered_by: Option<String>,
+        fill: impl FnOnce(&str) -> String + Send + 'static,
+    ) {
         let now = store::secs(std::time::SystemTime::now());
-        let mut task = None;
+        let mut action = None;
         self.change_tasks(|all| {
             let Some(t) = all.tasks.iter_mut().find(|t| t.id == id) else {
                 return;
             };
+            let going = t.last.as_ref().is_some_and(|r| r.going);
             let busy = t
                 .session
                 .as_ref()
                 .is_some_and(|s| t.same && self.happened.busy(&t.agent, s));
-            if t.last.as_ref().is_some_and(|r| r.going) || busy {
-                return;
+            if going || busy {
+                match t.if_running {
+                    tasks::Overlap::Skip => return,
+                    tasks::Overlap::Queue => {
+                        t.next = t.schedule.next(now);
+                        action = Some((true, t.clone()));
+                        return;
+                    }
+                    tasks::Overlap::Parallel if t.same && busy => {
+                        t.next = t.schedule.next(now);
+                        action = Some((true, t.clone()));
+                        return;
+                    }
+                    tasks::Overlap::Parallel => {}
+                }
             }
             t.next = t.schedule.next(now);
             t.runs += 1;
@@ -313,19 +352,62 @@ impl Shared {
                 session: None,
                 going: true,
                 error: None,
+                triggered_by: triggered_by.clone(),
             });
-            task = Some(t.clone());
+            action = Some((false, t.clone()));
         });
-        let Some(mut task) = task else { return };
-        task.prompt = fill(&task.prompt);
+        let Some((wait_first, mut task)) = action else {
+            return;
+        };
         let this = self.clone();
         acp::runtime().spawn(async move {
+            if wait_first {
+                for _ in 0..720 {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    let still_busy = match &*this.tasks.lock().expect("tasks") {
+                        Ok(all) => all.tasks.iter().find(|t| t.id == id).is_some_and(|t| {
+                            t.last.as_ref().is_some_and(|r| r.going)
+                                || t.session
+                                    .as_ref()
+                                    .is_some_and(|s| t.same && this.happened.busy(&t.agent, s))
+                        }),
+                        Err(_) => true,
+                    };
+                    if !still_busy {
+                        break;
+                    }
+                }
+                let started_now = store::secs(std::time::SystemTime::now());
+                let mut ready = None;
+                this.change_tasks(|all| {
+                    if let Some(t) = all.tasks.iter_mut().find(|t| t.id == id && !t.paused) {
+                        t.runs += 1;
+                        t.last = Some(Run {
+                            at: started_now,
+                            session: None,
+                            going: true,
+                            error: None,
+                            triggered_by: triggered_by.clone(),
+                        });
+                        ready = Some(t.clone());
+                    }
+                });
+                let Some(t) = ready else { return };
+                task = t;
+            }
+            task.prompt = fill(&task.prompt);
+            let trigger_label = triggered_by
+                .clone()
+                .unwrap_or_else(|| "Schedule".to_owned());
             let result = match &task.workflow {
-                Some(flow) => (this.start_flow(flow.clone(), task.prompt.clone()))
-                    .map(|_| None)
-                    .map_err(|why| (None, why)),
+                Some(flow) => {
+                    (this.start_flow_by(flow.clone(), task.prompt.clone(), trigger_label))
+                        .map(|_| None)
+                        .map_err(|why| (None, why))
+                }
                 None => this.turn_with(&task, |_| {}).await.map(Some),
             };
+            let finished_at = store::secs(std::time::SystemTime::now());
             this.change_tasks(|all| {
                 let Some(t) = all.tasks.iter_mut().find(|t| t.id == task.id) else {
                     return;
@@ -339,10 +421,11 @@ impl Shared {
                 }
                 let done = error.is_none() && matches!(t.schedule, tasks::Schedule::Once(_));
                 t.last = Some(Run {
-                    at: now,
+                    at: finished_at,
                     session,
                     going: false,
                     error,
+                    triggered_by,
                 });
                 // One said once is done with once it was said.
                 if done {
@@ -388,6 +471,9 @@ impl Shared {
                 paused: false,
                 same: session.is_some(),
                 worktree: false,
+                if_running: tasks::Overlap::Skip,
+                timeout_mins: None,
+                notify: true,
                 workflow: None,
                 session,
                 next: None,
@@ -556,12 +642,28 @@ impl Shared {
         );
         let on = (task.agent.clone(), id.clone());
         self.happened.begin(&on.0, &on.1, true);
-        let said = agent
-            .request(PromptRequest::new(
-                id.clone(),
-                vec![task.prompt.clone().into()],
-            ))
-            .await;
+        let ask = PromptRequest::new(id.clone(), vec![task.prompt.clone().into()]);
+        let said = match task.timeout_mins.filter(|m| *m > 0) {
+            Some(mins) => {
+                if let Ok(res) = tokio::time::timeout(
+                    Duration::from_secs(u64::from(mins) * 60),
+                    agent.request(ask),
+                )
+                .await
+                {
+                    res
+                } else {
+                    agent.cancel(agent_client_protocol::v1::schema::CancelNotification::new(
+                        id.clone(),
+                    ));
+                    Err(crate::acp::Error::new(
+                        -32603,
+                        format!("Stopped after {mins} min"),
+                    ))
+                }
+            }
+            None => agent.request(ask).await,
+        };
         let secs = now.elapsed().map_or(0, |d| d.as_secs());
         let tokens = said
             .as_ref()
@@ -633,6 +735,9 @@ impl Shared {
             paused: false,
             same: false,
             worktree: false,
+            if_running: tasks::Overlap::Skip,
+            timeout_mins: None,
+            notify: true,
             workflow: None,
             session: None,
             next: None,
@@ -776,6 +881,9 @@ fn wake(meta: &Meta, id: SessionId, said: String) -> Task {
         paused: false,
         same: true,
         worktree: false,
+        if_running: tasks::Overlap::Skip,
+        timeout_mins: None,
+        notify: true,
         workflow: None,
         session: Some(id),
         next: None,
@@ -916,6 +1024,9 @@ done"#,
             paused: false,
             same: true,
             worktree: false,
+            if_running: tasks::Overlap::Skip,
+            timeout_mins: None,
+            notify: true,
             workflow: None,
             session: None,
             next: None,

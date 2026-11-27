@@ -24,7 +24,7 @@ use shell::Within;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Workflow {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub name: String,
     /// What it is for, in a line.
     #[serde(default)]
@@ -35,6 +35,9 @@ pub struct Workflow {
     /// The project its steps work in, unless one says another.
     #[serde(default)]
     pub project: Option<PathBuf>,
+    /// Whether each run works in a fresh worktree of `project`.
+    #[serde(default)]
+    pub worktree: bool,
     pub steps: Vec<Step>,
 }
 
@@ -51,6 +54,8 @@ pub enum Step {
         agent: Option<String>,
         #[serde(default)]
         model: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mode: Option<String>,
         #[serde(default)]
         project: Option<PathBuf>,
         #[serde(default)]
@@ -64,12 +69,14 @@ pub enum Step {
     /// of a plain command is refused (`shell`). One given a command as an
     /// operand goes after `--`; a
     /// command that runs its words (`sh -c`, `ssh`) runs a value. One
-    /// that fails pauses the run.
+    /// that fails pauses the run unless `continue_on_error` is set.
     Run {
         name: String,
         command: String,
         #[serde(default)]
         dir: Option<PathBuf>,
+        #[serde(default)]
+        continue_on_error: bool,
     },
     /// Ask you `title`, with `choices`; its result is your choice. A
     /// choice among `stop` ends the run there.
@@ -108,14 +115,23 @@ pub struct Run {
     pub id: u64,
     pub workflow: String,
     pub input: String,
+    /// How this run was started ("By hand", "Webhook", "Schedule", "Event").
+    #[serde(default)]
+    pub trigger: String,
     /// When it began (seconds since the epoch).
     pub began: u64,
+    /// When it ended or stopped (seconds since the epoch).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended: Option<u64>,
     pub state: State,
     /// Each step done, in order: the next is the one it is at.
     pub done: Vec<Done>,
     /// The session of the agent step going on, by agent and id.
     #[serde(default)]
     pub turn: Option<(String, SessionId)>,
+    /// The worktree made for this run, when the workflow asks for one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worktree: Option<crate::git::Worktree>,
 }
 
 /// Where a run stands.
@@ -143,6 +159,12 @@ pub struct Done {
     /// The session an agent step was said in, by agent and id.
     #[serde(default)]
     pub session: Option<(String, SessionId)>,
+    /// Elapsed seconds spent on this step.
+    #[serde(default)]
+    pub secs: u64,
+    /// Shell exit code for a command step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit_code: Option<i32>,
 }
 
 impl Run {
@@ -274,6 +296,43 @@ pub fn find(home: &Path, name: &str) -> Result<Workflow, String> {
     read(&folder(home).join(format!("{name}.json")), name.to_owned()).map_err(|(_, why)| why)
 }
 
+fn valid_flow_name(name: &str) -> Result<(), String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() || trimmed.contains(['/', '\\', '.', '\0']) || trimmed != name {
+        return Err("Give the workflow a plain file stem name without slashes or dots.".into());
+    }
+    Ok(())
+}
+
+/// Save `flow` to `workflows/<name>.json` in `home` (without a `"name"` field
+/// in the JSON body, since the filename is the source of truth).
+pub fn save(home: &Path, mut flow: Workflow) -> Result<(), String> {
+    valid_flow_name(&flow.name)?;
+    let mut seen = std::collections::HashSet::new();
+    if let Some(twice) = flow
+        .steps
+        .iter()
+        .find(|s| !seen.insert(s.name().to_owned()))
+    {
+        return Err(format!("Two steps are named “{}”", twice.name()));
+    }
+    let name = std::mem::take(&mut flow.name);
+    let path = folder(home).join(format!("{name}.json"));
+    let bytes = serde_json::to_vec_pretty(&flow).map_err(|e| e.to_string())?;
+    whole::write(&path, &bytes).map_err(|e| e.to_string())
+}
+
+/// Remove `workflows/<name>.json` from `home`.
+pub fn remove(home: &Path, name: &str) -> Result<(), String> {
+    valid_flow_name(name)?;
+    let path = folder(home).join(format!("{name}.json"));
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 pub fn runs_path(home: &Path) -> PathBuf {
     home.join("runs.json")
 }
@@ -334,14 +393,19 @@ mod tests {
             id: 1,
             workflow: "w".into(),
             input: "v1.4".into(),
+            trigger: String::new(),
             began: 0,
+            ended: None,
             state: State::Going,
             done: vec![Done {
                 name: "notes".into(),
                 result: "3 fixes\n".into(),
                 session: None,
+                secs: 2,
+                exit_code: None,
             }],
             turn: None,
+            worktree: None,
         };
         assert_eq!(run.fill("Ship {{input}}? {{notes}}"), "Ship v1.4? 3 fixes");
         assert_eq!(run.fill("{{later}}"), "{{later}}");
@@ -353,10 +417,13 @@ mod tests {
             id: 1,
             workflow: "w".into(),
             input: "a[$(touch pwned)]".into(),
+            trigger: String::new(),
             began: 0,
+            ended: None,
             state: State::Going,
             done: Vec::new(),
             turn: None,
+            worktree: None,
         };
         for evaluated in [
             "[[ \"{{input}}\" -eq 1 ]] && echo one",
@@ -449,10 +516,13 @@ mod tests {
                 id: 1,
                 workflow: "w".into(),
                 input: input.into(),
+                trigger: String::new(),
                 began: 0,
+                ended: None,
                 state: State::Going,
                 done: Vec::new(),
                 turn: None,
+                worktree: None,
             };
             for template in [
                 "printf '%s|' \"{{input}}\"",
@@ -484,14 +554,19 @@ mod tests {
             id: 1,
             workflow: "w".into(),
             input: "v1 {{notes}}".into(),
+            trigger: String::new(),
             began: 0,
+            ended: None,
             state: State::Going,
             done: vec![Done {
                 name: "notes".into(),
                 result: format!("{said}\n"),
                 session: None,
+                secs: 1,
+                exit_code: None,
             }],
             turn: None,
+            worktree: None,
         };
         let (line, values) = run
             .command("printf '%s|' {{input}} {{notes}} {{later}}")
@@ -508,5 +583,27 @@ mod tests {
             format!("v1 {{{{notes}}}}|{said}|{{{{later}}}}|")
         );
         assert!(!dir.path().join("pwned").exists());
+    }
+
+    #[test]
+    fn a_workflow_saved_by_u0_reads_back_cleanly_and_can_be_removed() {
+        let home = tempfile::tempdir().unwrap();
+        let flow = Workflow {
+            name: "release".into(),
+            about: "Ship a version".into(),
+            agent: Some("claude-acp".into()),
+            project: Some("/p".into()),
+            worktree: true,
+            steps: vec![Step::Run {
+                name: "test".into(),
+                command: "pnpm test".into(),
+                dir: None,
+                continue_on_error: true,
+            }],
+        };
+        save(home.path(), flow.clone()).unwrap();
+        assert_eq!(find(home.path(), "release").unwrap(), flow);
+        remove(home.path(), "release").unwrap();
+        assert!(find(home.path(), "release").is_err());
     }
 }

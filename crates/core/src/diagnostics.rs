@@ -23,13 +23,25 @@ pub struct Proc {
 }
 
 /// u0's processes, and this Mac: its load over one, five and fifteen
-/// minutes, its cores and its memory in bytes.
+/// minutes, its cores, its memory in bytes, and how long u0 has been running.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Processes {
     pub procs: Vec<Proc>,
     pub load: String,
     pub cores: u32,
     pub memory: u64,
+    #[serde(default)]
+    pub uptime_secs: u64,
+}
+
+/// One deduplicated warning or error entry from u0's log.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LogTrouble {
+    pub level: String,
+    pub source: String,
+    pub message: String,
+    pub count: u32,
+    pub time: String,
 }
 
 /// The machine as last read: kept between reads, since a process's CPU is
@@ -73,6 +85,16 @@ pub fn processes(root: u32) -> Processes {
         })
         .collect();
     let mut procs = Vec::new();
+    let uptime_secs = system.process(Pid::from_u32(root)).map_or(0, |p| {
+        procs.push(Proc {
+            pid: root,
+            depth: 0,
+            cpu: p.cpu_usage(),
+            kb: p.memory() / 1024,
+            name: p.name().to_string_lossy().into_owned(),
+        });
+        p.run_time()
+    });
     walk(&all, root, 1, &mut procs);
     Processes {
         procs,
@@ -82,6 +104,7 @@ pub fn processes(root: u32) -> Processes {
         ),
         cores: system.cpus().len() as u32,
         memory: system.total_memory(),
+        uptime_secs,
     }
 }
 
@@ -104,8 +127,13 @@ fn walk(all: &[Read], at: u32, depth: usize, out: &mut Vec<Proc>) {
 /// Send the process `pid` the signal `signal` (TERM, KILL), where it is
 /// one of those under `root`; what was done, or why not.
 pub fn signal(root: u32, pid: u32, signal: &str) -> Result<String, String> {
-    if !processes(root).procs.iter().any(|p| p.pid == pid) {
-        return Err(format!("{pid} is not one of u0's processes"));
+    if pid == root
+        || !processes(root)
+            .procs
+            .iter()
+            .any(|p| p.pid == pid && p.depth > 0)
+    {
+        return Err(format!("{pid} is not one of u0's child processes"));
     }
     let sent = match signal {
         "KILL" => Signal::Kill,
@@ -138,8 +166,8 @@ fn send(pid: u32, sent: Signal) -> bool {
 }
 
 /// What went wrong lately, as u0's log in `home` says: its warnings
-/// and errors, the last `most`, newest first.
-pub fn troubles(home: &Path, most: usize) -> Vec<String> {
+/// and errors, deduplicated with counts, the last `most`, newest first.
+pub fn troubles(home: &Path, most: usize) -> Vec<LogTrouble> {
     let mut files: Vec<_> = std::fs::read_dir(home.join("logs"))
         .into_iter()
         .flatten()
@@ -147,21 +175,55 @@ pub fn troubles(home: &Path, most: usize) -> Vec<String> {
         .map(|e| e.path())
         .collect();
     files.sort();
-    let mut found = Vec::new();
+    let mut out: Vec<LogTrouble> = Vec::new();
     for file in files.iter().rev() {
         let text = std::fs::read_to_string(file).unwrap_or_default();
-        found.extend(
-            text.lines()
-                .rev()
-                .filter(|l| l.contains(" ERROR ") || l.contains(" WARN "))
-                .map(str::to_owned),
-        );
-        if found.len() >= most {
+        for line in text.lines().rev() {
+            let Some(parsed) = parse_log_trouble(line) else {
+                continue;
+            };
+            if let Some(existing) = out.iter_mut().find(|t| {
+                t.level == parsed.level && t.source == parsed.source && t.message == parsed.message
+            }) {
+                existing.count += 1;
+            } else if out.len() < most {
+                out.push(parsed);
+            }
+        }
+        if out.len() >= most {
             break;
         }
     }
-    found.truncate(most);
-    found
+    out
+}
+
+fn parse_log_trouble(line: &str) -> Option<LogTrouble> {
+    let (level, before, after) = if let Some((b, a)) = line.split_once(" ERROR ") {
+        ("error", b, a)
+    } else if let Some((b, a)) = line.split_once(" WARN ") {
+        ("warn", b, a)
+    } else {
+        return None;
+    };
+    let raw_time = before.trim();
+    // Extract HH:MM:SS if RFC-3339-like (`2026-11-27T10:12:04.123Z`), else keep trimmed token.
+    let time = raw_time
+        .split_once('T')
+        .map_or(raw_time, |(_, rest)| {
+            rest.split(['.', 'Z', '+', '-']).next().unwrap_or(rest)
+        })
+        .to_owned();
+    let (source, message) = match after.trim().split_once(": ") {
+        Some((src, msg)) => (src.trim().to_owned(), msg.trim().to_owned()),
+        None => ("u0".to_owned(), after.trim().to_owned()),
+    };
+    Some(LogTrouble {
+        level: level.to_owned(),
+        source,
+        message,
+        count: 1,
+        time,
+    })
 }
 
 #[cfg(test)]
@@ -219,11 +281,28 @@ mod tests {
         std::fs::create_dir(home.path().join("logs")).unwrap();
         std::fs::write(
             home.path().join("logs/u0.2026-11-25.log"),
-            "t1  INFO u0: started\nt2  WARN u0: slow\nt3 ERROR u0: broke\n",
+            "t1  INFO u0: started\nt2  WARN u0: slow\nt3  WARN u0: slow\nt4 ERROR acp: broke\n",
         )
         .unwrap();
         let t = troubles(home.path(), 10);
         assert_eq!(t.len(), 2);
-        assert!(t[0].contains("broke") && t[1].contains("slow"));
+        assert_eq!(
+            (
+                t[0].level.as_str(),
+                t[0].source.as_str(),
+                t[0].message.as_str(),
+                t[0].count
+            ),
+            ("error", "acp", "broke", 1)
+        );
+        assert_eq!(
+            (
+                t[1].level.as_str(),
+                t[1].message.as_str(),
+                t[1].count,
+                t[1].time.as_str()
+            ),
+            ("warn", "slow", 2, "t3")
+        );
     }
 }

@@ -324,23 +324,9 @@ impl Desk {
         }
     }
 
-    /// Measure what u0 keeps on the server the settings are of.
-    pub fn measure(&self) {
-        let host = self.pages.on;
-        self.call(
-            host,
-            Call::Sizes {
-                worktrees: self.worktree_folders(host),
-            },
-        );
-    }
-
-    /// Tidy `what` on the server the settings are of, around the sessions
-    /// it keeps.
-    pub fn tidy(&mut self, what: crate::tidy::Tidy, cx: &mut Context<Self>) {
-        let host = self.pages.on;
+    fn kept_on(&self, host: crate::hub::Host) -> crate::tidy::Kept {
         let there = || self.sessions.all.iter().filter(move |s| s.host == host);
-        let kept = crate::tidy::Kept {
+        crate::tidy::Kept {
             records: there()
                 .filter_map(|s| Some((s.meta.agent.clone(), s.meta.id.as_ref()?.0.to_string())))
                 .collect(),
@@ -353,7 +339,25 @@ impl Desk {
                 .filter(|s| !s.turns.is_empty())
                 .map(Session::uid)
                 .collect(),
-        };
+        }
+    }
+
+    /// Measure what u0 keeps on the server the settings are of.
+    pub fn measure(&self) {
+        let host = self.pages.on;
+        self.call(
+            host,
+            Call::Sizes {
+                kept: self.kept_on(host),
+            },
+        );
+    }
+
+    /// Tidy `what` on the server the settings are of, around the sessions
+    /// it keeps.
+    pub fn tidy(&mut self, what: crate::tidy::Tidy, cx: &mut Context<Self>) {
+        let host = self.pages.on;
+        let kept = self.kept_on(host);
         self.pages.tidied = None;
         self.call(host, Call::Tidy { what, kept });
         cx.notify();

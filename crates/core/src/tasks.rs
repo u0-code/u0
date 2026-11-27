@@ -21,9 +21,28 @@ pub struct Tasks {
     pub tasks: Vec<Task>,
 }
 
+/// What happens when a scheduled task is triggered while an earlier run is
+/// still going.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Overlap {
+    #[default]
+    Skip,
+    Queue,
+    Parallel,
+}
+
+const fn default_true() -> bool {
+    true
+}
+
 /// A prompt said on a schedule.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is a choice of its own, not a state among several"
+)]
 pub struct Task {
     /// Its number, given by the server when it is first kept; 0 until then.
     pub id: u64,
@@ -49,6 +68,15 @@ pub struct Task {
     /// Each new session works in a worktree of its own.
     #[serde(default)]
     pub worktree: bool,
+    /// What to do if a run of this task is already going when triggered.
+    #[serde(default)]
+    pub if_running: Overlap,
+    /// Stop a run that goes past this many minutes and mark it failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_mins: Option<u32>,
+    /// Notify when an unattended run asks a question or fails.
+    #[serde(default = "default_true")]
+    pub notify: bool,
     /// The workflow each run starts, its prompt (filled as a webhook's or
     /// an event's is) the run's input; none, the prompt is said to the
     /// agent.
@@ -303,6 +331,9 @@ pub struct Run {
     pub going: bool,
     /// Why it failed, if it did.
     pub error: Option<String>,
+    /// What triggered it (for example, which session's turn ended).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub triggered_by: Option<String>,
 }
 
 /// The shortest interval a task runs at, as t3code's.
@@ -554,6 +585,9 @@ mod tests {
                 paused: false,
                 same: true,
                 worktree: false,
+                if_running: Overlap::Queue,
+                timeout_mins: Some(30),
+                notify: true,
                 workflow: None,
                 session: None,
                 next: Some(10),

@@ -20,11 +20,49 @@ impl Server {
         self.shared.say_flows();
     }
 
+    /// Save or update `flow` in `workflows/<name>.json`, then say the workflows.
+    pub(super) fn set_workflow(&self, flow: Workflow) {
+        let name = format!("Couldn't save {}", flow.name);
+        if let Err(why) = workflows::save(&self.shared.home, flow) {
+            (self.shared.send)(Event::Notice(Err((name, why))));
+        }
+        self.shared.say_flows();
+    }
+
+    /// Delete `workflows/<name>.json`, then say the workflows.
+    pub(super) fn drop_workflow(&self, flow_name: &str) {
+        let title = format!("Couldn't remove {flow_name}");
+        if let Err(why) = workflows::remove(&self.shared.home, flow_name) {
+            (self.shared.send)(Event::Notice(Err((title, why))));
+        }
+        self.shared.say_flows();
+    }
+
     /// Begin a run of the workflow `workflow` with `input`.
     pub(super) fn start_flow(&self, workflow: String, input: String) {
         let name = format!("Couldn't start {workflow}");
-        if let Err(why) = self.shared.start_flow(workflow, input) {
+        if let Err(why) = self.shared.start_flow_by(workflow, input, "By hand".into()) {
             (self.shared.send)(Event::Notice(Err((name, why))));
+        }
+    }
+
+    /// Re-run the run `id` from step index `step`, truncating later results.
+    pub(super) fn rerun_flow_from(&self, id: u64, step: usize) {
+        let mut going = false;
+        self.shared.change_runs(|all| {
+            if let Some(run) = all
+                .runs
+                .iter_mut()
+                .find(|r| r.id == id && r.state != State::Going)
+            {
+                run.done.truncate(step);
+                run.ended = None;
+                run.state = State::Going;
+                going = true;
+            }
+        });
+        if going {
+            self.shared.advance(id);
         }
     }
 
@@ -32,6 +70,7 @@ impl Server {
     pub(super) fn answer_flow(&self, id: u64, choice: String) {
         let home = self.shared.home.clone();
         let mut going = false;
+        let now = store::secs(std::time::SystemTime::now());
         self.shared.change_runs(|all| {
             let Some(run) = all
                 .runs
@@ -47,6 +86,7 @@ impl Server {
                 return;
             };
             run.state = if stop.contains(&choice) {
+                run.ended = Some(now);
                 State::Stopped(format!("{choice}, at “{name}”"))
             } else {
                 going = true;
@@ -56,6 +96,8 @@ impl Server {
                 name: name.clone(),
                 result: choice,
                 session: None,
+                secs: 0,
+                exit_code: None,
             });
         });
         if going {
@@ -70,6 +112,7 @@ impl Server {
             if let Some(run) =
                 (all.runs.iter_mut()).find(|r| r.id == id && matches!(r.state, State::Paused(_)))
             {
+                run.ended = None;
                 run.state = State::Going;
                 going = true;
             }
@@ -82,8 +125,10 @@ impl Server {
     /// Cancel the run `id`: the turn it has going is stopped.
     pub(super) fn cancel_flow(&self, id: u64) {
         let mut turn = None;
+        let now = store::secs(std::time::SystemTime::now());
         self.shared.change_runs(|all| {
             if let Some(run) = all.runs.iter_mut().find(|r| r.id == id && !r.over()) {
+                run.ended = Some(now);
                 run.state = State::Cancelled;
                 turn = run.turn.take();
             }
@@ -100,6 +145,16 @@ impl Shared {
     /// Begin a run of the workflow `workflow` with `input`: its number, or
     /// why not.
     pub(super) fn start_flow(&self, workflow: String, input: String) -> Result<u64, String> {
+        self.start_flow_by(workflow, input, "By hand".into())
+    }
+
+    /// Begin a run of `workflow` with `input` and `trigger` label.
+    pub(super) fn start_flow_by(
+        &self,
+        workflow: String,
+        input: String,
+        trigger: String,
+    ) -> Result<u64, String> {
         workflows::find(&self.home, &workflow)?;
         let mut id = 0;
         self.change_runs(|all| {
@@ -108,10 +163,13 @@ impl Shared {
                 id,
                 workflow,
                 input,
+                trigger,
                 began: store::secs(std::time::SystemTime::now()),
+                ended: None,
                 state: State::Going,
                 done: Vec::new(),
                 turn: None,
+                worktree: None,
             });
         });
         if id == 0 {
@@ -168,13 +226,55 @@ impl Shared {
                     Ok(flow) => flow,
                     Err(why) => return this.end(id, State::Paused(why)),
                 };
+                let mut run = run;
+                if flow.worktree
+                    && run.worktree.is_none()
+                    && let Some(project) = flow.project.clone()
+                {
+                    let (home, about) = (this.home.clone(), format!("{} {}", flow.name, run.id));
+                    let made = tokio::task::spawn_blocking(move || {
+                        let settings = crate::settings::Settings::load(&home).0;
+                        let under = settings.worktree_folders(&home).remove(0);
+                        let from = crate::git::fresh_base(&project);
+                        let wt = crate::git::worktree(
+                            &project,
+                            &about,
+                            &under,
+                            &settings.branch_prefix,
+                            &from,
+                            None,
+                        )?;
+                        crate::git::submodules(&wt, settings.of(&project).submodules);
+                        Ok::<_, String>(wt)
+                    })
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r);
+                    match made {
+                        Ok(wt) => {
+                            this.change_runs(|all| {
+                                if let Some(r) = all.runs.iter_mut().find(|r| r.id == id) {
+                                    r.worktree = Some(wt.clone());
+                                }
+                            });
+                            run.worktree = Some(wt);
+                        }
+                        Err(why) => return this.end(id, State::Paused(why)),
+                    }
+                }
                 let Some(step) = flow.steps.get(run.done.len()).cloned() else {
                     return this.end(id, State::Done);
                 };
                 let done = match &step {
                     Step::Ask { .. } => return this.end(id, State::Asking),
-                    Step::Run { command, dir, .. } => {
-                        this.command(&run, &flow, command, dir.as_ref()).await
+                    Step::Run {
+                        command,
+                        dir,
+                        continue_on_error,
+                        ..
+                    } => {
+                        this.command(&run, &flow, command, dir.as_ref(), *continue_on_error)
+                            .await
                     }
                     Step::Agent { .. } => this.agent_step(&run, &flow, &step).await,
                 };
@@ -204,12 +304,16 @@ impl Shared {
 
     /// The run `id` stands at `state` now, unless it was cancelled.
     fn end(&self, id: u64, state: State) {
+        let now = store::secs(std::time::SystemTime::now());
         self.change_runs(|all| {
             if let Some(r) = all
                 .runs
                 .iter_mut()
                 .find(|r| r.id == id && r.state == State::Going)
             {
+                if matches!(state, State::Done | State::Paused(_) | State::Stopped(_)) {
+                    r.ended = Some(now);
+                }
                 r.state = state;
             }
         });
@@ -223,13 +327,16 @@ impl Shared {
         flow: &Workflow,
         command: &str,
         dir: Option<&std::path::PathBuf>,
+        continue_on_error: bool,
     ) -> Result<Done, String> {
         let dir = dir
+            .or_else(|| run.worktree.as_ref().map(|w| &w.path))
             .or(flow.project.as_ref())
             .cloned()
             .ok_or("Name a project or a dir for it")?;
         let (line, values) = run.command(command)?;
         let name = flow.steps[run.done.len()].name().to_owned();
+        let started = std::time::Instant::now();
         let out = tokio::task::spawn_blocking(move || {
             std::process::Command::new("/bin/sh")
                 .args(["-c", &line, "u0"])
@@ -241,15 +348,33 @@ impl Shared {
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
+        let secs = started.elapsed().as_secs();
+        let exit_code = out.status.code();
         let said = String::from_utf8_lossy(&out.stdout).into_owned();
         if !out.status.success() {
             let err = String::from_utf8_lossy(&out.stderr);
-            return Err(format!("“{name}” failed ({}): {}", out.status, err.trim()));
+            if !continue_on_error {
+                let detail = if err.trim().is_empty() {
+                    said.trim()
+                } else {
+                    err.trim()
+                };
+                return Err(format!("“{name}” failed ({}): {detail}", out.status));
+            }
+            return Ok(Done {
+                name,
+                result: format!("{said}{err}"),
+                session: None,
+                secs,
+                exit_code,
+            });
         }
         Ok(Done {
             name,
             result: said,
             session: None,
+            secs,
+            exit_code,
         })
     }
 
@@ -261,6 +386,7 @@ impl Shared {
             prompt,
             agent,
             model,
+            mode,
             project,
             worktree,
             after,
@@ -274,6 +400,7 @@ impl Shared {
             .ok_or("Name an agent for it")?;
         let project = project
             .clone()
+            .or_else(|| run.worktree.as_ref().map(|w| w.path.clone()))
             .or_else(|| flow.project.clone())
             .ok_or("Name a project for it")?;
         let session = match after {
@@ -292,12 +419,15 @@ impl Shared {
             prompt: run.fill(prompt),
             agent: agent.clone(),
             model: model.clone(),
-            mode: None,
+            mode: mode.clone(),
             project,
             schedule: Schedule::Every(0),
             paused: false,
             same: session.is_some(),
-            worktree: *worktree,
+            worktree: *worktree && run.worktree.is_none(),
+            if_running: crate::tasks::Overlap::Skip,
+            timeout_mins: None,
+            notify: true,
             workflow: None,
             session,
             next: None,
@@ -305,6 +435,7 @@ impl Shared {
             runs: 0,
         };
         let (on, id) = (agent.clone(), run.id);
+        let started = std::time::Instant::now();
         let at = self.turn_with(&task, |session| {
             self.change_runs(|all| {
                 if let Some(r) = all.runs.iter_mut().find(|r| r.id == id) {
@@ -313,6 +444,7 @@ impl Shared {
             });
         });
         let said = at.await.map_err(|(_, why)| why)?;
+        let secs = started.elapsed().as_secs();
         self.change_runs(|all| {
             if let Some(r) = all.runs.iter_mut().find(|r| r.id == id) {
                 r.turn = None;
@@ -322,6 +454,8 @@ impl Shared {
             name: name.clone(),
             result: self.said_in(&agent, &said, true).await,
             session: Some((agent, said)),
+            secs,
+            exit_code: None,
         })
     }
 

@@ -57,6 +57,8 @@ pub enum Share {
     Withdraw,
     /// Set the icon this machine shows to other devices.
     Icon(crate::access::MachineIcon),
+    /// Install or uninstall the launchd background service on this Mac.
+    Service(bool),
 }
 
 /// How sharing stands.
@@ -72,6 +74,9 @@ pub struct Shared {
     /// The named tunnel's address; none, a quick one.
     pub named: Option<String>,
     pub awake: bool,
+    /// Whether the launchd background service (`u0 service`) is installed.
+    #[serde(default)]
+    pub service: bool,
     /// The icon this machine shows.
     #[serde(default)]
     pub icon: crate::access::MachineIcon,
@@ -223,6 +228,14 @@ impl Server {
                 self.sharing().link = None;
             }
             Share::Icon(icon) => access.change(|k| k.icon = icon),
+            Share::Service(on) => {
+                if let Err(why) = crate::cli::set_service(self.home(), on) {
+                    self.say(Event::Notice(Err((
+                        "Couldn't change the background service".into(),
+                        why,
+                    ))));
+                }
+            }
             Share::Link(grant, route) => {
                 self.offer(grant, route);
             }
@@ -552,6 +565,7 @@ impl Server {
                     .and_then(|k| k.named.as_ref())
                     .map(|n| n.host.clone()),
                 awake: kept.as_ref().is_ok_and(|k| k.awake),
+                service: crate::cli::service_installed(self.home()),
                 icon: kept.as_ref().map(|k| k.icon).unwrap_or_default(),
                 devices: kept.map(|k| k.devices),
                 linked,

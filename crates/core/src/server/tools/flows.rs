@@ -121,7 +121,7 @@ impl Tools {
                 let paused = matches!(ask.change, Change::Pause);
                 self.shared.set_task(crate::tasks::Task { paused, ..task });
             }
-            Change::Run => self.shared.run(ask.id, str::to_owned),
+            Change::Run => self.shared.run_with(ask.id, None, str::to_owned),
             Change::Remove => self.shared.drop_task(ask.id),
         }
         Ok("Done.".into())

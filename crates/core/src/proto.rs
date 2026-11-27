@@ -428,10 +428,9 @@ pub enum Call {
     /// Install `AXe` with Homebrew, as you asked in the Devices tab; then
     /// the devices, listed again.
     InstallAxe,
-    /// How much each part of u0's home takes, its worktrees those in
-    /// `worktrees`.
+    /// How much each part of u0's home takes, and what can be tidied.
     Sizes {
-        worktrees: Vec<PathBuf>,
+        kept: tidy::Kept,
     },
     /// Tidy `what` around what is `kept`, then measure again.
     Tidy {
@@ -501,10 +500,19 @@ pub enum Call {
     /// The workflows and their runs: answered, as each change to a run
     /// is, with [`Event::Workflows`].
     Workflows,
+    /// Save or update a workflow definition (`workflows/<name>.json`).
+    SetWorkflow(workflows::Workflow),
+    /// Remove a workflow definition (`workflows/<name>.json`).
+    DropWorkflow(String),
     /// Begin a run of the workflow `workflow` with `input`.
     StartFlow {
         workflow: String,
         input: String,
+    },
+    /// Re-run `run` starting from step index `step`.
+    RerunFlowFrom {
+        run: u64,
+        step: usize,
     },
     /// Answer the question the run `run` waits on.
     AnswerFlow {
@@ -567,7 +575,12 @@ impl Call {
             | Self::PrText { dir, .. }
             | Self::Folders { dir } => vec![dir.as_path()],
             Self::ReadFile { path, .. } => vec![path.as_path()],
-            Self::Sizes { worktrees } => worktrees.iter().map(PathBuf::as_path).collect(),
+            Self::Sizes { kept } => kept
+                .under
+                .iter()
+                .chain(&kept.projects)
+                .map(PathBuf::as_path)
+                .collect(),
             Self::Place { calls, .. } => (calls.iter())
                 .flat_map(|(_, files)| files.iter().map(|(path, _)| path.as_path()))
                 .collect(),
@@ -629,7 +642,10 @@ impl Call {
             | Self::Device { .. }
             | Self::Say { .. }
             | Self::RotateHook(_)
+            | Self::SetWorkflow(_)
+            | Self::DropWorkflow(_)
             | Self::StartFlow { .. }
+            | Self::RerunFlowFrom { .. }
             | Self::AnswerFlow { .. }
             | Self::ResumeFlow(_)
             | Self::CancelFlow(_)
@@ -754,9 +770,13 @@ pub enum Event {
         processes: crate::diagnostics::Processes,
     },
     /// The warnings and errors in u0's log, newest first.
-    Troubles(Vec<String>),
-    /// The batch of telemetry that goes next, as JSON, or why none does.
-    Telemetry(String),
+    Troubles(Vec<crate::diagnostics::LogTrouble>),
+    /// The batch of telemetry that goes next, as JSON, and this install's id.
+    Telemetry {
+        batch: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        install_id: Option<String>,
+    },
     /// What of each agent the registry lists is here, by its id.
     Here(HashMap<String, Here>),
     /// What a CLI of yours says its version is.
@@ -978,7 +998,7 @@ pub enum Event {
         starts: Vec<(ToolCallId, Vec<Option<usize>>)>,
     },
     /// How much each part of u0's home takes, and what a tidying did.
-    Sizes(Vec<(String, u64)>),
+    Sizes(tidy::StorageReport),
     Tidied(String),
     /// What is known of each forge here.
     Forges(Vec<crate::forge::Seen>),
@@ -1362,7 +1382,9 @@ mod tests {
                 calls: vec![(call.clone(), vec![(dir.join("a.rs"), "b\n".into())])],
             },
             Call::Sizes {
-                worktrees: vec![dir.join("w")],
+                kept: of(json!({
+                    "records": [["a", "s1"]], "worktrees": ["/w"], "under": ["/u"], "projects": ["/p"], "uids": ["u"],
+                })),
             },
             Call::Tidy {
                 what: tidy::Tidy::Records,
@@ -1558,7 +1580,15 @@ mod tests {
                 key: 1,
                 starts: vec![(call, vec![Some(3), None])],
             },
-            Event::Sizes(vec![("Thread records".into(), 3)]),
+            Event::Sizes(tidy::StorageReport {
+                buckets: vec![tidy::StorageBucket {
+                    label: "Thread database".into(),
+                    detail: "1 thread".into(),
+                    bytes: 3,
+                    cleanable: Some(2),
+                }],
+                free_bytes: 1024,
+            }),
             Event::Tidied("1 record removed".into()),
             Event::Forges(vec![crate::forge::Seen {
                 host: crate::forge::Host::GitLab,
@@ -1759,6 +1789,9 @@ mod tests {
                 paused: false,
                 same: true,
                 worktree: false,
+                if_running: crate::tasks::Overlap::Skip,
+                timeout_mins: Some(30),
+                notify: true,
                 workflow: None,
                 session: None,
                 next: Some(1),
@@ -1767,10 +1800,20 @@ mod tests {
             }),
             Call::DropTask(1),
             Call::Workflows,
+            Call::SetWorkflow(workflows::Workflow {
+                name: "w".into(),
+                about: "ship".into(),
+                agent: Some("a".into()),
+                project: Some("/p".into()),
+                worktree: true,
+                steps: Vec::new(),
+            }),
+            Call::DropWorkflow("w".into()),
             Call::StartFlow {
                 workflow: "w".into(),
                 input: "i".into(),
             },
+            Call::RerunFlowFrom { run: 1, step: 2 },
             Call::AnswerFlow {
                 run: 1,
                 choice: "Ship".into(),
@@ -1930,10 +1973,20 @@ mod tests {
                     load: "1.0 1.0 1.0".into(),
                     cores: 8,
                     memory: 1 << 34,
+                    uptime_secs: 60,
                 },
             },
-            Event::Troubles(vec!["t ERROR x".into()]),
-            Event::Telemetry("{}".into()),
+            Event::Troubles(vec![crate::diagnostics::LogTrouble {
+                level: "error".into(),
+                source: "acp".into(),
+                message: "x".into(),
+                count: 1,
+                time: "10:12:04".into(),
+            }]),
+            Event::Telemetry {
+                batch: "{}".into(),
+                install_id: Some("id-1".into()),
+            },
             Event::Here(HashMap::from([(
                 "a".to_owned(),
                 Here {
@@ -1958,6 +2011,9 @@ mod tests {
                 paused: false,
                 same: true,
                 worktree: false,
+                if_running: crate::tasks::Overlap::Skip,
+                timeout_mins: None,
+                notify: true,
                 workflow: None,
                 session: None,
                 next: Some(1),
@@ -1970,10 +2026,13 @@ mod tests {
                     id: 1,
                     workflow: "w".into(),
                     input: "i".into(),
+                    trigger: "By hand".into(),
                     began: 1,
+                    ended: Some(2),
                     state: workflows::State::Paused("x".into()),
                     done: Vec::new(),
                     turn: None,
+                    worktree: None,
                 }]),
             },
             Event::TaskTurn {
@@ -2010,6 +2069,7 @@ mod tests {
                 tunnel_since: Some(1),
                 named: None,
                 awake: true,
+                service: false,
                 icon: crate::access::MachineIcon::Server,
                 devices: Ok(vec![crate::access::Device {
                     label: "laptop".into(),

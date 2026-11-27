@@ -33,6 +33,10 @@ pub enum Use {
     Tokens(Tokens),
     /// Where the account stood against one of its limits.
     Limit(Limit),
+    /// One completed turn in the session's record.
+    Turn,
+    /// A turn stopped because an account usage limit was reached.
+    LimitPaused,
 }
 
 /// The tokens a turn took of one model; no model where the agent did not
@@ -129,6 +133,26 @@ impl Limit {
             },
         }
     }
+
+    /// How much of this limit window has elapsed (`0..=100`) at `now_secs`,
+    /// when its duration and reset timestamp are known.
+    pub fn elapsed_pct(&self, now_secs: u64) -> Option<u8> {
+        let span: u64 = match self.window.as_str() {
+            "five_hour" => 5 * 3_600,
+            "seven_day" => 7 * 86_400,
+            w if w.starts_with("seven_day_") => 7 * 86_400,
+            _ => return None,
+        };
+        let resets = self.resets?;
+        if now_secs >= resets {
+            return Some(100);
+        }
+        let left = resets - now_secs;
+        if left >= span {
+            return Some(0);
+        }
+        Some((((span - left) * 100) / span) as u8)
+    }
 }
 
 fn capital(s: &str) -> String {
@@ -183,10 +207,25 @@ pub fn used(events: &[Event]) -> Vec<Used> {
                     }
                 }
             }
-            Event::Ended { tokens, .. } => out.extend(tokens.iter().map(|t| Used {
-                at,
-                what: Use::Tokens(t.clone()),
-            })),
+            Event::Ended { tokens, .. } => {
+                out.push(Used {
+                    at,
+                    what: Use::Turn,
+                });
+                out.extend(tokens.iter().map(|t| Used {
+                    at,
+                    what: Use::Tokens(t.clone()),
+                }));
+            }
+            Event::Note {
+                text,
+                trouble: true,
+            } if text.to_lowercase().contains("limit") => {
+                out.push(Used {
+                    at,
+                    what: Use::LimitPaused,
+                });
+            }
             _ => {}
         }
     }
@@ -277,5 +316,36 @@ mod tests {
         assert_eq!(resets(&said, now), Some(now + Duration::from_secs(3600)));
         let other = Error::new(-32603, "Something else broke");
         assert_eq!(resets(&other, now), None);
+    }
+
+    #[test]
+    fn turns_limit_pauses_and_window_elapsed_share_are_read() {
+        let events = [
+            Event::At(100),
+            Event::Ended {
+                reason: StopReason::EndTurn,
+                secs: 4,
+                tokens: Vec::new(),
+            },
+            Event::At(200),
+            Event::Note {
+                text: "Claude usage limit reached".into(),
+                trouble: true,
+            },
+        ];
+        let items = used(&events);
+        assert!(items.iter().any(|u| u.at == 100 && u.what == Use::Turn));
+        assert!(
+            items
+                .iter()
+                .any(|u| u.at == 200 && u.what == Use::LimitPaused)
+        );
+        let limit = Limit {
+            window: "five_hour".into(),
+            status: "allowed".into(),
+            resets: Some(1_000 + 3 * 3_600 + 36 * 60),
+            used: Some(0.62),
+        };
+        assert_eq!(limit.elapsed_pct(1_000), Some(28));
     }
 }

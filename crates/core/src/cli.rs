@@ -296,7 +296,31 @@ fn standing(label: &str) -> Option<String> {
     ))
 }
 
+/// Whether the launchd background service for `home` is installed.
+pub fn service_installed(home: &Path) -> bool {
+    plist_of(&label(home)).is_ok_and(|p| p.is_file())
+}
+
+/// Install or uninstall the launchd background service for `home`.
+pub fn set_service(home: &Path, on: bool) -> Result<(), String> {
+    service_quiet(
+        home,
+        if on {
+            &Service::Install
+        } else {
+            &Service::Uninstall
+        },
+    )
+    .map(|_| ())
+}
+
 fn service(home: &Path, what: &Service) -> Result<(), String> {
+    let msg = service_quiet(home, what)?;
+    println!("{msg}");
+    Ok(())
+}
+
+fn service_quiet(home: &Path, what: &Service) -> Result<String, String> {
     if !cfg!(target_os = "macos") {
         return Err("The service is launchd's, on macOS; elsewhere run `u0 serve` under your own supervisor (systemd, ...).".into());
     }
@@ -312,25 +336,23 @@ fn service(home: &Path, what: &Service) -> Result<(), String> {
                 .map_err(|e| e.to_string())?;
             let _ = launchctl(&["bootout", &format!("{}/{label}", domain())]);
             launchctl(&["bootstrap", &domain(), &plist.display().to_string()])?;
-            println!(
+            Ok(format!(
                 "u0's server runs from login as {label}; the window opens on it.\nIts log: {}",
                 log.display()
-            );
-            Ok(())
+            ))
         }
         Service::Uninstall => {
             let _ = launchctl(&["bootout", &format!("{}/{label}", domain())]);
             let _ = std::fs::remove_file(&plist);
             unpair_window(home)?;
-            println!(
+            Ok(format!(
                 "{label} is stopped and out of login; the window opens on its own server again."
-            );
-            Ok(())
+            ))
         }
         Service::Status => {
             let installed = plist.is_file();
             let state = standing(&label).unwrap_or_else(|| "not loaded".into());
-            println!(
+            Ok(format!(
                 "{label}: {}, {state}\nIts log: {}",
                 if installed {
                     "installed"
@@ -338,8 +360,7 @@ fn service(home: &Path, what: &Service) -> Result<(), String> {
                     "not installed"
                 },
                 log.display()
-            );
-            Ok(())
+            ))
         }
     }
 }

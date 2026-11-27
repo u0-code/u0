@@ -80,14 +80,26 @@ impl Desk {
             )]
         } else {
             (self.pages.troubles.iter().cloned())
-                .map(|line| {
+                .map(|entry| {
                     whole(w, &["log", "errors"], move |_, faces, _| {
-                        let color = if line.contains(" ERROR ") {
+                        let color = if entry.level == "error" {
                             theme::coral()
                         } else {
                             theme::text2()
                         };
-                        ui::fine_mono(faces, line.clone())
+                        let text = format!(
+                            "{} {} {}: {}{}",
+                            entry.time,
+                            entry.level.to_uppercase(),
+                            entry.source,
+                            entry.message,
+                            if entry.count > 1 {
+                                format!(" (×{})", entry.count)
+                            } else {
+                                String::new()
+                            }
+                        );
+                        ui::fine_mono(faces, text)
                             .text_color(color)
                             .into_any_element()
                     })

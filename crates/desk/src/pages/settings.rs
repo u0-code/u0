@@ -1013,10 +1013,25 @@ impl Desk {
 
     fn storage(&self, w: &WeakEntity<Desk>) -> SettingGroup {
         use crate::tidy::Tidy;
-        let mut items: Vec<SettingItem> = (self.pages.sizes.iter())
-            .map(|(label, bytes)| {
-                let size = crate::tidy::shown(*bytes);
-                item(w, label.clone(), "", move |_, faces, _| {
+        let free = self.pages.sizes.free_bytes;
+        let mut items: Vec<SettingItem> = (self.pages.sizes.buckets.iter())
+            .map(|b| {
+                let size = match b.cleanable {
+                    Some(c) if c > 0 => {
+                        format!(
+                            "{} ({})",
+                            crate::tidy::shown(b.bytes),
+                            crate::tidy::shown(c)
+                        )
+                    }
+                    _ => crate::tidy::shown(b.bytes),
+                };
+                let detail = if free > 0 && b.label == "Worktrees" {
+                    format!("{} · {}", b.detail, crate::tidy::shown(free))
+                } else {
+                    b.detail.clone()
+                };
+                item(w, b.label.clone(), detail, move |_, faces, _| {
                     ui::fine(faces, size.clone()).into_any_element()
                 })
             })

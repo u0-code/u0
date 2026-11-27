@@ -126,13 +126,23 @@ impl Desk {
             w,
             crate::tr("Reset install id"),
             crate::tr("From the next batch on, this install is sent under a new random id, unlinked from the old."),
-            |_, _, cx| {
-                ui::button("telemetry-forget", crate::tr("Reset"), Weight::Quiet)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.call(this.pages.on, Call::Telemetry(Ask::Forget));
-                        this.pages.sent = None;
-                        cx.notify();
-                    }))
+            |d, faces, cx| {
+                let id = d.pages.install_id.clone();
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .children(id.map(|s| ui::fine_mono(faces, s)))
+                    .child(
+                        ui::button("telemetry-forget", crate::tr("Reset"), Weight::Quiet).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.call(this.pages.on, Call::Telemetry(Ask::Forget));
+                                this.pages.sent = None;
+                                this.pages.install_id = None;
+                                cx.notify();
+                            }),
+                        ),
+                    )
                     .into_any_element()
             },
         ));
