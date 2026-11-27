@@ -75,19 +75,28 @@ pub fn only_shown(path: &std::path::Path) -> bool {
 /// before it picks an app, so `clip.mp4 -> tool` would run `tool`.
 pub fn plain(path: &std::path::Path) -> bool {
     use std::io::Read as _;
-    let Ok(about) = std::fs::symlink_metadata(path) else {
+    // What it is, from its entry alone: nothing but a regular file is
+    // opened to be read (a FIFO would wait for a writer, and the window
+    // with it).
+    let Some(about) = std::fs::symlink_metadata(path)
+        .ok()
+        .filter(|a| a.file_type().is_file())
+    else {
         return false;
     };
     #[cfg(unix)]
     let runs = std::os::unix::fs::PermissionsExt::mode(&about.permissions()) & 0o111 != 0;
     #[cfg(not(unix))]
     let runs = false;
+    if runs {
+        return false;
+    }
     let mut head = [0u8; 4];
     let alias = std::fs::File::open(path)
         .and_then(|mut f| f.read_exact(&mut head))
         .is_ok()
         && &head == b"book";
-    about.file_type().is_file() && !runs && !alias
+    !alias
 }
 
 /// Open `path`, a file the viewer shows as a web page or as audio or
@@ -297,6 +306,14 @@ mod tests {
             !plain(&dir.path().join("gone.mp4")),
             "nor what is not there"
         );
+        #[cfg(unix)]
+        {
+            // Opened, a FIFO would wait for a writer: it is refused unopened.
+            let pipe = dir.path().join("pipe.mp4");
+            let made = std::process::Command::new("mkfifo").arg(&pipe).status();
+            assert!(made.is_ok_and(|m| m.success()), "mkfifo");
+            assert!(!plain(&pipe), "a FIFO is not, and is not waited on");
+        }
     }
 
     #[test]
