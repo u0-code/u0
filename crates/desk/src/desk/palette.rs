@@ -301,6 +301,8 @@ impl Desk {
 #[derive(Debug, Clone)]
 enum Lead {
     Icon(&'static str),
+    /// A thread: where it stands, as the sidebar shows it; its key.
+    Thread(crate::sidebar::list::Glyph, u64),
     Mark(ui::Mark),
     /// A project: its own icon, if it has one.
     Project(Option<crate::settings::Icon>),
@@ -699,7 +701,7 @@ impl Desk {
             }
         };
         Row {
-            lead: Lead::Mark(self.mark_of(&s.meta.agent)),
+            lead: Lead::Thread(crate::sidebar::list::Glyph::of(s), s.key),
             sub: Some(under.join(" · ")),
             end: Some(end),
             session: Some(s.key),
@@ -773,19 +775,21 @@ impl Desk {
             if !only_actions && let Some(this_thread) = self.this_thread_group(cx) {
                 groups.push(this_thread);
             }
-            groups.push((crate::tr("Actions").to_string(), self.actions(cx)));
             if !only_actions {
                 let mut recent: Vec<&crate::session::Session> = sessions
                     .filter(|s| Some(s.key) != self.current && s.state != State::Draft)
                     .collect();
                 recent.sort_by_key(|s| std::cmp::Reverse(lists::used(s)));
-                let rows = recent
+                let rows: Vec<Row> = recent
                     .into_iter()
                     .take(RECENT)
                     .map(|s| self.found_row(s, now))
                     .collect();
-                groups.push((crate::tr("Recent threads").to_string(), rows));
+                if !rows.is_empty() {
+                    groups.push((crate::tr("Recent threads").to_string(), rows));
+                }
             }
+            groups.push((crate::tr("Actions").to_string(), self.actions(cx)));
             return groups;
         }
         let query = rank::Query::new(&typed);
@@ -946,7 +950,12 @@ impl Desk {
                     Act::Reveal(n),
                 ),
             };
-            rows.push(row.sub(asked.title.clone()));
+            // What it asks to run, as a command reads: no Markdown's ticks.
+            let asks = asked.title.replace('`', "");
+            rows.push(Row {
+                lead: Lead::Thread(crate::sidebar::list::Glyph::NeedsYou, s.key),
+                ..row.sub(asks)
+            });
         }
         if let Some(files) = s.total.as_ref().filter(|f| !f.is_empty()) {
             let added: usize = files.iter().map(|f| f.added).sum();
@@ -1187,7 +1196,7 @@ impl Desk {
         let (placeholder, empty) = match self.palette.through {
             Through::Everything if let Some(sub) = page => (sub.placeholder(), "Nothing here."),
             Through::Everything => (
-                "Search commands, projects, and threads…",
+                "Search threads, projects, commands and settings",
                 "No matching commands, projects, or threads.",
             ),
             Through::Files => ("Search files…", "No matching files."),
@@ -1355,6 +1364,7 @@ fn row_view(faces: &Faces, row: &Row) -> gpui::Div {
         Lead::Icon(icon) => ui::icon(icon, 16.)
             .text_color(theme::muted())
             .into_any_element(),
+        Lead::Thread(g, key) => crate::sidebar::list::glyph(*g, *key),
         Lead::Mark(mark) => ui::mark(faces, mark, 16.),
         Lead::Project(icon) => super::projects::project_icon(icon.clone(), 16.),
     };
@@ -1413,6 +1423,9 @@ fn row_view(faces: &Faces, row: &Row) -> gpui::Div {
                 )
                 .children(row.sub.clone().map(|sub| {
                     div()
+                        .when(matches!(row.act, Act::Approve(..) | Act::Reveal(_)), |d| {
+                            d.font_family(faces.mono.clone())
+                        })
                         .text_size(px(crate::style::CAPTION))
                         .line_height(px(16.))
                         .text_color(theme::muted().opacity(0.7))

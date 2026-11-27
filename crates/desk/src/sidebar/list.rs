@@ -1173,43 +1173,9 @@ impl Desk {
         let highlighted = active || selected;
         let unread = s.meta.flags.unread;
         let draft = s.state == State::Draft && s.items.is_empty();
-        let st = lists::status(s);
         let now = SystemTime::now();
 
-        let status_glyph: AnyElement = match st {
-            Some(lists::Status::Working) => {
-                Spin::new(SharedString::from(format!("spin-{key}"))).into_any_element()
-            }
-            Some(lists::Status::Approval | lists::Status::SignIn | lists::Status::Plan) => {
-                CarbonGlyph::carbon(CarbonIcon::WarningFilled)
-                    .size_length(px(16.))
-                    .color(theme::role(ColorRole::SupportWarning))
-                    .into_any_element()
-            }
-            Some(lists::Status::Failed | lists::Status::Limited) => {
-                CarbonGlyph::carbon(CarbonIcon::ErrorFilled)
-                    .size_length(px(16.))
-                    .color(theme::role(ColorRole::SupportError))
-                    .into_any_element()
-            }
-            _ if draft => CarbonGlyph::carbon(CarbonIcon::Edit)
-                .size_length(px(16.))
-                .color(theme::muted())
-                .into_any_element(),
-            _ if unread => div()
-                .size(px(8.))
-                .rounded_full()
-                .bg(theme::role(ColorRole::Interactive))
-                .into_any_element(),
-            _ if !s.items.is_empty() => CarbonGlyph::carbon(CarbonIcon::CheckmarkFilled)
-                .size_length(px(16.))
-                .color(theme::muted())
-                .into_any_element(),
-            _ => CarbonGlyph::carbon(CarbonIcon::Chat)
-                .size_length(px(16.))
-                .color(theme::muted())
-                .into_any_element(),
-        };
+        let status_glyph = glyph(Glyph::of(s), key);
 
         let meta_color = if highlighted {
             theme::text2()
@@ -1263,7 +1229,7 @@ impl Desk {
             .iter()
             .position(|k| *k == key)
             .filter(|n| self.numbers_shown && *n < 9);
-        let working_elapsed = (st == Some(lists::Status::Working))
+        let working_elapsed = (lists::status(s) == Some(lists::Status::Working))
             .then(|| {
                 now.duration_since(s.meta.updated)
                     .ok()
@@ -1800,9 +1766,83 @@ pub(crate) fn side_tree(window: &mut Window, cx: &mut Context<Desk>) -> Entity<T
     tree
 }
 
+/// What leads a thread in a list (the sidebar, ⌘K): where it stands,
+/// else whether it is a draft, unread, said in, or new.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Glyph {
+    Working,
+    NeedsYou,
+    Failed,
+    Draft,
+    Unread,
+    Done,
+    New,
+}
+
+impl Glyph {
+    pub(crate) fn of(s: &Session) -> Self {
+        match lists::status(s) {
+            Some(lists::Status::Working) => Self::Working,
+            Some(lists::Status::Approval | lists::Status::SignIn | lists::Status::Plan) => {
+                Self::NeedsYou
+            }
+            Some(lists::Status::Failed | lists::Status::Limited) => Self::Failed,
+            _ if s.state == State::Draft && s.items.is_empty() => Self::Draft,
+            _ if s.meta.flags.unread => Self::Unread,
+            _ if !s.items.is_empty() => Self::Done,
+            _ => Self::New,
+        }
+    }
+}
+
+/// The glyph `g` drawn, 16px; `key` keeps a spinner turning across frames.
+pub(crate) fn glyph(g: Glyph, key: u64) -> AnyElement {
+    let carbon = |icon, color| {
+        CarbonGlyph::carbon(icon)
+            .size_length(px(16.))
+            .color(color)
+            .into_any_element()
+    };
+    match g {
+        Glyph::Working => Spin::new(SharedString::from(format!("spin-{key}"))).into_any_element(),
+        Glyph::NeedsYou => carbon(
+            CarbonIcon::WarningFilled,
+            theme::role(ColorRole::SupportWarning),
+        ),
+        Glyph::Failed => carbon(
+            CarbonIcon::ErrorFilled,
+            theme::role(ColorRole::SupportError),
+        ),
+        Glyph::Draft => carbon(CarbonIcon::Edit, theme::muted()),
+        Glyph::Unread => div()
+            .size(px(8.))
+            .rounded_full()
+            .bg(theme::role(ColorRole::Interactive))
+            .into_any_element(),
+        Glyph::Done => carbon(CarbonIcon::CheckmarkFilled, theme::muted()),
+        Glyph::New => carbon(CarbonIcon::Chat, theme::muted()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_thread_leads_with_where_it_stands_before_anything_else() {
+        let mut s = Session::new(1, "codex", "/p".into());
+        assert_eq!(Glyph::of(&s), Glyph::Draft);
+        s.state = State::Working;
+        assert_eq!(Glyph::of(&s), Glyph::Working);
+        s.state = State::Broken("exit 1".into());
+        s.meta.flags.unread = true;
+        assert_eq!(Glyph::of(&s), Glyph::Failed);
+        s.state = State::Idle;
+        s.items.push(Item::You("hi".into()));
+        assert_eq!(Glyph::of(&s), Glyph::Unread);
+        s.meta.flags.unread = false;
+        assert_eq!(Glyph::of(&s), Glyph::Done);
+    }
 
     #[test]
     fn a_session_is_found_by_its_tags() {

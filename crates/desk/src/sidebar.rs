@@ -5,7 +5,7 @@
 //! thread and project list (`list`), multi-select toolbar, and the 40px
 //! `Settings` / `Update` footer.
 
-mod list;
+pub(crate) mod list;
 mod menus;
 mod search;
 
