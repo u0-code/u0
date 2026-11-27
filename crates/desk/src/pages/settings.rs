@@ -10,6 +10,7 @@ use gpui::component::{
     Sizable as _,
     input::Input,
     kbd::Kbd,
+    scroll::ScrollableElement as _,
     setting::{SelectIndex, SettingGroup, SettingItem, SettingPage, Settings},
     switch::Switch,
 };
@@ -600,7 +601,6 @@ impl Desk {
                     .min_h(px(0.))
                     .pt(px(4.))
                     .pb(px(24.))
-                    .overflow_y_scroll()
                     .when(!app_items.is_empty(), |d| {
                         d.child(
                             div()
@@ -643,7 +643,11 @@ impl Desk {
                                 .child(group_head(crate::tr("u0")))
                                 .children(u0_items),
                         )
-                    }),
+                    })
+                    // gpui-kit's scroll area: a bare `overflow_y_scroll`
+                    // here grows as tall as its pages under GPUI Fast, and
+                    // the dialog clips Devices, Diagnostics and the rest.
+                    .overflow_y_scrollbar(),
             )
     }
 
@@ -1244,5 +1248,27 @@ impl Desk {
                     this.ask_delete(vec![key], window, cx);
                 })),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Under GPUI Fast a bare `overflow_y_scroll` column in the dialog's row
+    /// is laid out as tall as what it holds, so it never scrolls: the dialog
+    /// clipped the page list below Source control, and Devices, where a
+    /// device is paired, could not be opened. gpui-kit's scroll area
+    /// (`overflow_y_scrollbar`) is held to the dialog.
+    #[test]
+    fn the_settings_page_list_and_pages_scroll_in_gpui_kits_scroll_area() {
+        for (file, source) in [
+            ("settings.rs", include_str!("settings.rs")),
+            ("srow.rs", include_str!("srow.rs")),
+        ] {
+            let code = source.split("#[cfg(test)]").next().unwrap_or(source);
+            assert!(
+                !code.contains(".overflow_y_scroll()"),
+                "{file} scrolls a settings column outside gpui-kit's scroll area"
+            );
+        }
     }
 }

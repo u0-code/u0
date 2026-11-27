@@ -5,7 +5,9 @@
 
 use std::rc::Rc;
 
-use gpui::component::{Sizable as _, input::Input, input::InputState};
+use gpui::component::{
+    Sizable as _, input::Input, input::InputState, scroll::ScrollableElement as _,
+};
 use gpui::{
     AnyElement, App, BoxShadow, ElementId, Entity, InteractiveElement as _, IntoElement,
     ParentElement as _, RenderOnce, SharedString, StatefulInteractiveElement as _, Styled as _,
@@ -604,7 +606,6 @@ pub fn carbon_page_with_tail(
         .id(id)
         .flex_1()
         .min_h(px(0.))
-        .overflow_y_scroll()
         .pt(px(24.))
         .px(px(32.))
         .pb(px(48.))
@@ -646,5 +647,7 @@ pub fn carbon_page_with_tail(
                     )
                 }),
         )
+        // gpui-kit's scroll area, as the settings' page list (see there).
+        .overflow_y_scrollbar()
         .into_any_element()
 }
