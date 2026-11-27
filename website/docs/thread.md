@@ -86,17 +86,18 @@ how much of the agent's context is used.
 ### Attachments
 
 Paste, drop or choose files and pictures (**+ › Add files or photos**),
-or **Add a window** to attach a capture of a window. HEIC and very large
-pictures are turned into JPEG. A paste of 32 KiB or more becomes an
-attachment (⇧⌘V pastes it as text instead). A dropped folder is
-@-mentioned. **+ › Add folder** gives a new thread another folder to
-work in, where the agent supports it.
+or **Add a window** to attach a capture of an open window (or choose one
+on screen). HEIC and very large pictures are turned into JPEG. A paste of
+32 KiB or more becomes an attachment (⇧⌘V pastes it as text instead), and
+a message over the length limit offers **Attach as file**. A dropped
+folder is @-mentioned. **+ › Add folder** gives a new thread another
+folder to work in, where the agent supports it.
 
 ### @ mentions
 
 Type `@` to name, from the project: a file, another thread (sent as its
-conversation), an open pull request (sent as `gh` shows it), or a model
-(which switches to it).
+conversation), an open pull request or issue, or a model (which switches
+to it).
 
 ### / commands
 
@@ -107,7 +108,8 @@ Type `/` for the agent's own slash commands, and u0's: `clear`,
 
 What you send while a turn goes on **waits its turn** by default: it is
 queued and sent when the turn ends. The queue shows each message with
-**Earlier**, **Send now** and **Edit**; ⌥↑ edits the last one. With
+**Earlier**, **Send now**, **Edit** (which edits it in place with **Save
+to queue**) and **Remove from queue**; ⌥↑ edits the last one. With
 **Settings › Chat › What you send waits, or steers** set to **Steer**, a
 message steers the turn in progress instead. ⌘-click Send, or ⇧⌘Return,
 sends the other way.
@@ -149,8 +151,10 @@ agents, and each agent's models. Search with **Search models…**, star a
 model to keep it among the favourites, and choose how hard it thinks
 under **Effort** (or the agent's other **Options**). ⇧⌘E opens it at the
 effort. Once a thread has begun, only its agent's models are offered.
-**Send to all *n* agents** sends the message to every agent at once, each
-in a thread of its own.
+On a new thread, **+** beside any model adds it to **Also run on** (and
+**Send to all *n* agents** adds every usable agent), starting a thread—and
+a worktree, when **Worktree** is on—for each; **Start in the background**
+leaves you on a fresh draft after sending.
 
 ⇧⌘A opens the mode menu: the agent's modes (such as read-only, ask
 first, auto), as the agent lists them, each with its description; ⌘1–⌘9

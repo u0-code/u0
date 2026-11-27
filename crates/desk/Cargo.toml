@@ -51,6 +51,8 @@ u0-core = { workspace = true, features = ["test"] }
 # by way of the same crates GPUI uses for it.
 [target.'cfg(target_os = "macos")'.dependencies]
 cocoa.workspace = true
+core-foundation.workspace = true
+core-foundation-sys.workspace = true
 objc.workspace = true
 objc2.workspace = true
 objc2-foundation.workspace = true

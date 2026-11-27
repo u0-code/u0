@@ -8836,6 +8836,8 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "cocoa 0.26.0",
+ "core-foundation 0.10.0",
+ "core-foundation-sys",
  "gpui-kit",
  "imagesize 0.14.0",
  "jsonc-parser",

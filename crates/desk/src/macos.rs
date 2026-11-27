@@ -141,6 +141,89 @@ pub fn chime() {
 #[cfg(not(target_os = "macos"))]
 pub fn chime() {}
 
+/// An open user window on the desktop, for capturing into the composer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WindowInfo {
+    pub id: u32,
+    pub title: String,
+    pub app: String,
+}
+
+/// The visible standard application windows on screen, frontmost first.
+#[cfg(target_os = "macos")]
+pub fn windows() -> Vec<WindowInfo> {
+    use core_foundation::{
+        array::CFArray,
+        base::{CFType, TCFType},
+        dictionary::CFDictionary,
+        number::CFNumber,
+        string::CFString,
+    };
+    #[link(name = "CoreGraphics", kind = "framework")]
+    unsafe extern "C" {
+        fn CGWindowListCopyWindowInfo(
+            option: u32,
+            relative_to_window: u32,
+        ) -> core_foundation_sys::array::CFArrayRef;
+    }
+    const ON_SCREEN_ONLY: u32 = 1 << 0;
+    const EXCLUDE_DESKTOP: u32 = 1 << 4;
+
+    // SAFETY: CoreGraphics returns a newly created CFArray of CFDictionaries
+    // under the Create rule (or null), which CFArray::wrap_under_create_rule
+    // releases on drop.
+    let list = unsafe {
+        let raw = CGWindowListCopyWindowInfo(ON_SCREEN_ONLY | EXCLUDE_DESKTOP, 0);
+        if raw.is_null() {
+            return Vec::new();
+        }
+        CFArray::<CFDictionary>::wrap_under_create_rule(raw)
+    };
+    let k_num = CFString::from_static_string("kCGWindowNumber");
+    let k_layer = CFString::from_static_string("kCGWindowLayer");
+    let k_owner = CFString::from_static_string("kCGWindowOwnerName");
+    let k_name = CFString::from_static_string("kCGWindowName");
+    let mut out = Vec::new();
+    for dict in list.iter() {
+        let get = |k: &CFString| unsafe {
+            dict.find(k.as_CFTypeRef().cast())
+                .map(|p| CFType::wrap_under_get_rule((*p).cast()))
+        };
+        let layer = get(&k_layer)
+            .and_then(|v| v.downcast::<CFNumber>())
+            .and_then(|n| n.to_i64());
+        if layer != Some(0) {
+            continue;
+        }
+        let Some(id) = get(&k_num)
+            .and_then(|v| v.downcast::<CFNumber>())
+            .and_then(|n| n.to_i64())
+            .and_then(|n| u32::try_from(n).ok())
+            .filter(|&n| n > 0)
+        else {
+            continue;
+        };
+        let app = get(&k_owner)
+            .and_then(|v| v.downcast::<CFString>())
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        if app.trim().is_empty() || app == "Window Server" {
+            continue;
+        }
+        let title = get(&k_name)
+            .and_then(|v| v.downcast::<CFString>())
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        out.push(WindowInfo { id, title, app });
+    }
+    out
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn windows() -> Vec<WindowInfo> {
+    Vec::new()
+}
+
 /// Run `program` with `args` and `env` in a Terminal window, for a sign-in
 /// that is done by typing: the agent's own login, which it says how to run.
 pub fn in_terminal(

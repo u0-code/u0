@@ -217,6 +217,7 @@ impl Desk {
                 None,
             );
         }
+        self.composer.from_link = true;
         self.put_line(&prompt, window, cx);
     }
 

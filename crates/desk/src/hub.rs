@@ -275,15 +275,21 @@ fn off(tx: Sender, work: impl FnOnce() -> Msg + Send + 'static) {
     });
 }
 
-/// Let you choose a window and capture it (macOS's screencapture), for
-/// what you write.
-pub fn capture_window(tx: Sender) {
-    off(tx, || {
+/// Capture a window (`id`, or chosen interactively when `None`) with macOS's
+/// `screencapture`, for what you write.
+pub fn capture_window(id: Option<u32>, tx: Sender) {
+    off(tx, move || {
         let path = std::env::temp_dir().join(format!("u0-capture-{}.png", std::process::id()));
-        let shot = std::process::Command::new("screencapture")
-            .args(["-i", "-W", "-x"])
-            .arg(&path)
-            .status();
+        let mut cmd = std::process::Command::new("screencapture");
+        match id {
+            Some(id) => {
+                cmd.args(["-l", &id.to_string(), "-x"]);
+            }
+            None => {
+                cmd.args(["-i", "-W", "-x"]);
+            }
+        }
+        let shot = cmd.arg(&path).status();
         let bytes = shot
             .ok()
             .filter(std::process::ExitStatus::success)

@@ -61,6 +61,10 @@ pub const CONTEXT: &str = "Composer";
 /// a session, by its key; the chip whose note is being written, and the
 /// field for it; and what is attached to each other session's draft, by
 /// its key, while another is on screen.
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is an independent draft flag on the composer"
+)]
 pub struct Composer {
     pub input: Entity<TextareaState>,
     pub offer: usize,
@@ -68,7 +72,17 @@ pub struct Composer {
     pub attached: Vec<Attached>,
     pub reading: usize,
     pub held: Option<bool>,
-    pub fanout: bool,
+    /// Additional `(agent_id, optional_model_id)` targets a new thread runs
+    /// on in parallel ("Also run on").
+    pub also_run: Vec<(String, Option<String>)>,
+    /// Start a new thread in the background without leaving the draft page.
+    pub in_background: bool,
+    /// The composer text was pre-filled by an external `u0://` prompt link.
+    pub from_link: bool,
+    /// Queued message index currently being edited in place in the composer.
+    pub editing_queued: Option<usize>,
+    /// Attached excerpt chip index currently showing its preview card.
+    pub previewing_chip: Option<usize>,
     pub stashed: Vec<Stashed>,
     pub recalled: Option<usize>,
     pub suggested: Option<(u64, String)>,
@@ -170,7 +184,11 @@ impl Composer {
             attached: Vec::new(),
             reading: 0,
             held: None,
-            fanout: false,
+            also_run: Vec::new(),
+            in_background: false,
+            from_link: false,
+            editing_queued: None,
+            previewing_chip: None,
             stashed: Vec::new(),
             recalled: None,
             suggested: None,
@@ -239,17 +257,27 @@ impl Desk {
             );
             return;
         }
+        if let Some(at) = self.composer.editing_queued.take() {
+            self.put_line("", window, cx);
+            self.save_queued(at, &text, cx);
+            return;
+        }
         if self.composer.reading > 0 {
             self.composer.held = Some(other);
             cx.notify();
             return;
         }
         self.composer.held = None;
+        self.composer.from_link = false;
         self.put_line("", window, cx);
+        let draft = self
+            .session()
+            .is_some_and(|s| s.state == State::Draft && s.items.is_empty());
         let working = self
             .session()
             .is_some_and(|s| matches!(s.state, State::Working | State::Opening));
-        match (other, working) {
+        let aside = other || (draft && self.composer.in_background);
+        match (aside, working) {
             (true, true) => {
                 if let Some(key) = self.current {
                     self.follow_up(key, &text, !self.settings.steer, cx);
@@ -259,6 +287,24 @@ impl Desk {
             (false, _) => self.send(&text, cx),
         }
         cx.notify();
+    }
+
+    /// Turn an over-limit draft in the composer into a pasted-text file
+    /// attachment and clear the input line.
+    pub fn attach_typed_as_file(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = self.composer.input.read(cx).value().to_string();
+        if text.trim().is_empty() {
+            return;
+        }
+        self.put_line("", window, cx);
+        self.add_attached(
+            Attached::Text(Chip::new(crate::session::Context::Paste, &text)),
+            cx,
+        );
+        window.focus(
+            &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
+            cx,
+        );
     }
 
     /// Put what is typed aside (⌘S), with what is attached, and clear the
@@ -416,6 +462,10 @@ pub enum Offer {
         number: u64,
         title: String,
     },
+    Issue {
+        number: u64,
+        title: String,
+    },
 }
 
 /// Something named with `@`, kept until it is sent: the words it put in
@@ -530,6 +580,14 @@ impl Desk {
                 });
             }
         }
+        for (n, title) in self.issues.get(&project).into_iter().flatten() {
+            if query.is_empty() || found(title) || n.to_string().starts_with(&query) {
+                offers.push(Offer::Issue {
+                    number: *n,
+                    title: title.clone(),
+                });
+            }
+        }
         // The models the agent offers: @ switches to one.
         if let Some(option) = s.options.iter().find(|o| {
             o.category
@@ -635,6 +693,7 @@ impl Desk {
             Offer::File(f) => format!("@{f}"),
             Offer::Session { title, .. } => token_of(title),
             Offer::Pr { number, .. } => format!("@pr#{number}"),
+            Offer::Issue { number, .. } => format!("@issue#{number}"),
         };
         let line = format!("{}{token} ", &text[..start]);
         self.put_line(&line, window, cx);
@@ -787,6 +846,17 @@ impl Desk {
             self.composer.attached.remove(n);
         }
         self.composer.noting = None;
+        self.composer.previewing_chip = None;
+        cx.notify();
+    }
+
+    /// Toggle the excerpt preview card for the attached chip `n`.
+    pub fn toggle_chip_preview(&mut self, n: usize, cx: &mut Context<Self>) {
+        if self.composer.previewing_chip == Some(n) {
+            self.composer.previewing_chip = None;
+        } else if matches!(self.composer.attached.get(n), Some(Attached::Text(_))) {
+            self.composer.previewing_chip = Some(n);
+        }
         cx.notify();
     }
 
@@ -868,6 +938,8 @@ impl Desk {
         }
         c.attached = c.drafts.remove(&to).unwrap_or_default();
         c.noting = None;
+        c.previewing_chip = None;
+        c.editing_queued = None;
     }
 
     /// A session dragged onto the composer: named in what you write, as
@@ -899,10 +971,12 @@ impl Desk {
         }
     }
 
-    /// Let you choose a window to capture and go with what you write.
-    pub fn capture(&mut self, cx: &mut Context<Self>) {
+    /// Capture window `id` (or let you choose one interactively when `None`)
+    /// to go with what you write.
+    pub fn capture(&mut self, id: Option<u32>, cx: &mut Context<Self>) {
+        self.popup = crate::desk::Popup::Closed;
         self.composer.reading += 1;
-        hub::capture_window(self.tx.clone());
+        hub::capture_window(id, self.tx.clone());
         cx.notify();
     }
 
@@ -996,6 +1070,12 @@ impl Desk {
                     if let Some(t) = &m.text {
                         blocks.push(text_resource(&format!("u0://pr/{number}"), t));
                     }
+                }
+                Offer::Issue { number, title } => {
+                    blocks.push(text_resource(
+                        &format!("u0://issue/{number}"),
+                        &format!("Issue #{number}: {title}"),
+                    ));
                 }
                 Offer::Command { .. } | Offer::Own { .. } | Offer::Model { .. } => {}
             }

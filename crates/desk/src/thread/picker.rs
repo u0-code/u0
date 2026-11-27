@@ -59,11 +59,12 @@ impl Desk {
     /// The chip that opens the picker: the agent's logo, its model, how
     /// hard it thinks.
     pub(crate) fn model_chip(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Popover {
-        let model = if self.composer.fanout && Self::is_draft(s) {
-            let usable = self.slots_on(s.host).filter(|x| x.usable()).count();
-            Some(crate::tr_with("All %{n} agents", &[("n", &usable)]).to_string())
+        let base =
+            Self::option_name(s, &Category::Model).unwrap_or_else(|| self.name_of(&s.meta.agent));
+        let model = if !self.composer.also_run.is_empty() && Self::is_draft(s) {
+            format!("{base} +{}", self.composer.also_run.len())
         } else {
-            Self::option_name(s, &Category::Model)
+            base
         };
         let effort = Self::option_name(s, &Category::ThoughtLevel);
         let open = self.picker_open();
@@ -73,7 +74,7 @@ impl Desk {
             .max_w(px(224.))
             .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.))
             .child(ui::one_line(
-                ui::text(faces, model.unwrap_or_else(|| self.name_of(&s.meta.agent)))
+                ui::text(faces, model)
                     .text_size(px(crate::style::LABEL))
                     .text_color(theme::text2()),
             ))
@@ -379,6 +380,19 @@ impl Desk {
                 model: m.value.clone(),
             };
             let picked = m.clone();
+            let also_on = draft
+                && !(m.current && m.agent == s.meta.agent)
+                && self
+                    .composer
+                    .also_run
+                    .iter()
+                    .any(|(a, v)| a == &m.agent && v.as_deref() == Some(m.value.as_str()));
+            let also_target = (m.agent.clone(), Some(m.value.clone()));
+            let toggle_also =
+                std::rc::Rc::new(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
+                    this.toggle_also_run(&also_target.0, also_target.1.clone(), cx);
+                    cx.stop_propagation();
+                }));
             // The star is its own button: a click on it is not a pick.
             let toggle = std::rc::Rc::new(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
                 this.toggle_favourite(&favourite, cx);
@@ -432,11 +446,24 @@ impl Desk {
                     )
                     .suffix(move |_, _| {
                         let toggle = toggle.clone();
+                        let toggle_also = toggle_also.clone();
                         div()
                             .flex()
                             .flex_none()
                             .items_center()
                             .gap(px(4.))
+                            .when(draft && !m.current && (highlighted || also_on), |d| {
+                                d.child(
+                                    ui::icon_button(
+                                        SharedString::from(format!("also-{n}")),
+                                        if also_on { "check" } else { "plus" },
+                                        crate::tr("Also run on"),
+                                    )
+                                    .xsmall()
+                                    .text_color(if also_on { theme::ok() } else { theme::faint() })
+                                    .on_click(move |e, window, cx| toggle_also(e, window, cx)),
+                                )
+                            })
                             .when(highlighted || star, |d| {
                                 d.child(
                                     ui::icon_button(
@@ -722,7 +749,8 @@ impl Desk {
     /// the session's mode at the right.
     fn picker_foot(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
         let usable = self.slots_on(s.host).filter(|x| x.usable()).count();
-        let fanout = self.composer.fanout;
+        let all_on = usable > 1 && self.composer.also_run.len() + 1 >= usable;
+        let (host, current_agent) = (s.host, s.meta.agent.clone());
         div()
             .flex()
             .items_center()
@@ -735,7 +763,7 @@ impl Desk {
             .when(Self::is_draft(s) && usable > 1, |d| {
                 d.child(
                     ui::opener("fanout")
-                        .selected(fanout)
+                        .selected(all_on)
                         .child(ui::icon("plus", 13.))
                         .child(
                             ui::text(
@@ -746,14 +774,52 @@ impl Desk {
                             .text_color(theme::muted()),
                         )
                         .tooltip(crate::tr("A thread each, begun with the same words"))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            this.composer.fanout = !this.composer.fanout;
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if this.composer.also_run.is_empty() {
+                                this.composer.also_run = this
+                                    .others(host, &current_agent)
+                                    .into_iter()
+                                    .map(|(id, _)| (id, None))
+                                    .collect();
+                            } else {
+                                this.composer.also_run.clear();
+                            }
                             cx.notify();
                         })),
                 )
             })
             .child(div().flex_1())
             .children(self.mode_button(faces, s, cx))
+    }
+
+    /// Add or remove `(agent, model)` among the additional models a draft
+    /// runs on ("Also run on").
+    pub fn toggle_also_run(&mut self, agent: &str, model: Option<String>, cx: &mut Context<Self>) {
+        if let Some(at) = self
+            .composer
+            .also_run
+            .iter()
+            .position(|(a, m)| a == agent && *m == model)
+        {
+            self.composer.also_run.remove(at);
+        } else {
+            self.composer.also_run.push((agent.to_owned(), model));
+        }
+        cx.notify();
+    }
+
+    /// Friendly label for an `(agent, model)` target in `"Also run on"`.
+    pub(crate) fn also_label(&self, s: &Session, agent: &str, model: Option<&str>) -> String {
+        let agent_name = self.name_of(agent);
+        let Some(value) = model else {
+            return agent_name;
+        };
+        let found = self
+            .models_of(s, agent)
+            .into_iter()
+            .find(|m| m.value == value)
+            .map_or_else(|| value.to_owned(), |m| m.name);
+        format!("{agent_name} · {found}")
     }
 
     /// Pick `m`: on a new session of another agent, the session becomes
@@ -766,7 +832,9 @@ impl Desk {
             }
             self.switch_agent(&m.agent, cx);
         }
-        self.composer.fanout = false;
+        self.composer
+            .also_run
+            .retain(|(a, v)| !(a == &m.agent && v.as_deref() == Some(m.value.as_str())));
         self.set_option(m.config.clone(), m.value.clone(), cx);
         window.focus(
             &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),

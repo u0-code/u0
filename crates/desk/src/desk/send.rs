@@ -20,17 +20,17 @@ impl Desk {
         self.send(text, cx);
     }
 
-    /// Say `text` in the session on screen; a draft set to go to every
-    /// agent goes to each of them, a session of its own for each.
+    /// Say `text` in the session on screen; a draft set to run on additional
+    /// models/agents starts a session of its own for each.
     pub(crate) fn send(&mut self, text: &str, cx: &mut Context<Self>) {
         let Some(key) = self.current else { return };
         let draft = self
             .session()
             .is_some_and(|s| s.state == State::Draft && s.items.is_empty());
         self.send_in(key, text, cx);
-        if draft && self.composer.fanout {
-            self.composer.fanout = false;
-            self.fan_out(key, text, cx);
+        if draft && !self.composer.also_run.is_empty() {
+            let targets = std::mem::take(&mut self.composer.also_run);
+            self.fan_out(key, &targets, text, cx);
         }
     }
 
@@ -43,22 +43,48 @@ impl Desk {
         }
     }
 
-    /// Begin, beside the session `key`, a session with each other agent
-    /// that can run, in the same project, and say `text` in each.
-    pub(crate) fn fan_out(&mut self, key: u64, text: &str, cx: &mut Context<Self>) {
+    /// Begin, beside the session `key`, a session for each `(agent, model)`
+    /// target in the same project (and worktree mode), and say `text` in each.
+    pub(crate) fn fan_out(
+        &mut self,
+        key: u64,
+        targets: &[(String, Option<String>)],
+        text: &str,
+        cx: &mut Context<Self>,
+    ) {
         let Some(origin) = self.sessions.at(key) else {
             return;
         };
-        // Each goes as the first did: begun the same way (its worktree, the
-        // machine it is on) and with the same images and files named.
-        let (agent, project, shared) = (
-            origin.meta.agent.clone(),
+        let (project, shared, wants_wt, begin, repo, repos, chosen_repo) = (
             Place::project_of(origin),
             origin.attached.clone(),
+            origin.wants_worktree,
+            origin.begin.clone(),
+            origin.repo,
+            origin.git.repos.clone(),
+            origin.git.repo.clone(),
         );
-        for (other, _) in self.others(project.host, &agent) {
+        for (other, model) in targets {
             let new = self.sessions.take_key();
-            let mut s = self.begun_in(new, &other, project.clone());
+            let mut s = self.begun_in(new, other, project.clone());
+            s.wants_worktree = wants_wt;
+            s.begin.clone_from(&begin);
+            s.repo = repo;
+            s.git.repos.clone_from(&repos);
+            s.git.repo.clone_from(&chosen_repo);
+            if let Some(model) = model {
+                let config = s
+                    .options
+                    .iter()
+                    .find(|o| {
+                        o.category
+                            == Some(
+                                agent_client_protocol::v1::schema::SessionConfigOptionCategory::Model,
+                            )
+                    })
+                    .map_or_else(|| "model".to_owned(), |o| o.id.0.to_string());
+                s.choose(&config, model);
+            }
             s.attached.clone_from(&shared);
             self.sessions.all.push(s);
             self.send_in(new, text, cx);
@@ -621,18 +647,54 @@ impl Desk {
         cx.notify();
     }
 
-    /// Take the queued `n` back into the line.
+    /// Edit the queued message `n` in place in the composer.
     pub fn unqueue(&mut self, n: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(key) = self.current else { return };
-        let Some(s) = self.sessions.at_mut(key) else {
+        let Some(s) = self.sessions.at(key) else {
             return;
         };
-        if n >= s.meta.queued.len() {
+        let Some(text) = s.meta.queued.get(n).cloned() else {
             return;
-        }
-        let text = s.meta.queued.remove(n);
+        };
+        self.composer.editing_queued = Some(n);
         self.put_line(&text, window, cx);
-        self.save_index();
+        window.focus(
+            &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
+            cx,
+        );
+        cx.notify();
+    }
+
+    /// Update the queued message `n` in place with `text`.
+    pub fn save_queued(&mut self, n: usize, text: &str, cx: &mut Context<Self>) {
+        let Some(key) = self.current else { return };
+        if let Some(s) = self.sessions.at_mut(key) {
+            if n < s.meta.queued.len() {
+                text.clone_into(&mut s.meta.queued[n]);
+            } else {
+                s.meta.queued.push(text.to_owned());
+            }
+            self.save_index();
+        }
+        cx.notify();
+    }
+
+    /// Remove the queued message `n`.
+    pub fn remove_queued(&mut self, n: usize, cx: &mut Context<Self>) {
+        let Some(key) = self.current else { return };
+        if let Some(s) = self.sessions.at_mut(key)
+            && n < s.meta.queued.len()
+        {
+            s.meta.queued.remove(n);
+            self.save_index();
+        }
+        if let Some(ed) = self.composer.editing_queued {
+            if ed == n {
+                self.composer.editing_queued = None;
+            } else if ed > n {
+                self.composer.editing_queued = Some(ed - 1);
+            }
+        }
         cx.notify();
     }
 
