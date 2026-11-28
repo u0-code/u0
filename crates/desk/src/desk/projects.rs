@@ -37,10 +37,7 @@ pub fn project_icon(icon: Option<Icon>, size: f32) -> gpui::AnyElement {
             .font_weight(gpui::FontWeight::SEMIBOLD)
             .child(text)
             .into_any_element(),
-        _ => crate::ui::icon("folder", size)
-            .flex_none()
-            .text_color(crate::theme::muted())
-            .into_any_element(),
+        _ => crate::ui::icon("folder", size).into_any_element(),
     }
 }
 

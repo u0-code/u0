@@ -1555,7 +1555,6 @@ impl Desk {
                     },
                     14.,
                 )
-                .flex_none()
                 .text_color(theme::faint()),
             )
             .when_some(tip, |d, tip| d.tooltip(ui::tip(tip)))
