@@ -98,6 +98,8 @@ pub struct Item {
     pub priority: Option<u8>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub assignee: Option<String>,
+    /// A pull request you opened, and one your review is asked on, as the
+    /// account the forge is signed in to is you.
     #[serde(default)]
     pub viewer_authored: bool,
     #[serde(default)]
@@ -312,7 +314,13 @@ pub fn answer(dir: &Path, kind: Kind, ask: Ask) -> Answer {
             }
             Answer::Listed(gh(&args).and_then(|t| {
                 let raw: Vec<Raw> = serde_json::from_str(&t).map_err(|e| e.to_string())?;
-                Ok(raw.into_iter().map(Raw::item).collect())
+                // Who you are on GitHub, for the pull requests yours or
+                // waiting on your review; none where gh cannot say.
+                let me = match kind {
+                    Kind::Pr => gh(&["api", "user", "--jq", ".login"]).unwrap_or_default(),
+                    Kind::Issue => String::new(),
+                };
+                Ok(raw.into_iter().map(|r| r.item(me.trim())).collect())
             }))
         }
         Ask::View(n) => {
@@ -632,7 +640,6 @@ struct Raw {
     deletions: usize,
     commits: Vec<RawCommit>,
     closing_issues_references: Vec<RawIssueRef>,
-    viewer_did_author: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -640,7 +647,6 @@ struct Raw {
 struct Who {
     login: String,
     name: String,
-    is_me: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -748,7 +754,9 @@ fn reaction_emoji(content: &str) -> &'static str {
 }
 
 impl Raw {
-    fn item(self) -> Item {
+    /// It as listed, `me` the login of the account gh is signed in to
+    /// (empty where it is not known).
+    fn item(self, me: &str) -> Item {
         let mut checks = (0, 0, 0);
         for c in &self.status_check_rollup {
             match standing(&c.word()) {
@@ -778,8 +786,9 @@ impl Raw {
                 }
             })
             .filter(|s| !s.is_empty());
-        let viewer_authored = self.viewer_did_author || self.author.is_me;
-        let viewer_requested = self.review_requests.iter().any(|w| w.is_me);
+        let is_me = |w: &Who| !me.is_empty() && w.login == me;
+        let viewer_authored = is_me(&self.author);
+        let viewer_requested = self.review_requests.iter().any(is_me);
         let state_lower = self.state.to_lowercase();
         Item {
             number: self.number,
@@ -919,7 +928,7 @@ impl Raw {
         let conflicts = self.mergeable == "CONFLICTING";
         let head = std::mem::take(&mut self.head_ref_oid);
         Detail {
-            item: self.item(),
+            item: self.item(""),
             body,
             said: all,
             checks,
@@ -967,6 +976,22 @@ mod tests {
         assert_eq!(d.said[0].how, "changes requested");
         assert_eq!(d.checks[2].name, "ci/x");
         assert_eq!(d.item.branch, "bo:fix");
+    }
+
+    #[test]
+    fn a_pull_request_is_yours_or_waits_on_your_review_by_the_login_gh_is_signed_in_as() {
+        let raw = || -> Raw {
+            serde_json::from_str(
+                r#"{"number":7,"author":{"login":"ann"},"reviewRequests":[{"login":"bo"}]}"#,
+            )
+            .unwrap()
+        };
+        let ann = raw().item("ann");
+        assert!(ann.viewer_authored && !ann.viewer_requested);
+        let bo = raw().item("bo");
+        assert!(!bo.viewer_authored && bo.viewer_requested);
+        let nobody = raw().item("");
+        assert!(!nobody.viewer_authored && !nobody.viewer_requested);
     }
 
     #[test]

@@ -10,6 +10,10 @@ use gpui::component::{
     tag::Tag,
 };
 use gpui::{AnyElement, App, Context, Div, SharedString, div, prelude::*, px};
+use u0ui::{
+    prelude::*,
+    t3::shell::{Crumb, WorkspaceBreadcrumb},
+};
 
 use crate::{
     desk::Desk,
@@ -27,6 +31,55 @@ fn ago(text: &str) -> String {
 }
 
 impl Desk {
+    /// The top bar over a pull request read: the way back to the list and
+    /// which one it is; it on its host.
+    pub(crate) fn pr_topbar(&self, left: Div, right: Div, cx: &mut Context<Self>) -> (Div, Div) {
+        let f = &self.forge;
+        let repo = (f.folder.as_ref()).map(|p| self.forge_name(p));
+        let which = format!(
+            "{} #{}",
+            repo.unwrap_or_default(),
+            f.chosen.unwrap_or_default()
+        );
+        let desk = cx.entity();
+        let crumbs = WorkspaceBreadcrumb::new(
+            "pr-crumbs",
+            [
+                Crumb::new(crate::tr("Pull requests")).on_click(move |_, cx| {
+                    desk.update(cx, Desk::close_forge_item);
+                }),
+                Crumb::new(which.trim().to_owned()),
+            ],
+        );
+        let url = match &f.detail {
+            Some(Ok(d)) => Some(d.item.url.clone()),
+            _ => None,
+        };
+        let open = url.map(|url| {
+            let label = crate::forge::Host::of_url(&url).map_or_else(
+                || crate::tr("Open on its host"),
+                |h| crate::tr_with("Open on %{host}", &[("host", &h.name())]),
+            );
+            Button::new("pr-open", label)
+                .variant(ButtonVariant::Ghost)
+                .size(ButtonSize::Sm)
+                .icon(CarbonIcon::Launch)
+                .icon_only(true)
+                .on_click(cx.listener(move |this, _, _, cx| this.browse(&url, cx)))
+        });
+        (left.child(crumbs), right.children(open))
+    }
+
+    /// A pull request read, on a page of its own.
+    pub(crate) fn pr_page(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+        div()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_h(px(0.))
+            .child(self.forge_detail(faces, cx))
+    }
+
     /// Its changes: each file's head with a Viewed box, its conversations
     /// and the comments to go out with the next review under their lines,
     /// a line's + to comment on it.

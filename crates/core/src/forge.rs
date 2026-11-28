@@ -86,6 +86,21 @@ impl Host {
     }
 }
 
+impl Host {
+    /// The host an address of a pull request or an issue is on.
+    pub fn of_url(url: &str) -> Option<Self> {
+        let host = url.split("://").nth(1)?.split('/').next()?;
+        Some(match host {
+            "github.com" => Self::GitHub,
+            "bitbucket.org" => Self::Bitbucket,
+            "linear.app" => Self::Linear,
+            h if h.contains("gitlab") => Self::GitLab,
+            h if h == "dev.azure.com" || h.ends_with(".visualstudio.com") => Self::Azure,
+            _ => return None,
+        })
+    }
+}
+
 /// Answer `ask` of the pull requests or issues of the project in `dir`,
 /// from the host its remote is on: GitHub through gh, GitLab, Bitbucket
 /// and Azure DevOps over their APIs; its issues from the Linear team
@@ -450,6 +465,27 @@ fn agents_line(line: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn an_address_says_the_host_it_is_on() {
+        use super::Host;
+        let of = Host::of_url;
+        assert_eq!(of("https://github.com/a/b/pull/7"), Some(Host::GitHub));
+        assert_eq!(
+            of("https://gitlab.example.com/a/b/-/issues/3"),
+            Some(Host::GitLab)
+        );
+        assert_eq!(
+            of("https://dev.azure.com/o/p/_git/r/pullrequest/2"),
+            Some(Host::Azure)
+        );
+        assert_eq!(
+            of("https://linear.app/acme/issue/ENG-12"),
+            Some(Host::Linear)
+        );
+        assert_eq!(of("https://example.com/a"), None);
+        assert_eq!(of(""), None);
+    }
+
     #[test]
     fn what_a_caller_said_stays_one_segment_of_a_path() {
         for said in ["123#", "../../..#", "a/b", "x?y=1"] {

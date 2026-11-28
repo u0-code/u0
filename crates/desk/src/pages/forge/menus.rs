@@ -1,5 +1,5 @@
-//! The PRs and Issues pages' menus: the project shown, the views saved,
-//! and what can be done with one, under its "⋯" and on its row.
+//! What can be done with a pull request or an issue, under its "⋯" and on
+//! its row.
 
 use gpui::component::menu::PopupMenu;
 use gpui::{Context, Entity, prelude::*, px};
@@ -14,70 +14,6 @@ use crate::{
 type Act3 = Box<dyn Fn(&mut Desk, &mut gpui::Window, &mut Context<Desk>)>;
 
 impl Desk {
-    /// The projects a page can be of: each repository of one that holds
-    /// several.
-    pub(super) fn forge_projects(&self, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
-        menu = menu
-            .item(
-                Self::menu_item(desk, crate::tr("All projects"), |this, window, cx| {
-                    this.list_projects(true, None, window, cx);
-                })
-                .checked(self.forge.every.is_some()),
-            )
-            .separator();
-        for folder in self.forge_places() {
-            let on = self.forge.every.is_none() && self.forge.folder.as_ref() == Some(&folder);
-            let name = self.forge_name(&folder);
-            menu = menu.item(
-                Self::menu_item(desk, name, move |this, window, cx| {
-                    this.list_projects(false, Some(folder.clone()), window, cx);
-                })
-                .checked(on),
-            );
-        }
-        menu.min_w(px(240.))
-    }
-
-    /// The views of this page saved, each chosen to show it; saving the one
-    /// shown, or removing one.
-    pub(super) fn forge_views(&self, mut menu: PopupMenu, desk: &Entity<Self>) -> PopupMenu {
-        let kind = self.forge.kind;
-        let views: Vec<_> = (self.settings.views.iter())
-            .filter(|v| v.kind == kind)
-            .cloned()
-            .collect();
-        for v in &views {
-            let view = v.clone();
-            menu = menu.item(Self::menu_item(
-                desk,
-                v.name.clone(),
-                move |this, window, cx| {
-                    this.show_view(&view, window, cx);
-                },
-            ));
-        }
-        if !views.is_empty() {
-            menu = menu.separator();
-        }
-        menu = menu.item(Self::menu_item(
-            desk,
-            crate::tr("Save this view"),
-            |this, _, cx| {
-                this.save_view(cx);
-            },
-        ));
-        for v in views {
-            menu = menu.item(Self::menu_item(
-                desk,
-                crate::tr_with("Remove %{name}", &[("name", &v.name)]),
-                move |this, _, cx| {
-                    this.remove_view(&v.name, cx);
-                },
-            ));
-        }
-        menu.min_w(px(220.))
-    }
-
     /// What can be done with the one read, under its "⋯".
     pub(super) fn forge_actions(
         &self,

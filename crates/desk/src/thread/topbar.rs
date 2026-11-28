@@ -4,7 +4,6 @@
 use gpui::component::{Selectable as _, Sizable as _, input::Input, menu::PopupMenu};
 use gpui::{Context, Div, Entity, div, prelude::*, px};
 
-use crate::fonts::Weighted as _;
 use crate::{
     desk::{Desk, Page, Popup, Renaming},
     fonts::Faces,
@@ -46,16 +45,10 @@ impl Desk {
                 .on_click(cx.listener(|this, _, window, cx| this.toggle_sidebar(window, cx))),
             );
         }
-        let title = |t: String| {
-            ui::one_line(
-                ui::text(faces, t)
-                    .text_size(px(crate::style::LABEL))
-                    .weight(gpui::FontWeight::MEDIUM),
-            )
-            .w_auto()
-            .flex_shrink_1()
-        };
-        if !matches!(self.page, Page::Thread | Page::Workflows | Page::Usage) {
+        if !matches!(
+            self.page,
+            Page::Thread | Page::Forge(_) | Page::Workflows | Page::Usage
+        ) {
             left = left.child(
                 ui::icon_button("back", "chevron-left", crate::tr("Back · Esc")).on_click(
                     cx.listener(|this, _, window, cx| this.open_page(Page::Thread, window, cx)),
@@ -203,15 +196,7 @@ impl Desk {
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_aside(cx))),
                     );
             }
-            Page::Forge(kind) => {
-                left = left.child(title(
-                    crate::tr(match kind {
-                        crate::github::Kind::Pr => "Pull requests",
-                        crate::github::Kind::Issue => "Issues",
-                    })
-                    .to_string(),
-                ));
-            }
+            Page::Forge(_) => (left, right) = self.forge_topbar(left, right, cx),
             Page::Workflows => (left, right) = self.workflows_topbar(left, right, cx),
             Page::Usage => (left, right) = self.usage_topbar(left, right, cx),
         }

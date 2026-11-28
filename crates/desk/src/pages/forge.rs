@@ -1,23 +1,34 @@
-//! The PRs and Issues pages drawn: the choices and the list on the left,
-//! the one read on the right, as t3code's pages set them.
+//! The PRs and Issues pages drawn, as their boards set them: the page's
+//! title, its search and filters, and the list in sections (pull requests
+//! by your part in them, issues by project); an issue read beside the
+//! list.
 
 use gpui::component::{
     Sizable as _,
     input::{Input, Textarea},
-    list::List,
     menu::ContextMenuExt as _,
     scroll::ScrollableElement as _,
     tab::{Tab as KitTab, TabBar},
-    tag::Tag,
 };
-use gpui::{Context, Div, SharedString, div, prelude::*, px};
+use gpui::{AnyElement, Context, Div, Hsla, SharedString, div, prelude::*, px};
+use u0ui::{
+    components::menu::MenuItem,
+    prelude::*,
+    t3::{
+        review::{
+            ChecksStatus, IssueRow, IssueState, Label, Priority, PullRequestRow, PullRequestState,
+            ReviewDecision,
+        },
+        shell::{ListFilter, ListToolbar, WorkspacePageHeader},
+    },
+};
 
 mod menus;
 
 use crate::{
     desk::{
-        Desk, Popup,
-        forge::{PARTS, Tab},
+        Desk, Place,
+        forge::{Sort, Tab},
     },
     fonts::Faces,
     github::{Act, Detail, Item, Kind},
@@ -51,172 +62,677 @@ pub fn state_word(state: &str) -> &'static str {
     }
 }
 
+/// A pull request's state, as u0ui draws it.
+pub fn pr_state(item: &Item) -> PullRequestState {
+    match (item.state.as_str(), item.draft) {
+        (_, true) => PullRequestState::Draft,
+        ("merged", _) => PullRequestState::Merged,
+        ("closed", _) => PullRequestState::Closed,
+        _ => PullRequestState::Open,
+    }
+}
+
+/// How its checks stand, from those passed, failed and still going: none
+/// where it has none.
+pub fn checks_of((passed, failed, going): (usize, usize, usize)) -> Option<ChecksStatus> {
+    match () {
+        () if failed > 0 => Some(ChecksStatus::Failed),
+        () if going > 0 => Some(ChecksStatus::Running),
+        () if passed > 0 => Some(ChecksStatus::Passed),
+        () => None,
+    }
+}
+
+/// A review's word, as the forge says it (`approved`, `changes
+/// requested`, `review required`), as u0ui draws it.
+pub fn decision(review: &str) -> Option<ReviewDecision> {
+    match review {
+        "approved" => Some(ReviewDecision::Approved),
+        "changes requested" => Some(ReviewDecision::Changes),
+        "review required" | "awaiting" | "pending" => Some(ReviewDecision::Awaiting),
+        _ => None,
+    }
+}
+
+/// Its labels in their colours (`#rrggbb`), the muted icon colour for one
+/// the forge gives none.
+pub fn labels_of(item: &Item) -> Vec<Label> {
+    let coloured = |name: &String| {
+        (item.label_colors.iter())
+            .find(|(n, _)| n == name)
+            .and_then(|(_, c)| u32::from_str_radix(c.trim_start_matches('#'), 16).ok())
+            .map_or_else(
+                || theme::role(ColorRole::IconSecondary),
+                |c| Hsla::from(gpui::rgb(c)),
+            )
+    };
+    (item.labels.iter())
+        .map(|name| Label::new(name.clone(), coloured(name)))
+        .collect()
+}
+
+/// An issue's state as u0ui draws it, from the forge's (`open`, `done`)
+/// or Linear's (`progress`, `backlog`, `cancelled`) word.
+pub fn issue_state(item: &Item) -> IssueState {
+    match item.issue_state.as_deref() {
+        Some("progress") => IssueState::Progress,
+        Some("done") => IssueState::Done,
+        Some("cancelled") => IssueState::Cancelled,
+        Some("backlog") => IssueState::Backlog,
+        _ if item.state == "closed" => IssueState::Done,
+        _ => IssueState::Open,
+    }
+}
+
+/// Linear's priority (1 urgent to 4 low; none 0).
+pub fn priority_of(item: &Item) -> Option<Priority> {
+    match item.priority? {
+        1 => Some(Priority::Urgent),
+        2 => Some(Priority::High),
+        3 => Some(Priority::Medium),
+        4 => Some(Priority::Low),
+        _ => None,
+    }
+}
+
+/// How the list is cut into sections: pull requests waiting on your
+/// review, yours, and the rest; issues by project.
+pub fn pr_section(item: &Item) -> usize {
+    match () {
+        () if item.viewer_requested && item.state == "open" => 0,
+        () if item.viewer_authored => 1,
+        () => 2,
+    }
+}
+
+/// A filter, set to `value` where it has one.
+fn valued(filter: ListFilter, value: Option<SharedString>) -> ListFilter {
+    match value {
+        Some(v) => filter.value(v),
+        None => filter,
+    }
+}
+
+/// The sections' names, in order.
+const PR_SECTIONS: [&str; 3] = ["Needs your review", "Yours", "Watching"];
+
 impl Desk {
+    /// The top bar over a page of them: the repositories read and when,
+    /// or, over a pull request read, the way back to the list and to it on
+    /// its host.
+    pub(crate) fn forge_topbar(&self, left: Div, right: Div, cx: &mut Context<Self>) -> (Div, Div) {
+        let f = &self.forge;
+        if f.kind == Kind::Pr && f.chosen.is_some() {
+            return self.pr_topbar(left, right, cx);
+        }
+        let mut names: Vec<String> = match &f.every {
+            Some(every) => every.iter().map(|(p, _)| self.forge_name(p)).collect(),
+            None => f.folder.iter().map(|p| self.forge_name(p)).collect(),
+        };
+        if let Some(when) = f.listed_at {
+            let ago = when::ago(when, std::time::SystemTime::now());
+            names.push(if ago == "now" {
+                crate::tr("synced just now").to_string()
+            } else {
+                crate::tr_with("synced %{when} ago", &[("when", &ago)]).to_string()
+            });
+        }
+        let line = div()
+            .type_style(TypeStyle::Label01)
+            .text_color(theme::role(ColorRole::TextSecondary))
+            .child(ui::one_line(div().child(names.join(" · "))));
+        (left.child(line), right)
+    }
+
     pub(crate) fn forge_page(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let f = &self.forge;
+        if f.kind == Kind::Pr && f.chosen.is_some() {
+            return self.pr_page(faces, cx);
+        }
+        let list = div()
+            .id("forge-page")
+            .flex_1()
+            .min_w(px(0.))
+            .h_full()
+            .overflow_y_scrollbar()
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .w_full()
+                    .px(px(40.))
+                    .pt(px(12.))
+                    .pb(px(32.))
+                    .child(self.forge_head())
+                    .child(self.forge_toolbar(cx))
+                    .child(self.forge_list(faces, cx)),
+            );
+        let side = (f.kind == Kind::Issue && (f.chosen.is_some() || f.creating)).then(|| {
+            div()
+                .w(px(400.))
+                .flex_none()
+                .h_full()
+                .flex()
+                .flex_col()
+                .border_l_1()
+                .border_color(theme::role(ColorRole::BorderSubtle01))
+                .bg(theme::role(ColorRole::Layer01))
+                .child(if f.creating {
+                    self.forge_form(faces, &crate::tr("New issue"), crate::tr("Create"), cx)
+                } else {
+                    self.forge_detail(faces, cx)
+                })
+        });
+        div()
+            .flex()
+            .flex_1()
+            .min_h(px(0.))
+            .child(list)
+            .children(side)
+    }
+
+    /// The page's title and what it lists.
+    fn forge_head(&self) -> WorkspacePageHeader {
+        match self.forge.kind {
+            Kind::Pr => WorkspacePageHeader::new("forge-head", crate::tr("Pull requests"))
+                .description(crate::tr(
+                    "Across GitHub, GitLab, Bitbucket and Azure DevOps, and from the other machines in this window.",
+                )),
+            Kind::Issue => WorkspacePageHeader::new("forge-head", crate::tr("Issues"))
+                .description(crate::tr(
+                    "Linear and GitHub issues for your projects. Start a thread from any of them.",
+                )),
+        }
+    }
+
+    /// The host the page's project keeps them on, by what was listed.
+    fn forge_host(&self) -> Option<crate::forge::Host> {
+        let url = (self.forge.rows.items().first()).map(|i| i.url.as_str());
+        url.and_then(crate::forge::Host::of_url)
+    }
+
+    /// The search, the filters (its state, project, your part, a label;
+    /// for issues where they are kept), the order and the views saved, and
+    /// what can be done: read again, a new issue.
+    fn forge_toolbar(&self, cx: &mut Context<Self>) -> ListToolbar {
+        let f = &self.forge;
+        let desk = cx.entity();
+        let pick = |go: fn(&mut Desk, usize, &mut gpui::Window, &mut Context<Desk>)| {
+            let desk = desk.clone();
+            move |n: usize, window: &mut gpui::Window, cx: &mut gpui::App| {
+                desk.update(cx, |d, cx| go(d, n, window, cx));
+            }
+        };
+        let radio = |name: &str, options: Vec<SharedString>, at: usize| {
+            MenuItem::radio_group(crate::tr(name), options).selected_item(Some(at))
+        };
+        // Its state.
         let states: &[&'static str] = match f.kind {
             Kind::Pr => &["open", "closed", "merged", "all"],
             Kind::Issue => &["open", "closed", "all"],
         };
-        let state_picks: Vec<(SharedString, bool, ui::Pick)> = states
-            .iter()
-            .map(|st| {
-                let desk = cx.entity();
-                let pick: ui::Pick = Box::new(move |_, _, cx| {
-                    desk.update(cx, |d, cx| {
-                        d.forge.state = st;
-                        d.list_forge(cx);
-                    });
-                });
-                (crate::tr(state_word(st)), f.state == *st, pick)
+        let at = states.iter().position(|s| *s == f.state).unwrap_or(0);
+        let state = ListFilter::new(crate::tr("State"))
+            .value(crate::tr(state_word(f.state)))
+            .menu([radio(
+                "State",
+                states.iter().map(|s| crate::tr(state_word(s))).collect(),
+                at,
+            )
+            .on_select_item(pick(|d, n, _, cx| {
+                let states: &[&'static str] = match d.forge.kind {
+                    Kind::Pr => &["open", "closed", "merged", "all"],
+                    Kind::Issue => &["open", "closed", "all"],
+                };
+                d.forge.state = states[n];
+                d.list_forge(cx);
+            }))]);
+        // Your part in them: a pull request opened by you, an issue
+        // assigned to you.
+        let (part_name, mine, part) = match f.kind {
+            Kind::Pr => ("Author", "You", 1),
+            Kind::Issue => ("Assignee", "Me", 2),
+        };
+        let yours = valued(
+            ListFilter::new(crate::tr(part_name)),
+            (f.part == part).then(|| crate::tr(mine)),
+        )
+        .menu([radio(
+            part_name,
+            vec![crate::tr("Anyone"), crate::tr(mine)],
+            usize::from(f.part == part),
+        )
+        .on_select_item(pick(|d, n, _, cx| {
+            let part = if d.forge.kind == Kind::Pr { 1 } else { 2 };
+            d.forge.part = if n == 0 { 0 } else { part };
+            d.list_forge(cx);
+        }))]);
+        let toolbar = ListToolbar::new("forge-bar")
+            .search_state(f.search.clone())
+            .search_width(if f.kind == Kind::Pr { 240. } else { 160. })
+            .placeholder(crate::tr(match f.kind {
+                Kind::Pr => "Search pull requests",
+                Kind::Issue => "Search",
+            }))
+            .filter(state)
+            .filter(self.forge_repository_filter(cx))
+            .filter(yours);
+        let toolbar = match f.kind {
+            Kind::Pr => toolbar.filter(self.forge_label_filter(cx)),
+            Kind::Issue => toolbar.filter(self.forge_tracker_filter(cx)),
+        };
+        self.forge_views_of(toolbar, cx)
+            .when(f.kind == Kind::Issue && f.binding, |t| {
+                t.action(div().w(px(200.)).child(Input::new(&f.team).small()))
             })
-            .collect();
-        let part_picks: Vec<(SharedString, bool, ui::Pick)> = PARTS
-            .iter()
-            .enumerate()
-            .filter(|(n, _)| f.kind == Kind::Pr || *n != 2)
-            .map(|(n, (name, _))| {
-                let desk = cx.entity();
-                let pick: ui::Pick = Box::new(move |_, _, cx| {
-                    desk.update(cx, |d, cx| {
-                        d.forge.part = n;
-                        d.list_forge(cx);
-                    });
-                });
-                (crate::tr(name), f.part == n, pick)
+            .when(f.kind == Kind::Issue && f.every.is_none(), |t| {
+                t.action(
+                    Button::new("new-issue", crate::tr("New issue"))
+                        .variant(ButtonVariant::Ghost)
+                        .size(ButtonSize::Md)
+                        .icon(CarbonIcon::Add)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.edit_forge(true, window, cx);
+                        })),
+                )
             })
+            .action(
+                Button::new("forge-refresh", crate::tr("Read again"))
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Md)
+                    .icon(CarbonIcon::Renew)
+                    .icon_only(true)
+                    .on_click(cx.listener(|this, _, _, cx| this.list_forge(cx))),
+            )
+    }
+
+    /// Which project's: every one's, or one repository's.
+    fn forge_repository_filter(&self, cx: &mut Context<Self>) -> ListFilter {
+        let f = &self.forge;
+        let places = self.forge_places();
+        let at = match (&f.every, &f.folder) {
+            (Some(_), _) | (_, None) => 0,
+            (None, Some(p)) => places.iter().position(|q| q == p).map_or(0, |n| n + 1),
+        };
+        let names: Vec<SharedString> = std::iter::once(crate::tr("All projects"))
+            .chain(places.iter().map(|p| self.forge_name(p).into()))
             .collect();
+        let desk = cx.entity();
+        let value = (at > 0).then(|| self.forge_name(&places[at - 1]).into());
+        valued(ListFilter::new(crate::tr("Repository")), value).menu([MenuItem::radio_group(
+            crate::tr("Repository"),
+            names,
+        )
+        .selected_item(Some(at))
+        .on_select_item(move |n, window, cx| {
+            let place = places.get(n.wrapping_sub(1)).cloned();
+            desk.update(cx, |d, cx| d.list_projects(n == 0, place, window, cx));
+        })])
+    }
+
+    /// The label they carry: one of those of the pull requests listed.
+    fn forge_label_filter(&self, cx: &mut Context<Self>) -> ListFilter {
+        let f = &self.forge;
+        let mut labels: Vec<String> = (f.rows.items().iter())
+            .flat_map(|i| i.labels.iter().cloned())
+            .chain(f.label.clone())
+            .collect();
+        labels.sort();
+        labels.dedup();
+        let at = (f.label.as_ref()).and_then(|l| labels.iter().position(|x| x == l));
+        let names: Vec<SharedString> = std::iter::once(crate::tr("Any"))
+            .chain(labels.iter().map(|l| SharedString::from(l.clone())))
+            .collect();
+        let desk = cx.entity();
+        valued(
+            ListFilter::new(crate::tr("Label")),
+            f.label.clone().map(Into::into),
+        )
+        .menu([MenuItem::radio_group(crate::tr("Label"), names)
+            .selected_item(Some(at.map_or(0, |n| n + 1)))
+            .on_select_item(move |n, _, cx| {
+                let label = labels.get(n.wrapping_sub(1)).cloned();
+                desk.update(cx, |d, cx| {
+                    d.forge.label = label;
+                    d.list_forge(cx);
+                });
+            })])
+    }
+
+    /// Where the project's issues are kept: its host's, or a Linear
+    /// team's, bound by its key.
+    fn forge_tracker_filter(&self, cx: &mut Context<Self>) -> ListFilter {
+        let f = &self.forge;
+        let team = (f.folder.as_ref()).and_then(|p| self.prefs(p).linear);
+        let host = (self
+            .forge_host()
+            .filter(|h| *h != crate::forge::Host::Linear))
+        .map_or_else(|| crate::tr("Its host"), |h| h.name().into());
+        let linear = team.as_ref().map_or_else(
+            || crate::tr("A Linear team…"),
+            |t| crate::tr_with("Linear · %{team}", &[("team", t)]),
+        );
+        let value = if team.is_some() {
+            linear.clone()
+        } else {
+            host.clone()
+        };
+        let desk = cx.entity();
+        valued(
+            ListFilter::new(crate::tr("Tracker")),
+            f.every.is_none().then_some(value),
+        )
+        .menu([MenuItem::radio_group(crate::tr("Tracker"), [host, linear])
+            .selected_item(Some(usize::from(team.is_some())))
+            .on_select_item(move |n, window, cx| {
+                desk.update(cx, |d, cx| {
+                    if n == 0 {
+                        d.forge.binding = false;
+                        (d.forge.team).update(cx, |i, cx| i.set_value("", window, cx));
+                        d.bind_linear(cx);
+                    } else {
+                        d.forge.binding = true;
+                        let team = d.forge.team.clone();
+                        team.update(cx, |i, cx| {
+                            window.focus(&gpui::Focusable::focus_handle(&*i, cx), cx);
+                        });
+                        cx.notify();
+                    }
+                });
+            })])
+    }
+
+    /// The orders it can be shown in, and the views saved: each chosen to
+    /// show it, the one shown saved, or a saved one removed.
+    fn forge_views_of(&self, toolbar: ListToolbar, cx: &mut Context<Self>) -> ListToolbar {
+        let f = &self.forge;
+        let sorts = Sort::of(f.kind);
+        let views: Vec<_> = (self.settings.views.iter())
+            .filter(|v| v.kind == f.kind)
+            .cloned()
+            .collect();
+        let removes: Vec<String> = (views.iter())
+            .map(|v| crate::tr_with("Remove %{name}", &[("name", &v.name)]).to_string())
+            .collect();
+        let names: Vec<SharedString> = (sorts.iter().map(|s| crate::tr(s.word())))
+            .chain(views.iter().map(|v| v.name.clone().into()))
+            .chain(removes.iter().cloned().map(SharedString::from))
+            .collect();
+        let save = crate::tr("Save this view");
+        let desk = cx.entity();
+        toolbar
+            .views(names)
+            .view(crate::tr(f.sort.word()))
+            .labels([crate::tr("Saved views"), save.clone(), crate::tr("Clear")])
+            .on_view_change(move |name, window, cx| {
+                desk.update(cx, |d, cx| {
+                    if let Some(s) = sorts.iter().find(|s| crate::tr(s.word()) == name) {
+                        d.forge.sort = *s;
+                        cx.notify();
+                    } else if let Some(v) = views.iter().find(|v| v.name == name.as_ref()) {
+                        d.show_view(v, window, cx);
+                    } else if let Some(at) = removes.iter().position(|r| r == name.as_ref()) {
+                        d.remove_view(&views[at].name, cx);
+                    } else if name == save {
+                        d.save_view(cx);
+                    }
+                });
+            })
+    }
+
+    /// The list in its sections, or why there is none.
+    fn forge_list(&self, faces: &Faces, cx: &mut Context<Self>) -> AnyElement {
+        let f = &self.forge;
         let project = match &f.folder {
             _ if f.every.is_some() => crate::tr("All projects").to_string(),
             Some(p) => self.forge_name(p),
             None => crate::tr("No project").to_string(),
         };
-        let project_label = project.clone();
-        let chip = ui::opener("forge-project")
-            .h(px(26.))
-            .px(px(8.))
-            .child(ui::text(faces, project).text_size(px(crate::style::LABEL)))
-            .child(ui::icon("chevron-down", 10.).text_color(theme::faint()));
-        let bar = div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap(px(8.))
-            .px(px(16.))
-            .py(px(10.))
-            .border_b_1()
-            .border_color(theme::border())
-            .child(
-                self.menu(
-                    Popup::ForgeProject,
-                    chip,
-                    |d, menu, desk, _| d.forge_projects(menu, desk),
-                    cx,
-                )
-                .anchor(gpui::Anchor::TopLeft),
-            )
-            .child(ui::segmented("forge-state", state_picks))
-            .child(ui::segmented("forge-part", part_picks))
-            .child(
-                self.menu(
-                    Popup::ForgeViews,
-                    ui::opener("forge-views")
-                        .h(px(26.))
-                        .px(px(8.))
-                        .child(
-                            ui::text(faces, crate::tr("Views")).text_size(px(crate::style::LABEL)),
-                        )
-                        .child(ui::icon("chevron-down", 10.).text_color(theme::faint())),
-                    |d, menu, desk, _| d.forge_views(menu, desk),
-                    cx,
-                )
-                .anchor(gpui::Anchor::TopLeft),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w(px(160.))
-                    .child(Input::new(&f.search).small()),
-            )
-            .when(f.kind == Kind::Issue && f.every.is_none(), |d| {
-                d.child(div().w(px(110.)).child(Input::new(&f.team).small()))
+        let state = match &f.rows.list {
+            None => {
+                use u0ui::components::spinner::{Spinner, SpinnerSize};
+                return div()
+                    .pt(px(32.))
                     .child(
-                        ui::button("new-issue", crate::tr("New issue"), Weight::Secondary)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.edit_forge(true, window, cx);
-                            })),
+                        Spinner::new("forge-reading")
+                            .size(SpinnerSize::Inline)
+                            .description(crate::tr("Reading…")),
                     )
-            })
-            .child(
-                ui::icon_button("forge-refresh", "retry", crate::tr("Read again"))
-                    .size(px(26.))
-                    .on_click(cx.listener(|this, _, _, cx| this.list_forge(cx))),
-            );
-        // A row's menu: what can be done with the one right-clicked.
-        let (desk, rows) = (cx.entity(), f.rows.clone());
-        let list = div()
-            .id("forge-rows")
-            .size_full()
-            .child(List::new(&f.rows).p(px(6.)))
-            .context_menu(move |menu, _, cx| {
-                let rows = rows.read(cx);
-                let Some(row) = rows.right_clicked_index().map(|ix| ix.row) else {
-                    return menu;
-                };
-                let rows = rows.delegate();
-                let Some(item) = rows.items().get(row).cloned() else {
-                    return menu;
-                };
-                let d = desk.read(cx);
-                let folder = (rows.kin(row).0.map(|(p, _)| p.clone()))
-                    .or_else(|| d.forge.folder.clone())
-                    .unwrap_or_default();
-                d.forge_menu(&item, folder, menu, &desk)
-            });
-        let empty_or_err = match &f.rows.read(cx).delegate().list {
-            Some(Err(why)) => Some(Err(why.clone())),
-            Some(Ok(items)) if items.is_empty() => Some(Ok(())),
-            _ => None,
+                    .into_any_element();
+            }
+            Some(Err(why)) => Err(why.clone()),
+            Some(Ok(items)) if items.is_empty() => Ok(()),
+            Some(Ok(_)) => return self.forge_sections(faces, cx).into_any_element(),
         };
-        if !f.creating
-            && let Some(state) = empty_or_err
-            && let Some(full) = self.forge_state(&project_label, state, cx)
-        {
-            return div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_h(px(0.))
-                .child(bar)
-                .child(full);
+        if let Some(full) = self.forge_state(&project, state.clone(), cx) {
+            return full.into_any_element();
         }
-        let side = if f.creating {
-            self.forge_form(faces, &crate::tr("New issue"), crate::tr("Create"), cx)
-        } else {
-            self.forge_detail(faces, cx)
-        };
         div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_h(px(0.))
-            .child(bar)
-            .child(
+            .pt(px(32.))
+            .child(match state {
+                Err(e) => ui::trouble(
+                    "forge-unlisted",
+                    crate::tr_with("Couldn't list them: %{e}", &[("e", &e)]),
+                )
+                .into_any_element(),
+                Ok(()) => ui::fine(faces, crate::tr("None here.")).into_any_element(),
+            })
+            .into_any_element()
+    }
+
+    /// Each section: its name and how many, then its rows in the order
+    /// chosen.
+    fn forge_sections(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+        let f = &self.forge;
+        let rows = &f.rows;
+        let place_of = |row: usize| {
+            rows.kin(row)
+                .0
+                .map(|(p, _)| p.clone())
+                .or_else(|| f.folder.clone())
+                .unwrap_or_default()
+        };
+        let all: Vec<(usize, &Item)> = rows.items().iter().enumerate().collect();
+        // Pull requests by your part in them; issues by project.
+        let sections: Vec<(String, Vec<usize>)> = match f.kind {
+            Kind::Pr => PR_SECTIONS
+                .iter()
+                .enumerate()
+                .map(|(n, name)| {
+                    let of = all.iter().filter(|(_, i)| pr_section(i) == n);
+                    (crate::tr(name).to_string(), of.map(|(r, _)| *r).collect())
+                })
+                .collect(),
+            Kind::Issue if rows.groups.is_empty() => {
+                let name = f.folder.as_ref().map(|p| self.forge_name(p));
+                vec![(name.unwrap_or_default(), (0..all.len()).collect())]
+            }
+            Kind::Issue => {
+                let mut start = 0;
+                (rows.groups.iter())
+                    .map(|(_, name, len)| {
+                        let r = (start..start + len).collect();
+                        start += len;
+                        (name.clone(), r)
+                    })
+                    .collect()
+            }
+        };
+        let mut page = div().flex().flex_col();
+        for (name, members) in sections.into_iter().filter(|(_, m)| !m.is_empty()) {
+            let items: Vec<&Item> = members.iter().map(|r| all[*r].1).collect();
+            let ordered = f.sort.sorted(items);
+            let mut section = div().flex().flex_col().mt(px(32.)).child(
                 div()
                     .flex()
-                    .flex_1()
-                    .min_h(px(0.))
+                    .items_baseline()
+                    .gap(px(8.))
+                    .pb(px(8.))
+                    .border_b_1()
+                    .border_color(theme::role(ColorRole::BorderSubtle01))
+                    .type_style(TypeStyle::HeadingCompact01)
+                    .text_color(theme::role(ColorRole::TextPrimary))
+                    .child(name)
                     .child(
                         div()
-                            .w(px(400.))
-                            .flex_none()
-                            .h_full()
-                            .border_r_1()
-                            .border_color(theme::border())
-                            .child(list),
-                    )
-                    .child(side),
-            )
+                            .type_style(TypeStyle::BodyCompact01)
+                            .text_color(theme::role(ColorRole::TextHelper))
+                            .child(ordered.len().to_string()),
+                    ),
+            );
+            for item in ordered {
+                // Where it is in the list, for its project.
+                let row = (all.iter())
+                    .position(|(_, i)| std::ptr::eq(*i, item))
+                    .unwrap_or_default();
+                let place = place_of(row);
+                section = section.child(match f.kind {
+                    Kind::Pr => self.pr_row(item, place, row, cx),
+                    Kind::Issue => self.issue_row(faces, item, place, row, cx),
+                });
+            }
+            page = page.child(section);
+        }
+        page
+    }
+
+    /// A pull request's row, opened to read it; its menu on a right click.
+    fn pr_row(&self, item: &Item, place: Place, row: usize, cx: &mut Context<Self>) -> AnyElement {
+        let desk = cx.entity();
+        let n = item.number;
+        let at = place.clone();
+        let mut r = PullRequestRow::new(
+            SharedString::from(format!("pr-{row}")),
+            u32::try_from(n).unwrap_or(u32::MAX),
+            item.title.clone(),
+        )
+        .state(pr_state(item))
+        .repo(self.forge_name(&place))
+        .author(item.author.clone())
+        .branches(item.branch.clone(), item.base.clone())
+        .labels(labels_of(item))
+        .comments(item.comments)
+        .time(when_of(&item.updated))
+        .divided(false)
+        .show_avatar(false)
+        .on_click({
+            let desk = desk.clone();
+            move |_, cx| {
+                desk.update(cx, |d, cx| {
+                    d.forge.folder = Some(at.clone());
+                    d.forge.tab = Tab::Summary;
+                    d.read_forge(n, cx);
+                });
+            }
+        });
+        if let Some(c) = checks_of(item.checks) {
+            r = r.checks(c);
+        }
+        if let Some(rv) = decision(&item.review) {
+            r = r.review(rv);
+        }
+        if item.added + item.removed > 0 {
+            r = r.stat(item.added, item.removed);
+        }
+        Self::row_menu(r, item, place, row, desk)
+    }
+
+    /// An issue's row, read beside the list; the threads on it, and how the
+    /// latest stands.
+    fn issue_row(
+        &self,
+        _: &Faces,
+        item: &Item,
+        place: Place,
+        row: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let desk = cx.entity();
+        let n = item.number;
+        let at = place.clone();
+        let threads = self.issue_threads(&place, n);
+        let chosen = self.forge.chosen == Some(n) && self.forge.folder.as_ref() == Some(&place);
+        let key = (item.key.clone()).unwrap_or_else(|| format!("#{n}"));
+        let mut r = IssueRow::new(
+            SharedString::from(format!("issue-{row}")),
+            key,
+            item.title.clone(),
+        )
+        .state(issue_state(item))
+        .labels(labels_of(item))
+        .time(when_of(&item.updated))
+        .linked_threads(threads.len())
+        .selected(chosen)
+        .divided(false)
+        .dash_when_unprioritized(true)
+        .show_assignee_avatar(false)
+        .on_click({
+            let desk = desk.clone();
+            move |_, cx| {
+                desk.update(cx, |d, cx| {
+                    d.forge.folder = Some(at.clone());
+                    d.read_forge(n, cx);
+                });
+            }
+        });
+        if let Some(p) = priority_of(item) {
+            r = r.priority(p);
+        }
+        if let Some(who) = &item.assignee {
+            r = r.assignee(who.clone());
+        }
+        if let Some(pill) = threads.first().and_then(|s| self.thread_pill(s)) {
+            r = r.trailing(pill);
+        }
+        Self::row_menu(r, item, place, row, desk)
+    }
+
+    /// The sessions about the issue `n` of `place`, the latest first.
+    pub(crate) fn issue_threads(&self, place: &Place, n: u64) -> Vec<&crate::session::Session> {
+        let mut found: Vec<_> = (self.sessions.all.iter())
+            .filter(|s| s.host == place.host && place.folder.starts_with(&s.meta.project))
+            .filter(|s| (s.meta.links.iter()).any(|l| l.kind == Kind::Issue && l.number == n))
+            .collect();
+        found.sort_by_key(|s| std::cmp::Reverse(s.meta.updated));
+        found
+    }
+
+    /// How a thread stands, as a pill: its agent and its state; none for
+    /// one with nothing going on.
+    pub(crate) fn thread_pill(&self, s: &crate::session::Session) -> Option<u0ui::t3::StatusPill> {
+        use crate::desk::lists::{self, Status as S};
+        use u0ui::t3::Status;
+        let status = lists::status(s)?;
+        let pill = match status {
+            S::Working => Status::Working,
+            S::Approval | S::SignIn | S::Plan => Status::NeedsYou,
+            S::Failed | S::Limited => Status::Failed,
+            S::Done | S::Woke => Status::Done,
+        };
+        let label = format!(
+            "{} · {}",
+            self.name_of(&s.meta.agent),
+            crate::tr(status.word())
+        );
+        Some(u0ui::t3::StatusPill::new(pill).label(label))
+    }
+
+    /// A row with what can be done with it on a right click.
+    fn row_menu(
+        row: impl IntoElement,
+        item: &Item,
+        place: Place,
+        n: usize,
+        desk: gpui::Entity<Self>,
+    ) -> AnyElement {
+        let item = item.clone();
+        div()
+            .id(SharedString::from(format!("forge-row-{n}")))
+            .child(row)
+            .context_menu(move |menu, _, cx| {
+                desk.read(cx).forge_menu(&item, place.clone(), menu, &desk)
+            })
+            .into_any_element()
     }
 
     /// Full-body empty or error state on the PRs / Issues page (`EmptyStates`).
@@ -440,81 +956,10 @@ impl Desk {
     }
 }
 
-/// One in the list: its state, number and title; its project in the list
-/// of every project, who, its branch (and the pull request it is stacked
-/// on, `under`), when; its labels, checks, review and comments.
-pub fn row(faces: &Faces, item: &Item, under: Option<u64>, project: Option<&str>) -> Div {
-    let n = item.number;
-    let (passed, failed, going) = item.checks;
-    let mut meta = vec![format!("#{n}"), item.author.clone(), when_of(&item.updated)];
-    if !item.branch.is_empty() {
-        meta.insert(2, item.branch.clone());
-    }
-    if let Some(under) = under {
-        meta.insert(
-            3,
-            crate::tr_with("on #%{under}", &[("under", &under)]).to_string(),
-        );
-    }
-    if let Some(project) = project {
-        meta.insert(0, project.to_owned());
-    }
-    div()
-        .flex()
-        .gap(px(10.))
-        .w_full()
-        .child(div().mt(px(6.)).child(ui::dot(tint(item))))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(3.))
-                .flex_1()
-                .min_w(px(0.))
-                .child(ui::one_line(
-                    ui::text(faces, item.title.clone()).text_size(px(crate::style::LABEL)),
-                ))
-                .child(ui::one_line(ui::fine(faces, meta.join(" · "))))
-                .child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .gap(px(6.))
-                        .children(
-                            (item.labels.iter()).map(|l| Tag::secondary().small().child(l.clone())),
-                        )
-                        .when(passed + failed + going > 0, |d| {
-                            d.child(ui::fine(faces, format!("✓{passed}")).text_color(theme::ok()))
-                                .when(failed > 0, |d| {
-                                    d.child(
-                                        ui::fine(faces, format!("✗{failed}"))
-                                            .text_color(theme::coral()),
-                                    )
-                                })
-                                .when(going > 0, |d| {
-                                    d.child(
-                                        ui::fine(faces, format!("•{going}"))
-                                            .text_color(theme::accent()),
-                                    )
-                                })
-                        })
-                        .when(!item.review.is_empty(), |d| {
-                            d.child(ui::fine(faces, item.review.clone()))
-                        })
-                        .when(item.comments > 0, |d| {
-                            d.child(ui::fine(
-                                faces,
-                                crate::tr_with("%{n} said", &[("n", &item.comments)]),
-                            ))
-                        }),
-                ),
-        )
-}
-
 impl Desk {
     /// The one read: its head and what can be done with it, its tabs, and
     /// the line to say something.
-    fn forge_detail(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+    pub(super) fn forge_detail(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let f = &self.forge;
         let shell = div().flex().flex_col().flex_1().min_w(px(0.)).h_full();
         let d = match &f.detail {
@@ -649,24 +1094,6 @@ impl Desk {
                         &[("seen", &seen), ("total", &f.pr.files.len())],
                     ),
                 ))
-            })
-            .when(f.tab == Tab::Timeline, |d| {
-                d.child(
-                    ui::button(
-                        "forge-order",
-                        crate::tr(if f.newest {
-                            "Newest first"
-                        } else {
-                            "Oldest first"
-                        }),
-                        Weight::Quiet,
-                    )
-                    .h(px(24.))
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.forge.newest = !this.forge.newest;
-                        cx.notify();
-                    })),
-                )
             });
         let body: gpui::AnyElement = match f.tab {
             Tab::Code if f.kind == Kind::Pr => div()
@@ -689,10 +1116,7 @@ impl Desk {
                 .overflow_y_scrollbar()
                 .into_any_element(),
             Tab::Timeline => {
-                let mut said: Vec<_> = d.said.iter().collect();
-                if f.newest {
-                    said.reverse();
-                }
+                let said: Vec<_> = d.said.iter().collect();
                 let mut list = div().flex().flex_col().gap(px(14.)).px(px(20.)).py(px(14.));
                 if said.is_empty() {
                     list = list.child(ui::fine(faces, crate::tr("Nothing said yet.")));
@@ -825,7 +1249,7 @@ impl Desk {
             .child(row("Labels", none(&d.item.labels)))
             .child(row("Assignees", none(&d.assignees)))
             .when(kind == Kind::Pr, |el| {
-                let listed = (self.forge.rows.read(cx).delegate()).of(self.forge.folder.as_ref());
+                let listed = self.forge.rows.of(self.forge.folder.as_ref());
                 let (under, over) = super::pr::stack(&d.item, listed);
                 let numbers = |ns: Vec<u64>| {
                     ns.iter()

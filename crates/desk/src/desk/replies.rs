@@ -354,7 +354,7 @@ impl Desk {
                 folder,
                 kind,
                 answer,
-            } => self.forge_answered(&at(folder), kind, answer, window, cx),
+            } => self.forge_answered(&at(folder), kind, answer, cx),
             Event::Prs {
                 folder,
                 prs,

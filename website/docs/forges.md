@@ -33,13 +33,39 @@ issues.
 
 ## The pages
 
-Each page lists one project's items, or **All projects** together. A
-project that is a folder of repositories is listed repository by
-repository (`project / alpha`). A project that is on no forge is left out
-of **All projects**, and a notice names it and says why.
-Filter by state (open, closed, merged, all) and by your part: **All**,
-**Mine**, **Reviewing**, **Assigned**, **Mentions**; search, and **Save
-this view** to keep the filter (`views` in settings).
+Each page opens on the project of the thread on screen (in a project of
+several repositories, the one the thread works in), and lists that
+project's items, or **All projects** together. A project that is a folder
+of repositories is listed repository by repository (`project / alpha`).
+A project that is on no forge is left out of **All projects**, and a
+notice names it and says why. The top bar says which repositories are
+listed and when they were last read.
+
+Above the list are a search field and its filters:
+
+- **State**: open, closed, merged (pull requests), all;
+- **Repository**: **All projects**, or one;
+- **Author** (pull requests): **Anyone** or **You**; **Assignee**
+  (issues): **Anyone** or **Me**;
+- **Label** (pull requests): one of the labels of those listed;
+- **Tracker** (issues): the project's host, or **A Linear team…**, which
+  asks for the team's key and binds the project to it.
+
+The menu beside them orders the list (**Sort: Recently updated**,
+**Sort: Oldest first**, and **Sort: Most changed** for pull requests or
+**Sort: Priority** for issues), shows a view you saved, and keeps the
+filters shown with **Save this view** (`views` in settings); **Remove**
+takes a saved view away. **Read again** lists them again.
+
+Pull requests are listed in sections: **Needs your review** (open, your
+review asked for), **Yours** (opened by you, as the account `gh` is
+signed in to says) and **Watching** (the rest). Each row shows its state,
+title, number and labels; its repository, author, branches and when it
+was last updated; and how its review stands, its checks, its comments
+and the lines it adds and removes. Issues are listed by project, each row
+with its priority (Linear's), key, state, title, labels, the threads
+about it and how the latest stands. A pull request opens on its own
+page; an issue opens beside the list.
 
 An item's menu:
 

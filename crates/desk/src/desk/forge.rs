@@ -1,10 +1,10 @@
-//! The PRs and Issues pages, as t3code has them: a project's pull requests
-//! or issues, or every project's in one list, listed by state, by your
-//! part in them and by GitHub's search;
-//! one read whole beside the list; and what is done to one, as `gh` does
-//! it (`core::github`).
+//! The PRs and Issues pages: a project's pull requests or issues, or every
+//! project's in one list, listed by state, by your part in them, by label
+//! and by GitHub's search, in the order chosen; a pull request read whole
+//! on a page of its own, an issue beside the list; and what is done to
+//! one, as `gh` does it (`core::github`).
 
-use std::rc::Rc;
+use std::{rc::Rc, time::SystemTime};
 
 use gpui::component::{
     IndexPath,
@@ -12,9 +12,7 @@ use gpui::component::{
     input::{InputEvent, InputState, TextareaState},
     list::{ListDelegate, ListItem, ListState},
 };
-use gpui::{
-    App, AppContext as _, Context, Entity, ParentElement as _, Styled as _, WeakEntity, Window, px,
-};
+use gpui::{App, AppContext as _, Context, Entity, ParentElement as _, WeakEntity, Window};
 
 use super::{Desk, Page};
 use crate::{
@@ -35,18 +33,59 @@ pub enum Tab {
 }
 
 /// Your part in them, as GitHub's search says it.
-pub const PARTS: [(&str, &str); 5] = [
+pub const PARTS: [(&str, &str); 3] = [
     ("All", ""),
     ("Mine", "author:@me"),
-    ("Reviewing", "review-requested:@me"),
     ("Assigned", "assignee:@me"),
-    ("Mentions", "mentions:@me"),
 ];
 
+/// The order a list is shown in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sort {
+    Updated,
+    Oldest,
+    /// Pull requests: the most lines changed first.
+    Changed,
+    /// Issues: the most pressing first, those of no priority last.
+    Priority,
+}
+
+impl Sort {
+    /// The orders a page of `kind` offers.
+    pub fn of(kind: Kind) -> [Self; 3] {
+        match kind {
+            Kind::Pr => [Self::Updated, Self::Oldest, Self::Changed],
+            Kind::Issue => [Self::Updated, Self::Priority, Self::Oldest],
+        }
+    }
+
+    /// As the page's menu says it.
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Updated => "Sort: Recently updated",
+            Self::Oldest => "Sort: Oldest first",
+            Self::Changed => "Sort: Most changed",
+            Self::Priority => "Sort: Priority",
+        }
+    }
+
+    /// `items` in this order: GitHub's times are ISO 8601, read in order
+    /// as written.
+    pub fn sorted(self, mut items: Vec<&Item>) -> Vec<&Item> {
+        match self {
+            Self::Updated => items.sort_by(|a, b| b.updated.cmp(&a.updated)),
+            Self::Oldest => items.sort_by(|a, b| a.updated.cmp(&b.updated)),
+            Self::Changed => items.sort_by_key(|i| std::cmp::Reverse(i.added + i.removed)),
+            Self::Priority => items.sort_by_key(|i| i.priority.unwrap_or(u8::MAX)),
+        }
+        items
+    }
+}
+
 /// A page of pull requests or issues: which, of which project, in which
-/// state and by your part in them; the line to search with; what was
-/// listed; the one read, its tab, what was said of it oldest first or
-/// not, and its changes; the lines to say something, to name a label or a
+/// state, by your part in them and label; the line to search with; what
+/// was listed, when, and in which order it is shown; the one read, its
+/// tab and its changes; the lines to say something, to name a label or a
 /// person, to edit its title and words or write a new issue; and what is
 /// being done to it.
 pub struct Forge {
@@ -58,13 +97,16 @@ pub struct Forge {
     pub every: Option<Vec<(super::Place, Listed)>>,
     pub state: &'static str,
     pub part: usize,
+    /// The label those listed carry, where one is chosen.
+    pub label: Option<String>,
     pub search: Entity<InputState>,
-    /// What was listed, drawn as gpui-kit's List.
-    pub rows: Entity<ListState<Rows>>,
+    pub rows: Rows,
+    /// When the list last came back.
+    pub listed_at: Option<SystemTime>,
+    pub sort: Sort,
     pub chosen: Option<u64>,
     pub detail: Option<Result<Box<Detail>, String>>,
     pub tab: Tab,
-    pub newest: bool,
     pub diff: Entity<DiffState>,
     /// The patch of the one read, held until it is read: what you viewed
     /// of it is known by its address.
@@ -76,8 +118,10 @@ pub struct Forge {
     pub editing: bool,
     pub creating: bool,
     pub doing: Option<String>,
-    /// The Linear team the project's issues are read from, as typed.
+    /// The Linear team the project's issues are read from, as typed, and
+    /// whether its line is shown to type one.
     pub team: Entity<InputState>,
+    pub binding: bool,
     /// The project whose labels and people are offered, and those offered
     /// under the line to name one, as gpui-kit's List.
     pub candidates: Option<super::Place>,
@@ -93,15 +137,14 @@ pub struct Forge {
 /// What was listed: none while it is read.
 pub type Listed = Option<Result<Vec<Item>, String>>;
 
-/// The list of pull requests or issues, as gpui-kit's List asks for it:
-/// what was listed (none while it is read), and the desk it is chosen on.
+/// The list of pull requests or issues: what was listed (none while it is
+/// read).
+#[derive(Default)]
 pub struct Rows {
     pub list: Listed,
     /// In the list of every project: each project, its name and how many
     /// of the list are its, in the list's order. Empty for one project's.
     pub groups: Vec<(super::Place, String, usize)>,
-    desk: WeakEntity<Desk>,
-    selected: Option<usize>,
 }
 
 impl Rows {
@@ -206,84 +249,6 @@ pub fn repositories(
         .collect()
 }
 
-impl ListDelegate for Rows {
-    type Item = ListItem;
-
-    fn items_count(&self, _: usize, _: &App) -> usize {
-        self.items().len()
-    }
-
-    fn render_item(
-        &mut self,
-        ix: IndexPath,
-        _: &mut Window,
-        cx: &mut Context<ListState<Self>>,
-    ) -> Option<ListItem> {
-        let item = self.items().get(ix.row)?;
-        let (project, kin) = self.kin(ix.row);
-        let (under, _) = crate::pages::pr::stack(item, kin);
-        Some(
-            // A virtual list measures a row at its narrowest, where words
-            // wrap: its height is said instead.
-            ListItem::new(ix.row)
-                .h(px(68.))
-                .child(crate::pages::forge::row(
-                    crate::fonts::faces(cx),
-                    item,
-                    under,
-                    project.map(|(_, name)| name),
-                )),
-        )
-    }
-
-    fn set_selected_index(
-        &mut self,
-        ix: Option<IndexPath>,
-        _: &mut Window,
-        _: &mut Context<ListState<Self>>,
-    ) {
-        self.selected = ix.map(|ix| ix.row);
-    }
-
-    fn confirm(&mut self, _: bool, _: &mut Window, cx: &mut Context<ListState<Self>>) {
-        let Some(row) = self.selected else {
-            return;
-        };
-        let Some(n) = self.items().get(row).map(|i| i.number) else {
-            return;
-        };
-        let place = self.kin(row).0.map(|(p, _)| p.clone());
-        if let Some(desk) = self.desk.upgrade() {
-            cx.defer(move |cx| {
-                desk.update(cx, |d, cx| {
-                    if let Some(place) = place {
-                        d.forge.folder = Some(place);
-                    }
-                    d.read_forge(n, cx);
-                });
-            });
-        }
-    }
-
-    fn loading(&self, _: &App) -> bool {
-        self.list.is_none()
-    }
-
-    fn render_empty(
-        &mut self,
-        _: &mut Window,
-        _: &mut Context<ListState<Self>>,
-    ) -> impl gpui::IntoElement {
-        use gpui::ParentElement as _;
-        use gpui::component::empty::{Empty, EmptyDescription, EmptyHeader};
-        let said = match &self.list {
-            Some(Err(e)) => crate::tr_with("Couldn't list them: %{e}", &[("e", e)]),
-            _ => crate::tr("None here."),
-        };
-        Empty::new().header(EmptyHeader::new().description(EmptyDescription::new().child(said)))
-    }
-}
-
 /// The project's labels and the people who can review or be assigned (each
 /// true for a label), offered under the line to name one as it is typed.
 pub struct Offered {
@@ -365,10 +330,7 @@ const CANDIDATES: usize = 12;
 
 impl Forge {
     pub(super) fn new(home: &std::path::Path, window: &mut Window, cx: &mut Context<Desk>) -> Self {
-        let search = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder(crate::tr("Search: label:bug, author:someone, words"))
-        });
+        let search = cx.new(|cx| InputState::new(window, cx).clean_on_escape());
         cx.subscribe(&search, |this: &mut Desk, _, e: &InputEvent, cx| {
             if matches!(e, InputEvent::PressEnter { .. }) {
                 this.list_forge(cx);
@@ -385,24 +347,16 @@ impl Forge {
             desk: cx.entity().downgrade(),
         };
         let offered = cx.new(|cx| ListState::new(offered, window, cx));
-        let team = cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Linear team")));
-
+        let team = cx.new(|cx| {
+            InputState::new(window, cx).placeholder(crate::tr("A Linear team's key, such as ENG"))
+        });
         cx.subscribe(&team, |this: &mut Desk, _, e: &InputEvent, cx| {
             if matches!(e, InputEvent::PressEnter { .. }) {
+                this.forge.binding = false;
                 this.bind_linear(cx);
             }
         })
         .detach();
-        let desk = cx.entity().downgrade();
-        let rows = cx.new(|cx| {
-            let rows = Rows {
-                list: None,
-                groups: Vec::new(),
-                desk,
-                selected: None,
-            };
-            ListState::new(rows, window, cx)
-        });
         let pr = super::pr::Review::new(home, window, cx);
         Self {
             kind: Kind::Pr,
@@ -410,12 +364,14 @@ impl Forge {
             every: None,
             state: "open",
             part: 0,
+            label: None,
             search,
-            rows,
+            rows: Rows::default(),
+            listed_at: None,
+            sort: Sort::Updated,
             chosen: None,
             detail: None,
             tab: Tab::Summary,
-            newest: false,
             diff: cx.new(|cx| DiffState::new([], cx)),
             patch: None,
             line: cx.new(|cx| {
@@ -434,6 +390,7 @@ impl Forge {
             creating: false,
             doing: None,
             team,
+            binding: false,
             candidates: None,
             offered,
             log: None,
@@ -446,8 +403,11 @@ impl Forge {
 impl Desk {
     /// Open the page of `kind`, on the project of the session on screen,
     /// or on every project's where it lists every project's or there is
-    /// no session.
+    /// no session; opened again, its list.
     pub fn open_forge(&mut self, kind: Kind, window: &mut Window, cx: &mut Context<Self>) {
+        if self.page == Page::Forge(kind) {
+            self.close_forge_item(cx);
+        }
         let all = self.forge.every.is_some();
         if self.forge.kind != kind || (self.forge.folder.is_none() && !all) {
             self.forge.kind = kind;
@@ -466,12 +426,23 @@ impl Desk {
                 self.forge.every = self.forge.folder.is_none().then(Vec::new);
             }
             self.forge.state = "open";
+            self.forge.label = None;
             self.forge.chosen = None;
             self.forge.detail = None;
             self.show_team(window, cx);
             self.list_forge(cx);
         }
         self.open_page(Page::Forge(kind), window, cx);
+    }
+
+    /// Put away the one read, back to the list.
+    pub(crate) fn close_forge_item(&mut self, cx: &mut Context<Self>) {
+        let f = &mut self.forge;
+        f.chosen = None;
+        f.detail = None;
+        f.creating = false;
+        f.editing = false;
+        cx.notify();
     }
 
     /// Read what the failed run `run` of the checks printed.
@@ -514,14 +485,18 @@ impl Desk {
     /// Ask for the list the page's choices pick.
     pub(crate) fn list_forge(&mut self, cx: &mut Context<Self>) {
         let words = self.forge.search.read(cx).value().trim().to_owned();
-        let search = format!("{} {words}", PARTS[self.forge.part].1)
-            .trim()
-            .to_owned();
-        self.forge.rows.update(cx, |r, cx| {
-            r.delegate_mut().list = None;
-            r.delegate_mut().groups.clear();
-            cx.notify();
-        });
+        let label = (self.forge.label.as_ref()).map(|l| format!("label:\"{l}\""));
+        let search = [
+            PARTS[self.forge.part].1,
+            label.as_deref().unwrap_or(""),
+            &words,
+        ]
+        .iter()
+        .filter(|w| !w.is_empty())
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" ");
+        self.forge.rows = Rows::default();
         let state = self.forge.state.to_owned();
         let ask = Ask::List { state, search };
         if self.forge.every.is_some() {
@@ -565,6 +540,7 @@ impl Desk {
             .find(|s| *s == v.state)
             .unwrap_or("open");
         f.part = PARTS.iter().position(|p| p.1 == v.part).unwrap_or(0);
+        f.label = None;
         let search = v.search.clone();
         f.search.update(cx, |i, cx| i.set_value(search, window, cx));
         self.list_forge(cx);
@@ -873,27 +849,21 @@ impl Desk {
         folder: &super::Place,
         kind: Kind,
         answer: Answer,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if self.forge.kind != kind {
             return;
         }
         if let (true, Answer::Listed(list)) = (self.forge.every.is_some(), &answer) {
-            return self.every_answered(folder, list.clone(), window, cx);
+            return self.every_answered(folder, list.clone(), cx);
         }
         if self.forge.folder.as_ref() != Some(folder) {
             return;
         }
         match answer {
             Answer::Listed(list) => {
-                let at = (list.as_ref().ok())
-                    .and_then(|l| l.iter().position(|i| Some(i.number) == self.forge.chosen));
-                self.forge.rows.update(cx, |r, cx| {
-                    r.delegate_mut().list = Some(list);
-                    r.set_selected_index(at.map(|row| IndexPath::default().row(row)), window, cx);
-                    cx.notify();
-                });
+                self.forge.rows.list = Some(list);
+                self.forge.listed_at = Some(SystemTime::now());
             }
             Answer::Viewed(n, detail) if self.forge.chosen == Some(n) => {
                 // The pictures it shows, asked of its server as it is read.
@@ -996,7 +966,6 @@ impl Desk {
         &mut self,
         folder: &super::Place,
         list: Result<Vec<Item>, String>,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(every) = self.forge.every.as_mut() else {
@@ -1022,32 +991,14 @@ impl Desk {
                 None,
             );
         }
-        let groups: Vec<_> = (groups.into_iter())
+        let groups = (groups.into_iter())
             .map(|(p, len)| {
                 let name = self.forge_name(&p);
                 (p, name, len)
             })
             .collect();
-        // The one read stays chosen where it is still listed.
-        let chosen = (self.forge.folder.clone()).zip(self.forge.chosen);
-        let mut start = 0;
-        let mut at = None;
-        for (p, _, len) in &groups {
-            if let (Some((folder, n)), Some(Ok(items))) = (&chosen, &list)
-                && folder == p
-            {
-                at = (items[start..start + len].iter())
-                    .position(|i| i.number == *n)
-                    .map(|row| start + row);
-            }
-            start += len;
-        }
-        self.forge.rows.update(cx, |r, cx| {
-            r.delegate_mut().list = list;
-            r.delegate_mut().groups = groups;
-            r.set_selected_index(at.map(|row| IndexPath::default().row(row)), window, cx);
-            cx.notify();
-        });
+        self.forge.rows = Rows { list, groups };
+        self.forge.listed_at = Some(SystemTime::now());
         cx.notify();
     }
 

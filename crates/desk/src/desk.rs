@@ -144,11 +144,8 @@ pub enum Popup {
     Surfaces,
     /// What a session's details show.
     Details,
-    /// The project the PRs or Issues page is of.
-    ForgeProject,
     /// What can be done with the pull request or issue read.
     ForgeActions,
-    ForgeViews,
     /// A scheduled task's menu, by its id.
     Task(u64),
     /// The agent and model of the task being written.
@@ -1886,6 +1883,10 @@ impl Desk {
         } else if self.panes.whole && self.page == Page::Thread {
             self.panes.whole = false;
             cx.notify();
+        } else if matches!(self.page, Page::Forge(_))
+            && (self.forge.chosen.is_some() || self.forge.creating)
+        {
+            self.close_forge_item(cx);
         } else if self.page != Page::Thread {
             self.page = Page::Thread;
             cx.notify();
