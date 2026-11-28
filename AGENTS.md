@@ -377,7 +377,8 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   its real path, in a project or a worktree. What a link is told is
   told as its scope may hear it: a `read` device is never sent a
   webhook's token (`Event::for_reader`) nor a pairing link, which goes
-  only to the desk that asked for it (`Event::Offered`). Every link a device opens (a desk's,
+  only to the desk that asked for it (`Event::Offered`), as a picture an
+  issue or pull request shows does (`Event::Picture`, `Server::pictures`). Every link a device opens (a desk's,
   a port carried, the tools) lasts only while it may come in as it
   did (`link::lasts`): revoked, ended or narrowed, it is closed. Revoke
   removes the key and closes its links, as an access ended does; turning listening off

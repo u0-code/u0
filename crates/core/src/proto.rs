@@ -334,7 +334,7 @@ pub enum Call {
     /// The pictures at `urls` that the pull request or issue `number` of
     /// the project in `folder` shows: only those the server found there
     /// as it read it (`pictures::of`) are fetched, each answered as an
-    /// `Event::Picture`.
+    /// `Event::Picture` to the desk that asked alone (`Server::pictures`).
     Pictures {
         folder: PathBuf,
         kind: crate::github::Kind,

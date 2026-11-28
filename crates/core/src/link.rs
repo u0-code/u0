@@ -778,6 +778,9 @@ async fn serve(
     // A device that may only read is told once, on its link alone, that
     // what it asked to change was not done.
     let mut told = false;
+    // The pictures this desk asked for, said on its link alone: a picture
+    // of one project is not another device's to see.
+    let (to_asker, mut for_asker) = mpsc::unbounded_channel::<Event>();
     loop {
         if let Some(message) = next.take() {
             ws.send(message).await.map_err(|e| e.to_string())?;
@@ -785,17 +788,26 @@ async fn serve(
         tokio::select! {
             heard = ws.next() => match heard {
                 Some(Ok(Message::Text(t))) => match serde_json::from_str::<Call>(&t) {
-                    Ok(call) if Access::allows(scope, &call, server.home()) => {
-                        let offers = matches!(call, Call::Share(crate::share::Share::Link(..)));
-                        server.handle(call);
-                        // The link made is said on this link alone: every
-                        // other device hears only that there is one.
-                        if offers && let Some((link, made, grant)) = server.offered() {
-                            let offered = Event::Offered { link, made, grant };
-                            let frame = serde_json::to_string(&(at, offered)).expect("an event serializes");
-                            next = Some(Message::text(frame));
+                    Ok(call) if Access::allows(scope, &call, server.home()) => match call {
+                        Call::Pictures { folder, kind, number, urls } => {
+                            let to_asker = to_asker.clone();
+                            let tell = Arc::new(move |event| {
+                                let _ = to_asker.send(event);
+                            });
+                            server.pictures((folder, kind, number), urls, tell);
                         }
-                    }
+                        call => {
+                            let offers = matches!(call, Call::Share(crate::share::Share::Link(..)));
+                            server.handle(call);
+                            // The link made is said on this link alone: every
+                            // other device hears only that there is one.
+                            if offers && let Some((link, made, grant)) = server.offered() {
+                                let offered = Event::Offered { link, made, grant };
+                                let frame = serde_json::to_string(&(at, offered)).expect("an event serializes");
+                                next = Some(Message::text(frame));
+                            }
+                        }
+                    },
                     Ok(_) => {
                         tracing::info!("a call refused: its device may only read");
                         if !std::mem::replace(&mut told, true) {
@@ -822,6 +834,10 @@ async fn serve(
                     at = n;
                 }
                 ws.flush().await.map_err(|e| e.to_string())?;
+            }
+            Some(picture) = for_asker.recv() => {
+                let frame = serde_json::to_string(&(at, picture)).expect("an event serializes");
+                next = Some(Message::text(frame));
             }
             why = &mut ends => return refuse(ws, &why).await,
             _ = ping.tick() => next = Some(Message::Ping(Bytes::new())),
@@ -2302,6 +2318,43 @@ esac; done"#;
             said.iter().all(|e| !e.contains(&code)),
             "no code reached it"
         );
+    }
+
+    #[test]
+    fn a_picture_is_told_to_the_desk_that_asked_for_it_and_to_no_other_device() {
+        let home = tempfile::tempdir().unwrap();
+        let (server, shared) = sharing(home.path());
+        server.share(crate::share::Share::Serve(true));
+        let Some(Ok(port)) = told(&shared).serving else {
+            panic!("listening")
+        };
+        let other = kept();
+        pair_as(&server, port, &other, crate::access::Grant::default());
+        let (_other, _, heard, _) = desk(port, key(&other), None).unwrap();
+        let (link, _, mine, _) = desk(port, Key::generate(), Some(&server)).unwrap();
+        // A picture not over HTTPS answers at once, and no network is used.
+        let url = "http://example.com/a.png".to_owned();
+        let folder = home.path().to_path_buf();
+        let kind = crate::github::Kind::Issue;
+        server.shows((folder.clone(), kind, 213), vec![url.clone()]);
+        link.send(Call::Pictures {
+            folder,
+            kind,
+            number: 213,
+            urls: vec![url.clone()],
+        });
+        let came = loop {
+            if let Event::Picture { url, picture } = told(&mine) {
+                break (url, picture);
+            }
+        };
+        assert_eq!(came, (url, Err("it is not over HTTPS".to_owned())));
+        while let Ok(e) = heard.recv_timeout(Duration::from_millis(500)) {
+            assert!(
+                !matches!(e, Event::Picture { .. }),
+                "another device was told the picture"
+            );
+        }
     }
 
     #[test]
