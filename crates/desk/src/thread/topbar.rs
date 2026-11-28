@@ -191,7 +191,9 @@ impl Desk {
             head = head.environment(HeaderEnvironment::new(m.name.clone(), kind, status));
         }
         if crate::desk::lists::needs_you_why(s).is_some() {
-            head = head.status(u0ui::t3::base::Status::NeedsYou);
+            head = head
+                .status(u0ui::t3::base::Status::NeedsYou)
+                .status_label(crate::tr("Needs you"));
         }
         let caret = ui::icon_button("title-menu", "chevron-down", crate::tr("This thread"))
             .size(px(22.))
