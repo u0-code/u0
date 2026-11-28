@@ -111,9 +111,9 @@ impl Desk {
             })
             .children(self.children_asking(faces, s, column, cx))
             .children(banners)
-            .children(self.changes_row(faces, s, column, cx))
             .children(offers)
             .children(self.also_run_row(faces, s, column, cx))
+            .children(Self::planning_strip(faces, s, &name, column, cx))
             .child(self.tc_stack(faces, s, &name, column, focused, has_offers, suggested, cx))
             .child(self.workspace_strip(faces, s, column, cx))
     }
@@ -864,9 +864,11 @@ impl Desk {
             .items_center()
             .gap(px(2.))
             .w(px(column))
-            .h(px(28.))
             .mt(px(6.))
-            .child(self.project_chip(faces, s, draft, cx));
+            // A thread begun says its project and branch in the title bar.
+            .when(draft, |d| {
+                d.h(px(28.)).child(self.project_chip(faces, s, draft, cx))
+            });
         if draft && s.git_dir().is_some() {
             let on = s.wants_worktree;
             row = row.child(
@@ -905,7 +907,7 @@ impl Desk {
                     ),
                 ));
             }
-        } else if let Some(branch) = &s.branch {
+        } else if draft && let Some(branch) = &s.branch {
             row = row.child(
                 div()
                     .flex()
@@ -1463,126 +1465,50 @@ impl Desk {
         })
     }
 
-    /// Square Carbon changed-files bar above the composer; closed for
-    /// its folder until the changes change (`close_changes`).
-    fn changes_row(
-        &self,
+    /// Over the composer while the session is in a mode that only plans:
+    /// that mode's name, as one the agent lists, and the keys that open
+    /// its modes.
+    fn planning_strip(
         faces: &Faces,
         s: &Session,
+        agent: &str,
         column: f32,
         cx: &mut Context<Self>,
     ) -> Option<Div> {
-        let files = s.total().filter(|f| !f.is_empty())?;
-        let project = crate::desk::Place::project_of(s);
-        let closed = (self.settings_on(s.host).prefs.get(&project.folder))
-            .and_then(|p| p.closed.changes.get(&s.meta.folder));
-        if closed.is_some_and(|m| s.total_mark() == Some(m.as_str())) {
+        if !s.planning() {
             return None;
         }
-        let key = s.key;
-        let file_count = files.len();
-        let (added, gone) = files
-            .iter()
-            .fold((0, 0), |(a, g), f| (a + f.added, g + f.gone));
-        let count_text = if file_count == 1 {
-            crate::tr("1 file changed")
-        } else {
-            crate::tr_with("%{n} files changed", &[("n", &file_count)])
-        };
-        let desk_review = cx.entity();
-        let desk_commit = cx.entity();
-        let desk_close = cx.entity();
-        // Narrower, the branch goes first, then Commit says less: the
-        // bar fits at the window's least width.
-        let (branch, commit) = changes_fit(column);
+        let mode = Self::mode_name(s)?;
+        let keys = crate::keys::keys_of(cx, "mode");
         Some(
             div()
                 .flex()
                 .items_center()
-                .gap(px(8.))
+                .gap(px(6.))
                 .w(px(column))
-                .min_h(px(40.))
                 .mb(px(8.))
-                .pl(px(16.))
-                .pr(px(4.))
-                .py(px(4.))
-                .bg(theme::role(ColorRole::Layer01))
-                .border_1()
-                .border_color(theme::role(ColorRole::BorderSubtle01))
+                .text_size(px(crate::style::CAPTION))
+                .text_color(theme::role(ColorRole::TextSecondary))
                 .child(
-                    ui::text(faces, count_text)
-                        .text_size(px(14.))
-                        .font_weight(FontWeight::SEMIBOLD),
-                )
-                .child(ui::counts(faces, added, gone, 12.))
-                .children(s.branch.clone().filter(|_| branch).map(|b| {
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(4.))
-                        .child(
-                            CarbonGlyph::carbon(CarbonIcon::Branch)
-                                .size_length(px(13.))
-                                .color(theme::role(ColorRole::IconSecondary)),
-                        )
-                        .child(chip_text(faces, ui::fit(&b, 24)))
-                }))
-                .child(div().flex_1())
-                .child(
-                    CarbonButton::new("review-changes", crate::tr("Review changes"))
-                        .variant(ButtonVariant::Ghost)
-                        .size(ButtonSize::Sm)
-                        .on_click(move |_, _, cx| {
-                            desk_review.update(cx, |this, cx| {
-                                this.open_surface(crate::desk::Surface::Diff, cx);
-                            });
-                        }),
+                    CarbonGlyph::carbon(CarbonIcon::View)
+                        .size_length(px(16.))
+                        .color(theme::role(ColorRole::IconSecondary)),
                 )
                 .child(
-                    CarbonButton::new("commit-changes", crate::tr(commit))
-                        .variant(ButtonVariant::Secondary)
-                        .size(ButtonSize::Sm)
-                        .on_click(move |_, window, cx| {
-                            desk_commit.update(cx, |this, cx| {
-                                this.open_surface(crate::desk::Surface::Diff, cx);
-                                if !this.review.committing {
-                                    this.toggle_commit(window, cx);
-                                }
-                            });
-                        }),
+                    ui::text(faces, mode)
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(theme::role(ColorRole::TextPrimary)),
                 )
-                .child(
-                    CarbonButton::new("close-changes", crate::tr("Close"))
-                        .variant(ButtonVariant::Ghost)
-                        .size(ButtonSize::Sm)
-                        .icon(CarbonIcon::Close)
-                        .icon_only(true)
-                        .on_click(move |_, _, cx| {
-                            desk_close.update(cx, |this, cx| this.close_changes(key, cx));
-                        }),
-                ),
+                .child(ui::text(
+                    faces,
+                    crate::tr_with("· one of the modes listed by %{name}", &[("name", &agent)]),
+                ))
+                .when(!keys.is_empty(), |d| {
+                    d.child(ui::text(faces, "·"))
+                        .child(Kbd::new(crate::keys::written(&keys)))
+                        .child(ui::text(faces, crate::tr("opens them")))
+                }),
         )
-    }
-
-    /// Close the changes bar of the session `key` until its folder's
-    /// changes change; the marks of folders no session here works in any
-    /// more are let go.
-    fn close_changes(&mut self, key: u64, cx: &mut Context<Self>) {
-        let Some(s) = self.sessions.at(key) else {
-            return;
-        };
-        let Some(mark) = s.total_mark().map(str::to_owned) else {
-            return;
-        };
-        let (project, folder) = (crate::desk::Place::project_of(s), s.meta.folder.clone());
-        let held: std::collections::HashSet<_> = (self.sessions.all.iter())
-            .filter(|o| crate::desk::Place::project_of(o) == project)
-            .map(|o| o.meta.folder.clone())
-            .collect();
-        self.set_prefs(&project, cx, |p| {
-            p.closed.changes.retain(|f, _| held.contains(f));
-            p.closed.changes.insert(folder, mark);
-        });
     }
 
     /// `/` commands and `@` mentions rendered via `u0ui::t3::composer::ComposerCommandMenu`.
@@ -2138,30 +2064,4 @@ fn chip_text(faces: &Faces, text: impl Into<SharedString>) -> Div {
         .flex_none()
         .text_size(px(12.))
         .text_color(theme::role(ColorRole::TextSecondary))
-}
-
-/// What the changes bar `column` wide holds: whether the branch, and
-/// what Commit says.
-fn changes_fit(column: f32) -> (bool, &'static str) {
-    (
-        column >= 640.,
-        if column >= 520. {
-            "Commit changes"
-        } else {
-            "Commit"
-        },
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_changes_bar_drops_the_branch_then_says_less_as_it_narrows() {
-        assert_eq!(changes_fit(720.), (true, "Commit changes"));
-        assert_eq!(changes_fit(600.), (false, "Commit changes"));
-        // The thread's column in a window at its least, 800 wide.
-        assert_eq!(changes_fit(496.), (false, "Commit"));
-    }
 }

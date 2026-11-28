@@ -998,48 +998,17 @@ impl Desk {
     }
 
     /// Carry out the plan the session `key` made: out of the mode that only
-    /// plans (to its default, or the first that does not plan), then on.
+    /// plans (`out_of_planning`), then on.
     pub fn run_plan(&mut self, key: u64, cx: &mut Context<Self>) {
-        let plan = |s: &str| s.to_lowercase().contains("plan");
         let Some(s) = self.sessions.at(key) else {
             return;
         };
-        let mode = s
-            .modes
-            .as_ref()
-            .filter(|m| plan(&m.current_mode_id.0))
-            .and_then(|m| {
-                m.available_modes
-                    .iter()
-                    .find(|x| &*x.id.0 == "default")
-                    .or_else(|| m.available_modes.iter().find(|x| !plan(&x.id.0)))
-                    .map(|x| x.id.0.to_string())
-            });
-        // An option that plans (a way of working) goes back to its first value
-        // that does not.
-        let option = s.options.iter().find_map(|o| match &o.kind {
-            agent_client_protocol::v1::schema::SessionConfigKind::Select(sel)
-                if plan(&sel.current_value.0) =>
-            {
-                let values: Vec<_> = match &sel.options {
-                    agent_client_protocol::v1::schema::SessionConfigSelectOptions::Ungrouped(v) => {
-                        v.iter().map(|x| x.value.0.to_string()).collect()
-                    }
-                    _ => Vec::new(),
-                };
-                values
-                    .into_iter()
-                    .find(|v| !plan(v))
-                    .map(|v| (o.id.0.to_string(), v))
-            }
-            _ => None,
-        });
+        let out = out_of_planning(s);
         self.current = Some(key);
-        if let Some(m) = mode {
-            self.set_mode(m, cx);
-        }
-        if let Some((config, value)) = option {
-            self.set_option(config, value, cx);
+        match out {
+            Some(Out::Mode(m, _)) => self.set_mode(m, cx),
+            Some(Out::Option(config, value, _)) => self.set_option(config, value, cx),
+            None => {}
         }
         self.send_in(key, "Carry out the plan.", cx);
     }
@@ -1237,6 +1206,55 @@ pub fn used(s: &Session) -> SystemTime {
         .filter(|(_, i)| matches!(i, Item::You(_)))
         .find_map(|(n, _)| s.time_of(n))
         .unwrap_or(s.meta.updated)
+}
+
+/// Where carrying out a plan takes a session, among what its agent lists:
+/// out of the mode that only plans, to its default or the first that does
+/// not plan; or an option that plans (a way of working) back to its first
+/// value that does not. Each with the name the agent gives it.
+pub enum Out {
+    Mode(String, String),
+    Option(String, String, String),
+}
+
+impl Out {
+    /// The name the agent gives where it goes.
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Mode(_, n) | Self::Option(_, _, n) => n,
+        }
+    }
+}
+
+/// Where carrying out the plan of `s` takes it (`Out`); none while it is
+/// in no mode or option that plans.
+pub fn out_of_planning(s: &Session) -> Option<Out> {
+    use agent_client_protocol::v1::schema::{SessionConfigKind, SessionConfigSelectOptions};
+    let plan = |s: &str| s.to_lowercase().contains("plan");
+    let mode = s
+        .modes
+        .as_ref()
+        .filter(|m| plan(&m.current_mode_id.0))
+        .and_then(|m| {
+            m.available_modes
+                .iter()
+                .find(|x| &*x.id.0 == "default")
+                .or_else(|| m.available_modes.iter().find(|x| !plan(&x.id.0)))
+                .map(|x| Out::Mode(x.id.0.to_string(), x.name.clone()))
+        });
+    mode.or_else(|| {
+        s.options.iter().find_map(|o| match &o.kind {
+            SessionConfigKind::Select(sel) if plan(&sel.current_value.0) => match &sel.options {
+                SessionConfigSelectOptions::Ungrouped(v) => {
+                    v.iter().find(|x| !plan(&x.value.0)).map(|x| {
+                        Out::Option(o.id.0.to_string(), x.value.0.to_string(), x.name.clone())
+                    })
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+    })
 }
 
 #[cfg(test)]

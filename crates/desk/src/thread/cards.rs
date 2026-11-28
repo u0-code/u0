@@ -1,8 +1,7 @@
 //! The cards in a thread: how a turn ended, the agent stopping, and
 //! signing in. A question asked before it goes on is `permission`'s.
 
-use agent_client_protocol::v1::schema::{StopReason, ToolCallContent};
-use std::path::Path;
+use agent_client_protocol::v1::schema::StopReason;
 
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
 use u0ui::components::alert::AlertVariant;
@@ -19,56 +18,148 @@ use crate::{
 };
 
 impl Desk {
-    /// How a turn ended.
-    /// What can be done with a turn whose files were checkpointed: see its
-    /// diff, put the files back as they were before it, or after undoing,
-    /// put it back again.
-    fn turn_tools(s: &Session, i: usize, cx: &mut Context<Self>) -> Option<Div> {
+    /// The files a turn changed, as git saw them from its checkpoint
+    /// before to the one after (`TurnChanges`): each opens the turn's
+    /// diff, as does Show in diff; while nothing goes on, Undo puts the
+    /// files back as they were before it (Restore to before, for one not
+    /// the latest), and once undone Redo puts its changes back.
+    fn turn_changes(s: &Session, i: usize, cx: &mut Context<Self>) -> Option<impl IntoElement> {
+        use u0ui::t3::chat::{TurnChanges, TurnChangesTexts, TurnFile};
+        use u0ui::t3::review::FileStatus;
         let turn = s.turn_of(i)?;
         let marks = s.turns.get(turn)?;
         marks.before.as_ref()?;
+        let diff = marks.diff.as_ref().filter(|d| !d.is_empty())?;
+        let files = diff
+            .iter()
+            .map(|f| {
+                let status = if f.patch.contains("\nnew file mode") {
+                    FileStatus::Added
+                } else if f.patch.contains("\ndeleted file mode") {
+                    FileStatus::Deleted
+                } else {
+                    FileStatus::Modified
+                };
+                TurnFile::new(f.path.clone(), f.added, f.gone).status(status)
+            })
+            .collect();
         let idle = !matches!(
             s.state,
             crate::session::State::Working | crate::session::State::Opening
         );
         let undone = s.redo.as_ref().is_some_and(|(t, _)| *t == turn);
         let last = s.turns.iter().rposition(|t| t.before.is_some()) == Some(turn);
-        let label = crate::tr(if undone {
+        let undo = crate::tr(if undone {
             "Redo"
         } else if last {
             "Undo"
         } else {
             "Restore to before"
         });
-        let mut tools = div().flex().flex_none().gap(px(2.));
-        if marks.diff.as_ref().is_some_and(|d| !d.is_empty()) {
-            tools = tools.child(
-                ui::button(
-                    SharedString::from(format!("diff-{i}")),
-                    crate::tr("Diff"),
-                    Weight::Quiet,
-                )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.show_changes(crate::git::Scope::Turn(turn), cx);
-                })),
-            );
-        }
+        let (review, open) = (cx.entity(), cx.entity());
+        let mut card =
+            TurnChanges::new(SharedString::from(format!("changes-{}-{i}", s.key)), files)
+                .texts(TurnChangesTexts {
+                    changed: std::rc::Rc::new(|n| {
+                        if n == 1 {
+                            crate::tr("1 file changed")
+                        } else {
+                            crate::tr_with("%{n} files changed", &[("n", &n)])
+                        }
+                    }),
+                    review: crate::tr("Show in diff"),
+                    undo,
+                })
+                .on_review(move |_, cx| {
+                    review.update(cx, |this, cx| {
+                        this.show_changes(crate::git::Scope::Turn(turn), cx);
+                    });
+                })
+                .on_open_file(move |path, _, cx| {
+                    open.update(cx, |this, cx| {
+                        this.show_changes(crate::git::Scope::Turn(turn), cx);
+                        this.reveal_in_diff(std::path::Path::new(path.as_ref()), cx);
+                    });
+                });
         if idle {
-            tools = tools.child(
-                ui::button(
-                    SharedString::from(format!("undo-{i}")),
-                    label,
-                    Weight::Quiet,
-                )
-                .tooltip(crate::tr(if undone {
-                    "Put this turn's changes back in the files"
-                } else {
-                    "Put the files back as they were before this turn"
-                }))
-                .on_click(cx.listener(move |this, _, window, cx| this.ask_undo(turn, window, cx))),
-            );
+            let desk = cx.entity();
+            card = card.on_undo(move |window, cx| {
+                desk.update(cx, |this, cx| this.ask_undo(turn, window, cx));
+            });
         }
-        Some(tools)
+        Some(card)
+    }
+
+    /// Over the answer to what you said at `you`: the agent's mark, its
+    /// name and model, how long the turn took and when you asked; then
+    /// its answer copied, quoted in your reply, or branched off after.
+    pub(super) fn said_head(
+        &self,
+        faces: &Faces,
+        s: &Session,
+        you: usize,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        use agent_client_protocol::v1::schema::SessionConfigOptionCategory;
+        use u0ui::t3::timeline::{AssistantMessage, AssistantMessageTexts};
+        let end = s.items[you + 1..]
+            .iter()
+            .position(|x| matches!(x, Item::You(_) | Item::Told(_)))
+            .map_or(s.items.len(), |p| you + 1 + p);
+        let secs = s.items[you + 1..end].iter().find_map(|x| match x {
+            Item::Ended { secs, .. } => Some(*secs),
+            _ => None,
+        });
+        let answer = (you + 1..end).rev().find_map(|k| match &s.items[k] {
+            Item::Agent(text) => Some((k, text.clone())),
+            _ => None,
+        });
+        let mut who = self.name_of(&s.meta.agent);
+        if let Some(model) = Self::option_name(s, &SessionConfigOptionCategory::Model) {
+            who = format!("{who} · {model}");
+        }
+        let mut head = AssistantMessage::new(SharedString::from(format!("said-{}-{you}", s.key)))
+            .mark(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.))
+            .model(who)
+            .texts(AssistantMessageTexts {
+                copy: crate::tr("Copy"),
+                reply: crate::tr("Quote in your reply"),
+                fork: crate::tr("Branch off after this"),
+            });
+        if let Some(secs) = secs {
+            head = head.elapsed(secs);
+        }
+        if let Some(t) = s.time_of(you) {
+            head = head.time(when::said_at(
+                t,
+                std::time::SystemTime::now(),
+                self.settings.twelve,
+            ));
+        }
+        if let Some((at, text)) = answer {
+            let key = s.key;
+            let idle = matches!(
+                s.state,
+                crate::session::State::Idle | crate::session::State::Closed
+            );
+            let (copy, quoted) = (text.clone(), text);
+            head = head.on_copy(move |_, cx| {
+                cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
+            });
+            let desk = cx.entity();
+            head = head.on_reply(move |window, cx| {
+                desk.update(cx, |this, cx| {
+                    this.quote(&quoted, Some((key, at)), window, cx);
+                });
+            });
+            if idle && s.through(at).is_some() && self.can_fork(s) {
+                let desk = cx.entity();
+                head = head.on_fork(move |_, cx| {
+                    desk.update(cx, |this, cx| this.fork_after(key, at, cx));
+                });
+            }
+        }
+        div().px(px(10.)).child(head)
     }
 
     pub(super) fn ended(
@@ -83,57 +174,9 @@ impl Desk {
         let took = when::took(std::time::Duration::from_secs(secs));
         let name = self.name_of(&s.meta.agent);
         let body = match reason {
-            StopReason::EndTurn => {
-                // The files changed since what you last said: the turn's
-                // git diff when the folder is a repository, which also sees
-                // what the agent wrote without telling; else its diffs.
-                let start = s.items[..i]
-                    .iter()
-                    .rposition(|x| matches!(x, Item::You(_)))
-                    .unwrap_or(0);
-                let mut paths: Vec<&Path> = Vec::new();
-                for x in &s.items[start..i] {
-                    if let Item::Tool(t) = x {
-                        for c in &t.call.content {
-                            if let ToolCallContent::Diff(d) = c
-                                && !paths.contains(&d.path.as_path())
-                            {
-                                paths.push(&d.path);
-                            }
-                        }
-                    }
-                }
-                let git = s
-                    .turn_of(i)
-                    .and_then(|t| s.turns.get(t))
-                    .and_then(|t| t.diff.as_ref());
-                let n = git.map_or(paths.len(), Vec::len);
-                let said = match n {
-                    0 => "%{name} · %{took}",
-                    1 => "%{name} · %{took} · 1 file changed",
-                    _ => "%{name} · %{took} · %{n} files changed",
-                };
-                // The last turn, in a mode that only plans, with a plan:
-                // it can be carried out from here.
-                let last = !s.items[i + 1..].iter().any(|x| matches!(x, Item::You(_)));
-                let ready = last && s.plan.is_some() && s.planning();
-                let key = s.key;
-                meta(
-                    faces,
-                    crate::tr_with(said, &[("name", &name), ("took", &took), ("n", &n)]),
-                )
-                .px(px(10.))
-                .when(ready, |d| {
-                    d.flex().items_center().gap(px(10.)).child(
-                        ui::button(
-                            "run-plan",
-                            crate::tr("Carry out the plan"),
-                            Weight::Secondary,
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| this.run_plan(key, cx))),
-                    )
-                })
-            }
+            // A turn that ended as it should says nothing more: its
+            // head says how long it took, its changes are under it.
+            StopReason::EndTurn => div(),
             StopReason::Cancelled => step()
                 .child(icon("square"))
                 .child(verb(faces, crate::tr("You stopped this turn")))
@@ -189,13 +232,8 @@ impl Desk {
             .flex()
             .flex_col()
             .gap(px(6.))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .child(div().flex_1().min_w(px(0.)).child(body))
-                    .children(Self::turn_tools(s, i, cx)),
-            )
+            .child(body)
+            .children(Self::turn_changes(s, i, cx))
             .when_some(checkpoint_err, |d, why| {
                 d.child(
                     step()

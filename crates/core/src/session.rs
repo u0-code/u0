@@ -493,8 +493,6 @@ pub struct Session {
     /// What changed from before the first turn to after the latest
     /// (`set_total`).
     total: Option<Vec<git::FileDiff>>,
-    /// A mark of `total`, made the first time it is asked for.
-    total_mark: std::sync::OnceLock<String>,
     /// A turn undone, and the checkpoint that puts it back.
     pub redo: Option<(usize, String)>,
     pub state: State,
@@ -790,16 +788,9 @@ impl Session {
         self.total.as_ref()
     }
 
-    /// What changed now, its mark to be made again when asked for.
+    /// What changed now.
     pub fn set_total(&mut self, total: Option<Vec<git::FileDiff>>) {
         self.total = total;
-        self.total_mark = std::sync::OnceLock::new();
-    }
-
-    /// A mark of what changed (`git::mark`), made once for each `total`.
-    pub fn total_mark(&self) -> Option<&str> {
-        let total = self.total.as_ref()?;
-        Some(self.total_mark.get_or_init(|| git::mark(total)))
     }
 
     /// Work in the worktree `wt` made for it before its first turn, with
@@ -1081,7 +1072,6 @@ impl Session {
             chosen_mode: None,
             turns: Vec::new(),
             total: None,
-            total_mark: std::sync::OnceLock::new(),
             redo: None,
             state: State::Draft,
             items: Vec::new(),
@@ -1949,24 +1939,6 @@ mod tests {
             Some((1, "Redis holds them now.".into()))
         );
         assert_eq!(super::found(events, "kafka"), None);
-    }
-
-    #[test]
-    fn a_mark_of_what_changed_is_made_again_once_it_changes() {
-        let file = |patch: &str| crate::git::FileDiff {
-            path: "a.rs".into(),
-            added: 1,
-            gone: 0,
-            patch: patch.into(),
-        };
-        let mut s = super::Session::new(1, "agent", std::path::PathBuf::from("/p"));
-        assert_eq!(s.total_mark(), None);
-        s.set_total(Some(vec![file("+one\n")]));
-        let closed = s.total_mark().map(str::to_owned);
-        s.set_total(Some(vec![file("+one\n")]));
-        assert_eq!(s.total_mark().map(str::to_owned), closed);
-        s.set_total(Some(vec![file("+two\n")]));
-        assert_ne!(s.total_mark().map(str::to_owned), closed);
     }
 
     #[test]

@@ -315,20 +315,6 @@ fn meta(faces: &Faces, text: impl Into<SharedString>) -> Div {
         .text_color(theme::faint())
 }
 
-/// The framed box an opened step sits in.
-fn boxed() -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(10.))
-        .px(px(12.))
-        .pt(px(12.))
-        .pb(px(14.))
-        .rounded(px(16.))
-        .border_1()
-        .border_color(theme::border())
-}
-
 /// A well of mono text, for output: on the well's ground, as Claude sets
 /// a call's IN and OUT.
 pub fn well(faces: &Faces) -> Div {
@@ -473,13 +459,11 @@ impl Desk {
             .into_any_element()
     }
 
-    /// The line over the first turn: who, with what, where.
+    /// What goes over the first turn: the thread it branched off, its new
+    /// worktree being set up, the agent it was handed off from, its
+    /// subagents. Who works where is the title bar's.
     fn turn_header(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
         let name = self.name_of(&s.meta.agent);
-        let mut parts = vec![name.clone()];
-        parts.extend(Self::option_name(s, &SessionConfigOptionCategory::Model));
-        parts.extend(Self::mode_name(s));
-        parts.push(Desk::shown(&s.meta.folder));
         // Branched off another: which, to go back to it.
         let origin = self.origin_of(s).and_then(|k| self.sessions.at(k));
         let handoff = s.handoff_agent().map(|from| {
@@ -605,50 +589,37 @@ impl Desk {
             .flex()
             .flex_col()
             .mb(px(12.))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .px(px(10.))
-                    .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 14.))
-                    .child(meta(faces, parts.join(" · ")))
-                    .children(origin.map(|o| {
-                        let (back, here) = (o.key, s.key);
-                        div()
-                            .id("from")
-                            .flex()
-                            .items_center()
-                            .gap(px(4.))
-                            .cursor_pointer()
-                            .child(ui::icon("branch", 12.).text_color(theme::faint()))
-                            .child(
-                                ui::one_line(meta(
-                                    faces,
-                                    crate::tr_with("from “%{title}”", &[("title", &o.meta.title)]),
-                                ))
-                                .max_w(px(320.))
-                                .hover(|st| st.text_color(theme::text2())),
-                            )
-                            .on_click(
-                                cx.listener(move |this, _, window, cx| this.show(back, window, cx)),
-                            )
-                            .child(
-                                ui::button(
-                                    "bring-back",
-                                    crate::tr("Bring it back"),
-                                    ui::Weight::Quiet,
-                                )
+            .children(origin.map(|o| {
+                div().flex().items_center().gap(px(8.)).px(px(10.)).child({
+                    let (back, here) = (o.key, s.key);
+                    div()
+                        .id("from")
+                        .flex()
+                        .items_center()
+                        .gap(px(4.))
+                        .cursor_pointer()
+                        .child(ui::icon("branch", 12.).text_color(theme::faint()))
+                        .child(
+                            ui::one_line(meta(
+                                faces,
+                                crate::tr_with("from “%{title}”", &[("title", &o.meta.title)]),
+                            ))
+                            .max_w(px(320.))
+                            .hover(|st| st.text_color(theme::text2())),
+                        )
+                        .on_click(
+                            cx.listener(move |this, _, window, cx| this.show(back, window, cx)),
+                        )
+                        .child(
+                            ui::button("bring-back", crate::tr("Bring it back"), ui::Weight::Quiet)
                                 .tooltip(crate::tr("Name this branch in what you write there"))
-                                .on_click(cx.listener(
-                                    move |this, _, window, cx| {
-                                        cx.stop_propagation();
-                                        this.bring_back(here, window, cx);
-                                    },
-                                )),
-                            )
-                    })),
-            )
+                                .on_click(cx.listener(move |this, _, window, cx| {
+                                    cx.stop_propagation();
+                                    this.bring_back(here, window, cx);
+                                })),
+                        )
+                })
+            }))
             .children(setup)
             .children(handoff)
             .children(subagents)
@@ -787,9 +758,10 @@ impl Desk {
         let key = format!("{}-{i}", s.key);
         match item {
             Item::You(text) => {
-                // Under a message of yours, on hover: when it was said;
-                // branching off before it (after the first); rolling the
-                // session back to it, the first included; copying it.
+                // Over a message of yours, who said it and when; under it,
+                // on hover: branching off before it (after the first);
+                // rolling the session back to it, the first included;
+                // copying it.
                 let group = SharedString::from(format!("{key}-you"));
                 let idle = matches!(
                     s.state,
@@ -808,13 +780,6 @@ impl Desk {
                     .invisible()
                     .group_hover(group.clone(), Styled::visible)
                     .when(rewinding, Styled::visible)
-                    .children(s.time_of(i).map(|t| {
-                        meta(
-                            faces,
-                            when::said_at(t, std::time::SystemTime::now(), self.settings.twelve),
-                        )
-                        .mr(px(6.))
-                    }))
                     .when(branch, |d| {
                         d.child(
                             Self::under(
@@ -868,6 +833,26 @@ impl Desk {
                     .items_end()
                     .gap(px(4.))
                     .group(group)
+                    // `.t3-umsg-head`: "You" in text-primary 600, its time
+                    // in text-secondary, 12px.
+                    .child(
+                        div()
+                            .flex()
+                            .gap(px(8.))
+                            .text_size(px(crate::style::CAPTION))
+                            .line_height(px(16.))
+                            .font_family(faces.ui.clone())
+                            .text_color(theme::text2())
+                            .child(
+                                div()
+                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                    .text_color(theme::text())
+                                    .child(crate::tr("You")),
+                            )
+                            .children(s.time_of(i).map(|t| {
+                                when::said_at(t, std::time::SystemTime::now(), self.settings.twelve)
+                            })),
+                    )
                     .child(you_said(faces, format!("{key}-you-words"), shown).max_w(px(520.)))
                     .when(long, |d| {
                         d.child(
@@ -906,27 +891,16 @@ impl Desk {
                         t.to_owned()
                     }
                 };
-                // Under what the agent said, on hover: copy it, answer it,
-                // or branch off after it.
+                // Under what the agent said, on hover: words chosen from it,
+                // a side question of it. Copying, quoting and branching off
+                // are its turn's head's.
                 let group = SharedString::from(format!("{key}-said"));
                 let idle = matches!(
                     s.state,
                     crate::session::State::Idle | crate::session::State::Closed
                 );
                 let after = idle && s.through(i).is_some() && self.can_fork(s);
-                let latest = !s.items[i + 1..].iter().any(|x| matches!(x, Item::Agent(_)));
                 let at = s.key;
-                let (copy, quoted) = (text.clone(), text.clone());
-                // When it was said is in each icon's tip, as Claude keeps
-                // the row to its icons.
-                let said = s
-                    .time_of(i)
-                    .map(|t| when::said_at(t, std::time::SystemTime::now(), self.settings.twelve));
-                let tip = |t: &str| {
-                    let t = crate::tr(t);
-                    said.as_ref()
-                        .map_or_else(|| t.to_string(), |w| format!("{t} · {w}"))
-                };
                 div()
                     .flex()
                     .flex_col()
@@ -942,52 +916,28 @@ impl Desk {
                         div()
                             .flex()
                             .px(px(6.))
-                            // On the latest answer always, as Claude keeps
-                            // it; on the others, on hover.
-                            .when(!latest, |d| {
-                                d.invisible().group_hover(group, Styled::visible)
-                            })
-                            .child(Self::under(&key, "copy", "copy", tip("Copy")).on_click(
-                                move |_, _, cx| {
-                                    cx.write_to_clipboard(gpui::ClipboardItem::new_string(
-                                        copy.clone(),
-                                    ));
-                                },
-                            ))
+                            .invisible()
+                            .group_hover(group, Styled::visible)
                             .child(
-                                Self::under(&key, "choose", "list", tip("Choose words from it"))
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.read_from(at, i, window, cx);
-                                    })),
-                            )
-                            .child(
-                                Self::under(&key, "quote", "reply", tip("Quote in your reply"))
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.quote(&quoted, Some((at, i)), window, cx);
-                                    })),
-                            )
-                            .when(after, |d| {
-                                d.child(
-                                    Self::under(
-                                        &key,
-                                        "after",
-                                        "branch",
-                                        tip("Branch off after this"),
-                                    )
-                                    .on_click(cx.listener(
-                                        move |this, _, _, cx| {
-                                            this.fork_after(at, i, cx);
-                                        },
-                                    )),
+                                Self::under(
+                                    &key,
+                                    "choose",
+                                    "list",
+                                    crate::tr("Choose words from it"),
                                 )
-                            })
+                                .on_click(cx.listener(
+                                    move |this, _, window, cx| {
+                                        this.read_from(at, i, window, cx);
+                                    },
+                                )),
+                            )
                             .when(after && s.beside.is_none(), |d| {
                                 d.child(
                                     Self::under(
                                         &key,
                                         "beside",
                                         "bulb",
-                                        tip("Ask a side question of it"),
+                                        crate::tr("Ask a side question of it"),
                                     )
                                     .on_click(cx.listener(
                                         move |this, _, _, cx| {
@@ -1053,80 +1003,7 @@ impl Desk {
                     .into_any_element(),
                 None => self.inline_elicit_card(faces, s, e, cx),
             },
-            Item::Plan(plan) => {
-                let steps = plan_steps(plan);
-                let done = steps
-                    .iter()
-                    .filter(|(st, _)| *st == kinds::Status::Done)
-                    .count();
-                // On hover: copied as a checklist, or kept in the folder.
-                let written = steps.iter().fold(String::new(), |mut w, (st, text)| {
-                    w.push_str(if *st == kinds::Status::Done {
-                        "- [x] "
-                    } else {
-                        "- [ ] "
-                    });
-                    w.push_str(text);
-                    w.push('\n');
-                    w
-                });
-                let (copy, keep) = (written.clone(), written);
-                let group = SharedString::from(format!("{key}-plan"));
-                let folder = s.meta.folder.clone();
-                boxed()
-                    .group(group.clone())
-                    .child(
-                        step()
-                            .px(px(2.))
-                            .min_h(px(22.))
-                            .child(icon("list"))
-                            .child(verb(faces, crate::tr("Plan")))
-                            .child(right(
-                                faces,
-                                crate::tr_with(
-                                    "%{done} of %{all} done",
-                                    &[("done", &done), ("all", &steps.len())],
-                                ),
-                            ))
-                            .child(
-                                div()
-                                    .flex()
-                                    .gap(px(2.))
-                                    .invisible()
-                                    .group_hover(group, Styled::visible)
-                                    .child(
-                                        Self::under(
-                                            &key,
-                                            "plan-copy",
-                                            "copy",
-                                            crate::tr("Copy the plan"),
-                                        )
-                                        .on_click(
-                                            move |_, _, cx| {
-                                                cx.write_to_clipboard(
-                                                    gpui::ClipboardItem::new_string(copy.clone()),
-                                                );
-                                            },
-                                        ),
-                                    )
-                                    .child(
-                                        Self::under(
-                                            &key,
-                                            "plan-keep",
-                                            "file-plus",
-                                            crate::tr("Keep it as PLAN.md in the folder"),
-                                        )
-                                        .on_click(
-                                            cx.listener(move |this, _, _, _| {
-                                                this.write(folder.join("PLAN.md"), keep.clone());
-                                            }),
-                                        ),
-                                    ),
-                            ),
-                    )
-                    .child(div().px(px(4.)).child(drawn::plan(faces, &steps)))
-                    .into_any_element()
-            }
+            Item::Plan(plan) => self.plan_card(s, i, plan, cx).into_any_element(),
             // An image, yours under what you said, the agent's in its
             // reply, as high as its row is taken to be before the picture
             // is read; a click looks at it large.
@@ -1251,6 +1128,105 @@ impl Desk {
                 .ended(faces, s, i, *reason, *secs, cx)
                 .into_any_element(),
         }
+    }
+
+    /// The agent's plan (`ProposedPlanCard`): where each step stands, how
+    /// far it has got; copied as a checklist, or kept as PLAN.md in the
+    /// folder. The latest plan of a thread at rest in a mode that only
+    /// plans can be carried out from here, out of that mode to the one the
+    /// agent lists for it, or planned on (your words to the composer).
+    fn plan_card(
+        &self,
+        s: &Session,
+        i: usize,
+        plan: &Plan,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        use u0ui::t3::timeline::{PlanStep, PlanTexts, ProposedPlanCard};
+        use u0ui::u0::thread::PlanStatus;
+        let steps = plan_steps(plan);
+        let done = steps
+            .iter()
+            .filter(|(st, _)| *st == kinds::Status::Done)
+            .count();
+        let written = steps.iter().fold(String::new(), |mut w, (st, text)| {
+            w.push_str(if *st == kinds::Status::Done {
+                "- [x] "
+            } else {
+                "- [ ] "
+            });
+            w.push_str(text);
+            w.push('\n');
+            w
+        });
+        let shown = steps.iter().map(|(st, text)| {
+            PlanStep::new(text.clone()).status(match st {
+                kinds::Status::Done => PlanStatus::Done,
+                kinds::Status::Doing => PlanStatus::InProgress,
+                kinds::Status::Todo => PlanStatus::Pending,
+            })
+        });
+        let (copy, keep) = (written.clone(), written);
+        let folder = s.meta.folder.clone();
+        let mut card = ProposedPlanCard::new(
+            SharedString::from(format!("plan-{}-{i}", s.key)),
+            crate::tr("Plan"),
+            shown.collect(),
+        )
+        .texts(PlanTexts {
+            copy: crate::tr("Copy the plan"),
+            download: SharedString::default(),
+            save: crate::tr("Keep it as PLAN.md in the folder"),
+            keep: crate::tr("Keep planning"),
+            implement: crate::tr("Implement plan"),
+        })
+        .progress(crate::tr_with(
+            "%{done} of %{all} done",
+            &[("done", &done), ("all", &steps.len())],
+        ))
+        .on_copy(move |_, cx| {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(copy.clone()));
+        })
+        .on_save({
+            let desk = cx.entity();
+            move |_, cx| {
+                desk.update(cx, |this, _| {
+                    this.write(folder.join("PLAN.md"), keep.clone());
+                });
+            }
+        });
+        let latest = !s.items[i + 1..]
+            .iter()
+            .any(|x| matches!(x, Item::Plan(_) | Item::You(_)));
+        let resting = matches!(
+            s.state,
+            crate::session::State::Idle | crate::session::State::Closed
+        );
+        if latest
+            && resting
+            && let Some(out) = crate::desk::lists::out_of_planning(s)
+        {
+            let key = s.key;
+            let (implement, plan_on) = (cx.entity(), cx.entity());
+            card = card
+                .note(crate::tr_with(
+                    "Implementing switches %{name} to %{mode}",
+                    &[
+                        ("name", &self.name_of(&s.meta.agent)),
+                        ("mode", &out.name()),
+                    ],
+                ))
+                .on_implement(move |_, cx| {
+                    implement.update(cx, |this, cx| this.run_plan(key, cx));
+                })
+                .on_keep_planning(move |window, cx| {
+                    plan_on.update(cx, |this, cx| {
+                        let line = gpui::Focusable::focus_handle(this.composer.input.read(cx), cx);
+                        window.focus(&line, cx);
+                    });
+                });
+        }
+        card
     }
 
     /// The image looked at large, over the whole window: the session's
@@ -1689,15 +1665,15 @@ impl Desk {
             ToolCallContent::Diff(d) => Some(d.path.clone()),
             _ => None,
         });
-        let open_diff = diff_of.clone().filter(|_| !running).map(|path| {
+        let open_diff = diff_of.clone().filter(|_| !running).map(|_| {
             ui::button(
                 SharedString::from(format!("{key}-open-diff")),
-                crate::tr("Open diff"),
+                crate::tr("Show in diff"),
                 ui::Weight::Quiet,
             )
             .on_click(cx.listener(move |this, _, _, cx| {
                 cx.stop_propagation();
-                this.reveal_in_diff(&path, cx);
+                this.show_changes(crate::git::Scope::Call(i), cx);
             }))
         });
         // On hover, at its end: a command copied, or run again in a
@@ -1781,23 +1757,7 @@ impl Desk {
                     let start = tool.starts.get(diff_n).copied().flatten();
                     diff_n += 1;
                     let file = git::edit_diff(d, start);
-                    body = body
-                        .child(self.edit_view(&format!("{key}-{j}"), &file, cx))
-                        .child(
-                            div().flex().justify_end().child(
-                                ui::button(
-                                    SharedString::from(format!("{key}-{j}-in-diff")),
-                                    crate::tr("Open in the Diff tab"),
-                                    ui::Weight::Quiet,
-                                )
-                                .h(px(22.))
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        this.show_changes(crate::git::Scope::Call(i), cx);
-                                    },
-                                )),
-                            ),
-                        );
+                    body = body.child(self.edit_view(&format!("{key}-{j}"), &file, cx));
                 }
                 ToolCallContent::Content(x) => {
                     if matches!(

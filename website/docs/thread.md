@@ -65,6 +65,8 @@ The thread is the same for every agent:
 
 ### The top bar
 
+Beside the title, the bar names the thread's project, its branch and the
+server it runs on, and **Needs you** while it waits for an answer.
 Click the title to rename the thread. Its menu has **Rename**, **Pin**,
 **Settle**, **Snooze…**, **Open beside** (placing two threads side by side, or
 press ⇧Return on a thread in ⌘K), **Branch a new thread from here**, **New
@@ -74,9 +76,11 @@ agent, **Open in your editor**, **Archive** and **Delete…**.
 
 In the middle of the bar, the box that reads **Search threads, projects,
 commands and settings** opens the palette under it, as ⌘K does; when the
-bar is short of room, only its magnifier is left. The buttons at the right
-open the terminal drawer (⌘J) and show or hide the right column
-(⌥⌘B).
+bar is short of room, only its magnifier is left. At the right, while
+the folder has uncommitted changes, **Commit N files** opens the commit
+form in the Diff tab; **Share thread** makes a read-only link to it; the
+last three buttons show or hide the sidebar, the terminal drawer (⌘J) and
+the right column (⌥⌘B).
 
 ### Find
 
@@ -85,14 +89,32 @@ previous, Esc to close. ⌃⇧↑ and ⌃⇧↓ jump between your own messages.
 
 ### Turns: undo, restore, branch off
 
+Over each answer, a line names the agent and its model, how long the
+turn took and when you asked; its buttons copy the answer, quote it in
+your reply, or branch a new thread off after it.
+
 In a git repository, u0 checkpoints the files before and after each
 turn (see [Worktrees and checkpoints](worktrees-and-checkpoints.md)).
-Under a turn, while the thread is idle:
+Under a turn that changed files, a card lists them with what each gained
+and lost; a file, or **Show in diff**, opens the turn's changes in the
+Diff tab. While the thread is idle:
 
-- **Diff** shows what the turn changed;
 - **Undo** (the last turn) or **Restore to before** (an earlier one) puts
   the files back as they were before it;
 - **Redo** puts the turn's changes back.
+
+An edit's own **Show in diff** shows just that edit.
+
+### Plans
+
+A plan the agent keeps shows each step done, under way or still to do,
+and how many are done; copy it, or keep it as PLAN.md in the folder. In
+a mode that only plans (as the agent lists its modes), its latest plan
+has **Implement plan**, which switches to the mode the agent lists for
+working and asks it to carry the plan out, and **Keep planning**, which
+puts you in the composer, whose line reads **Ask for changes to the
+plan**. A line over the composer names the mode and the keys (⇧⌘A) that
+open the modes.
 
 On each of your messages: **Branch off here, to say this again**, and
 **Roll back to here** (with **files too** where the files can follow).
@@ -103,18 +125,12 @@ Write a task or a question and press Return (see `send` in
 [settings](reference/settings.md#chat-and-composer) for ⌘Return). ↑ and ↓
 bring back messages you sent before.
 
-While the folder has uncommitted changes, a bar above the composer counts
-them, with **Review changes** and **Commit changes**. × closes it for that
-folder (the project's, or a thread's worktree) until the changes change.
-It is kept on the project's server, so every Mac paired with it sees it
-closed.
-
 ### Chips
 
-Under the text, chips show and change what the message goes with: the
-project; for a new thread in a repository, **Worktree** and the branch
-it starts **from**; the branch; the model; the mode; and a ring showing
-how much of the agent's context is used.
+Under the text, chips show and change what the message goes with: for a
+new thread, the project, and in a repository **Worktree** and the branch
+it starts **from**; the model; the mode; and a ring showing how much of
+the agent's context is used.
 
 ### Attachments
 

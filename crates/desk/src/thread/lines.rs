@@ -60,6 +60,9 @@ pub enum Line {
     /// Who, with what, where: over the first turn.
     Head,
     Row(fold::Row),
+    /// Who answered what you said at this item, with what, how long it
+    /// took and when, over its answer.
+    Said(usize),
     /// Starting, signing in, or stopped: under the last turn.
     State,
     /// Where you stopped reading when you last left it.
@@ -127,7 +130,22 @@ impl Desk {
         // What came while you were away is marked where it begins.
         let since = s.seen.filter(|n| *n > 0 && *n < s.items.len());
         let mut marked = false;
+        // What you said, whose answer has not had its head yet.
+        let mut asked: Option<usize> = None;
         for row in rows {
+            if let Some(you) = asked {
+                let with_it = matches!(row, fold::Row::Item(i)
+                    if matches!(s.items[i], Item::Image { yours: true, .. } | Item::File { .. }));
+                if !with_it {
+                    out.push(Line::Said(you));
+                    asked = None;
+                }
+            }
+            if let fold::Row::Item(i) = row
+                && matches!(s.items[i], Item::You(_))
+            {
+                asked = Some(i);
+            }
             if let (Some(n), false) = (since, marked) {
                 let at = match &row {
                     fold::Row::Item(i)
@@ -405,6 +423,7 @@ impl Desk {
         let last = ix + 1 == self.lines.len();
         let el: AnyElement = match line {
             Line::Head => self.turn_header(&faces, s, cx).into_any_element(),
+            Line::Said(you) => self.said_head(&faces, s, *you, cx).into_any_element(),
             Line::Row(row) => self.row(&faces, s, row, cx),
             Line::Since => div()
                 .flex()
