@@ -276,7 +276,7 @@ impl Desk {
         s.forget();
         s.plan = None;
         s.turns.clear();
-        s.total = None;
+        s.set_total(None);
         s.redo = None;
         s.state = State::Opening;
         let (host, agent) = (s.host, s.meta.agent.clone());

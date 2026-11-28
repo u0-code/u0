@@ -415,6 +415,12 @@ impl Desk {
                     s.git.branches = branches;
                     s.git.upstream = upstream;
                 }
+                // It has a remote now: should it lose it, publishing it is
+                // offered again.
+                let project = self.sessions.at(key).map(super::Place::project_of);
+                if let Some(p) = project.filter(|p| upstream.2 && self.prefs(p).closed.publish) {
+                    self.set_prefs(&p, cx, |p| p.closed.publish = false);
+                }
             }
             Event::Pr { key, pr } => {
                 let pr = pr.map(|p| *p);
@@ -493,7 +499,7 @@ impl Desk {
             Event::Uncommitted { key, result } => {
                 if let Some(s) = self.sessions.at_mut(key) {
                     match result {
-                        Ok(files) => s.total = Some(files),
+                        Ok(files) => s.set_total(Some(files)),
                         Err(why) => {
                             tracing::warn!("what is not committed could not be read: {why}");
                         }

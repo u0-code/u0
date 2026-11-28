@@ -109,7 +109,7 @@ impl Desk {
             })
             .children(self.children_asking(faces, s, column, cx))
             .children(banners)
-            .children(Self::changes_row(faces, s, column, cx))
+            .children(self.changes_row(faces, s, column, cx))
             .children(offers)
             .children(self.also_run_row(faces, s, column, cx))
             .child(self.tc_stack(faces, s, &name, column, focused, has_offers, suggested, cx))
@@ -1470,9 +1470,23 @@ impl Desk {
         })
     }
 
-    /// Square Carbon changed-files bar above the composer.
-    fn changes_row(faces: &Faces, s: &Session, column: f32, cx: &mut Context<Self>) -> Option<Div> {
-        let files = s.total.as_ref().filter(|f| !f.is_empty())?;
+    /// Square Carbon changed-files bar above the composer; closed for
+    /// its folder until the changes change (`close_changes`).
+    fn changes_row(
+        &self,
+        faces: &Faces,
+        s: &Session,
+        column: f32,
+        cx: &mut Context<Self>,
+    ) -> Option<Div> {
+        let files = s.total().filter(|f| !f.is_empty())?;
+        let project = crate::desk::Place::project_of(s);
+        let closed = (self.settings_on(s.host).prefs.get(&project.folder))
+            .and_then(|p| p.closed.changes.get(&s.meta.folder));
+        if closed.is_some_and(|m| s.total_mark() == Some(m.as_str())) {
+            return None;
+        }
+        let key = s.key;
         let file_count = files.len();
         let (added, gone) = files
             .iter()
@@ -1484,6 +1498,7 @@ impl Desk {
         };
         let desk_review = cx.entity();
         let desk_commit = cx.entity();
+        let desk_close = cx.entity();
         Some(
             div()
                 .flex()
@@ -1539,8 +1554,39 @@ impl Desk {
                                 }
                             });
                         }),
+                )
+                .child(
+                    CarbonButton::new("close-changes", crate::tr("Close"))
+                        .variant(ButtonVariant::Ghost)
+                        .size(ButtonSize::Sm)
+                        .icon(CarbonIcon::Close)
+                        .icon_only(true)
+                        .on_click(move |_, _, cx| {
+                            desk_close.update(cx, |this, cx| this.close_changes(key, cx));
+                        }),
                 ),
         )
+    }
+
+    /// Close the changes bar of the session `key` until its folder's
+    /// changes change; the marks of folders no session here works in any
+    /// more are let go.
+    fn close_changes(&mut self, key: u64, cx: &mut Context<Self>) {
+        let Some(s) = self.sessions.at(key) else {
+            return;
+        };
+        let Some(mark) = s.total_mark().map(str::to_owned) else {
+            return;
+        };
+        let (project, folder) = (crate::desk::Place::project_of(s), s.meta.folder.clone());
+        let held: std::collections::HashSet<_> = (self.sessions.all.iter())
+            .filter(|o| crate::desk::Place::project_of(o) == project)
+            .map(|o| o.meta.folder.clone())
+            .collect();
+        self.set_prefs(&project, cx, |p| {
+            p.closed.changes.retain(|f, _| held.contains(f));
+            p.closed.changes.insert(folder, mark);
+        });
     }
 
     /// `/` commands and `@` mentions rendered via `u0ui::t3::composer::ComposerCommandMenu`.

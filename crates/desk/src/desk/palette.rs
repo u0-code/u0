@@ -968,7 +968,7 @@ impl Desk {
                 ..row.sub(asks)
             });
         }
-        if let Some(files) = s.total.as_ref().filter(|f| !f.is_empty()) {
+        if let Some(files) = s.total().filter(|f| !f.is_empty()) {
             let added: usize = files.iter().map(|f| f.added).sum();
             let gone: usize = files.iter().map(|f| f.gone).sum();
             let stat = if files.len() == 1 {
@@ -1013,7 +1013,7 @@ impl Desk {
             };
             rows.push(Row::new("reply", label, Act::SendComments).sub(locs));
         }
-        if let Some(files) = s.total.as_ref().filter(|f| !f.is_empty()) {
+        if let Some(files) = s.total().filter(|f| !f.is_empty()) {
             let commit_label = if files.len() == 1 {
                 crate::tr("Commit 1 file…")
             } else {

@@ -644,7 +644,7 @@ pub fn restore(dir: &Path, commit: &str, name: &str) -> Result<String, String> {
 
 /// One file's changes: what lists name and count of them, and its patch
 /// as git writes it, which the desk's diff view reads.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct FileDiff {
     /// Its path from the top of the repository, as it is after.
     pub path: String,
@@ -652,6 +652,15 @@ pub struct FileDiff {
     pub gone: usize,
     /// Its part of the unified diff, from its `diff --git` (or `---`) line.
     pub patch: String,
+}
+
+/// A mark of `changes` (a file's lines, the files a folder changed):
+/// another once they change.
+pub fn mark(changes: &impl std::hash::Hash) -> String {
+    use std::hash::Hasher as _;
+    let mut hasher = std::hash::DefaultHasher::new();
+    changes.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 /// An edit as git would show it: each stretch that changed, with a line of

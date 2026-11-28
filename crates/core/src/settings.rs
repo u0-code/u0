@@ -1235,6 +1235,30 @@ pub struct Prefs {
     /// Environment variables and `secret:<NAME>` references given to agents and actions in this project.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub env: std::collections::BTreeMap<String, String>,
+    /// What you closed of what u0 offers here, until it says something new.
+    #[serde(default, skip_serializing_if = "Closed::is_none")]
+    pub closed: Closed,
+}
+
+/// What you closed of what u0 offers in a project.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Closed {
+    /// The mark (`git::mark`) of the changes whose bar above the composer
+    /// you closed, by the folder they are in (the project's, or a
+    /// worktree's): once they change, it shows again.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub changes: std::collections::BTreeMap<PathBuf, String>,
+    /// The offer to publish it, while it has no remote: once it has one,
+    /// it is offered again should it lose it.
+    #[serde(default)]
+    pub publish: bool,
+}
+
+impl Closed {
+    fn is_none(&self) -> bool {
+        *self == Self::default()
+    }
 }
 
 /// The options and mode last chosen in a session of one agent.
@@ -1762,6 +1786,18 @@ mod tests {
         assert_eq!(c, Confirm::default());
         assert!(c.delete && c.terminal && !c.unpin && !c.archive);
         assert_eq!(c.quit, Quit::Hold);
+    }
+
+    #[test]
+    fn what_a_project_closed_is_kept_by_its_folder_and_nothing_else_is_read() {
+        let read: Prefs =
+            serde_json::from_str(r#"{"closed": {"changes": {"/p/wt": "00ff"}, "publish": true}}"#)
+                .unwrap();
+        assert_eq!(read.closed.changes[Path::new("/p/wt")], "00ff");
+        assert!(read.closed.publish);
+        let none = serde_json::to_string(&Prefs::default()).unwrap();
+        assert!(!none.contains("closed"));
+        assert!(serde_json::from_str::<Prefs>(r#"{"closed": {"bar": true}}"#).is_err());
     }
 
     #[test]
