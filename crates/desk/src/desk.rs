@@ -2051,11 +2051,16 @@ impl Desk {
                 (self.pages.level).update(cx, |s, cx| s.set_value(at, window, cx));
                 self.pages.sent = Default::default();
             }
-            crate::pages::Tab::Archive => self.measure(),
             crate::pages::Tab::Appearance => self.read_themes(cx),
             crate::pages::Tab::SourceControl => self.call(on, Call::Forges),
             crate::pages::Tab::Usage => self.read_used(),
-            crate::pages::Tab::Diagnostics => self.diagnose(on),
+            crate::pages::Tab::Diagnostics => {
+                self.diagnose(on);
+                // What u0 keeps, measured afresh on the server shown: what
+                // another one kept is not shown meanwhile.
+                self.pages.sizes = crate::tidy::StorageReport::default();
+                self.measure();
+            }
             crate::pages::Tab::Devices => {
                 self.call(on, Call::Share(crate::share::Share::Look));
                 self.read_servers();

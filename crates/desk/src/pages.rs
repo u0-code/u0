@@ -48,7 +48,7 @@ use crate::{desk::Desk, settings::Settings};
 pub struct Pages {
     pub open: bool,
     pub tab: Tab,
-    /// The Carbon settings sidebar's search field, synced into `settings`.
+    /// The settings sidebar's search field: what the page shown finds.
     pub settings_search: Entity<InputState>,
     pub agent_search: Entity<InputState>,
     pub prefix: Entity<InputState>,
