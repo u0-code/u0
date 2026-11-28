@@ -856,7 +856,7 @@ impl Desk {
             .gap(px(12.))
             .w_full()
             .h(px(32.))
-            // Inside the folder: its glyph under the folder's label.
+            // Inside the folder: its mark under the folder's label.
             .pl(px(44.))
             .pr(px(16.))
             .cursor_pointer()
@@ -872,12 +872,7 @@ impl Desk {
                 )
             })
             .when(!active, |d| d.hover(move |s| s.bg(hover_bg)))
-            .child(
-                CarbonGlyph::carbon(CarbonIcon::Chip)
-                    .size_length(px(16.))
-                    .color(ink)
-                    .flex_none(),
-            )
+            .child(ui::mark(faces, &self.mark_of(&id), 16.))
             .child(
                 ui::text(faces, name)
                     .flex_1()

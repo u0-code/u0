@@ -375,10 +375,14 @@ impl Desk {
                             .on_click(cx.listener(|this, _, window, cx| this.restart(window, cx))),
                     )
                     .child(
-                        ui::button("diagnose", crate::tr("Open Diagnostics"), Weight::Quiet)
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_tab(crate::pages::Tab::Diagnostics, window, cx);
-                            })),
+                        ui::button(
+                            "diagnose",
+                            crate::tr("Open Maintenance & diagnostics"),
+                            Weight::Quiet,
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.open_tab(crate::pages::Tab::Diagnostics, window, cx);
+                        })),
                     ),
             )
     }
