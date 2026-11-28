@@ -18,6 +18,9 @@ ignore = [
     { id = "RUSTSEC-2024-0436", reason = "paste, under gpui-kit's components" },
     { id = "RUSTSEC-2025-0134", reason = "rustls-pemfile, under gpui-kit's assets" },
     { id = "RUSTSEC-2025-0141", reason = "bincode, under syntect, gpui-kit's highlighting" },
+    # gpui-webview's wry: HTML read by kuchikiki, and GTK on Linux.
+    { id = "RUSTSEC-2025-0057", reason = "fxhash, under kuchikiki in wry" },
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error, under glib's macros in wry's GTK" },
     # Linux's D-Bus (the keyring, accessibility) in the tree for every target.
     { id = "RUSTSEC-2026-0370", reason = "zvariant, under oo7 and zbus" },
     { id = "RUSTSEC-2026-0371", reason = "zbus_names, under atspi and zbus" },
