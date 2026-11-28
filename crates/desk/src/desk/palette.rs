@@ -369,9 +369,8 @@ const BESIDE_SESSIONS: usize = 3;
 const RECENT: usize = 12;
 const SUGGESTED: usize = 3;
 const FILES: usize = 200;
-/// How tall the palette's list stands at most: t3code's 420, less its
-/// line to type in and its foot.
-const LIST: f32 = 344.;
+/// How tall the palette's list stands at most: the board's 468.
+const LIST: f32 = 468.;
 
 /// An action's icon, by its name in `keys::ACTIONS`.
 fn icon_of(name: &str) -> &'static str {
@@ -756,7 +755,12 @@ impl Desk {
                                 .filter_map(|n| n.checked_sub(skip))
                                 .map(|n| n..n + 1)
                                 .collect(),
-                            ..Row::new("file", file, Act::File(f.clone())).sub(f.as_str())
+                            ..if folder.is_empty() {
+                                // A file at the top has no path but its name.
+                                Row::new("file", file, Act::File(f.clone()))
+                            } else {
+                                Row::new("file", file, Act::File(f.clone())).sub(f.as_str())
+                            }
                         }
                     })
                     .collect();
@@ -807,7 +811,7 @@ impl Desk {
                     .map(|s| self.found_row(s, now))
                     .collect();
                 if !rows.is_empty() {
-                    groups.push((crate::tr("Recent threads").to_string(), rows));
+                    groups.push((crate::tr("Threads").to_string(), rows));
                 }
             }
             groups.push((crate::tr("Actions").to_string(), self.actions(cx)));
@@ -983,7 +987,7 @@ impl Desk {
             };
             rows.push(Row {
                 keys: crate::keys::keys_of(cx, "review"),
-                ..Row::new("list", crate::tr("Review changes"), Act::Key("review")).sub(stat)
+                ..Row::new("diff", crate::tr("Review changes"), Act::Key("review")).sub(stat)
             });
         }
         if !self.review.comments.is_empty() {
@@ -1018,7 +1022,7 @@ impl Desk {
             } else {
                 crate::tr_with("Commit %{n} files…", &[("n", &files.len())])
             };
-            let mut row = Row::new("check", commit_label, Act::Commit);
+            let mut row = Row::new("commit", commit_label, Act::Commit);
             if let Some(branch) = &s.branch {
                 row = row.sub(branch.clone());
             }
@@ -1243,11 +1247,7 @@ impl Desk {
                     .text_color(theme::muted())
                     .child(empty.clone())
             })
-            .footer({
-                let back = back_from(self.palette.through, self.palette.from).is_some();
-                let through = self.palette.through;
-                move |_, _, _| foot(through, back, page.is_some())
-            });
+            .footer(move |_, _, _| foot(page.is_some()));
         // A page says at its head what it is, and goes back when clicked.
         if let Some(sub) = page {
             command = command.header(move |_, _, _| {
@@ -1508,9 +1508,9 @@ fn back_from(through: Through, from: Option<Through>) -> Option<Through> {
         .then_some(Through::Everything)
 }
 
-/// The palette's foot: the keys that move, choose and leave, as t3code
-/// says them; Escape goes `back`, or closes it.
-fn foot(through: Through, back: bool, page: bool) -> gpui::Div {
+/// The palette's foot: the keys that move and open, as the board says
+/// them; on a page, the key that goes back from it.
+fn foot(page: bool) -> gpui::Div {
     let hint = |keys: &[&'static str], what: &str| {
         div()
             .flex()
@@ -1523,12 +1523,6 @@ fn foot(through: Through, back: bool, page: bool) -> gpui::Div {
             }))
             .child(div().ml(px(2.)).child(crate::tr(what)))
     };
-    let enter = match through {
-        Through::Everything => "Select",
-        Through::Files | Through::Words => "Open",
-    };
-    let beside = matches!(through, Through::Files | Through::Everything);
-    let esc = if back { "Back" } else { "Close" };
     div()
         .flex()
         .items_center()
@@ -1541,9 +1535,7 @@ fn foot(through: Through, back: bool, page: bool) -> gpui::Div {
         .text_size(px(crate::style::CAPTION))
         .text_color(theme::muted())
         .child(hint(&["↑", "↓"], "Navigate"))
-        .child(hint(&["↵"], enter))
-        .when(beside, |d| d.child(hint(&["⇧↵"], "Open beside")))
-        .child(hint(&["Esc"], esc))
+        .child(hint(&["↵"], "Open"))
         .when(page, |d| d.child(hint(&["⌫"], "Back")))
 }
 
