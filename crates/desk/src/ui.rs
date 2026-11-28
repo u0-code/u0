@@ -4,8 +4,8 @@
 use std::path::Path;
 
 use gpui::component::{
-    Icon, Selectable as _, Sizable as _,
-    button::{Button, ButtonGroup, ButtonVariants as _},
+    Icon, Sizable as _,
+    button::{Button, ButtonVariants as _},
     tooltip::Tooltip,
 };
 use gpui::{
@@ -347,30 +347,8 @@ pub fn trouble(id: impl Into<gpui::ElementId>, words: impl Into<SharedString>) -
     alert(id, AlertVariant::Error).words(words)
 }
 
-/// What a choice of a [`segmented`] control does when picked.
+/// What a choice of `pages::srow::picks` does when picked.
 pub type Pick = Box<dyn Fn(&Vec<usize>, &mut Window, &mut App)>;
-
-/// A compact segmented control.
-pub fn segmented(id: &str, choices: Vec<(impl Into<SharedString>, bool, Pick)>) -> ButtonGroup {
-    let (buttons, picks): (Vec<Button>, Vec<Pick>) = choices
-        .into_iter()
-        .enumerate()
-        .map(|(n, (label, on, pick))| {
-            let choice = Button::new(SharedString::from(format!("{id}-{n}")))
-                .label(label)
-                .selected(on);
-            (if on { choice.primary() } else { choice }, pick)
-        })
-        .unzip();
-    ButtonGroup::new(SharedString::from(id.to_owned()))
-        .small()
-        .children(buttons)
-        .on_click(move |chosen, window, cx| {
-            for &n in chosen {
-                picks[n](chosen, window, cx);
-            }
-        })
-}
 
 /// Small print (`label-01`, 12/16): a count, a time, a word beside a name.
 pub fn fine(faces: &Faces, words: impl Into<SharedString>) -> Div {

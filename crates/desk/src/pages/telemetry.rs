@@ -9,10 +9,7 @@ use gpui::component::{
 };
 use gpui::{AnyElement, Context, Entity, WeakEntity, Window, div, prelude::*, px};
 use u0ui::{
-    components::{
-        button::{Button, ButtonSize, ButtonVariant},
-        slider::Slider,
-    },
+    components::slider::Slider,
     icons::{CarbonIcon, Icon as CarbonGlyph},
     tokens::ColorRole,
     u0::settings::{Payload, TelemetryPreview, TelemetryPreviewTexts},
@@ -187,9 +184,7 @@ impl Desk {
             crate::tr("The next day's batch at this level, exactly as it goes."),
             |_, _, cx| {
                 let desk = cx.entity();
-                Button::new("telemetry-show", crate::tr("Show"))
-                    .variant(ButtonVariant::Tertiary)
-                    .size(ButtonSize::Sm)
+                super::srow::button("telemetry-show", crate::tr("Show"), ui::Weight::Secondary)
                     .on_click(move |_, _, cx| {
                         desk.update(cx, |this, cx| {
                             let level = level_of(this.pages.level.read(cx));
@@ -232,17 +227,19 @@ impl Desk {
                     .gap(px(8.))
                     .children(id.map(|s| ui::fine_mono(faces, s)))
                     .child(
-                        Button::new("telemetry-forget", crate::tr("Reset"))
-                            .variant(ButtonVariant::Tertiary)
-                            .size(ButtonSize::Sm)
-                            .on_click(move |_, _, cx| {
-                                desk.update(cx, |this, cx| {
-                                    this.call(this.pages.on, Call::Telemetry(Ask::Forget));
-                                    this.pages.sent = Default::default();
-                                    this.pages.install_id = None;
-                                    cx.notify();
-                                });
-                            }),
+                        super::srow::button(
+                            "telemetry-forget",
+                            crate::tr("Reset"),
+                            ui::Weight::Secondary,
+                        )
+                        .on_click(move |_, _, cx| {
+                            desk.update(cx, |this, cx| {
+                                this.call(this.pages.on, Call::Telemetry(Ask::Forget));
+                                this.pages.sent = Default::default();
+                                this.pages.install_id = None;
+                                cx.notify();
+                            });
+                        }),
                     )
                     .into_any_element()
             },

@@ -182,13 +182,12 @@ impl SRow {
             self.managed_state = Some(crate::tr(if checked { "On" } else { "Off" }));
         }
         let locked = self.is_locked();
-        self.control = Some(switch(
-            (self.id.clone(), "sw"),
-            self.title.clone(),
-            checked,
-            locked,
-            on_change,
-        ));
+        self.control = Some(
+            switch((self.id.clone(), "sw"), self.title.clone(), checked)
+                .disabled(locked)
+                .on_checked_change(on_change)
+                .into_any_element(),
+        );
         self
     }
 
@@ -456,22 +455,14 @@ impl RenderOnce for SRow {
     }
 }
 
-/// Carbon's `Switch` (`sm` 32×16), named `label` for a screen reader.
-pub fn switch(
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-    checked: bool,
-    locked: bool,
-    on_change: impl Fn(bool, &mut Window, &mut App) + 'static,
-) -> AnyElement {
+/// Carbon's `Switch` (`sm` 32×16), named `label` for a screen reader: an
+/// `SRow`'s, and `flip`'s.
+fn switch(id: impl Into<ElementId>, label: impl Into<SharedString>, checked: bool) -> Switch {
     Switch::new(id)
         .label(label)
         .hide_label(true)
         .size(SwitchSize::Sm)
         .checked(checked)
-        .disabled(locked)
-        .on_checked_change(on_change)
-        .into_any_element()
 }
 
 /// Carbon's `sm` button on a settings page: `Secondary` is its tertiary,
@@ -500,14 +491,9 @@ pub fn flip(
     flipped: impl Fn(&mut Desk, &mut Window, &mut Context<Desk>) + 'static,
 ) -> Switch {
     let desk = cx.entity().downgrade();
-    Switch::new(id)
-        .label(label)
-        .hide_label(true)
-        .size(SwitchSize::Sm)
-        .checked(checked)
-        .on_checked_change(move |_, window, cx| {
-            let _ = desk.update(cx, |d, cx| flipped(d, window, cx));
-        })
+    switch(id, label, checked).on_checked_change(move |_, window, cx| {
+        let _ = desk.update(cx, |d, cx| flipped(d, window, cx));
+    })
 }
 
 /// Carbon's `ContentSwitcher` (`ToggleGroup`, `sm` 32px) for a few
