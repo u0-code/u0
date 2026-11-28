@@ -47,8 +47,11 @@ pub const BUBBLE_RADIUS: f32 = tokens::BORDER_RADIUS_00.px_value();
 
 /// `titlebar-height` (`2.375rem` = 38px): macOS unified title bar across all columns.
 pub const TITLEBAR_HEIGHT: f32 = tokens::TITLEBAR_HEIGHT.px_value();
-/// `traffic-light-inset` (`4.75rem` = 76px): leading inset clearing macOS traffic lights.
-pub const TRAFFIC_LIGHT_INSET: f32 = tokens::TRAFFIC_LIGHT_INSET.px_value();
+/// The leading inset clearing macOS's traffic lights: the design's 76px
+/// (`traffic-light-inset`) is for 12px lights 20px apart; macOS 26 draws
+/// them 14px, 23px apart, ending at 74, so what follows them stands the
+/// design's gap of 14 further on.
+pub const TRAFFIC_LIGHT_INSET: f32 = 88.;
 /// `traffic-light-offset-y` (`1.1875rem` = 19px): vertical centre of traffic lights in the 38px bar.
 pub const TRAFFIC_LIGHT_OFFSET_Y: f32 = 19.;
 /// `traffic-light-start` (`0.875rem` = 14px): left edge of the first traffic light (12px discs, 8px apart).
@@ -114,7 +117,7 @@ mod tests {
             (H3, 14.),
             (BUBBLE_RADIUS, 0.),
             (TITLEBAR_HEIGHT, 38.),
-            (TRAFFIC_LIGHT_INSET, 76.),
+            (TRAFFIC_LIGHT_INSET, 88.),
             (TRAFFIC_LIGHT_OFFSET_Y, 19.),
             (TRAFFIC_LIGHT_START, 14.),
             (THREAD_MIN_WIDTH, 480.),

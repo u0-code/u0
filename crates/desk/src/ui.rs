@@ -206,7 +206,7 @@ pub fn brand_icon(name: &str, size: f32) -> Option<Svg> {
 }
 
 /// Unified 38px window title bar (`TitleBar` board): draggable, `background`
-/// fill with 1px `border-subtle-01` bottom hairline, clearing the 76px macOS
+/// fill with 1px `border-subtle-01` bottom hairline, clearing the macOS
 /// traffic-light inset when `inset_lights` is true (sidebar collapsed) and
 /// aligning with the 24px content gutter otherwise.
 pub fn title_bar(inset_lights: bool) -> Div {

@@ -1,5 +1,5 @@
 //! Carbon workspace sidebar (`AppSidebar` and `SidebarStates` boards): the
-//! 38px unified brand/navigation header clearing the 76px traffic-light inset,
+//! 38px unified brand/navigation header clearing the traffic lights,
 //! the 5-section bar (`Threads`, `Pull requests`, `Issues`, `Workflows`,
 //! `Usage`), searchable `Projects` and `Tags` filter menus (`u0ui`), the
 //! thread and project list (`list`), multi-select toolbar, and the 40px
@@ -127,7 +127,7 @@ impl Desk {
             )
     }
 
-    /// Unified 38px sidebar brand header (`sb-top`): clears the 76px macOS
+    /// Unified 38px sidebar brand header (`sb-top`): clears the macOS
     /// traffic lights, shows `"u0"` without a square mark, and hosts `Back`,
     /// `Ahead` and `New thread`. Searching is the palette's: the top bar's
     /// command box.
