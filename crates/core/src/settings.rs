@@ -1264,6 +1264,11 @@ pub struct Prefs {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Closed {
+    /// Read by nothing: the bar above the composer it kept closed is gone
+    /// (a turn's changes are under it, the commit in the title bar). It
+    /// stays so settings files saved with it keep reading.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub changes: std::collections::BTreeMap<PathBuf, String>,
     /// The offer to publish it, while it has no remote: once it has one,
     /// it is offered again should it lose it.
     #[serde(default)]
@@ -1807,8 +1812,11 @@ mod tests {
     }
 
     #[test]
-    fn what_a_project_closed_is_kept_and_nothing_else_is_read() {
-        let read: Prefs = serde_json::from_str(r#"{"closed": {"publish": true}}"#).unwrap();
+    fn what_a_project_closed_is_kept_by_its_folder_and_nothing_else_is_read() {
+        let read: Prefs =
+            serde_json::from_str(r#"{"closed": {"changes": {"/p/wt": "00ff"}, "publish": true}}"#)
+                .unwrap();
+        assert_eq!(read.closed.changes[Path::new("/p/wt")], "00ff");
         assert!(read.closed.publish);
         let none = serde_json::to_string(&Prefs::default()).unwrap();
         assert!(!none.contains("closed"));
