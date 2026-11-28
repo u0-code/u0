@@ -5,7 +5,8 @@
 //! and so does each subagent it set to work, a card of its own under the
 //! fold. A turn begins with what you said, or in a subagent with what it
 //! was told. Inside a fold opened again, a run of three or more quiet tool calls
-//! becomes one line of its own. A turn still going on is never folded: it
+//! becomes one line of its own, unless it is all there is: a turn of quiet
+//! calls alone opens to its calls. A turn still going on is never folded: it
 //! is what you are watching. A turn loaded from an agent has no end
 //! marked; it is over when another follows it or nothing is going on.
 //!
@@ -139,7 +140,9 @@ fn is_call(item: &Item) -> bool {
     matches!(item, Item::Tool(_) | Item::Asked(_) | Item::Elicited(_))
 }
 
-/// The items `from..to`, with each run of quiet calls folded into a group.
+/// The items `from..to`, with each run of quiet calls folded into a group,
+/// unless the run is all of `from..to`: that group would only say again
+/// what the fold just opened says.
 fn grouped(
     session: u64,
     items: &[Item],
@@ -150,6 +153,10 @@ fn grouped(
     out: &mut Vec<Row>,
 ) {
     let quiet = |j: usize| matches!(items[j], Item::Tool(_)) && !open_call(j);
+    if (from..to).all(quiet) {
+        out.extend((from..to).map(Row::Item));
+        return;
+    }
     let mut j = from;
     while j < to {
         if quiet(j) {
@@ -511,6 +518,32 @@ mod tests {
                     to: 4,
                     open: false
                 },
+                Row::Item(4)
+            ]
+        );
+    }
+
+    #[test]
+    fn an_opened_turn_of_quiet_calls_alone_shows_them_not_a_second_fold() {
+        let mut s = session();
+        s.ended(
+            Ok(agent_client_protocol::v1::schema::StopReason::EndTurn),
+            Vec::new(),
+        );
+        let open: HashSet<String> = [turn_key(7, 1)].into_iter().collect();
+        let rows = rows(7, &s.items, &open, |_| false, false, true);
+        assert_eq!(
+            rows[1..6],
+            [
+                Row::Turn {
+                    from: 1,
+                    to: 5,
+                    secs: Some(0),
+                    open: true
+                },
+                Row::Item(1),
+                Row::Item(2),
+                Row::Item(3),
                 Row::Item(4)
             ]
         );
