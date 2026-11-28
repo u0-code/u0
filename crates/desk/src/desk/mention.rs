@@ -141,6 +141,16 @@ fn swap_draft(on: &mut Draft, drafts: &mut HashMap<u64, Draft>, from: Option<u64
     *on = drafts.remove(&to).unwrap_or_default();
 }
 
+/// `held` with `typed` after it, a blank line between where both hold
+/// something.
+pub(crate) fn joined(held: &str, typed: &str) -> String {
+    match (held.is_empty(), typed.is_empty()) {
+        (true, _) => typed.to_owned(),
+        (_, true) => held.to_owned(),
+        _ => format!("{held}\n\n{typed}"),
+    }
+}
+
 /// What was put aside (⌘S): its text, kept between runs (see
 /// `store::Index`), and what was attached to it, kept while u0 runs.
 #[derive(Debug, Clone)]
@@ -1207,6 +1217,13 @@ impl Desk {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn what_was_typed_goes_after_what_the_draft_held() {
+        assert_eq!(super::joined("", "left"), "left");
+        assert_eq!(super::joined("held", ""), "held");
+        assert_eq!(super::joined("held", "left"), "held\n\nleft");
+    }
+
     use super::*;
 
     #[test]

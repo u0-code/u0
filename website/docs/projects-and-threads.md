@@ -87,7 +87,8 @@ copy** to go on apart.
   or a link's prompt asks before it takes the place of a draft that
   holds something. With no thread open, the start page's composer is
   the project's draft, with what it holds; there is never a second one
-  beside it.
+  beside it. What you were typing in a thread you archive or delete
+  goes into that draft, after what it holds.
 
 Each row ends with the thread's state: Working, Approval, Sign in,
 Failed, Limited, Plan, Done, or Woke.

@@ -1313,10 +1313,15 @@ impl Desk {
 
     /// Put the draft `draft_due` names on screen, as the start page: shown
     /// as any session is, to be written in at once, gone back to, its git
-    /// read again.
+    /// read again. What was typed in the thread that just left the screen
+    /// (archived, deleted) goes into the draft after what it holds.
     fn onto_draft(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(key) = self.draft_due() {
-            self.show(key, window, cx);
+        let Some(key) = self.draft_due() else { return };
+        let typed = self.typed(cx);
+        self.show(key, window, cx);
+        if !typed.is_empty() {
+            let joined = mention::joined(&self.typed(cx), &typed);
+            self.put_line(&joined, window, cx);
         }
     }
 
