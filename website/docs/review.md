@@ -165,7 +165,8 @@ browser**: where the drawer's Open preview and a ⌘-clicked address go),
 browser), **Your browser** (which browser **Open in your browser** uses:
 the system default, or one of those on this Mac, **Use this browser**)
 and **Website data**: **Clear…** forgets the cookies, storage and cache
-the pages you opened kept, apart from your browser's.
+the pages you opened kept, apart from your browser's. That store is
+u0.app's: every home (`U0_HOME`) on this Mac shares it.
 
 ## Side chat
 
