@@ -17,7 +17,7 @@ use u0ui::{
         Button, ButtonSize, ButtonVariant, Checkbox, RadioGroup, RadioGroupItem, RadioOrientation,
         alert::AlertVariant,
     },
-    icons::{CarbonIcon, Icon, IconSize},
+    icons::CarbonIcon,
     tokens::{ColorRole, TypeStyle},
     typography::TypeStyled as _,
     u0::{fields, primitives::TimeField},
@@ -151,8 +151,10 @@ fn open_carbon_modal(
     let desk = cx.entity();
     let shown = cx.new(|cx| Over::new(desk, draw, cx));
     window.open_dialog(cx, move |dialog, _, _| {
+        // Carbon's modal stands in the middle of the window, over its scrim.
         dialog
             .w(px(width))
+            .centered()
             .p_0()
             .rounded_none()
             .border_0()
@@ -809,7 +811,6 @@ impl Desk {
             Button::new("del-confirm", crate::tr("Delete thread"))
                 .variant(ButtonVariant::Destructive)
                 .size(ButtonSize::Sm)
-                .icon(Icon::carbon(CarbonIcon::TrashCan).size(IconSize::S16))
                 .on_click(move |_, window, cx| {
                     window.close_dialog(cx);
                     desk_ok.update(cx, |d, cx| {
