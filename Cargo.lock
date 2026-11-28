@@ -9844,9 +9844,9 @@ dependencies = [
 
 [[package]]
 name = "u0ui"
-version = "0.3.1"
+version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca01b251a582318c4d4b754a37b1f360b4f7301cdac9c705957c68e36513991d"
+checksum = "30d0d1bea776a163667c6ed70dcb236eba0e19d76309ae0150fca4275b4c1d84"
 dependencies = [
  "chrono",
  "gpui-base",
