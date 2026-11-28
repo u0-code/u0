@@ -5,19 +5,23 @@
 use std::path::PathBuf;
 
 use gpui::component::{
-    Sizable as _,
+    Disableable as _, Sizable as _,
     setting::{SettingGroup, SettingItem, SettingPage},
     switch::Switch,
 };
 use gpui::{WeakEntity, prelude::*};
 use u0ui::components::{Button, ButtonSize, ButtonVariant};
 
-use super::prefs::{group, item};
-use crate::{desk::Desk, settings::PagesIn, ui};
+use super::prefs::{group, item, managed};
+use crate::{desk::Desk, servers::Host, settings::PagesIn, ui};
 
 impl Desk {
     /// The Browser tab.
-    pub(super) fn browser_tab(w: &WeakEntity<Desk>, banners: Option<SettingGroup>) -> SettingPage {
+    pub(super) fn browser_tab(
+        &self,
+        w: &WeakEntity<Desk>,
+        banners: Option<SettingGroup>,
+    ) -> SettingPage {
         let mut page = SettingPage::new(super::Tab::Browser.title()).description(crate::tr(
             "Where the pages you open show: a dev server's address, a link, an HTML file of yours. u0 shows them in the system's own web view, or your browser does.",
         ));
@@ -26,7 +30,7 @@ impl Desk {
         }
         page = page
             .group(group(crate::tr("Pages"), Self::pages_items(w)))
-            .group(group(crate::tr("Your browser"), Self::browsers(w)));
+            .group(group(crate::tr("Your browser"), self.browsers(w)));
         #[cfg(target_os = "macos")]
         {
             page = page.group(group(
@@ -84,71 +88,92 @@ impl Desk {
                     "An address a terminal prints opens where pages open; ⌥⌘-click opens it in your browser.",
                 ),
                 |d, _, cx| {
-                    Switch::new("cmd-click-urls")
+                    let switch = Switch::new("cmd-click-urls")
                         .accessibility_label(crate::tr("⌘-click a printed address"))
                         .small()
                         .checked(d.settings.cmd_click_urls)
+                        .disabled(d.held_here("cmd_click_urls"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.settings.cmd_click_urls = !this.settings.cmd_click_urls;
                             this.save_settings();
                             cx.notify();
-                        }))
-                        .into_any_element()
+                        }));
+                    Self::as_held("cmd_click_urls", switch)
                 },
             ),
         ]
     }
 
-    /// The browsers on this Mac: the system's default first, then each
-    /// other that opens web addresses, the one in use said so.
-    fn browsers(w: &WeakEntity<Desk>) -> Vec<SettingItem> {
-        let (default, others) = crate::macos::browsers();
+    /// Whether the setting `key` of this Mac's is kept from being changed
+    /// here: an organisation's policy locks it, or the settings did not read.
+    fn held_here(&self, key: &str) -> bool {
+        crate::policy::locked(key).is_some() || self.settings_readonly(Host::HERE)
+    }
+
+    /// `control` for the setting `key`, said to be managed where a policy
+    /// locks it (as `pick`'s are).
+    fn as_held(key: &str, control: impl IntoElement) -> gpui::AnyElement {
+        match crate::policy::locked(key) {
+            Some(by) => managed(control, by),
+            None => control.into_any_element(),
+        }
+    }
+
+    /// The browsers on this Mac, as the settings dialog opened: the
+    /// system's default first, then each other, the one in use said so.
+    fn browsers(&self, w: &WeakEntity<Desk>) -> Vec<SettingItem> {
         let name = |app: &PathBuf| {
             app.file_stem()
                 .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
         };
+        let default = self.browsers.iter().find(|b| b.default);
         let mut rows = vec![Self::browser_row(
             w,
-            match &default {
-                Some(app) => crate::tr_with("System default · %{name}", &[("name", &name(app))]),
+            0,
+            match default {
+                Some(b) => crate::tr_with("System default · %{name}", &[("name", &name(&b.app))]),
                 None => crate::tr("System default"),
             },
             crate::tr("What macOS opens links with"),
             None,
         )];
-        for app in others.into_iter().filter(|a| Some(a) != default.as_ref()) {
+        for (n, b) in self.browsers.iter().filter(|b| !b.default).enumerate() {
             rows.push(Self::browser_row(
                 w,
-                name(&app).into(),
-                app.display().to_string().into(),
-                Some(app),
+                n + 1,
+                name(&b.app).into(),
+                b.app.display().to_string().into(),
+                Some(b.app.clone()),
             ));
         }
         rows
     }
 
-    /// A browser, `app` (`None`: the system's default), and the way to use it.
+    /// The browser of row `n`, `app` (`None`: the system's default), and
+    /// the way to use it.
     fn browser_row(
         w: &WeakEntity<Desk>,
+        n: usize,
         title: gpui::SharedString,
         about: gpui::SharedString,
         app: Option<PathBuf>,
     ) -> SettingItem {
-        let id = gpui::SharedString::from(format!("browser-{title}"));
+        let id = gpui::SharedString::from(format!("browser-{n}"));
         item(w, title, about, move |d, faces, cx| {
             if d.settings.browser == app {
                 return ui::text(faces, crate::tr("In use")).into_any_element();
             }
             let app = app.clone();
-            Button::new(id.clone(), crate::tr("Use this browser"))
+            let button = Button::new(id.clone(), crate::tr("Use this browser"))
                 .variant(ButtonVariant::Ghost)
                 .size(ButtonSize::Sm)
+                .disabled(d.held_here("browser"))
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.settings.browser.clone_from(&app);
                     this.save_settings();
                     cx.notify();
-                }))
-                .into_any_element()
+                }));
+            Self::as_held("browser", button)
         })
     }
 

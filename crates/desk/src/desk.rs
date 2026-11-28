@@ -229,6 +229,9 @@ pub struct Desk {
     pub quit_asked: Option<std::time::Instant>,
     /// The programs the desk offers that are on the PATH (`hub::on_path`).
     pub on_path: Vec<&'static str>,
+    /// The browsers on this Mac, as the settings dialog last opened
+    /// (`macos::browsers`).
+    pub browsers: Vec<crate::macos::Browser>,
     /// How many sessions need you, as the Dock last said.
     pub badge: usize,
     /// The sessions shown, to go back and ahead through as a browser
@@ -642,6 +645,7 @@ impl Desk {
             fetched: None,
             badge: 0,
             on_path: Vec::new(),
+            browsers: Vec::new(),
             menu_search,
             menu_changed: 0,
             reading: None,
@@ -2003,6 +2007,8 @@ impl Desk {
         });
         self.tab_shown(tab, window, cx);
         if !self.pages.open {
+            // Asked of the system as the dialog opens, not as it is drawn.
+            self.browsers = crate::macos::browsers();
             // One dialog at a time: Escape closes the pairing dialog by
             // closing the topmost, which the settings would be.
             self.close_pairing_dialog(window, cx);

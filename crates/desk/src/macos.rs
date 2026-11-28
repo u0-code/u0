@@ -278,31 +278,65 @@ pub fn app_for_extension(extension: &str) -> Option<std::path::PathBuf> {
     app.path().map(|p| std::path::PathBuf::from(p.to_string()))
 }
 
-/// The browser macOS opens web addresses with, and every app that opens
-/// them, by path: as `LaunchServices` says, not from a list of ours.
+/// A browser on this Mac.
+pub struct Browser {
+    /// Where it is.
+    pub app: std::path::PathBuf,
+    /// Whether macOS opens web addresses with it.
+    pub default: bool,
+}
+
+/// The browsers on this Mac, as `LaunchServices` says, not from a list of
+/// ours: the one macOS opens web addresses with first, then each other app
+/// that opens both `http` and `https` addresses, each once by its bundle
+/// identifier (Safari is found both in `/Applications` and in the
+/// system's own volume).
 #[cfg(target_os = "macos")]
-pub fn browsers() -> (Option<std::path::PathBuf>, Vec<std::path::PathBuf>) {
+pub fn browsers() -> Vec<Browser> {
+    use std::collections::HashSet;
+
     use objc2_app_kit::NSWorkspace;
-    use objc2_foundation::{NSString, NSURL};
+    use objc2_foundation::{NSBundle, NSString, NSURL};
     let workspace = NSWorkspace::sharedWorkspace();
-    let Some(web) = NSURL::URLWithString(&NSString::from_str("https://example.com")) else {
-        return (None, Vec::new());
+    let web = |at: &str| NSURL::URLWithString(&NSString::from_str(at));
+    let (Some(https), Some(http)) = (web("https://example.com"), web("http://example.com")) else {
+        return Vec::new();
     };
-    let path = |url: &NSURL| url.path().map(|p| std::path::PathBuf::from(p.to_string()));
-    let default = workspace
-        .URLForApplicationToOpenURL(&web)
-        .and_then(|u| path(&u));
-    let all = workspace
-        .URLsForApplicationsToOpenURL(&web)
+    let id = |app: &NSURL| {
+        NSBundle::bundleWithURL(app)
+            .and_then(|b| b.bundleIdentifier())
+            .map(|id| id.to_string())
+    };
+    let plain: HashSet<String> = workspace
+        .URLsForApplicationsToOpenURL(&http)
         .iter()
-        .filter_map(|u| path(&u))
+        .filter_map(|app| id(&app))
         .collect();
-    (default, all)
+    let default = workspace.URLForApplicationToOpenURL(&https);
+    let mut seen = HashSet::new();
+    default
+        .into_iter()
+        .map(|app| (app, true))
+        .chain(
+            workspace
+                .URLsForApplicationsToOpenURL(&https)
+                .iter()
+                .map(|app| (app, false)),
+        )
+        .filter_map(|(app, default)| {
+            let id = id(&app)?;
+            let at = app.path()?.to_string();
+            ((default || plain.contains(&id)) && seen.insert(id)).then(|| Browser {
+                app: at.into(),
+                default,
+            })
+        })
+        .collect()
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn browsers() -> (Option<std::path::PathBuf>, Vec<std::path::PathBuf>) {
-    (None, Vec::new())
+pub fn browsers() -> Vec<Browser> {
+    Vec::new()
 }
 
 /// Forget every cookie, store and cache the Preview tab's pages kept (the

@@ -143,7 +143,7 @@ subtle = { version = "2.6", default-features = false }
 cocoa = "0.26"
 # Text read aloud on this Mac (AVFAudio's speech synthesizer).
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSURL", "NSArray", "NSDate", "NSSet", "NSData", "NSDictionary", "NSError"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSURL", "NSArray", "NSDate", "NSSet", "NSData", "NSDictionary", "NSError", "NSBundle"] }
 # The app for a kind of file (`rules::yours`): LaunchServices by NSWorkspace,
 # a kind by its UTType. Both are in the tree already, under wry.
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSWorkspace", "NSImage", "NSImageRep", "NSBitmapImageRep", "objc2-uniform-type-identifiers"] }
