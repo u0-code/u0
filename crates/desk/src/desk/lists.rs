@@ -1261,6 +1261,68 @@ pub fn out_of_planning(s: &Session) -> Option<Out> {
 mod tests {
     use super::*;
 
+    /// A session whose agent lists `modes` (id, name), in mode `now`.
+    fn in_mode(modes: &[(&str, &str)], now: &str) -> Session {
+        let mut s = Session::new(1, "agent", std::path::PathBuf::from("/p"));
+        let listed: Vec<_> = (modes.iter())
+            .map(|(id, name)| serde_json::json!({"id": id, "name": name}))
+            .collect();
+        s.modes = Some(
+            serde_json::from_value(
+                serde_json::json!({"currentModeId": now, "availableModes": listed}),
+            )
+            .unwrap(),
+        );
+        s
+    }
+
+    fn out(s: &Session) -> Option<(String, String)> {
+        out_of_planning(s).map(|o| match o {
+            Out::Mode(id, name) => (id, name),
+            Out::Option(id, value, name) => (format!("{id}={value}"), name),
+        })
+    }
+
+    #[test]
+    fn implementing_a_plan_goes_to_the_mode_the_agent_lists_for_working() {
+        let both = [
+            ("default", "Default"),
+            ("acceptEdits", "Accept edits"),
+            ("plan", "Plan"),
+        ];
+        // Its default, where it lists one.
+        assert_eq!(
+            out(&in_mode(&both, "plan")),
+            Some(("default".into(), "Default".into()))
+        );
+        // Else the first that does not plan.
+        let no_default = [("plan", "Plan"), ("acceptEdits", "Accept edits")];
+        assert_eq!(
+            out(&in_mode(&no_default, "plan")),
+            Some(("acceptEdits".into(), "Accept edits".into()))
+        );
+        // Nowhere, when it only plans or is not planning.
+        assert_eq!(out(&in_mode(&[("plan", "Plan")], "plan")), None);
+        assert_eq!(out(&in_mode(&both, "default")), None);
+    }
+
+    #[test]
+    fn implementing_a_plan_set_by_an_option_takes_its_first_value_that_does_not_plan() {
+        let mut s = Session::new(1, "agent", std::path::PathBuf::from("/p"));
+        s.options = vec![
+            serde_json::from_value(serde_json::json!({
+                "id": "work", "name": "Way of working", "type": "select",
+                "currentValue": "plan",
+                "options": [
+                    {"value": "plan", "name": "Plan"},
+                    {"value": "auto", "name": "Auto"}
+                ]
+            }))
+            .unwrap(),
+        ];
+        assert_eq!(out(&s), Some(("work=auto".into(), "Auto".into())));
+    }
+
     #[test]
     fn each_later_is_ahead_and_each_day_is_within_a_day() {
         let now = SystemTime::now();

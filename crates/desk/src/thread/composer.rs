@@ -74,7 +74,7 @@ impl Desk {
             SharedString::default()
         } else if waiting_approval {
             crate::tr("Answer the card above, or reply with a note")
-        } else if !working && s.planning() {
+        } else if !working && !s.items.is_empty() && s.planning() {
             crate::tr("Ask for changes to the plan")
         } else if working {
             crate::tr("Waits its turn, or ⇧⌘↵ steers")
