@@ -119,12 +119,26 @@ impl Desk {
                         );
                 }
                 if let Some(s) = self.session() {
-                    left = left.child(self.chat_header(faces, s, cx));
-                    right = right.children(Self::commit_button(s, cx)).child(
-                        ui::icon_button("share-thread", "share", crate::tr("Share thread"))
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.open_pairing_dialog(true, window, cx);
-                            })),
+                    left = left.child(self.chat_header(s, cx));
+                    // A device paired to read reads every project of this
+                    // Mac, so the button says so; a thread on another
+                    // server is not this Mac's to share.
+                    right = right.children(Self::commit_button(s, cx)).when(
+                        s.host == crate::hub::Host::HERE,
+                        |r| {
+                            r.child(
+                                ui::icon_button(
+                                    "share-mac",
+                                    "share",
+                                    crate::tr("Share this Mac read-only…"),
+                                )
+                                .on_click(cx.listener(
+                                    |this, _, window, cx| {
+                                        this.open_pairing_dialog(true, window, cx);
+                                    },
+                                )),
+                            )
+                        },
                     );
                 }
                 right = right.child(self.layout_controls(left_shown, cx));
@@ -150,7 +164,7 @@ impl Desk {
     /// The thread's title, where it is (its project, branch and server)
     /// and whether it needs you, as one row (`ChatHeader`, inline); a
     /// click on the title renames it there, its caret opens its menu.
-    fn chat_header(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
+    fn chat_header(&self, s: &Session, cx: &mut Context<Self>) -> Div {
         use u0ui::t3::review::{ChatHeader, HeaderEnvironment};
         use u0ui::t3::shell::{ConnectionStatus, MachineKind};
         let key = s.key;
@@ -198,7 +212,6 @@ impl Desk {
         let caret = ui::icon_button("title-menu", "chevron-down", crate::tr("This thread"))
             .size(px(22.))
             .text_color(theme::faint());
-        let _ = faces;
         div()
             .flex()
             .flex_1()

@@ -78,7 +78,10 @@ In the middle of the bar, the box that reads **Search threads, projects,
 commands and settings** opens the palette under it, as ⌘K does; when the
 bar is short of room, only its magnifier is left. At the right, while
 the folder has uncommitted changes, **Commit N files** opens the commit
-form in the Diff tab; **Share thread** makes a read-only link to it; the
+form in the Diff tab; for a thread on this Mac, **Share this Mac
+read-only…** makes a pairing link with which a device reads every project
+and thread on this Mac, not this thread alone (as the title menu's
+**Share read-only link…** does); the
 last three buttons show or hide the sidebar, the terminal drawer (⌘J) and
 the right column (⌥⌘B).
 
