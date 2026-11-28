@@ -855,9 +855,11 @@ impl Desk {
             .trigger(TabsTrigger::new("clone", crate::tr("Clone a repository")))
             .trigger(TabsTrigger::new("new", crate::tr("New empty project")))
             // In the card's padding, flush with its edges, 24 under the tabs
-            // (`.np-card .cds--tab-content { padding: 24px 0 0 }`): the field,
-            // its help and the buttons below share one left and right edge.
-            .flush_panel(true)
+            // (`.np-card .cds--tab-content { padding: 24px 0 0 }`,
+            // `[role=tab]:first-child { padding-left: 0 }`): the first tab's
+            // label, the field, its help and the buttons below share one
+            // left edge.
+            .flush(true)
             .panel_gap(px(24.))
             .content("open", open_panel)
             .content("clone", clone_panel)
