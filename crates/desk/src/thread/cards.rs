@@ -5,8 +5,9 @@ use agent_client_protocol::v1::schema::{StopReason, ToolCallContent};
 use std::path::Path;
 
 use gpui::{Context, Div, SharedString, div, prelude::*, px};
+use u0ui::components::alert::AlertVariant;
 
-use super::{icon, meta, right, step, verb, well};
+use super::{icon, meta, right, step, verb};
 use crate::{
     desk::Desk,
     fonts::Faces,
@@ -222,7 +223,8 @@ impl Desk {
         text: &str,
         cx: &mut Context<Self>,
     ) -> Div {
-        let note = div().child(ui::trouble(text.to_owned()));
+        let id = SharedString::from(format!("trouble-{}-{i}", s.key));
+        let note = div().child(ui::trouble(id, text.to_owned()));
         let latest = !s.items[i..].iter().any(|x| matches!(x, Item::You(_)));
         if !latest || !text.to_lowercase().contains("limit") {
             return note;
@@ -315,58 +317,29 @@ impl Desk {
         note.child(ways)
     }
 
-    /// The agent stopped, or the session could not be opened.
-    pub(super) fn broken(
-        &self,
-        faces: &Faces,
-        s: &Session,
-        why: &str,
-        cx: &mut Context<Self>,
-    ) -> Div {
+    /// The agent stopped, or the session could not be opened
+    /// (`ThreadStates`: the agent failed to start): what it said, then
+    /// Restart thread.
+    pub(super) fn broken(&self, s: &Session, why: &str, cx: &mut Context<Self>) -> Div {
         let name = self.name_of(&s.meta.agent);
         div()
             .flex()
             .flex_col()
             .gap(px(8.))
-            .px(px(14.))
-            .py(px(12.))
-            .rounded(px(12.))
-            .border_1()
-            .border_color(theme::coral().opacity(0.35))
             .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(ui::dot(theme::coral()))
-                    .child(
-                        ui::text(faces, crate::tr_with("%{name} stopped", &[("name", &name)]))
-                            .text_size(px(crate::style::BODY)),
-                    ),
+                ui::alert(
+                    SharedString::from(format!("broken-{}", s.key)),
+                    AlertVariant::Error,
+                )
+                .title(crate::tr_with("%{name} stopped", &[("name", &name)]))
+                .words(why.to_owned()),
             )
             .child(
-                well(faces)
-                    .px(px(12.))
-                    .py(px(8.))
-                    .text_size(px(crate::style::CAPTION))
-                    .child(why.to_owned()),
+                div().flex().child(
+                    ui::button("restart", crate::tr("Restart thread"), Weight::Secondary)
+                        .on_click(cx.listener(|this, _, window, cx| this.restart(window, cx))),
+                ),
             )
-            .child({
-                let why = why.to_owned();
-                div()
-                    .flex()
-                    .gap(px(6.))
-                    .child(
-                        ui::button("restart", crate::tr("Restart thread"), Weight::Secondary)
-                            .on_click(cx.listener(|this, _, window, cx| this.restart(window, cx))),
-                    )
-                    .child(
-                        ui::button("copy-why", crate::tr("Copy the error"), Weight::Quiet)
-                            .on_click(move |_, _, cx| {
-                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(why.clone()));
-                            }),
-                    )
-            })
     }
 
     /// The agent asks to be signed in before it opens the session.

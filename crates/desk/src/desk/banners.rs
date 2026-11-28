@@ -17,7 +17,7 @@ use crate::{
 };
 
 /// Build a full-width Carbon low-contrast `Alert` (`InlineNotification` /
-/// `ActionableNotification`), with an optional external support link below it
+/// `ActionableNotification`), its words copyable (`ui::alert`), with an optional external support link below it
 /// (`.bnb-acts`, opened by the desk's `browse`) and an optional ghost action
 /// button.
 pub(crate) fn banner(
@@ -29,11 +29,9 @@ pub(crate) fn banner(
     action: Option<AlertAction>,
 ) -> AnyElement {
     let id = id.into();
-    let alert = Alert::new(id.clone())
-        .full_width(true)
-        .variant(variant)
+    let alert = crate::ui::alert(id.clone(), variant)
         .title(title)
-        .description(body.into())
+        .words(body)
         .when_some(action, Alert::action);
     match link {
         None => alert.into_any_element(),

@@ -10,13 +10,14 @@
 //! (an answer from the server) does not have: notices wait in the desk
 //! and are pushed as it is drawn next.
 
+use gpui::base::SelectableText;
 use gpui::component::{
     Sizable as _, WindowExt as _,
     button::{Button, ButtonVariants as _},
     kbd::Kbd,
     notification::{Notification, NotificationDelivery, NotificationType},
 };
-use gpui::{ClipboardItem, Context, ParentElement as _, Window, prelude::FluentBuilder as _};
+use gpui::{ClipboardItem, Context, Window, div, prelude::*};
 
 use super::Desk;
 use crate::settings::Notify;
@@ -152,12 +153,56 @@ impl Desk {
             Kind::Success => NotificationType::Success,
             Kind::Error => NotificationType::Error,
         };
-        let mut note = Notification::new().title(n.text.clone()).with_type(kind);
-        if let Some(why) = &n.why {
-            note = note.message(crate::ui::fit(why, 160));
-        }
+        let details = match &n.why {
+            Some(why) => format!("{}\n{why}", n.text),
+            None => n.text.clone(),
+        };
+        let mut note = Notification::new().with_type(kind);
         if n.system {
-            note = note.delivery(NotificationDelivery::System);
+            note = (note.title(n.text.clone()))
+                .when_some(n.why.as_deref(), |note, why| {
+                    note.message(crate::ui::fit(why, 160))
+                })
+                .delivery(NotificationDelivery::System);
+        } else {
+            // What went wrong is selectable, and copied whole by Copy
+            // details (beside a way on, where there is one).
+            let (text, why) = (n.text.clone(), n.why.clone());
+            let copy = (trouble && n.way.is_some()).then(|| details.clone());
+            note = note.content(move |_, _, _| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .child(SelectableText::new("title", text.clone())),
+                    )
+                    .when_some(why.as_deref(), |d, why| {
+                        d.child(
+                            div()
+                                .text_sm()
+                                .child(SelectableText::new("why", crate::ui::fit(why, 160))),
+                        )
+                    })
+                    .when_some(copy.clone(), |d, details| {
+                        d.child(
+                            div().mt_1().child(
+                                Button::new("copy-details")
+                                    .label(crate::tr("Copy details"))
+                                    .xsmall()
+                                    .ghost()
+                                    .on_click(move |_, _, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(
+                                            details.clone(),
+                                        ));
+                                    }),
+                            ),
+                        )
+                    })
+                    .into_any_element()
+            });
         }
         // One undo notice, said again as more joins what it takes back.
         if n.way == Some(Way::Undo) {
@@ -182,10 +227,6 @@ impl Desk {
             crate::keys::keys_of(cx, "take_back")
         } else {
             Vec::new()
-        };
-        let details = match &n.why {
-            Some(why) => format!("{}\n{why}", n.text),
-            None => n.text.clone(),
         };
         let go = move |way: &Option<Way>, window: &mut Window, cx: &mut gpui::App| {
             let _ = desk.update(cx, |d, cx| match way.clone() {

@@ -80,7 +80,8 @@ impl Desk {
             )]
         } else {
             (self.pages.troubles.iter().cloned())
-                .map(|entry| {
+                .enumerate()
+                .map(|(n, entry)| {
                     whole(w, &["log", "errors"], move |_, faces, _| {
                         let color = if entry.level == "error" {
                             theme::coral()
@@ -99,8 +100,12 @@ impl Desk {
                                 String::new()
                             }
                         );
-                        ui::fine_mono(faces, text)
+                        div()
+                            .font_family(faces.mono.clone())
+                            .text_size(px(crate::style::CAPTION))
+                            .line_height(px(16.))
                             .text_color(color)
+                            .child(gpui::base::SelectableText::new(("log-trouble", n), text))
                             .into_any_element()
                     })
                 })

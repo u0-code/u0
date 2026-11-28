@@ -345,12 +345,11 @@ impl Desk {
                 Some(
                     wrap(false)
                         .child(
-                            Alert::new("forge-no-gh")
-                                .variant(AlertVariant::Warning)
+                            ui::alert("forge-no-gh", AlertVariant::Warning)
                                 .title(crate::tr(
                                     "GitHub is reached with gh, and gh is not on this Mac",
                                 ))
-                                .description(crate::tr(
+                                .words(crate::tr(
                                     "brew install gh, then gh auth login, or add a token in Source control › Hosts.",
                                 )),
                         )
@@ -534,8 +533,8 @@ impl Desk {
                     .child(ui::fine(faces, crate::tr("Reading…")));
             }
             Some(Err(e)) => {
-                return shell.p(px(16.)).child(ui::fine(
-                    faces,
+                return shell.p(px(16.)).child(ui::trouble(
+                    "forge-unread",
                     crate::tr_with("Couldn't read it: %{e}", &[("e", e)]),
                 ));
             }
@@ -912,7 +911,15 @@ impl Desk {
                         faces,
                         crate::tr_with("Run %{run}, where it failed", &[("run", run)]),
                     ))
-                    .child(ui::fine_mono(faces, text).when(bad, |d| d.text_color(theme::coral())))
+                    .child(
+                        div()
+                            .font_family(faces.mono.clone())
+                            .text_size(px(crate::style::CAPTION))
+                            .line_height(px(16.))
+                            .text_color(theme::faint())
+                            .when(bad, |d| d.text_color(theme::coral()))
+                            .child(gpui::base::SelectableText::new("forge-log-text", text)),
+                    )
                     .overflow_y_scrollbar()
             }))
             .child(ui::label(faces, &crate::tr("Description")))

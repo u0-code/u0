@@ -5,6 +5,7 @@
 
 use std::{path::PathBuf, time::SystemTime};
 
+use gpui::base::SelectableText;
 use gpui::component::{input::Input, scroll::ScrollableElement as _};
 use gpui::{Context, Div, IntoElement, SharedString, Window, div, prelude::*, px};
 use u0ui::components::{
@@ -199,7 +200,7 @@ impl Desk {
                                 div()
                                     .type_style(TypeStyle::Label01)
                                     .text_color(theme::role(ColorRole::SupportError))
-                                    .child(why.clone()),
+                                    .child(SelectableText::new(("flow-err-why", n), why.clone())),
                             ),
                     )
                     .when(here, |d| {
@@ -946,17 +947,31 @@ impl Desk {
                                     .w(px(2.))
                                     .bg(theme::role(ColorRole::SupportError)),
                             )
-                            .children(log_lines.iter().enumerate().map(|(li, l)| {
+                            .child({
+                                // Its first line in `text-error`, the rest
+                                // `text-primary`; selectable as one.
+                                let first = log_lines[0].len();
                                 div()
                                     .type_style(TypeStyle::Code01)
                                     .line_height(px(18.))
-                                    .text_color(theme::role(if li == 0 {
-                                        ColorRole::TextError
-                                    } else {
-                                        ColorRole::TextPrimary
-                                    }))
-                                    .child(l.clone())
-                            })),
+                                    .text_color(theme::role(ColorRole::TextPrimary))
+                                    .child(
+                                        SelectableText::new(
+                                            SharedString::from(format!(
+                                                "wf-log-text-{}-{idx}",
+                                                run.id
+                                            )),
+                                            log_lines.join("\n"),
+                                        )
+                                        .highlights([(
+                                            0..first,
+                                            gpui::HighlightStyle {
+                                                color: Some(theme::role(ColorRole::TextError)),
+                                                ..Default::default()
+                                            },
+                                        )]),
+                                    )
+                            }),
                     );
                 }
 
@@ -967,6 +982,7 @@ impl Desk {
                 let desk_fix = cx.entity();
                 let desk_rerun = cx.entity();
                 let desk_log = cx.entity();
+                let copied = err_text.clone();
                 body = body.child(
                     div()
                         .flex()
@@ -1017,6 +1033,20 @@ impl Desk {
                                         if show_full_log { None } else { Some(rid) };
                                     cx.notify();
                                 });
+                            }),
+                        )
+                        .child(
+                            Button::new(
+                                SharedString::from(format!("wf-copy-{rid}-{idx}")),
+                                crate::tr("Copy"),
+                            )
+                            .variant(ButtonVariant::Ghost)
+                            .size(ButtonSize::Sm)
+                            .icon(CarbonIcon::Copy)
+                            .on_click(move |_, _, cx| {
+                                cx.write_to_clipboard(gpui::ClipboardItem::new_string(
+                                    copied.clone(),
+                                ));
                             }),
                         ),
                 );
@@ -1267,7 +1297,7 @@ impl Desk {
                     div()
                         .type_style(TypeStyle::Label01)
                         .text_color(theme::role(ColorRole::TextError))
-                        .child(err),
+                        .child(SelectableText::new("flow-draft-error", err)),
                 )
             })
             .child(

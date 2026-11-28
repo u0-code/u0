@@ -275,10 +275,9 @@ impl Desk {
                 .description(div().max_w(px(300.)).child(crate::tr(
                     "iOS simulators are streamed and touched here now.",
                 ))),
-            Err(why) => Alert::new("axe-failed-alert")
-                .variant(AlertVariant::Error)
+            Err(why) => crate::ui::alert("axe-failed-alert", AlertVariant::Error)
                 .title(crate::tr("AXe was not installed"))
-                .description(div().max_w(px(300.)).child(why.clone())),
+                .words(why.clone()),
         });
 
         let rows = found.iter().map(|d| {

@@ -197,7 +197,7 @@ impl Desk {
                             })
                             .map(|why| {
                                 whole(w, &[], move |_, _, _| {
-                                    ui::trouble(why.clone()).into_any_element()
+                                    ui::trouble("devices-failed", why.clone()).into_any_element()
                                 })
                             }),
                     )
@@ -571,7 +571,18 @@ impl Desk {
         );
         let none = |_: &mut Desk, _: &Faces, _: &mut Context<Desk>| div().into_any_element();
         let routes = match &shared.routes {
-            Err(why) => vec![item(w, crate::tr("Not on a network"), why.clone(), none)],
+            Err(why) => {
+                let why = why.clone();
+                vec![whole(w, &[], move |_, _, _| {
+                    ui::alert(
+                        "routes-trouble",
+                        u0ui::components::alert::AlertVariant::Warning,
+                    )
+                    .title(crate::tr("Not on a network"))
+                    .words(why.clone())
+                    .into_any_element()
+                })]
+            }
             Ok(routes) => (routes.iter())
                 .map(|(route, host)| item(w, crate::tr(route.name()), host.clone(), none))
                 .collect(),
@@ -598,7 +609,15 @@ impl Desk {
         let none = |_: &mut Desk, _: &Faces, _: &mut Context<Desk>| div().into_any_element();
         match self.pages.shared.as_ref().map(|s| &s.devices) {
             None => Vec::new(),
-            Some(Err(why)) => vec![item(w, crate::tr("Devices"), why.clone(), none)],
+            Some(Err(why)) => {
+                let why = why.clone();
+                vec![whole(w, &[], move |_, _, _| {
+                    ui::alert("devices-trouble", u0ui::components::alert::AlertVariant::Error)
+                        .title(crate::tr("Devices"))
+                        .words(why.clone())
+                        .into_any_element()
+                })]
+            }
             Some(Ok(devices)) if devices.is_empty() => {
                 vec![item(w, crate::tr("No device is paired"), "", none)]
             }

@@ -438,15 +438,13 @@ impl Desk {
         let mut alerts = Vec::new();
         match self.stage_of(host, id) {
             Some(Stage::Failed(why)) => alerts.push(
-                Alert::new("agent-failed")
-                    .full_width(true)
-                    .variant(AlertVariant::Error)
+                ui::alert("agent-failed", AlertVariant::Error)
                     .title(crate::tr_with("%{name} stopped", &named))
-                    .description(why)
+                    .words(why)
                     .into_any_element(),
             ),
             Some(Stage::Missing(m)) if !matches!(m, Missing::Download) => {
-                alerts.push(ui::trouble(m.say(&name)).into_any_element());
+                alerts.push(ui::trouble("agent-missing", m.say(&name)).into_any_element());
             }
             _ => {}
         }
@@ -455,11 +453,9 @@ impl Desk {
             let desk = cx.entity();
             let a = id.to_owned();
             alerts.push(
-                Alert::new("agent-sign-in")
-                    .full_width(true)
-                    .variant(AlertVariant::Info)
+                ui::alert("agent-sign-in", AlertVariant::Info)
                     .title(crate::tr_with("Sign in to %{name}", &named))
-                    .description(crate::tr_with(
+                    .words(crate::tr_with(
                         "%{name} says: %{why}",
                         &[("name", &name), ("why", why)],
                     ))

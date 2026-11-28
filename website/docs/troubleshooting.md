@@ -22,6 +22,10 @@ description: Diagnostics, logs, and what to do when something does not start or 
 - `u0 status` says what the home holds: the agents switched on,
   whether the server listens, the service, the tasks, and whether
   `settings.json` reads.
+- Every error u0 shows can be copied: select its words, or press
+  **Copy** on it, which copies the whole of it, past what **Show all**
+  unfolds. A notice that offers a way on (such as **Retry**) has **Copy
+  details** under its words.
 
 u0 opened from the Dock reads the `PATH` your login shell sets up, so
 the programs it looks for (`claude`, `codex`, `npm`, `uv`, `gh`, `glab`,

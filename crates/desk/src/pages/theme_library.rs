@@ -302,11 +302,12 @@ impl Desk {
             .pages
             .themes_refused
             .iter()
-            .map(|why| {
-                ui::trouble(crate::tr_with(
-                    "A theme did not read: %{why}",
-                    &[("why", why)],
-                ))
+            .enumerate()
+            .map(|(n, why)| {
+                ui::trouble(
+                    ("theme-refused", n),
+                    crate::tr_with("A theme did not read: %{why}", &[("why", why)]),
+                )
                 .into_any_element()
             })
             .collect();
@@ -438,10 +439,10 @@ impl Desk {
         };
         let rows: Vec<AnyElement> = match found {
             Err(why) => vec![
-                said(crate::tr_with(
-                    "Open VSX could not be searched: %{why}",
-                    &[("why", why)],
-                ))
+                ui::trouble(
+                    "vsx-trouble",
+                    crate::tr_with("Open VSX could not be searched: %{why}", &[("why", why)]),
+                )
                 .into_any_element(),
             ],
             Ok(list) if list.is_empty() => vec![

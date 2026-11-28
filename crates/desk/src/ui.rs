@@ -5,13 +5,13 @@ use std::path::Path;
 
 use gpui::component::{
     Icon, Selectable as _, Sizable as _,
-    alert::Alert,
     button::{Button, ButtonGroup, ButtonVariants as _},
     tooltip::Tooltip,
 };
 use gpui::{
     AnyElement, AnyView, App, Div, Hsla, SharedString, Svg, Window, div, prelude::*, px, svg,
 };
+use u0ui::components::alert::{Alert, AlertVariant};
 use u0ui::icons::{CarbonIcon, Icon as CarbonGlyph};
 use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr as _;
@@ -312,9 +312,20 @@ pub fn label(faces: &Faces, text: &str) -> Div {
         .text_color(theme::muted())
 }
 
-/// Inline error notification.
-pub fn trouble(words: impl Into<SharedString>) -> Alert {
-    Alert::error("trouble", words.into())
+/// A Carbon notification of what went wrong or warns (u0ui's `Alert`):
+/// its title and words selectable, a Copy button that copies them whole,
+/// and words past a few lines folded behind Show all.
+pub fn alert(id: impl Into<gpui::ElementId>, variant: AlertVariant) -> Alert {
+    Alert::new(id)
+        .full_width(true)
+        .variant(variant)
+        .copy(crate::tr("Copy"), crate::tr("Copied"))
+        .fold(crate::tr("Show all"), crate::tr("Show less"))
+}
+
+/// An error said in `words` alone, as [`alert`] draws it.
+pub fn trouble(id: impl Into<gpui::ElementId>, words: impl Into<SharedString>) -> Alert {
+    alert(id, AlertVariant::Error).words(words)
 }
 
 /// What a choice of a [`segmented`] control does when picked.

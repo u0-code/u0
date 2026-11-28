@@ -113,9 +113,14 @@ impl Desk {
                             .children(task.last.as_ref().and_then(|r| r.error.clone()).map(
                                 |why| {
                                     ui::one_line(
-                                        ui::text(faces, why)
+                                        div()
+                                            .font_family(faces.ui.clone())
                                             .text_size(px(crate::style::CAPTION))
-                                            .text_color(theme::coral()),
+                                            .text_color(theme::coral())
+                                            .child(gpui::base::SelectableText::new(
+                                                SharedString::from(format!("task-error-{id}")),
+                                                why,
+                                            )),
                                     )
                                 },
                             )),
@@ -264,7 +269,7 @@ impl Desk {
         let mut items = Vec::new();
         if let Some(wrong) = draft.wrong.clone() {
             items.push(whole(w, &[], move |_, _, _| {
-                ui::trouble(wrong.clone()).into_any_element()
+                ui::trouble("task-wrong", wrong.clone()).into_any_element()
             }));
         }
         items.extend([
