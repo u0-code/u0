@@ -54,7 +54,7 @@ u0 第一次打开时（若显示设置页，则在你从设置页继续之后�
 u0 启动时默认启用三个智能体：**Claude Code**（`claude-acp`）、**Codex**
 （`codex-acp`）和 **Antigravity**（`antigravity-acp`）。
 [ACP 注册表](https://agentclientprotocol.com)列出的其他所有智能体（Gemini CLI、
-GitHub Copilot、OpenCode 等）都可以在 **设置 › 智能体** 中启用。
+GitHub Copilot、OpenCode 等）都可以在 **设置 › 智能体** 中启用；那里已安装的智能体排在最前，无论是否开启。
 
 需要处理的智能体显示在侧边栏底部，带有它的徽标和它需要什么：**登录**、**安装**、
 **安装中** 或 **已停止**。几个智能体合为一个，徽标叠在一起（它们需要的不同时显示个数，

@@ -952,8 +952,13 @@ impl Desk {
                     || e.id.to_lowercase().contains(&query)
             })
             .collect();
+        let host = self.pages.on;
         agents.sort_by_key(|e| {
+            let installed = self
+                .here_on(host, &e.id)
+                .is_some_and(|here| here.missing.is_none());
             (
+                !installed,
                 self.edited()
                     .enabled
                     .iter()
@@ -963,7 +968,7 @@ impl Desk {
             )
         });
         let mut head: Vec<SettingItem> = Vec::new();
-        if let Some(first) = self.slots_on(self.pages.on).next() {
+        if let Some(first) = self.slots_on(host).next() {
             let id = first.entry.id.clone();
             head.push(item(
                 w,
@@ -1042,7 +1047,6 @@ impl Desk {
                     .into_any_element()
             }));
         }
-        let host = self.pages.on;
         for slot in self.slots_on(host) {
             if let crate::hub::Stage::Missing(m @ crate::registry::Missing::Runner(_)) = &slot.stage
             {
