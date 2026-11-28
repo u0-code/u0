@@ -783,8 +783,13 @@ async fn serve(
     // said on its link alone: a picture, a record or a diff by its key
     // there is not another device's to hear.
     let (to_asker, mut for_asker) = mpsc::unbounded_channel::<Event>();
+    // Its pictures waiting on it, each once and so many at most.
+    let queued = Arc::new(Mutex::new(crate::pictures::Queued::default()));
+    let admits = queued.clone();
     let asker: crate::server::Send = Arc::new(move |event| {
-        let _ = to_asker.send(event);
+        if let Some(event) = admits.lock().expect("queued").admit(event) {
+            let _ = to_asker.send(event);
+        }
     });
     let reads = scope == Scope::Read;
     loop {
@@ -842,6 +847,7 @@ async fn serve(
                 ws.flush().await.map_err(|e| e.to_string())?;
             }
             Some(answer) = for_asker.recv() => {
+                queued.lock().expect("queued").sent(&answer);
                 let frame = serde_json::to_string(&(at, answer)).expect("an event serializes");
                 next = Some(Message::text(frame));
             }

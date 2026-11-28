@@ -7,7 +7,7 @@
 use std::{
     collections::{HashMap, VecDeque},
     path::Path,
-    sync::{Arc, Mutex, PoisonError, Weak},
+    sync::{Arc, Mutex, PoisonError},
     time::{Duration, Instant},
 };
 
@@ -46,42 +46,25 @@ const KEPT: usize = 64 << 20;
 /// What came for a picture: its bytes, or why not.
 type Answer = Result<Bytes, String>;
 
-/// Who was told a picture: the one it was said to, held weakly, so that
-/// no other who asks after it is gone is taken for it.
-type Told = (
-    Weak<dyn Fn(crate::proto::Event) + Send + Sync>,
-    String,
-    Instant,
-);
-
-/// The pictures fetched lately, each answered again from what came; those
-/// being fetched, with who waits for each; and who was told which lately.
+/// The pictures fetched lately, each answered again from what came; and
+/// those being fetched, with who waits for each.
 #[derive(Default)]
 pub(crate) struct Fetched {
     came: VecDeque<(String, Instant, Answer)>,
     going: HashMap<String, Vec<Tell>>,
-    told: VecDeque<Told>,
 }
 
 impl Fetched {
     /// Of `urls`, the first `MOST` that `shown` holds (the pictures the
     /// item was found to show): each that came lately told to `tell` now,
     /// each being fetched told it as it comes, and the rest, to fetch,
-    /// returned, `tell` waiting for them too. One `tell` was told within
-    /// `AGAIN` is not told again: whoever asks over and over hears each
-    /// picture once a minute, not a copy each time to queue on its link.
+    /// returned, `tell` waiting for them too, once however often it asks.
     pub(crate) fn ask(&mut self, urls: &[String], shown: &[String], tell: &Tell) -> Vec<String> {
         self.forget();
         let mut fetch = Vec::new();
         for url in urls.iter().filter(|u| shown.contains(u)).take(MOST) {
-            let heard = |(who, u, _): &Told| u == url && who.ptr_eq(&Arc::downgrade(tell));
-            if self.told.iter().any(heard) {
-                continue;
-            }
             if let Some((_, _, answer)) = self.came.iter().find(|(u, ..)| u == url) {
                 tell(picture_of(url, answer));
-                self.told
-                    .push_back((Arc::downgrade(tell), url.clone(), Instant::now()));
             } else if let Some(waiting) = self.going.get_mut(url) {
                 if !waiting.iter().any(|w| Arc::ptr_eq(w, tell)) {
                     waiting.push(tell.clone());
@@ -99,8 +82,6 @@ impl Fetched {
         let answer = answer.map(Bytes);
         for tell in self.going.remove(&url).unwrap_or_default() {
             tell(picture_of(&url, &answer));
-            self.told
-                .push_back((Arc::downgrade(&tell), url.clone(), Instant::now()));
         }
         self.came.push_back((url, Instant::now(), answer));
         self.forget();
@@ -116,17 +97,52 @@ impl Fetched {
     }
 
     /// What came longer ago than `AGAIN` forgotten, and the oldest past
-    /// `KEPT` bytes; who was told what then, too.
+    /// `KEPT` bytes.
     fn forget(&mut self) {
         let size =
             |(_, _, answer): &(String, Instant, Answer)| answer.as_ref().map_or(0, |b| b.0.len());
-        self.told.retain(|(_, _, at)| at.elapsed() < AGAIN);
         self.came.retain(|(_, at, _)| at.elapsed() < AGAIN);
         let mut kept: usize = self.came.iter().map(size).sum();
         while kept > KEPT
             && let Some(old) = self.came.pop_front()
         {
             kept -= size(&old);
+        }
+    }
+}
+
+/// The pictures waiting to be sent on one link, by address: a picture
+/// asked for again while its answer still waits there is not queued
+/// again, and no more than `MOST` wait at once (one item's whole), so that
+/// a device asking over and over cannot pile copies on its link. Once
+/// one is sent, a new ask is answered again (from what came, unfetched).
+#[derive(Default)]
+pub(crate) struct Queued(Vec<String>);
+
+impl Queued {
+    /// `event` as it is to be queued on the link: none for a picture whose
+    /// answer waits there already; why not, for one past `MOST` waiting.
+    pub(crate) fn admit(&mut self, event: Event) -> Option<Event> {
+        let Event::Picture { url, .. } = &event else {
+            return Some(event);
+        };
+        if self.0.contains(url) {
+            None
+        } else if self.0.len() >= MOST {
+            Some(Event::Picture {
+                url: url.clone(),
+                picture: Err("too many pictures wait to be sent: ask again".into()),
+            })
+        } else {
+            self.0.push(url.clone());
+            Some(event)
+        }
+    }
+
+    /// `event` taken off the link's queue to be sent.
+    pub(crate) fn sent(&mut self, event: &Event) {
+        if let Event::Picture { url, .. } = event {
+            self.0.retain(|u| u != url);
         }
     }
 }
@@ -546,30 +562,50 @@ mod tests {
         assert_eq!(*heard_third.lock().unwrap(), std::slice::from_ref(&picture));
         // A minute on, it is fetched again.
         fetched.came[0].1 -= AGAIN;
-        for told in &mut fetched.told {
-            told.2 -= AGAIN;
-        }
         assert_eq!(fetched.ask(&shown, &shown, &third), shown);
     }
 
     #[test]
-    fn one_who_asks_again_and_again_is_told_each_picture_once_a_minute() {
+    fn a_picture_asked_again_once_sent_comes_again_unfetched_a_repeat_waiting_does_not() {
         let url = "https://example.com/a.png".to_owned();
         let shown = [url.clone()];
         let mut fetched = Fetched::default();
         let (tell, heard) = told();
         assert_eq!(fetched.ask(&shown, &shown, &tell), shown);
-        // Asked again while it is fetched: still told it once.
+        // Asked again while it is fetched: told it once.
         assert!(fetched.ask(&shown, &shown, &tell).is_empty());
-        fetched.came(url.clone(), Ok(vec![0; 1 << 20]));
+        fetched.came(url.clone(), Ok(b"png".to_vec()));
+        assert_eq!(heard.lock().unwrap().len(), 1);
+        // The desk let it go from what it keeps, and asks again: it comes
+        // again, from what came, nothing fetched.
+        assert!(fetched.ask(&shown, &shown, &tell).is_empty());
+        assert_eq!(heard.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn a_link_queues_each_picture_once_while_it_waits_and_no_more_than_the_most() {
+        let picture = |n: usize| Event::Picture {
+            url: format!("https://example.com/{n}.png"),
+            picture: Ok(Bytes(vec![0; 1 << 20])),
+        };
+        let mut queued = Queued::default();
+        assert!(queued.admit(picture(0)).is_some());
+        // Asked again and again while its answer waits: nothing new.
         for _ in 0..100 {
-            assert!(fetched.ask(&shown, &shown, &tell).is_empty());
+            assert!(queued.admit(picture(0)).is_none());
         }
-        assert_eq!(heard.lock().unwrap().len(), 1, "one copy, not a hundred");
-        // A minute on, it may be told again.
-        fetched.came[0].1 -= AGAIN;
-        fetched.told[0].2 -= AGAIN;
-        assert_eq!(fetched.ask(&shown, &shown, &tell), shown);
+        // Once it is sent, a new ask is queued again.
+        queued.sent(&picture(0));
+        assert!(queued.admit(picture(0)).is_some());
+        for n in 1..MOST {
+            assert!(queued.admit(picture(n)).is_some());
+        }
+        let Some(Event::Picture { picture: past, .. }) = queued.admit(picture(MOST)) else {
+            panic!("told why not")
+        };
+        assert!(past.is_err(), "past the most waiting, no bytes are queued");
+        // What is not a picture is never held back.
+        assert!(queued.admit(Event::Tidied("x".into())).is_some());
     }
 
     #[test]
