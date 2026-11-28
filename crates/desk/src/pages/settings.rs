@@ -716,7 +716,10 @@ impl Desk {
             .gap(px(12.))
             .w_full()
             .h(px(32.))
-            .px(px(16.))
+            // Right, half the left: the longest label, "Maintenance &
+            // diagnostics", fits when it is the page shown (semibold).
+            .pl(px(16.))
+            .pr(px(8.))
             .cursor_pointer()
             .when(active, |d| {
                 d.bg(selected_bg).child(
