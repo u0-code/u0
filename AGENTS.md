@@ -88,8 +88,10 @@ rendered from what an agent says (Markdown is the thread's format).
     four themes White / G10 / G90 / G100, Material Symbols Sharp icons,
     desktop density, gallery page and tests);
   - the change goes in as a pull request (`gh pr create -R u0-code/gpui-u0ui`),
-    merged at once (`gh pr merge --squash --delete-branch`), and u0 updates
-    `u0ui` (`cargo update -p u0ui`).
+    merged at once (`gh pr merge --squash --delete-branch`), then released to
+    crates.io as a new version (patch for a fix or an addition, minor for a
+    break), and u0 takes it (`cargo update -p u0ui --precise <version>`): u0
+    depends on `u0ui` from crates.io, never a git branch.
 - A bug in, or a missing piece of, a library someone else keeps
   (`gpui-kit` is longbridge's) is fixed there, by a pull request opened
   without asking first. It must stand on its own for every user of that
