@@ -133,7 +133,8 @@ bundles no browser engine, and its menus and dialogs draw above the page.
 The bar has **Back**, **Forward**, **Reload** (**Stop** while it loads),
 the address and **More actions**: **Reload**, **Reload, skipping the
 cache**, **Copy address**, **Open in your browser**, **Add a screenshot to
-the chat** (the page as you see it, beside what you write), **Zoom in**,
+the chat** (the page alone, as the web view draws it, never a window or
+notification over it, beside what you write), **Zoom in**,
 **Zoom out** and **Actual size** (the bar says the zoom), the **Viewport** (**Responsive**, **iPhone 16**, **iPad**,
 **Desktop 1440**: a width wider than the column is zoomed to fit) and
 **Close the page**. Under it, a strip names the dev server the page is of

@@ -339,26 +339,30 @@ fn off(tx: Sender, work: impl FnOnce() -> Msg + Send + 'static) {
     });
 }
 
+/// A file of its own in the system's temporary folder, for one picture
+/// taken or made at a time: two at once never share one.
+fn scratch(kind: &str, ext: &str) -> PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    std::env::temp_dir().join(format!("u0-{kind}-{}-{n}.{ext}", std::process::id()))
+}
+
 /// What is captured for what you write.
 pub enum Shot {
     /// A window, by its id.
     Window(u32),
     /// A window you choose.
     Chosen,
-    /// What the screen shows in this rectangle, in points: a page in the
-    /// Preview tab.
-    Area { x: i32, y: i32, w: u32, h: u32 },
 }
 
 /// Capture `shot` with macOS's `screencapture`, for what you write.
 pub fn capture(shot: Shot, tx: Sender) {
     off(tx, move || {
-        let path = std::env::temp_dir().join(format!("u0-capture-{}.png", std::process::id()));
+        let path = scratch("capture", "png");
         let mut cmd = std::process::Command::new("screencapture");
         match shot {
             Shot::Window(id) => cmd.args(["-l", &id.to_string(), "-x"]),
             Shot::Chosen => cmd.args(["-i", "-W", "-x"]),
-            Shot::Area { x, y, w, h } => cmd.args(["-R", &format!("{x},{y},{w},{h}"), "-x"]),
         };
         let shot = cmd.arg(&path).status();
         let bytes = shot
@@ -409,7 +413,7 @@ pub fn read_picture(path: PathBuf, tx: Sender) {
         let mime = picture_kind(&path).unwrap_or(gpui::ImageFormat::Png.mime_type());
         let big = std::fs::metadata(&path).is_ok_and(|m| m.len() > PICTURE);
         let read = if mime == HEIC || big {
-            let out = std::env::temp_dir().join(format!("u0-picture-{}.jpg", std::process::id()));
+            let out = scratch("picture", "jpg");
             let made = std::process::Command::new("sips")
                 .args(["-s", "format", "jpeg", "-Z", "2560"])
                 .arg(&path)

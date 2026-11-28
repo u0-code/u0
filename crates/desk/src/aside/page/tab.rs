@@ -147,7 +147,8 @@ impl Desk {
             return vec![viewport];
         };
         let (copied, opened) = (page.address.clone(), page.address.clone());
-        let (fresh, drawn, tx) = (page.view.clone(), page.drawn.clone(), self.tx.clone());
+        let fresh = page.view.clone();
+        let unshown = page.view.is_none() || page.unreached.is_some();
         let zoom = |label: &str, by: i32| {
             let desk = desk.clone();
             MenuItem::item(crate::tr(label))
@@ -175,22 +176,14 @@ impl Desk {
                     let desk = desk.clone();
                     move |_, cx| desk.update(cx, |d, cx| d.browse(&opened, cx))
                 }),
-            // The page as you see it, beside what you write: where it is
-            // drawn in the window, on the screen.
-            MenuItem::item(crate::tr("Add a screenshot to the chat")).on_select(
-                move |window, _| {
-                    let (at, on) = (drawn.get(), window.bounds().origin);
-                    crate::hub::capture(
-                        crate::hub::Shot::Area {
-                            x: f32::from(on.x + at.origin.x).round() as i32,
-                            y: f32::from(on.y + at.origin.y).round() as i32,
-                            w: f32::from(at.size.width).round() as u32,
-                            h: f32::from(at.size.height).round() as u32,
-                        },
-                        tx.clone(),
-                    );
-                },
-            ),
+            // The page as WebKit draws it, beside what you write: only
+            // while one is shown.
+            MenuItem::item(crate::tr("Add a screenshot to the chat"))
+                .disabled(unshown)
+                .on_select({
+                    let desk = desk.clone();
+                    move |_, cx| desk.update(cx, |d, cx| d.shoot_page(key, cx))
+                }),
             MenuItem::divider(),
             zoom("Zoom in", 1),
             zoom("Zoom out", -1),
@@ -374,10 +367,9 @@ impl Desk {
     /// then zoomed as you set it.
     fn page_view(&self, view: Entity<WebView>, page: &Page) -> Div {
         let viewport = self.web.viewport;
-        let (zoomed, yours, drawn) = (view.clone(), page.zoom, page.drawn.clone());
+        let (zoomed, yours) = (view.clone(), page.zoom);
         let fitted = canvas(
             move |bounds, _, cx| {
-                drawn.set(bounds);
                 let zoom = fit(viewport, f32::from(bounds.size.width)) * yours;
                 let page = zoomed.read(cx);
                 if (page.zoom() - zoom).abs() > f64::EPSILON {

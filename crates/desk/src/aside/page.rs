@@ -58,8 +58,6 @@ pub struct Page {
     pub unreached: Option<String>,
     /// Your zoom of it (1 is its own size), over what fits its viewport.
     pub zoom: f64,
-    /// Where it was last drawn in the window, for its screenshot.
-    pub drawn: Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>>,
 }
 
 /// The zooms More steps through, as a browser's.
@@ -215,7 +213,6 @@ impl Desk {
                         handed: None,
                         unreached: None,
                         zoom: 1.,
-                        drawn: Rc::default(),
                     },
                 );
             }
@@ -283,6 +280,19 @@ impl Desk {
             }
             crate::hub::knock(key, opened, self.tx.clone());
         }
+    }
+
+    /// Put the session `key`'s page, as `WebKit` draws it, beside what you
+    /// write: a picture being read, as a window's capture is
+    /// (`Desk::capture`). Only the page is taken, never what lies over
+    /// u0's window (another app's, a notification).
+    pub(crate) fn shoot_page(&mut self, key: u64, cx: &mut Context<Self>) {
+        let Some(view) = self.web.pages.get(&key).and_then(|p| p.view.clone()) else {
+            return;
+        };
+        self.composer.reading += 1;
+        snapshot(view.read(cx), self.tx.clone());
+        cx.notify();
     }
 
     /// Zoom the session `key`'s page `by` steps (`0`: its own size).
@@ -397,6 +407,42 @@ fn build(
         });
     let view = WebView::build(builder, window, cx)?;
     Ok(cx.new(|_| view))
+}
+
+/// The page in `view` as `WebKit` draws it, a PNG, back as
+/// [`Msg::Attached`] (none, where `WebKit` could not take it).
+fn snapshot(view: &WebView, tx: Sender) {
+    use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage};
+    use objc2_foundation::{NSDictionary, NSError};
+    use wry::WebViewExtMacOS as _;
+    let taken = block2::RcBlock::new(move |image: *mut NSImage, _: *mut NSError| {
+        // SAFETY: WebKit hands an image, or none, alive while this runs.
+        let png = unsafe { image.as_ref() }.and_then(|image| {
+            let tiff = image.TIFFRepresentation()?;
+            let rep = NSBitmapImageRep::imageRepWithData(&tiff)?;
+            // SAFETY: no properties, which is of the type asked.
+            let png = unsafe {
+                rep.representationUsingType_properties(
+                    NSBitmapImageFileType::PNG,
+                    &NSDictionary::new(),
+                )
+            }?;
+            Some(png.to_vec())
+        });
+        let _ = tx.send(Msg::Attached(png.map(|bytes| {
+            crate::desk::mention::Attached::Image {
+                mime: gpui::ImageFormat::Png.mime_type().into(),
+                bytes,
+            }
+        })));
+    });
+    // SAFETY: WebKit's view, on the main thread it lives on; with no
+    // configuration it takes what the page shows, and calls `taken` once.
+    unsafe {
+        view.raw()
+            .webview()
+            .takeSnapshotWithConfiguration_completionHandler(None, &taken);
+    }
 }
 
 #[cfg(test)]
