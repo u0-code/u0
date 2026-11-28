@@ -1254,8 +1254,17 @@ esac; done"#;
         assert!(!kept.result().1);
         // One already waiting for what happens ends as the key goes.
         let mut waiting = Client::new(home.path(), None);
+        let listening = || u0.shared.happened.listening();
+        let before = listening();
         waiting.call("events", &json!({"after": 1000, "seconds": 600}));
-        std::thread::sleep(Duration::from_millis(300));
+        // It waits once it listens for what happens: only then is the key
+        // replaced, so that what ends it is the key going, not a call
+        // refused as it came.
+        let began = std::time::Instant::now();
+        while listening() == before {
+            assert!(began.elapsed() < Duration::from_secs(10), "it never waited");
+            std::thread::sleep(Duration::from_millis(5));
+        }
         u0.handle(Call::NewToolsKey);
         let began = std::time::Instant::now();
         assert_eq!(waiting.result(), (LET_GO.to_owned(), true));

@@ -145,6 +145,13 @@ impl Happenings {
             .is_ok()
     }
 
+    /// How many listen to what happens: each connection to the tools, and
+    /// each call waiting for something to happen.
+    #[cfg(test)]
+    pub fn listening(&self) -> usize {
+        self.kept.receiver_count()
+    }
+
     /// What happened after the number `after`, waiting `most` at the
     /// longest for something to; and whether some of it is no longer kept.
     pub async fn after(&self, after: u64, most: Duration) -> (Vec<Milestone>, bool) {
