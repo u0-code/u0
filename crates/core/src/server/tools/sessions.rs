@@ -187,6 +187,25 @@ mod tests {
     use super::super::tests::{answer_card, in_session, in_session_as, meta};
     use crate::proto::{Call, Event};
 
+    /// What first happened in `s2` of the kind `what`, once `events` tells it.
+    fn happened_in_s2(client: &mut super::super::tests::Client, what: &str) -> serde_json::Value {
+        let mut after = 0;
+        loop {
+            client.call(
+                "events",
+                &json!({"after": after, "session": "s2", "seconds": 10}),
+            );
+            let (happened, _) = client.result();
+            let happened: serde_json::Value = serde_json::from_str(&happened).unwrap();
+            if let Some(it) = (happened["happened"].as_array().unwrap().iter())
+                .find_map(|m| m["what"].get(what).cloned())
+            {
+                return it;
+            }
+            after = happened["last"].as_u64().unwrap();
+        }
+    }
+
     #[test]
     fn what_an_agent_asks_in_another_session_is_answered_as_you_allow_each_time() {
         let home = tempfile::tempdir().unwrap();
@@ -223,19 +242,7 @@ esac; done"#;
         );
         answer_card(&server, &said, "once");
         assert!(!client.result().1);
-        let asked = loop {
-            client.call(
-                "events",
-                &json!({"after": 0, "session": "s2", "seconds": 10}),
-            );
-            let (happened, _) = client.result();
-            let happened: serde_json::Value = serde_json::from_str(&happened).unwrap();
-            if let Some(asks) = (happened["happened"].as_array().unwrap().iter())
-                .find_map(|m| m["what"].get("asks").cloned())
-            {
-                break asks;
-            }
-        };
+        let asked = happened_in_s2(&mut client, "asks");
         assert_eq!(asked["title"], json!("Delete it"));
         let answer =
             json!({"agent": "a", "session": "s2", "request": asked["request"], "option": "yes"});
@@ -264,14 +271,10 @@ esac; done"#;
             }
         };
         assert_eq!(&*told.option_id.0, "yes");
-        let answered = home.path().join("agent.sh.answered");
-        for _ in 0..250 {
-            if answered.exists() {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        let answered = std::fs::read_to_string(answered).unwrap();
+        // Its turn ends only once it has written down how it was answered:
+        // the file, seen to exist, may not yet be written.
+        happened_in_s2(&mut client, "turn_ended");
+        let answered = std::fs::read_to_string(home.path().join("agent.sh.answered")).unwrap();
         assert!(answered.contains(r#""optionId":"yes""#), "{answered}");
         client.call("answer_request", &answer);
         assert!(client.result().0.contains("no longer waits"));
