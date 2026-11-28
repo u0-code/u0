@@ -38,7 +38,6 @@ impl Desk {
                 .accessibility_label(says.clone())
                 .h(px(34.))
                 .px(px(12.))
-                .rounded(px(6.))
                 .child(
                     div()
                         .flex()
@@ -143,7 +142,6 @@ impl Desk {
                         .flex_col()
                         .w(px(width.min(420.)))
                         .p(px(4.))
-                        .rounded(px(10.))
                         .border_1()
                         .border_color(theme::border2())
                         .children(steps),

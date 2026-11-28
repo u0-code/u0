@@ -247,11 +247,12 @@ impl Desk {
         let waiting = (asked.chosen.is_none())
             .then(|| asked.asked_at.elapsed().ok())
             .flatten()
-            .filter(|d| d.as_secs() > 0)
+            // In whole minutes: the seconds would only tick.
+            .filter(|d| d.as_secs() >= 60)
             .map(|d| {
                 crate::tr_with(
                     "waiting %{time}",
-                    &[("time", &u0ui::t3::fmt_elapsed(d.as_secs()))],
+                    &[("time", &u0ui::t3::fmt_elapsed(d.as_secs() / 60 * 60))],
                 )
             });
         let who = match &asked.asker {

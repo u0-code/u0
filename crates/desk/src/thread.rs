@@ -335,7 +335,6 @@ pub fn well(faces: &Faces) -> Div {
     div()
         .px(px(12.))
         .py(px(8.))
-        .rounded(px(8.))
         .bg(theme::well())
         .font_family(faces.mono.clone())
         .text_size(px(crate::style::LABEL))
@@ -512,7 +511,6 @@ impl Desk {
                 .mt(px(10.))
                 .px(px(12.))
                 .py(px(8.))
-                .rounded(px(10.))
                 .border_1()
                 .border_color(theme::border())
                 .child(if waiting {
@@ -678,7 +676,6 @@ impl Desk {
                     .h(px(24.))
                     .pl(px(8.))
                     .pr(px(2.))
-                    .rounded(px(7.))
                     .border_1()
                     .border_color(theme::tag_line())
                     .child(meta(faces, crate::tr("also")))
@@ -1016,7 +1013,6 @@ impl Desk {
                         step()
                             .id(SharedString::from(key.clone()))
                             .cursor_pointer()
-                            .rounded(px(8.))
                             .hover(|st| st.bg(theme::hover()))
                             .child(icon(if open {
                                 "chevron-down"
@@ -1145,12 +1141,7 @@ impl Desk {
                         div()
                             .id(SharedString::from(format!("{key}-image")))
                             .cursor_pointer()
-                            .child(
-                                gpui::img(picture(image))
-                                    .max_w(px(w))
-                                    .h(px(h))
-                                    .rounded(px(8.)),
-                            )
+                            .child(gpui::img(picture(image)).max_w(px(w)).h(px(h)))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.zoom = Some(at);
                                 cx.notify();
@@ -1324,8 +1315,7 @@ impl Desk {
                 .child(
                     gpui::img(picture(image))
                         .max_w(size.width - px(160.))
-                        .max_h(size.height - px(120.))
-                        .rounded(px(8.)),
+                        .max_h(size.height - px(120.)),
                 )
                 .child(step("zoom-after", "chevron-right", "The one after", after))
                 .child(
@@ -1409,7 +1399,6 @@ impl Desk {
                         .w(px(680.))
                         .max_h(px(560.))
                         .p(px(14.))
-                        .rounded(px(14.))
                         .bg(theme::panel())
                         .border_1()
                         .border_color(theme::border2())
@@ -1758,7 +1747,6 @@ impl Desk {
         let mut line = step()
             .id(SharedString::from(format!("{key}-row")))
             .group(group)
-            .rounded(px(8.))
             .child(mark)
             .child(
                 verb(faces, crate::tr(row.verb)).when(running, |d| d.text_color(theme::accent())),
@@ -1868,14 +1856,8 @@ impl Desk {
                     .flex_col()
                     .gap(px(6.))
                     .p(px(10.))
-                    .rounded(px(8.))
                     .bg(theme::well())
-                    .child(
-                        gpui::img(picture(&pic))
-                            .max_w(px(480.))
-                            .max_h(px(320.))
-                            .rounded(px(6.)),
-                    )
+                    .child(gpui::img(picture(&pic)).max_w(px(480.)).max_h(px(320.)))
                     .child(
                         div().flex().justify_end().child(
                             ui::button(

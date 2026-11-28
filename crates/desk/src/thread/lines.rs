@@ -419,6 +419,36 @@ impl Desk {
                 .child(div().flex_1().h(px(1.)).bg(theme::link().opacity(0.35)))
                 .into_any_element(),
             Line::State => match &s.state {
+                // One the agent keeps, of which u0 has no record: the agent
+                // says it all again, recorded as it comes.
+                State::Opening if s.meta.id.is_some() && s.items.is_empty() => div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap(px(8.))
+                    .py(px(48.))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .child(gpui::component::spinner::Spinner::new().color(theme::faint()))
+                            .child(verb(&faces, crate::tr("Reading…"))),
+                    )
+                    .child(
+                        ui::text(
+                            &faces,
+                            crate::tr_with(
+                                "u0 has no record of this thread yet, so %{name} sends it again; it shows at once next time.",
+                                &[("name", &self.name_of(&s.meta.agent))],
+                            ),
+                        )
+                        .max_w(px(480.))
+                        .text_center()
+                        .text_size(px(crate::style::CAPTION))
+                        .text_color(theme::muted()),
+                    )
+                    .into_any_element(),
                 State::Opening => step()
                     .child(div().mx(px(2.)).child(ui::live_dot()))
                     .child(
@@ -624,7 +654,6 @@ impl Desk {
                 .h(px(34.))
                 .pl(px(10.))
                 .pr(px(4.))
-                .rounded(px(10.))
                 .bg(theme::panel())
                 .border_1()
                 .border_color(theme::border2())

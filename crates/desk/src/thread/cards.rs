@@ -335,10 +335,20 @@ impl Desk {
                 .words(why.to_owned()),
             )
             .child(
-                div().flex().child(
-                    ui::button("restart", crate::tr("Restart thread"), Weight::Secondary)
-                        .on_click(cx.listener(|this, _, window, cx| this.restart(window, cx))),
-                ),
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(8.))
+                    .child(
+                        ui::button("restart", crate::tr("Try again"), Weight::Secondary)
+                            .on_click(cx.listener(|this, _, window, cx| this.restart(window, cx))),
+                    )
+                    .child(
+                        ui::button("diagnose", crate::tr("Open Diagnostics"), Weight::Quiet)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.open_tab(crate::pages::Tab::Diagnostics, window, cx);
+                            })),
+                    ),
             )
     }
 
@@ -385,7 +395,6 @@ impl Desk {
             .gap(px(12.))
             .px(px(16.))
             .py(px(14.))
-            .rounded(px(12.))
             .bg(theme::rail())
             .border_1()
             .border_color(theme::border2())
