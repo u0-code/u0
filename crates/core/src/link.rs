@@ -791,10 +791,10 @@ async fn serve(
                     Ok(call) if Access::allows(scope, &call, server.home()) => match call {
                         Call::Pictures { folder, kind, number, urls } => {
                             let to_asker = to_asker.clone();
-                            let tell = Arc::new(move |event| {
+                            let tell: crate::server::Send = Arc::new(move |event| {
                                 let _ = to_asker.send(event);
                             });
-                            server.pictures((folder, kind, number), urls, tell);
+                            server.pictures((folder, kind, number), &urls, &tell);
                         }
                         call => {
                             let offers = matches!(call, Call::Share(crate::share::Share::Link(..)));

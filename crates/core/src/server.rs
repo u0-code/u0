@@ -56,7 +56,7 @@ mod scheduled;
 mod tools;
 
 /// Where what the server says goes.
-type Send = Arc<dyn Fn(Event) + std::marker::Send + Sync>;
+pub(crate) type Send = Arc<dyn Fn(Event) + std::marker::Send + Sync>;
 
 /// The agents running, by id.
 type Running = Arc<Mutex<BTreeMap<String, Arc<Agent>>>>;
@@ -80,6 +80,8 @@ pub struct Server {
     /// The pictures each pull request or issue lately read shows: all
     /// `Call::Pictures` may fetch.
     shown: Arc<Mutex<Shown>>,
+    /// The pictures fetched lately, and being fetched.
+    fetched: Arc<Mutex<crate::pictures::Fetched>>,
     /// The desk in this process alone: what is said to it here is said on
     /// no link.
     here: Send,
@@ -279,6 +281,7 @@ impl Server {
         let server = Arc::new(Self {
             sharing: Mutex::default(),
             shown: Arc::default(),
+            fetched: Arc::default(),
             here,
             access: Access::new(&home),
             outbox,
@@ -315,23 +318,26 @@ impl Server {
     /// Fetch the pictures at `urls` that `item` (a project's folder, pull
     /// requests or issues, its number) was found to show as it was read,
     /// telling each to `tell` as it comes: the desk that asked alone, as a
-    /// picture of one project is not another device's to see.
+    /// picture of one project is not another device's to see. One fetched
+    /// lately, or being fetched, is told from what came (`Fetched`).
     pub(crate) fn pictures(
         &self,
         item: (PathBuf, crate::github::Kind, u64),
-        urls: Vec<String>,
-        tell: Send,
+        urls: &[String],
+        tell: &Send,
     ) {
         let shown = (self.shown.lock().expect("shown").iter())
             .find(|(at, _)| *at == item)
             .map(|(_, urls)| urls.clone())
             .unwrap_or_default();
+        let fetch = (self.fetched.lock().expect("fetched")).ask(urls, &shown, tell);
+        if fetch.is_empty() {
+            return;
+        }
+        let fetched = self.fetched.clone();
         acp::runtime().spawn_blocking(move || {
-            crate::pictures::fetch(&item.0, &urls, &shown, |url, picture| {
-                tell(Event::Picture {
-                    url,
-                    picture: picture.map(crate::proto::Bytes),
-                });
+            crate::pictures::fetch(&item.0, &fetch, |url, picture| {
+                fetched.lock().expect("fetched").came(url, picture);
             });
         });
     }
@@ -689,7 +695,7 @@ impl Server {
                 kind,
                 number,
                 urls,
-            } => self.pictures((folder, kind, number), urls, self.here.clone()),
+            } => self.pictures((folder, kind, number), &urls, &self.here),
             Call::Grep { folder, words, how } => self.off(move || Event::Grepped {
                 found: git::grep(&folder, &words, how),
                 words,

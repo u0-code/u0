@@ -4,7 +4,16 @@
 //! the item's own text shows is fetched, only so many and so large, and
 //! only from the public internet (`http::outward`).
 
-use std::path::Path;
+use std::{
+    collections::{HashMap, VecDeque},
+    path::Path,
+    time::{Duration, Instant},
+};
+
+use crate::{
+    proto::{Bytes, Event},
+    server::Send as Tell,
+};
 
 use crate::github::Detail;
 
@@ -25,6 +34,77 @@ const MOST_SIDE: usize = 8192;
 /// `image` lets one picture take).
 const MOST_FRAMES: u64 = 300;
 const MOST_PIXELS: u64 = 1 << 27;
+
+/// How long a picture fetched is answered from what came to whoever asks
+/// for it again: a desk that asks over and over has it fetched once.
+const AGAIN: Duration = Duration::from_secs(60);
+
+/// The most bytes of pictures kept to answer again.
+const KEPT: usize = 64 << 20;
+
+/// What came for a picture: its bytes, or why not.
+type Answer = Result<Bytes, String>;
+
+/// The pictures fetched lately, each answered again from what came; and
+/// those being fetched, with who waits for each.
+#[derive(Default)]
+pub(crate) struct Fetched {
+    came: VecDeque<(String, Instant, Answer)>,
+    going: HashMap<String, Vec<Tell>>,
+}
+
+impl Fetched {
+    /// Of `urls`, the first `MOST` that `shown` holds (the pictures the
+    /// item was found to show): each that came lately told to `tell` now,
+    /// each being fetched told it as it comes, and the rest, to fetch,
+    /// returned, `tell` waiting for them too.
+    pub(crate) fn ask(&mut self, urls: &[String], shown: &[String], tell: &Tell) -> Vec<String> {
+        self.forget();
+        let mut fetch = Vec::new();
+        for url in urls.iter().filter(|u| shown.contains(u)).take(MOST) {
+            if let Some((_, _, answer)) = self.came.iter().find(|(u, ..)| u == url) {
+                tell(picture_of(url, answer));
+            } else if let Some(waiting) = self.going.get_mut(url) {
+                waiting.push(tell.clone());
+            } else {
+                self.going.insert(url.clone(), vec![tell.clone()]);
+                fetch.push(url.clone());
+            }
+        }
+        fetch
+    }
+
+    /// What came for `url`: told to each who waits for it, and kept.
+    pub(crate) fn came(&mut self, url: String, answer: Result<Vec<u8>, String>) {
+        let answer = answer.map(Bytes);
+        for tell in self.going.remove(&url).unwrap_or_default() {
+            tell(picture_of(&url, &answer));
+        }
+        self.came.push_back((url, Instant::now(), answer));
+        self.forget();
+    }
+
+    /// What came longer ago than `AGAIN` forgotten, and the oldest past
+    /// `KEPT` bytes.
+    fn forget(&mut self) {
+        let size =
+            |(_, _, answer): &(String, Instant, Answer)| answer.as_ref().map_or(0, |b| b.0.len());
+        self.came.retain(|(_, at, _)| at.elapsed() < AGAIN);
+        let mut kept: usize = self.came.iter().map(size).sum();
+        while kept > KEPT
+            && let Some(old) = self.came.pop_front()
+        {
+            kept -= size(&old);
+        }
+    }
+}
+
+fn picture_of(url: &str, answer: &Answer) -> Event {
+    Event::Picture {
+        url: url.to_owned(),
+        picture: answer.clone(),
+    }
+}
 
 /// The addresses of the pictures `detail` shows, over HTTPS: in its
 /// description, what was said and its conversations on lines, each once,
@@ -166,18 +246,17 @@ fn unescape(value: &str) -> String {
     out + rest
 }
 
-/// Fetch each of `urls` that `shown` holds (the pictures the item the
-/// project in `dir` has was found to show), one after another, handing
-/// `got` each as it comes, or why not. Your GitHub token (the one you
-/// gave, else gh's, asked once) goes only to a GitHub attachment.
-pub fn fetch(
+/// Fetch each of `urls` (what `Fetched::ask` gave, for a project in
+/// `dir`), one after another, handing `got` each as it comes, or why not.
+/// Your GitHub token (the one you gave, else gh's, asked once) goes only
+/// to a GitHub attachment.
+pub(crate) fn fetch(
     dir: &Path,
     urls: &[String],
-    shown: &[String],
     mut got: impl FnMut(String, Result<Vec<u8>, String>),
 ) {
     let mut token = None;
-    for url in urls.iter().filter(|u| shown.contains(u)).take(MOST) {
+    for url in urls {
         let Ok(parsed) = url::Url::parse(url) else {
             got(url.clone(), Err("it is not an address".into()));
             continue;
@@ -338,22 +417,59 @@ mod tests {
         assert_eq!(urls[0], "https://example.com/0.png");
     }
 
+    /// The pictures a `Tell` was told, kept to read back.
+    type Heard = std::sync::Arc<std::sync::Mutex<Vec<(String, Answer)>>>;
+    fn told() -> (Tell, Heard) {
+        let heard = Heard::default();
+        let into = std::sync::Arc::clone(&heard);
+        let tell: Tell = std::sync::Arc::new(move |e| {
+            if let Event::Picture { url, picture } = e {
+                into.lock().unwrap().push((url, picture));
+            }
+        });
+        (tell, heard)
+    }
+
     #[test]
     fn only_what_the_item_shows_is_fetched() {
-        let mut asked = Vec::new();
-        let dir = std::env::temp_dir();
+        let (tell, _) = told();
         let shown = ["http://example.com/shown.png".to_owned()];
-        let urls = [
-            "http://example.com/shown.png".to_owned(),
-            "https://10.0.0.1/x".to_owned(),
-        ];
-        fetch(&dir, &urls, &shown, |url, picture| {
+        let urls = [shown[0].clone(), "https://10.0.0.1/x".to_owned()];
+        let fetch = Fetched::default().ask(&urls, &shown, &tell);
+        assert_eq!(fetch, shown);
+        let mut asked = Vec::new();
+        super::fetch(&std::env::temp_dir(), &fetch, |url, picture| {
             asked.push((url, picture));
         });
         assert_eq!(
             asked,
             [(urls[0].clone(), Err("it is not over HTTPS".to_owned()))]
         );
+    }
+
+    #[test]
+    fn a_picture_asked_for_again_is_answered_from_what_came_until_a_minute_is_out() {
+        let url = "https://example.com/a.png".to_owned();
+        let shown = [url.clone()];
+        let mut fetched = Fetched::default();
+        let (first, heard_first) = told();
+        let (second, heard_second) = told();
+        // Asked twice as it is fetched: fetched once, both told as it comes.
+        assert_eq!(fetched.ask(&shown, &shown, &first), shown);
+        assert!(fetched.ask(&shown, &shown, &second).is_empty());
+        fetched.came(url.clone(), Ok(b"png".to_vec()));
+        let picture = (url.clone(), Ok(Bytes(b"png".to_vec())));
+        assert_eq!(*heard_first.lock().unwrap(), std::slice::from_ref(&picture));
+        assert_eq!(
+            *heard_second.lock().unwrap(),
+            std::slice::from_ref(&picture)
+        );
+        // Asked again within the minute: answered at once, nothing fetched.
+        assert!(fetched.ask(&shown, &shown, &first).is_empty());
+        assert_eq!(*heard_first.lock().unwrap(), [picture.clone(), picture]);
+        // A minute on, it is fetched again.
+        fetched.came[0].1 -= AGAIN;
+        assert_eq!(fetched.ask(&shown, &shown, &first), shown);
     }
 
     #[test]
