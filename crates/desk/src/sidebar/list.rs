@@ -818,9 +818,11 @@ impl Desk {
                     )
                     .child(
                         ui::text(faces, count.to_string())
-                            .text_size(px(11.))
-                            .line_height(px(16.))
+                            .text_size(px(crate::style::CAPTION))
+                            .line_height(px(18.))
+                            .min_w(px(18.))
                             .px(px(5.))
+                            .text_center()
                             .rounded(px(16.))
                             .bg(fill)
                             .text_color(text_color),
@@ -1050,7 +1052,7 @@ impl Desk {
                         .px(px(4.))
                         .rounded(px(16.))
                         .bg(bg)
-                        .text_size(px(11.))
+                        .text_size(px(crate::style::CAPTION))
                         .line_height(px(18.))
                         .text_color(fg)
                 }));
@@ -1194,7 +1196,7 @@ impl Desk {
             .min_w(px(0.))
             .truncate()
             .text_size(px(crate::style::BODY))
-            .line_height(px(20.))
+            .line_height(px(crate::style::prose_line()))
             .weight(if unread {
                 gpui::FontWeight::SEMIBOLD
             } else {
@@ -1333,14 +1335,14 @@ impl Desk {
                                 .items_center()
                                 .gap(px(6.))
                                 .min_w(px(0.))
-                                .h(px(16.))
+                                .min_h(px(crate::style::caption_line()))
                                 .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 12.))
                                 .children(meta_text.filter(|m| !m.is_empty()).map(|m| {
                                     ui::text(faces, m)
                                         .min_w(px(0.))
                                         .truncate()
                                         .text_size(px(crate::style::CAPTION))
-                                        .line_height(px(16.))
+                                        .line_height(px(crate::style::caption_line()))
                                         .text_color(meta_color)
                                 })),
                         ),
