@@ -95,25 +95,35 @@ Signing in is the agent's own; u0 never sees a credential.
 
 ### An agent's page
 
-Open an agent in **Settings › Agents** to set:
+Each agent switched on is listed under **Agents** in the settings' list;
+open one there, or press its name in **Settings › Agents**. Its page says
+how it stands (**Ready**, **Running**, **Needs sign-in**, **Not installed**,
+**Installing**, **Stopped** or **Off**), the adapter and version the
+registry gives, and the CLI of yours it drives. Under its name are what
+can be done now: **New thread**, **Install**, **Update to** a newer
+version, **Sign in**, **Log out**, **Turn on** or **Turn off**, and
+**Uninstall**. Below them:
 
-- **Use this command**: a command line of yours that starts it instead of
-  the registry's way (your own build, a version manager's). It must speak
-  ACP on standard input and output; **Check that it speaks ACP** tries it.
-- **Variables**: set in the agent's environment as it starts. Mark one
-  **Secret** to keep it in the macOS Keychain, never in u0's files. A
-  value may be a 1Password reference (`op://vault/item/field`), read with
-  `op` as the agent starts.
-- **Your own** models: model ids offered in the composer beside those the
-  agent lists. The agent may refuse one it does not know.
-- **u0's tools**: whether its new threads are given
-  [u0's tools](tools-for-agents.md).
 - **Instances**: **Add an instance** runs the agent again with its own
   sign-in and settings, side by side with the first. Claude Code and Codex
   support this: the new instance's `CLAUDE_CONFIG_DIR` or `CODEX_HOME`
   points at a folder of its own under `<home>/accounts/`. A thread begun
   in an instance stays with it. Taking an instance away switches it off and
   forgets its variables; its folder, with its sign-in, stays.
+- **Variables**: set in the agent's environment as it starts. Mark one
+  **Secret** to keep it in the macOS Keychain, never in u0's files. A
+  value may be a 1Password reference (`op://vault/item/field`), read with
+  `op` as the agent starts. Each is tagged where it comes from:
+  **Keychain** or **1Password**. A setting an administrator's policy locks
+  says who manages it, and can't be changed here.
+- **u0's tools**: whether its new threads are given
+  [u0's tools](tools-for-agents.md).
+- **Use this command**: a command line of yours that starts it instead of
+  the registry's way (your own build, a version manager's). It must speak
+  ACP on standard input and output; **Check that it speaks ACP** keeps it
+  and tries it.
+- **Your own models**: model ids offered in the composer beside those the
+  agent lists. The agent may refuse one it does not know.
 
 ## Your first thread
 

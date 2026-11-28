@@ -4,12 +4,10 @@
 use gpui::component::{Selectable as _, Sizable as _, input::Input, menu::PopupMenu};
 use gpui::{Context, Div, Entity, div, prelude::*, px};
 
-use super::meta;
 use crate::fonts::Weighted as _;
 use crate::{
     desk::{Desk, Page, Popup, Renaming},
     fonts::Faces,
-    hub::Stage,
     settings::View,
     theme, ui,
 };
@@ -204,23 +202,6 @@ impl Desk {
                         .selected(self.panes.right && self.session().is_some())
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_aside(cx))),
                     );
-            }
-            Page::Agent(host, id) => {
-                let host = *host;
-                let name = self.name_of(id);
-                let state = match self.slot(host, id).map(|s| &s.stage) {
-                    None if self.here_on(host, id).is_some_and(|h| h.missing.is_none()) => "Off",
-                    Some(Stage::Missing(_)) | None => "Not installed",
-                    Some(Stage::Installing(_)) => "Installing",
-                    Some(Stage::Running { .. }) => "Running",
-                    Some(Stage::Failed(_)) => "Stopped",
-                    Some(_) => "Installed",
-                };
-                return bar.child(
-                    left.child(ui::mark(faces, &self.mark_of(id), 16.))
-                        .child(title(name))
-                        .child(meta(faces, crate::tr(state))),
-                );
             }
             Page::Forge(kind) => {
                 left = left.child(title(

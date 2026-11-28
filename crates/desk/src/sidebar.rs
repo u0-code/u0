@@ -635,7 +635,7 @@ impl Desk {
                         None => slot.entry.name.clone(),
                     })
                     .on_click(cx.listener(move |this, _, window, cx| {
-                        this.open_page(Page::Agent(host, id.clone()), window, cx);
+                        this.open_agent(host, &id, window, cx);
                     })),
             );
         }
