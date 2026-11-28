@@ -287,5 +287,6 @@ These record the window's own state. You rarely set them by hand.
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `left` | points | `256` | The sidebar's width, as you dragged it. |
+| `sidebar_hidden` | bool | `false` | The sidebar is hidden (⌘B), as you last left it. |
 | `right` | points | `400` | The right column's width. |
 | `frame` | `[x, y, width, height]` or `null` | `null` | Where the window was when u0 last quit. `null`: centred. |

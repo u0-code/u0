@@ -175,6 +175,9 @@ pub struct Settings {
     /// How wide the sidebar is, in points, as you dragged it.
     #[serde(default = "left")]
     pub left: u32,
+    /// The sidebar is folded away (⌘B), as you last left it.
+    #[serde(default)]
+    pub sidebar_hidden: bool,
     /// How wide the right column is, in points, as you dragged it: one
     /// width whatever its tab shows.
     #[serde(default = "right")]
@@ -1352,6 +1355,7 @@ impl Default for Settings {
             math: false,
             language: None,
             left: left(),
+            sidebar_hidden: false,
             right: right(),
             diff_wrap: yes(),
             editor: None,

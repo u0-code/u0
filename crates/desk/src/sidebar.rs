@@ -128,13 +128,12 @@ impl Desk {
     }
 
     /// Unified 38px sidebar brand header (`sb-top`): clears the macOS
-    /// traffic lights, shows `"u0"` without a square mark, and hosts `Back`,
-    /// `Ahead` and `New thread`. Searching is the palette's: the top bar's
-    /// command box.
+    /// traffic lights, shows `"u0"` without a square mark, and hosts the
+    /// sidebar's own toggle, `Back`, `Ahead` and `New thread`. Searching is
+    /// the palette's: the top bar's command box.
     fn sidebar_head(&self, faces: &Faces, lights: f32, cx: &mut Context<Self>) -> Div {
         let desk_back = cx.entity();
         let desk_fwd = cx.entity();
-        let desk_new = cx.entity();
         draggable()
             .flex()
             .flex_none()
@@ -159,6 +158,7 @@ impl Desk {
                     .flex()
                     .flex_none()
                     .items_center()
+                    .child(Self::sidebar_toggle(true, cx))
                     .child(
                         CarbonButton::new("sb-back", crate::keys::hint(cx, "Back", "back"))
                             .variant(ButtonVariant::Ghost)
@@ -181,26 +181,59 @@ impl Desk {
                                 desk_fwd.update(cx, |d, cx| d.step_trail(true, window, cx));
                             }),
                     )
-                    .child(
-                        CarbonButton::new(
-                            "sb-new",
-                            crate::keys::hint(cx, "New thread", "new_session"),
-                        )
-                        .variant(ButtonVariant::Ghost)
-                        .size(ButtonSize::Sm)
-                        .icon(CarbonIcon::Edit)
-                        .icon_only(true)
-                        .on_click(move |e, window, cx| {
-                            desk_new.update(cx, |d, cx| {
-                                if e.modifiers().shift {
-                                    d.new_default(window, cx);
-                                } else {
-                                    d.new_anywhere(window, cx);
-                                }
-                            });
-                        }),
-                    ),
+                    .child(Self::new_thread_button(cx)),
             )
+    }
+
+    /// The sidebar's toggle (⌘B): in its head while it is `shown`, hiding
+    /// it; at the start of the bar over the thread while it is not,
+    /// showing it.
+    pub(crate) fn sidebar_toggle(shown: bool, cx: &mut Context<Self>) -> CarbonButton {
+        let desk = cx.entity();
+        let (label, icon) = if shown {
+            ("Hide the sidebar", CarbonIcon::SidePanelClose)
+        } else {
+            ("Show the sidebar", CarbonIcon::SidePanelOpen)
+        };
+        CarbonButton::new("sb-toggle", crate::keys::hint(cx, label, "toggle_sidebar"))
+            .variant(ButtonVariant::Ghost)
+            .size(ButtonSize::Sm)
+            .icon(icon)
+            .icon_only(true)
+            .on_click(move |_, window, cx| {
+                desk.update(cx, |d, cx| d.toggle_sidebar(window, cx));
+            })
+    }
+
+    /// What stands at the start of the bar over the thread while the
+    /// sidebar is hidden: its toggle, and New thread.
+    pub(crate) fn sidebar_folded(cx: &mut Context<Self>) -> Div {
+        div()
+            .flex()
+            .flex_none()
+            .items_center()
+            .child(Self::sidebar_toggle(false, cx))
+            .child(Self::new_thread_button(cx))
+    }
+
+    /// New thread (⌘N; with ⇧, in the last project at once): in the
+    /// sidebar's head, and beside its toggle while it is hidden.
+    pub(crate) fn new_thread_button(cx: &mut Context<Self>) -> CarbonButton {
+        let desk = cx.entity();
+        CarbonButton::new("sb-new", crate::keys::hint(cx, "New thread", "new_session"))
+            .variant(ButtonVariant::Ghost)
+            .size(ButtonSize::Sm)
+            .icon(CarbonIcon::Edit)
+            .icon_only(true)
+            .on_click(move |e, window, cx| {
+                desk.update(cx, |d, cx| {
+                    if e.modifiers().shift {
+                        d.new_default(window, cx);
+                    } else {
+                        d.new_anywhere(window, cx);
+                    }
+                });
+            })
     }
 
     /// Five-item section navigation bar (`sb-nav`): `Threads`, `Pull requests`,
