@@ -9,6 +9,7 @@ mod diagnostics;
 mod flows;
 pub(crate) mod forge;
 mod hosts;
+pub(crate) mod keybindings;
 mod looks;
 pub(crate) mod pairing;
 pub(crate) mod pr;
@@ -34,14 +35,14 @@ use gpui::component::{
     input::{InputEvent, InputState, TextareaState},
     setting::SettingsState,
 };
-use gpui::{Context, Entity, Window, prelude::*};
+use gpui::{Context, Entity, SharedString, Window, prelude::*};
 
 use crate::{desk::Desk, settings::Settings};
 
 /// What the pages hold as you use them: whether the settings are open,
 /// their tab, what is looked for among the settings and among the
 /// registry's agents, what worktree branches begin with as you write it,
-/// the action whose keys are being recorded, how much each part of u0's
+/// the action whose keys are being changed, how much each part of u0's
 /// home takes and what the last tidying did; on an agent's page, the
 /// command of yours that starts it and a model id to add.
 #[allow(
@@ -59,7 +60,13 @@ pub struct Pages {
     pub prefix: Entity<InputState>,
     /// Your snooze presets as you write them, commas between.
     pub snoozes: Entity<InputState>,
-    pub recording: Option<&'static str>,
+    /// Settings › Keybindings: what is looked for among the actions, which
+    /// of them show, the action whose keys are being changed with the keys
+    /// recorded for it, and where they are to hold as it is typed.
+    pub keys_search: Entity<InputState>,
+    pub keys_show: crate::pages::keybindings::Show,
+    pub editing_keys: Option<(&'static str, SharedString)>,
+    pub keys_when: Entity<InputState>,
     /// The server the pages of a server's own are of: its agents,
     /// projects, tasks, sharing and what it keeps.
     pub on: crate::hub::Host,
@@ -209,6 +216,12 @@ impl Pages {
             }
         })
         .detach();
+        let keys_search = field("Search commands, or type keys like ⌘J", window, cx);
+        cx.subscribe(&keys_search, |_, _, _: &InputEvent, cx| cx.notify())
+            .detach();
+        let keys_when = cx.new(|cx| InputState::new(window, cx));
+        cx.subscribe(&keys_when, |_, _, _: &InputEvent, cx| cx.notify())
+            .detach();
         Self {
             open: false,
             tab: Tab::General,
@@ -217,7 +230,10 @@ impl Pages {
             agent_search,
             prefix,
             snoozes,
-            recording: None,
+            keys_search,
+            keys_show: crate::pages::keybindings::Show::All,
+            editing_keys: None,
+            keys_when,
             sizes: crate::tidy::StorageReport::default(),
             tidied: None,
             agent: None,

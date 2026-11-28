@@ -16,6 +16,7 @@ use std::path::Path;
 use gpui::component::kbd::Kbd;
 use gpui::{Action, AnyWindowHandle, App, Context, Entity, KeyBinding, Keystroke, Window, actions};
 use serde::Deserialize;
+use u0ui::u0::primitives::key_recorder::{combo, key_name};
 
 use crate::{desk::Desk, pages::Tab};
 
@@ -225,83 +226,6 @@ pub const ACTIONS: [(&str, &str, Make); 56] = [
     ),
 ];
 
-/// The Keyboard page's groups, as t3code's: each action named in one;
-/// one named in none shows under Other.
-pub const GROUPS: [(&str, &[&str]); 6] = [
-    (
-        "Threads",
-        &[
-            "new_session",
-            "new_here",
-            "new_scratch",
-            "next_session",
-            "previous_session",
-            "settle",
-            "pin",
-            "copy_id",
-        ],
-    ),
-    (
-        "The thread",
-        &[
-            "find",
-            "find_next",
-            "find_previous",
-            "use_selection_for_find",
-            "stop",
-            "model",
-            "mode",
-            "effort",
-            "dictate",
-            "previous_turn",
-            "next_turn",
-            "transcript_view",
-        ],
-    ),
-    (
-        "Going about",
-        &[
-            "palette",
-            "go_to_file",
-            "search_words",
-            "back",
-            "ahead",
-            "next_area",
-            "toggle_sidebar",
-            "settings",
-            "workflows",
-            "usage",
-        ],
-    ),
-    (
-        "The column beside",
-        &[
-            "review",
-            "right_column",
-            "open_surface",
-            "reopen_surface",
-            "close_surface",
-            "pull_requests",
-            "issues",
-            "copy_pr",
-            "open_folder",
-        ],
-    ),
-    (
-        "Terminal",
-        &[
-            "drawer",
-            "next_terminal",
-            "previous_terminal",
-            "clear_terminal",
-        ],
-    ),
-    (
-        "The window",
-        &["light_or_dark", "full_screen", "minimize", "quit"],
-    ),
-];
-
 /// A binding of yours: `action` is a name in `ACTIONS`, or "none" to
 /// take the key from whatever has it, or `-` and a name to take the key
 /// from that action alone (as VS Code and t3code write it); `when`, where it holds, as a key
@@ -314,6 +238,13 @@ pub struct Binding {
     action: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     when: Option<String>,
+}
+
+impl Binding {
+    /// Whether it binds the action `name` or takes keys from it.
+    fn is_for(&self, name: &str) -> bool {
+        self.action.strip_prefix('-').unwrap_or(&self.action) == name
+    }
 }
 
 /// Run the script named so of the repository on screen: bound as
@@ -384,17 +315,19 @@ pub fn hint(cx: &App, what: &str, name: &str) -> String {
     }
 }
 
+/// The binding the action named `name` goes by now, yours over the
+/// window's; none when it has none.
+fn last_binding(cx: &App, name: &str) -> Option<KeyBinding> {
+    let action = action(name)?;
+    let keymap = cx.key_bindings();
+    let keymap = keymap.borrow();
+    keymap.bindings_for_action(action.as_ref()).last().cloned()
+}
+
 /// The keystrokes the action named `name` is bound to now, yours over the
 /// window's; none when it has none.
 pub fn keys_of(cx: &App, name: &str) -> Vec<Keystroke> {
-    let Some(action) = action(name) else {
-        return Vec::new();
-    };
-    let keymap = cx.key_bindings();
-    let keymap = keymap.borrow();
-    keymap
-        .bindings_for_action(action.as_ref())
-        .last()
+    last_binding(cx, name)
         .map(|binding| {
             binding
                 .keystrokes()
@@ -409,6 +342,81 @@ pub fn keys_of(cx: &App, name: &str) -> Vec<Keystroke> {
         .unwrap_or_default()
 }
 
+/// Every key the action named `name` is bound to, yours and the window's,
+/// as the keymap writes them ("cmd-shift-k"): what to take from it to
+/// leave it none.
+pub fn every_key_of(cx: &App, name: &str) -> Vec<String> {
+    let Some(action) = action(name) else {
+        return Vec::new();
+    };
+    let os = cx.platform_info().os;
+    let keymap = cx.key_bindings();
+    let keymap = keymap.borrow();
+    keymap
+        .bindings_for_action(action.as_ref())
+        .map(|b| {
+            b.keystrokes()
+                .iter()
+                .map(|k| {
+                    Keystroke {
+                        modifiers: *k.modifiers(),
+                        key: k.key().into(),
+                        key_char: None,
+                    }
+                    .unparse(os)
+                })
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .collect()
+}
+
+/// An action as Settings › Keybindings lists it: its keys now, as the key
+/// recorder writes them ("⇧+⌘+K"; empty, none), where they hold, and
+/// whether they are yours (from your keybindings.json).
+pub struct Bound {
+    pub name: &'static str,
+    pub does: &'static str,
+    pub keys: String,
+    pub when: Option<String>,
+    pub yours: bool,
+}
+
+/// Each action in `ACTIONS`, as it is bound now over `yours`.
+pub fn bound(cx: &App, yours: &[Binding]) -> Vec<Bound> {
+    ACTIONS
+        .iter()
+        .map(|&(name, does, _)| {
+            let binding = last_binding(cx, name);
+            let keys = binding.as_ref().map_or_else(String::new, |b| {
+                b.keystrokes()
+                    .iter()
+                    .map(|k| combo(k.modifiers(), key_name(k.key()).as_deref()))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            });
+            Bound {
+                name,
+                does,
+                keys,
+                when: binding.and_then(|b| b.predicate()).map(|p| p.to_string()),
+                yours: yours.iter().any(|b| b.is_for(name)),
+            }
+        })
+        .collect()
+}
+
+/// The action other than `of` among `all` that has the same keys where
+/// they hold: one of the two never runs.
+pub fn clash<'a>(all: &'a [Bound], of: &Bound) -> Option<&'a Bound> {
+    (!of.keys.is_empty())
+        .then(|| {
+            all.iter()
+                .find(|b| b.name != of.name && b.keys == of.keys && b.when == of.when)
+        })
+        .flatten()
+}
+
 /// Keystrokes as gpui-kit's key chip writes them ("⇧⌘M"), one after
 /// another.
 pub fn written(keys: &[Keystroke]) -> String {
@@ -419,8 +427,8 @@ pub fn written(keys: &[Keystroke]) -> String {
 pub enum Keys {
     /// u0's again: yours for it taken away.
     Defaults,
-    /// These ("cmd-shift-k").
-    Yours(String),
+    /// These ("cmd-shift-k"), where `when` holds; none, everywhere.
+    Yours { key: String, when: Option<String> },
     /// None: the keys it has now taken from it.
     Off(Vec<String>),
 }
@@ -431,31 +439,34 @@ pub enum Keys {
 pub fn set_yours(home: &Path, name: &str, keys: Keys) -> Result<Vec<Binding>, String> {
     let path = home.join("keybindings.json");
     let mut list: Vec<Binding> = crate::whole::read_json(&path)?;
+    list.retain(|b| !b.is_for(name));
     let off = format!("-{name}");
-    list.retain(|b| b.action != name && b.action != off);
-    let bound = |key, action: &str| Binding {
+    let bound = |key, action: &str, when| Binding {
         key,
         action: action.to_owned(),
-        when: None,
+        when,
     };
     match keys {
         Keys::Defaults => {}
-        Keys::Yours(key) => list.push(bound(key, name)),
-        Keys::Off(keys) => list.extend(keys.into_iter().map(|k| bound(k, &off))),
+        Keys::Yours { key, when } => list.push(bound(key, name, when)),
+        Keys::Off(keys) => list.extend(keys.into_iter().map(|k| bound(k, &off, None))),
     }
-    let text = serde_json::to_vec_pretty(&list).map_err(|e| e.to_string())?;
-    crate::whole::write(&path, &text).map_err(|e| e.to_string())?;
-    Ok(list)
+    keep(&path, list)
 }
 
-/// The action other than `name` that `key` is bound to now, if one is.
-pub fn taken(cx: &App, name: &str, key: &Keystroke) -> Option<&'static str> {
-    let key = Kbd::format(key);
-    ACTIONS
-        .iter()
-        .filter(|(n, _, _)| *n != name)
-        .find(|(n, _, _)| written(&keys_of(cx, n)) == key)
-        .map(|(_, does, _)| *does)
+/// Every action's keys u0's again: your keybindings.json emptied, your
+/// bindings now (none). A file that does not read is left alone. Blocking.
+pub fn forget_yours(home: &Path) -> Result<Vec<Binding>, String> {
+    let path = home.join("keybindings.json");
+    crate::whole::read_json::<Vec<Binding>>(&path)?;
+    keep(&path, Vec::new())
+}
+
+/// `list` written whole to `path`, and given back.
+fn keep(path: &Path, list: Vec<Binding>) -> Result<Vec<Binding>, String> {
+    let text = serde_json::to_vec_pretty(&list).map_err(|e| e.to_string())?;
+    crate::whole::write(path, &text).map_err(|e| e.to_string())?;
+    Ok(list)
 }
 
 /// The bindings in `home`'s `keybindings.json`; none where there is none,
@@ -762,8 +773,12 @@ mod tests {
     fn a_key_of_yours_replaces_your_last_for_that_action_and_a_broken_file_is_left_alone() {
         let home = tempfile::tempdir().unwrap();
         let home = home.path();
-        set_yours(home, "palette", Keys::Yours("cmd-shift-k".into())).unwrap();
-        let list = set_yours(home, "palette", Keys::Yours("cmd-y".into())).unwrap();
+        let mine = |key: &str| Keys::Yours {
+            key: key.into(),
+            when: None,
+        };
+        set_yours(home, "palette", mine("cmd-shift-k")).unwrap();
+        let list = set_yours(home, "palette", mine("cmd-y")).unwrap();
         assert_eq!(list.len(), 1);
         let (loaded, refused) = yours(home);
         assert_eq!(loaded[0].key, "cmd-y");
@@ -776,9 +791,25 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+        // Where it holds is kept with it; every action given back empties the file.
+        let when = Some("Terminal".to_owned());
+        let list = set_yours(
+            home,
+            "clear_terminal",
+            Keys::Yours {
+                key: "ctrl-l".into(),
+                when: when.clone(),
+            },
+        )
+        .unwrap();
+        assert_eq!(list[0].when, when);
+        set_yours(home, "palette", mine("cmd-y")).unwrap();
+        assert!(forget_yours(home).unwrap().is_empty());
+        assert!(yours(home).0.is_empty());
         std::fs::write(home.join("keybindings.json"), "{ not json").unwrap();
         assert!(yours(home).1.is_some());
         assert!(set_yours(home, "palette", Keys::Defaults).is_err());
+        assert!(forget_yours(home).is_err());
         assert_eq!(
             std::fs::read_to_string(home.join("keybindings.json")).unwrap(),
             "{ not json"
@@ -790,14 +821,30 @@ mod tests {
         for (name, _, _) in ACTIONS {
             assert!(action(name).is_some(), "{name}");
         }
-        let thread_group = GROUPS
-            .iter()
-            .find_map(|(g, names)| (*g == "The thread").then_some(*names))
-            .unwrap();
-        for name in ["find_next", "find_previous", "use_selection_for_find"] {
-            assert!(thread_group.contains(&name), "{name}");
-        }
         assert!(action("no_such_action").is_none());
+    }
+
+    #[test]
+    fn keys_clash_only_with_the_same_keys_where_they_hold_alike() {
+        let b = |name, keys: &str, when: Option<&str>| Bound {
+            name,
+            does: name,
+            keys: keys.into(),
+            when: when.map(Into::into),
+            yours: false,
+        };
+        let all = [
+            b("drawer", "⌘+J", None),
+            b("review", "⌘+J", None),
+            b("next_terminal", "⌘+}", Some("Terminal")),
+            b("next_session", "⌘+}", None),
+            b("issues", "", None),
+            b("pull_requests", "", None),
+        ];
+        assert_eq!(clash(&all, &all[0]).map(|b| b.name), Some("review"));
+        assert_eq!(clash(&all, &all[1]).map(|b| b.name), Some("drawer"));
+        assert!(clash(&all, &all[2]).is_none());
+        assert!(clash(&all, &all[4]).is_none());
     }
 
     #[test]

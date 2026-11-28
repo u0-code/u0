@@ -5,9 +5,24 @@ description: u0's default keys, every action you can bind, and keybindings.json.
 
 # Keybindings
 
-**Settings › Keybindings** lists every action with its keys and lets you
-change them. What you change is written to `keybindings.json` in u0's
-home, which you can also edit by hand.
+**Settings › Keybindings** is a table of every action: its keys now,
+where they hold (**When**), and **Custom** where they are yours. Search
+by what an action does or by its keys (type `⌘J` or `⌘+J`), and **Show**
+**All**, **Customized**, **With problems** or **Unbound**. Two actions
+with the same keys where they hold clash, as only one of them runs: both
+rows carry a warning, and a banner above the table says so (**Show
+them**).
+
+**Edit keybinding** (the pencil at a row's end) opens the action under
+its row: press **Keys** and then the shortcut (even one u0 already
+uses; Esc stops recording), and write **When** (empty: everywhere). A
+clash with another action is said under the keys before you save. **Save**
+binds it; keys cleared and saved take the action's keys away; **Reset to
+default** gives it u0's keys back. **Reset all keybindings…** empties
+`keybindings.json` after asking.
+
+What you change is written to `keybindings.json` in u0's home (**Open
+keybindings.json**), which you can also edit by hand.
 
 ## Default keys
 

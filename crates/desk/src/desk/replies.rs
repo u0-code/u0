@@ -156,6 +156,7 @@ impl Desk {
                 self.keys_refused = None;
                 cx.clear_key_bindings();
                 crate::keys::bind(cx, &yours);
+                self.keys_yours = yours;
             }
             Msg::Keys(Err(why)) => {
                 self.trouble(crate::tr("Couldn't keep the keys"), Some(why), None);

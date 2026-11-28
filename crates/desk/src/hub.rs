@@ -12,7 +12,10 @@
 //! bindings) runs on the ACP runtime too, and all of it comes back to the
 //! window as a [`Msg`] over one channel, which the desk reads in order.
 
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use tokio::sync::mpsc;
 
@@ -493,12 +496,15 @@ pub fn edit(
     });
 }
 
-/// Bind the action `name` to `key` in your keybindings.json (none: give
-/// it u0's keys back), on the writer, so that two binds made quickly
-/// are kept in the order they were made.
-pub fn set_keys(home: PathBuf, name: &'static str, keys: crate::keys::Keys, tx: Sender) {
+/// Change your keybindings.json in `home` with `change`, on the writer,
+/// so that two changes made quickly are kept in the order they were made.
+pub fn set_keys(
+    home: PathBuf,
+    change: impl FnOnce(&Path) -> Result<Vec<crate::keys::Binding>, String> + Send + 'static,
+    tx: Sender,
+) {
     crate::store::queue(crate::store::Job::Then(Box::new(move || {
-        let _ = tx.send(Msg::Keys(crate::keys::set_yours(&home, name, keys)));
+        let _ = tx.send(Msg::Keys(change(&home)));
     })));
 }
 

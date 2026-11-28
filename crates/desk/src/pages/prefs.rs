@@ -4,7 +4,7 @@
 //! `pages/`.
 
 use gpui::component::setting::{SettingField, SettingGroup, SettingItem, SettingPage};
-use gpui::component::{Disableable as _, Sizable as _, kbd::Kbd, switch::Switch};
+use gpui::component::{Disableable as _, Sizable as _, switch::Switch};
 use gpui::{AnyElement, App, Context, Div, SharedString, WeakEntity, div, prelude::*, px};
 use u0ui::{
     components::button::{Button as CarbonButton, ButtonSize, ButtonVariant},
@@ -17,7 +17,6 @@ use crate::{
     desk::Desk,
     fonts::{Faces, Weighted as _},
     hub::Host,
-    keys,
     settings::{Notify, Quit, Settings, Submodules},
     theme,
     ui::{self, Pick, Weight},
@@ -457,6 +456,7 @@ impl Desk {
                 ))
             }
             Tab::Appearance => Some(self.appearance_tab(query, faces, cx)),
+            Tab::Keybindings => Some(self.keybindings_tab(query, faces, cx)),
             _ => None,
         }
     }
@@ -876,7 +876,6 @@ impl Desk {
                     ),
                 ],
             ),
-            Tab::Keybindings => return Some(keyboard(w, banners)),
             Tab::Writing => return Some(Self::writing_tab(w, banners)),
             Tab::Browser => return Some(self.browser_tab(w, banners)),
             Tab::About => return Some(self.about_u0(w, banners)),
@@ -1032,65 +1031,6 @@ impl Desk {
         page.group(SettingGroup::new().items(rows))
             .group(self.updates_group(w))
     }
-
-    fn keys_of(&self, name: &'static str, cx: &mut Context<Self>) -> Div {
-        let faces = crate::fonts::faces(cx).clone();
-        let bound = keys::keys_of(cx, name);
-        let os = cx.platform_info().os;
-        let unparsed: Vec<String> = bound.iter().map(|k| k.unparse(os)).collect();
-        let off = (!bound.is_empty()).then(|| {
-            ui::icon_button(
-                SharedString::from(format!("unassign-{name}")),
-                "minus",
-                crate::tr("Take its keys away"),
-            )
-            .size(px(22.))
-            .text_color(theme::faint())
-            .on_click(cx.listener(move |this, _, _, _| {
-                this.set_keys(name, keys::Keys::Off(unparsed.clone()));
-            }))
-        });
-        let keys = div()
-            .flex()
-            .gap(px(4.))
-            .children(bound.into_iter().map(Kbd::new));
-        div()
-            .flex()
-            .items_center()
-            .child(
-                div()
-                    .id(SharedString::from(format!("record-{name}")))
-                    .cursor_pointer()
-                    .rounded(px(6.))
-                    .px(px(4.))
-                    .hover(|st| st.bg(theme::hover()))
-                    .child(if self.pages.recording == Some(name) {
-                        ui::text(&faces, crate::tr("Press the keys…  Escape to keep these"))
-                            .text_size(px(crate::style::CAPTION))
-                            .text_color(theme::link())
-                            .into_any_element()
-                    } else {
-                        keys.into_any_element()
-                    })
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.pages.recording = Some(name);
-                        cx.notify();
-                    })),
-            )
-            .children(off)
-            .child(
-                ui::icon_button(
-                    SharedString::from(format!("unbind-{name}")),
-                    "retry",
-                    crate::tr("Back to u0's keys"),
-                )
-                .size(px(22.))
-                .text_color(theme::faint())
-                .on_click(cx.listener(move |this, _, _, _| {
-                    this.set_keys(name, keys::Keys::Defaults);
-                })),
-            )
-    }
 }
 
 pub(super) fn managed_info_banner(faces: &Faces) -> Div {
@@ -1132,66 +1072,6 @@ pub(super) fn managed_info_banner(faces: &Faces) -> Div {
                     .text_color(theme::text2()),
                 ),
         )
-}
-
-fn keyboard(w: &WeakEntity<Desk>, banners: Option<SettingGroup>) -> SettingPage {
-    let grouped = |name: &str| keys::GROUPS.iter().position(|(_, g)| g.contains(&name));
-    let mut groups: Vec<(&str, Vec<SettingItem>)> = keys::GROUPS
-        .iter()
-        .map(|(title, _)| (*title, Vec::new()))
-        .chain(std::iter::once(("Other", Vec::new())))
-        .collect();
-    for (name, does, _) in keys::ACTIONS {
-        let at = grouped(name).unwrap_or(keys::GROUPS.len());
-        let w = w.clone();
-        groups[at].1.push(
-            SettingItem::new(
-                crate::tr(does),
-                SettingField::render(move |_, _, cx| {
-                    w.update(cx, |d, cx| d.keys_of(name, cx).into_any_element())
-                        .unwrap_or_else(|_| div().into_any_element())
-                }),
-            )
-            .keywords([name]),
-        );
-    }
-    let file = w.clone();
-    let file = SettingItem::render(move |_, _, cx| {
-        file.update(cx, |d, cx| {
-            let faces = crate::fonts::faces(cx).clone();
-            let path = d.home.join("keybindings.json");
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(10.))
-                .child(ui::fine(
-                    &faces,
-                    crate::tr("{ \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }; the last match wins."),
-                ))
-                .child(div().flex().child(
-                    ui::button("open-keys", crate::tr("Open keybindings.json"), Weight::Secondary).on_click(
-                        cx.listener(move |this, _, _, _| {
-                            this.edit(path.clone(), Some(b"[]\n"));
-                        }),
-                    ),
-                ))
-                .into_any_element()
-        })
-        .unwrap_or_else(|_| div().into_any_element())
-    })
-    .keywords(["keybindings.json"]);
-    let mut page = SettingPage::new(super::Tab::Keybindings.title())
-        .description(crate::tr("The keys as they are now, yours over u0's."));
-    if let Some(b) = banners {
-        page = page.group(b);
-    }
-    page.groups(
-        groups
-            .into_iter()
-            .filter(|(_, items)| !items.is_empty())
-            .map(|(title, items)| group(title, items)),
-    )
-    .group(SettingGroup::new().item(file))
 }
 
 /// A setting as gpui-kit's Settings draws one: what it is, said plainly

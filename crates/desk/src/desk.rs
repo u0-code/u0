@@ -187,6 +187,8 @@ pub struct Desk {
     /// Why `keybindings.json` could not be read, while that is so: u0 uses
     /// its own keys and leaves the file untouched.
     pub keys_refused: Option<String>,
+    /// Your bindings in `keybindings.json`, as they last read.
+    pub keys_yours: Vec<crate::keys::Binding>,
     /// What is being renamed, and the line for it.
     pub renaming: Option<lists::Renaming>,
     pub rename: Entity<InputState>,
@@ -466,8 +468,7 @@ impl Desk {
         cx.intercept_keystrokes(move |e, window, cx| {
             let took = me
                 .update(cx, |d, cx| {
-                    d.record_key(&e.keystroke, cx)
-                        || d.escape_closes(&e.keystroke, window, cx)
+                    d.escape_closes(&e.keystroke, window, cx)
                         || d.palette_keys(&e.keystroke, window, cx)
                         || d.offer_keys(&e.keystroke, window, cx)
                         || d.picker_keys(&e.keystroke, window, cx)
@@ -611,13 +612,14 @@ impl Desk {
         let dialogs = crate::thread::ThreadDialogs::new(window, cx);
         let onboarding = crate::thread::Onboarding::new(window, cx);
         let registry = registry::kept(&home).unwrap_or_default();
-        let keys_refused = crate::keys::yours(&home).1;
+        let (keys_yours, keys_refused) = crate::keys::yours(&home);
         hub::on_path(tx.clone());
         let mut desk = Self {
             home,
             settings,
             settings_refused,
             keys_refused,
+            keys_yours,
             renaming: None,
             zoom: None,
             filter: Vec::new(),
@@ -1867,6 +1869,9 @@ impl Desk {
             cx.notify();
         } else if self.pages.pairing_modal.is_some() {
             self.close_pairing_dialog(window, cx);
+        } else if self.pages.open && self.pages.editing_keys.is_some() {
+            self.pages.editing_keys = None;
+            cx.notify();
         } else if self.pages.open && self.pages.editing_theme.is_some() {
             self.close_theme_editor(cx);
         } else if self.pages.open {
@@ -1927,37 +1932,6 @@ impl Desk {
             "enter" | "tab" => self.take_offer(self.composer.offer.min(count - 1), window, cx),
             _ => return false,
         }
-        cx.notify();
-        true
-    }
-
-    /// Take the keys pressed for the action being recorded: bound to it in
-    /// your keybindings.json (a notice if another had them); Escape lets
-    /// it be. Whether the keystroke was taken.
-    pub(crate) fn record_key(&mut self, k: &gpui::Keystroke, cx: &mut Context<Self>) -> bool {
-        let Some(name) = self.pages.recording else {
-            return false;
-        };
-        if matches!(
-            k.key.as_str(),
-            "shift" | "control" | "alt" | "platform" | "function" | ""
-        ) {
-            return true;
-        }
-        self.pages.recording = None;
-        if k.key == "escape" && !k.modifiers.modified() {
-            cx.notify();
-            return true;
-        }
-        let key = k.unparse(cx.platform_info().os);
-        if let Some(other) = crate::keys::taken(cx, name, k) {
-            self.trouble(
-                crate::tr_with("Those keys were “%{other}”'s too", &[("other", &other)]),
-                Some(crate::tr("Yours now win; change that one if you want both.").into()),
-                None,
-            );
-        }
-        self.set_keys(name, crate::keys::Keys::Yours(key));
         cx.notify();
         true
     }
@@ -2106,6 +2080,7 @@ impl Desk {
         if refused.is_none() {
             cx.clear_key_bindings();
             crate::keys::bind(cx, &yours);
+            self.keys_yours = yours;
         }
         self.keys_refused = refused;
     }
@@ -2131,7 +2106,7 @@ impl Desk {
     /// The settings' dialog has gone, closed here or by a click beside it.
     fn settings_closed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.pages.open = false;
-        self.pages.recording = None;
+        self.pages.editing_keys = None;
         self.pages.editing_theme = None;
         window.focus(&self.composer.input.focus_handle(cx), cx);
         cx.notify();
@@ -2497,10 +2472,20 @@ impl Desk {
         }
     }
 
-    /// Bind the action `name` to `key` in your keybindings.json, or with
-    /// none give it u0's keys back, off the window's thread.
+    /// Set the keys of the action `name` in your keybindings.json as
+    /// `keys` says, off the window's thread.
     pub fn set_keys(&self, name: &'static str, keys: crate::keys::Keys) {
-        hub::set_keys(self.home.clone(), name, keys, self.tx.clone());
+        let change = move |home: &std::path::Path| crate::keys::set_yours(home, name, keys);
+        hub::set_keys(self.home.clone(), change, self.tx.clone());
+    }
+
+    /// Every action's keys u0's again, off the window's thread.
+    pub fn forget_keys(&self) {
+        hub::set_keys(
+            self.home.clone(),
+            crate::keys::forget_yours,
+            self.tx.clone(),
+        );
     }
 
     /// Write `text` to `path` whole, off the window's thread, and say so.
