@@ -184,8 +184,12 @@ composer, or else the agent's last answer.
 
 ⇧⌘M (or the model chip) opens the model picker: **Favourites** and the
 agents down its left, the tab's models in the middle (each with what its
-agent says of it, ⌘1–⌘9 beside the first nine), the agent's options at
-the right, and **Agent settings** under the tabs. An agent that is
+agent says of it, ⌘1–⌘9 beside the first nine), that agent's options at
+the right (another agent's tab shows what a thread of it begins with, or
+none until it has said; a search, or **Favourites**, shows the thread's
+own), and **Agent settings** under the tabs. On a new thread, changing
+another agent's option moves the thread to that agent, as choosing its
+model does. An agent that is
 starting, installing, not installed, failed or signed out says so on its tab,
 and one that needs you has a button above its models (**Agent settings** or
 **Sign in**); choosing a tab clears the search. In a narrow window the tabs show only the

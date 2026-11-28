@@ -170,14 +170,7 @@ impl Desk {
     /// ids after the agent's; your favourites first.
     fn models_of(&self, s: &Session, agent: &str) -> Vec<Model> {
         let mine = agent == s.meta.agent;
-        let options = if mine {
-            &s.options
-        } else {
-            match self.slot(s.host, agent).and_then(|x| x.probe.as_ref()) {
-                Some(p) => &p.options,
-                None => return Vec::new(),
-            }
-        };
+        let options = self.options_of(s, agent);
         let Some(option) = options.iter().find(|o| o.category == Some(Category::Model)) else {
             return Vec::new();
         };
@@ -331,11 +324,12 @@ impl Desk {
                 row
             })
             .collect();
-        let effort = (s.options.iter())
+        let (agent, options) = self.options_shown(s, &query);
+        let effort = (options.iter())
             .find(|o| o.category == Some(Category::ThoughtLevel))
             .and_then(picker_option);
-        let fast = speed(&s.options);
-        let others = (s.options.iter())
+        let fast = speed(options);
+        let others = (options.iter())
             .filter(|o| {
                 !matches!(
                     o.category,
@@ -423,10 +417,10 @@ impl Desk {
                 d.toggle_also_run(&m.agent, Some(m.value.clone()), cx);
             }))
             .on_option_change({
-                let desk = desk.clone();
+                let (desk, agent) = (desk.clone(), agent.clone());
                 move |config, value, _, cx| {
                     desk.update(cx, |d, cx| {
-                        d.set_option(config.to_string(), value.to_string(), cx);
+                        d.choose_of(&agent, config.to_string(), value.to_string(), cx);
                         d.popup = Popup::Model;
                     });
                 }
@@ -444,7 +438,7 @@ impl Desk {
                 move |_, _, cx| {
                     if let Some(Speed { config, other, .. }) = &fast {
                         desk.update(cx, |d, cx| {
-                            d.set_option(config.clone(), other.clone(), cx);
+                            d.choose_of(&agent, config.clone(), other.clone(), cx);
                             d.popup = Popup::Model;
                         });
                     }
@@ -571,22 +565,53 @@ impl Desk {
     /// Pick `m`: on a new session of another agent, the session becomes
     /// that agent's first.
     fn pick_model(&mut self, m: &Model, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(s) = self.session() else { return };
-        if m.agent != s.meta.agent {
-            if !s.is_draft() {
-                return;
-            }
-            self.switch_agent(&m.agent, cx);
-        }
         self.composer
             .draft
             .also_run
             .retain(|(a, v)| !(a == &m.agent && v.as_deref() == Some(m.value.as_str())));
-        self.set_option(m.config.clone(), m.value.clone(), cx);
+        self.choose_of(&m.agent, m.config.clone(), m.value.clone(), cx);
         window.focus(
             &gpui::Focusable::focus_handle(self.composer.input.read(cx), cx),
             cx,
         );
+    }
+
+    /// Set `agent`'s option `config` to `value`: on a new session of
+    /// another agent, the session becomes that agent's first; a session
+    /// begun with one agent takes no other's.
+    fn choose_of(&mut self, agent: &str, config: String, value: String, cx: &mut Context<Self>) {
+        let Some(s) = self.session() else { return };
+        if agent != s.meta.agent {
+            if !s.is_draft() {
+                return;
+            }
+            self.switch_agent(agent, cx);
+        }
+        self.set_option(config, value, cx);
+    }
+
+    /// The options of `agent`: the session's own for the session's agent,
+    /// else what a session of it begins with (none while it has not said).
+    fn options_of<'a>(&'a self, s: &'a Session, agent: &str) -> &'a [SessionConfigOption] {
+        if agent == s.meta.agent {
+            &s.options
+        } else {
+            (self.slot(s.host, agent).and_then(|x| x.probe.as_ref()))
+                .map_or(&[], |p| p.options.as_slice())
+        }
+    }
+
+    /// The options the picker shows beside the models, and whose they
+    /// are: those of the agent whose tab is open; else, as models are
+    /// searched or favourites shown, the session's own.
+    fn options_shown<'a>(
+        &'a self,
+        s: &'a Session,
+        query: &str,
+    ) -> (String, &'a [SessionConfigOption]) {
+        let agent = whose(&self.picker.rail, query, &s.meta.agent).to_owned();
+        let options = self.options_of(s, &agent);
+        (agent, options)
     }
 
     /// Star `f`, or take its star away.
@@ -662,6 +687,16 @@ impl Desk {
             self.pick_model(&chosen, window, cx);
             self.close_popup(window, cx);
         }
+    }
+}
+
+/// Whose options the picker shows: the agent of the tab open, unless
+/// models are searched across every agent or your favourites are shown,
+/// when they are the session's agent's (`mine`).
+fn whose<'a>(rail: &'a Rail, query: &str, mine: &'a str) -> &'a str {
+    match rail {
+        Rail::Agent(a) if query.is_empty() => a,
+        _ => mine,
     }
 }
 
@@ -749,7 +784,7 @@ fn shown_by(query: &str, value: &str, label: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{Need, about_of, need_of, picker_option, speed};
+    use super::{Need, Rail, about_of, need_of, picker_option, speed, whose};
     use crate::hub::{Auth, Install, Stage};
     use agent_client_protocol::v1::schema::NewSessionResponse;
 
@@ -817,6 +852,18 @@ mod tests {
             Some("Fast and affordable model for easier tasks.")
         );
         assert_eq!(about_of(&of("model").kind, "gpt-unknown"), None);
+    }
+
+    #[test]
+    fn another_agents_tab_shows_that_agents_options_not_the_sessions() {
+        let other = Rail::Agent("gemini".into());
+        assert_eq!(whose(&other, "", "codex-acp"), "gemini");
+        let own = Rail::Agent("codex-acp".into());
+        assert_eq!(whose(&own, "", "codex-acp"), "codex-acp");
+        // Searching shows models of every agent, and favourites mix them:
+        // the options beside them stay the session's.
+        assert_eq!(whose(&other, "flash", "codex-acp"), "codex-acp");
+        assert_eq!(whose(&Rail::Favourites, "", "codex-acp"), "codex-acp");
     }
 
     #[test]
