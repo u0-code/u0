@@ -1,25 +1,22 @@
-//! The model picker, as T3 Code draws it: the agents down a rail, your
-//! favourites over them; the chosen one's models in the middle; how hard
-//! it thinks and its other options at the right; its mode at the foot.
-//! A session that has begun is its agent's: ACP hands nothing over, so the
-//! other agents wait for a new session.
+//! The model picker, u0ui's `ModelPicker`, as T3 Code draws it: the
+//! agents down a rail, your favourites over them; the chosen one's models
+//! in the middle; how hard it thinks and its other options at the right;
+//! its mode at the foot. A session that has begun is its agent's: ACP hands
+//! nothing over, so the other agents wait for a new session.
+
+use std::rc::Rc;
 
 use agent_client_protocol::v1::schema::{
-    SessionConfigOption, SessionConfigOptionCategory as Category,
+    SessionConfigKind, SessionConfigOption, SessionConfigOptionCategory as Category,
+    SessionConfigSelectOptions,
 };
-use gpui::component::{
-    Disableable as _, Selectable as _, Sizable as _,
-    button::{Button, ButtonVariants as _},
-    input::Input,
-    kbd::Kbd,
-    list::ListItem,
-    popover::Popover,
-    scroll::ScrollableElement as _,
-    separator::Separator,
+use gpui::component::{Selectable as _, kbd::Kbd, popover::Popover};
+use gpui::{Anchor, App, Context, Entity, SharedString, Window, div, prelude::*, px};
+use u0ui::icons::CarbonIcon;
+use u0ui::t3::composer::{
+    ComposerControl, EffortGlyph, EffortLevel, ModelPicker, ModelPickerTexts, PickerChoice,
+    PickerMark, PickerModel, PickerOption, PickerProvider, PickerSwitch,
 };
-use gpui::{Anchor, Context, Div, SharedString, Stateful, Window, div, prelude::*, px};
-use u0ui::components::switch::{Switch, SwitchSize};
-use u0ui::t3::composer::ComposerControl;
 
 use super::{composer::over_box, select_choices};
 use crate::{
@@ -28,11 +25,14 @@ use crate::{
     hub::{Auth, Stage},
     session::Session,
     settings::Favourite,
-    theme, ui,
+    ui,
 };
 
 /// What the picker leaves of the thread's column, at its edges together.
 const PICKER_MARGIN: f32 = 16.;
+
+/// The favourites' tab, among the agents' (whose ids are the registry's).
+const FAVOURITES: &str = "\u{2605}favourites";
 
 /// What the rail has chosen: your favourites, or one agent by id.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -58,6 +58,8 @@ struct Model {
     config: String,
     value: String,
     name: String,
+    /// What its agent says of it.
+    about: Option<String>,
     current: bool,
     gone: bool,
 }
@@ -111,16 +113,13 @@ impl Desk {
             .find(|o| o.category.as_ref() == Some(&Category::ThoughtLevel))
             .and_then(|o| crate::thread::select_choices(&o.kind))?;
         let at = levels.iter().position(|(_, _, on)| *on).unwrap_or_default();
-        let level = effort_level_of(at, levels.len());
+        let level = EffortLevel::among(at, levels.len());
         let open = self.picker_open();
         let desk = cx.entity();
         Some(
             ComposerControl::new("chip-effort", SharedString::from(effort))
                 .active(open)
-                .child(
-                    u0ui::t3::composer::EffortGlyph::new(level)
-                        .fast(speed(&s.options).is_some_and(|x| x.on)),
-                )
+                .child(EffortGlyph::new(level).fast(speed(&s.options).is_some_and(|x| x.on)))
                 .on_click(move |window, cx| {
                     desk.update(cx, |this, cx| {
                         if this.picker_open() {
@@ -159,7 +158,8 @@ impl Desk {
         self.picker.at = 0;
         self.menu_search.update(cx, |i, cx| {
             i.set_value("", window, cx);
-            i.set_placeholder(crate::tr("Search models…"), window, cx);
+            // The picker says what its search finds, over the field.
+            i.set_placeholder("", window, cx);
         });
         self.popup = Popup::Model;
         cx.notify();
@@ -188,6 +188,7 @@ impl Desk {
         let model = |value: String, name: String, current: bool, gone: bool| Model {
             agent: agent.to_owned(),
             config: config.clone(),
+            about: about_of(&option.kind, &value),
             value,
             name,
             current,
@@ -248,611 +249,258 @@ impl Desk {
         }
     }
 
-    /// The picker: its three columns over its foot, no wider than the
-    /// thread's column: in a narrow one the list narrows.
-    fn picker(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
+    /// The picker (u0ui's `ModelPicker`): the agents' tabs, the models
+    /// found or the tab's, the session's options as its agent states them,
+    /// and its foot; no wider than the thread's column, whose narrowest
+    /// leaves the tabs only their marks.
+    fn picker(&self, faces: &Faces, cx: &mut Context<Self>) -> gpui::AnyElement {
         let Some(s) = self.session() else {
-            return div();
+            return div().into_any_element();
         };
+        let (host, draft) = (s.host, s.is_draft());
         let query = self.menu_search.read(cx).value().trim().to_lowercase();
-        let models = self.shown_models(s, &query);
-        div()
-            .flex()
-            .flex_col()
-            .max_w(self.column.size.width - px(PICKER_MARGIN))
-            .rounded(px(0.))
-            .bg(theme::role(u0ui::tokens::ColorRole::Layer01))
-            .overflow_hidden()
-            .child(
-                div()
-                    .flex()
-                    .h(px(346.))
-                    .when(query.is_empty(), |d| d.child(self.rail(faces, s, cx)))
-                    .child(self.model_list(faces, s, &query, models, cx))
-                    .child(self.efforts(faces, s, cx)),
-            )
-            .child(self.picker_foot(faces, s, cx))
-    }
-
-    /// The rail: your favourites, then each agent switched on, the one
-    /// chosen selected, with u0ui's 3px `border-interactive` rail at its
-    /// start edge: inside its button, never over the list beside it.
-    fn rail(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Stateful<Div> {
-        let draft = s.is_draft();
-        let pill = || {
-            div()
-                .absolute()
-                .top_0()
-                .bottom_0()
-                .left_0()
-                .w(px(3.))
-                .bg(theme::role(u0ui::tokens::ColorRole::BorderInteractive))
+        let models = Rc::new(self.shown_models(s, &query));
+        let several = !query.is_empty() || self.picker.rail == Rail::Favourites;
+        let mark = |agent: &str| -> PickerMark {
+            let (faces, mark) = (faces.clone(), self.mark_of(agent));
+            Rc::new(move |size| ui::mark(&faces, &mark, size))
         };
-        let favourites = self.picker.rail == Rail::Favourites;
-        let mut rail = div()
-            .id("picker-rail")
-            .flex()
-            .flex_col()
-            .flex_none()
-            .items_center()
-            .w(px(44.))
-            .p(px(4.))
-            .gap(px(4.))
-            .bg(theme::rail())
-            .overflow_y_scroll()
-            .child(
-                div()
-                    .relative()
-                    .child(
-                        Button::new("rail-favourites")
-                            .ghost()
-                            .size(px(36.))
-                            .p_0()
-                            .selected(favourites)
-                            .child(ui::icon("star-fill", 18.).text_color(theme::text2()))
-                            .tooltip(crate::tr("Favourites"))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.picker.rail = Rail::Favourites;
-                                this.picker.at = 0;
-                                cx.notify();
-                            })),
-                    )
-                    .when(favourites, |d| d.child(pill())),
-            )
-            .child(Separator::horizontal().w(px(28.)));
-        for slot in self.slots_on(s.host) {
-            let id = slot.entry.id.clone();
-            let name = self.name_of(&id);
-            let bound = !draft && id != s.meta.agent;
-            let needs = matches!(slot.auth, Auth::Needed(_));
+        let mut tabs = vec![
+            PickerProvider::new(FAVOURITES, crate::tr("Favourites")).icon(CarbonIcon::StarFilled),
+        ];
+        for slot in self.slots_on(host) {
+            let id = slot.entry.id.as_str();
+            let name = self.name_of(id);
             let said = |english: &str| crate::tr_with(english, &[("name", &name)]);
-            let tip = if bound {
-                said("%{name} can't take over this thread. Start a new thread to use it.")
-            } else {
-                match &slot.stage {
-                    Stage::Starting => said("%{name}: Starting"),
-                    Stage::Failed(why) => crate::tr_with(
+            let mut tab = PickerProvider::new(id.to_owned(), name.clone()).mark(mark(id));
+            tab = match &slot.stage {
+                Stage::Starting => tab.starting(true).notice_short(crate::tr("Starting")),
+                Stage::Failed(why) => tab
+                    .notice(said("%{name} cannot start yet"))
+                    .notice_action(crate::tr("Agent settings"))
+                    .tooltip(crate::tr_with(
                         "%{name}: Failed to start. %{why}",
                         &[("name", &name), ("why", why)],
-                    ),
-                    Stage::Missing(_) | Stage::Installing(_) => said("%{name}: Not installed yet"),
-                    _ if needs => said("%{name}: Sign in to use it"),
-                    _ => name.clone().into(),
-                }
+                    )),
+                Stage::Missing(_) | Stage::Installing(_) => tab
+                    .notice(said("%{name} cannot start yet"))
+                    .notice_action(crate::tr("Agent settings"))
+                    .notice_short(crate::tr("Not installed")),
+                _ if matches!(slot.auth, Auth::Needed(_)) => tab
+                    .notice(said("Sign in to %{name}"))
+                    .notice_action(crate::tr("Sign in")),
+                _ => tab,
             };
-            let chosen = self.picker.rail == Rail::Agent(id.clone());
-            let ready = slot.usable() && !needs && !bound;
-            let pick = id.clone();
-            rail = rail.child(
-                div()
-                    .relative()
-                    .when(!ready, |d| d.opacity(0.5))
-                    .child(
-                        Button::new(SharedString::from(format!("rail-{id}")))
-                            .ghost()
-                            .size(px(36.))
-                            .p_0()
-                            .selected(chosen)
-                            .disabled(bound)
-                            .child(ui::mark(faces, &self.mark_of(&id), 20.))
-                            .tooltip(tip)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.picker.rail = Rail::Agent(pick.clone());
-                                this.picker.at = 0;
-                                cx.notify();
-                            })),
-                    )
-                    .when(chosen, |d| d.child(pill())),
-            );
-        }
-        rail
-    }
-
-    /// The middle: the search, and the models found or the rail's.
-    fn model_list(
-        &self,
-        faces: &Faces,
-        s: &Session,
-        query: &str,
-        models: Vec<Model>,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let draft = s.is_draft();
-        let at = self.picker.at.min(models.len().saturating_sub(1));
-        let mut list = div()
-            .id("picker-models")
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_h(px(0.))
-            .px(px(8.))
-            .py(px(6.))
-            .gap(px(2.))
-            .overflow_y_scrollbar();
-        if models.is_empty() {
-            let says = match (&self.picker.rail, query.is_empty()) {
-                (_, false) => "No models found",
-                (Rail::Favourites, true) => "No favourites yet",
-                (Rail::Agent(_), true) => "It has not said its models yet",
-            };
-            list = list.child(
-                ui::text(faces, crate::tr(says))
-                    .p(px(12.))
-                    .text_size(px(crate::style::LABEL))
-                    .text_color(theme::faint()),
-            );
-        }
-        for (n, m) in models.into_iter().enumerate() {
-            let star = self.favourite(&m);
-            let highlighted = n == at;
-            let pickable = draft || m.agent == s.meta.agent;
-            let favourite = Favourite {
-                agent: m.agent.clone(),
-                model: m.value.clone(),
-            };
-            let picked = m.clone();
-            let also_on = draft
-                && !(m.current && m.agent == s.meta.agent)
-                && self
-                    .composer
-                    .draft
-                    .also_run
-                    .iter()
-                    .any(|(a, v)| a == &m.agent && v.as_deref() == Some(m.value.as_str()));
-            let also_target = (m.agent.clone(), Some(m.value.clone()));
-            let toggle_also =
-                std::rc::Rc::new(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
-                    this.toggle_also_run(&also_target.0, also_target.1.clone(), cx);
-                    cx.stop_propagation();
-                }));
-            // The star is its own button: a click on it is not a pick.
-            let toggle = std::rc::Rc::new(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
-                this.toggle_favourite(&favourite, cx);
-                cx.stop_propagation();
-            }));
-            list = list.child(
-                ListItem::new(SharedString::from(format!("model-{n}")))
-                    .h(px(32.))
-                    .px(px(8.))
-                    .py(px(4.))
-                    .rounded(px(4.))
-                    .selected(highlighted)
-                    .disabled(!pickable)
-                    .on_mouse_enter(cx.listener(move |this, _, _, cx| {
-                        if this.picker.at != n {
-                            this.picker.at = n;
-                            cx.notify();
-                        }
-                    }))
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.pick_model(&picked, window, cx);
-                        this.close_popup(window, cx);
-                    }))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(8.))
-                            .min_w(px(0.))
-                            .child(ui::mark(faces, &self.mark_of(&m.agent), 16.))
-                            .child(ui::one_line(
-                                ui::text(faces, m.name.clone())
-                                    .text_size(px(crate::style::BODY))
-                                    .line_height(px(20.)),
-                            ))
-                            .when(m.current, |d| {
-                                d.child(ui::icon("check", 14.).text_color(theme::text2()))
-                            })
-                            .when(m.gone, |d| {
-                                d.child(
-                                    ui::text(faces, crate::tr("Unavailable"))
-                                        .flex_none()
-                                        .px(px(5.))
-                                        .rounded(px(4.))
-                                        .border_1()
-                                        .border_color(theme::border2())
-                                        .text_size(px(crate::style::CAPTION))
-                                        .text_color(theme::faint()),
-                                )
-                            }),
-                    )
-                    .suffix(move |_, _| {
-                        let toggle = toggle.clone();
-                        let toggle_also = toggle_also.clone();
-                        div()
-                            .flex()
-                            .flex_none()
-                            .items_center()
-                            .gap(px(4.))
-                            .when(draft && !m.current && (highlighted || also_on), |d| {
-                                d.child(
-                                    ui::icon_button(
-                                        SharedString::from(format!("also-{n}")),
-                                        if also_on { "check" } else { "plus" },
-                                        crate::tr("Also run on"),
-                                    )
-                                    .xsmall()
-                                    .text_color(if also_on { theme::ok() } else { theme::faint() })
-                                    .on_click(move |e, window, cx| toggle_also(e, window, cx)),
-                                )
-                            })
-                            .when(highlighted || star, |d| {
-                                d.child(
-                                    ui::icon_button(
-                                        SharedString::from(format!("star-{n}")),
-                                        if star { "star-fill" } else { "star" },
-                                        crate::tr(if star {
-                                            "Remove from favourites"
-                                        } else {
-                                            "Add to favourites"
-                                        }),
-                                    )
-                                    .xsmall()
-                                    .text_color(if star { theme::coral() } else { theme::faint() })
-                                    .on_click(move |e, window, cx| toggle(e, window, cx)),
-                                )
-                            })
-                            .when(n < 9 && pickable, |d| {
-                                d.child(Kbd::new(crate::keys::numbered(n + 1)))
-                            })
-                    }),
-            );
-        }
-        let notice = match &self.picker.rail {
-            Rail::Agent(a) if query.is_empty() => self.picker_notice(faces, a, cx),
-            _ => None,
-        };
-        div()
-            .flex()
-            .flex_col()
-            .w(px(316.))
-            .min_w(px(0.))
-            .border_l_1()
-            .border_r_1()
-            .border_color(theme::border2())
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(6.))
-                    .mx(px(12.))
-                    .mt(px(10.))
-                    .mb(px(4.))
-                    .border_b_1()
-                    .border_color(theme::border2())
-                    .child(ui::icon("search", 16.).text_color(theme::faint()))
-                    .child(
-                        div()
-                            .flex_1()
-                            .child(Input::new(&self.menu_search).appearance(false).small()),
-                    ),
-            )
-            .child(list)
-            .children(notice)
-    }
-
-    /// Under the list, for an agent that needs you before it can be used.
-    fn picker_notice(&self, faces: &Faces, agent: &str, cx: &mut Context<Self>) -> Option<Div> {
-        let host = self.session()?.host;
-        let slot = self.slot(host, agent)?;
-        let name = self.name_of(agent);
-        let (says, button) = match &slot.stage {
-            Stage::Missing(_) | Stage::Failed(_) => (
-                crate::tr_with("%{name} cannot start yet", &[("name", &name)]),
-                ui::button(
-                    "picker-agents",
-                    crate::tr("Agent settings"),
-                    ui::Weight::Secondary,
-                )
-                .on_click(cx.listener(|this, _, window, cx| {
-                    this.close_popup(window, cx);
-                    this.open_tab(crate::pages::Tab::Agents, window, cx);
-                })),
-            ),
-            _ if matches!(slot.auth, Auth::Needed(_)) => {
-                let agent = agent.to_owned();
-                (
-                    crate::tr_with("Sign in to %{name}", &[("name", &name)]),
-                    ui::button("picker-sign-in", crate::tr("Sign in"), ui::Weight::Primary)
-                        .on_click(
-                            cx.listener(move |this, _, _, cx| this.sign_in_agent(host, &agent, cx)),
-                        ),
-                )
+            if !draft && id != s.meta.agent {
+                tab = tab.disabled(true).tooltip(said(
+                    "%{name} can't take over this thread. Start a new thread to use it.",
+                ));
             }
-            _ => return None,
-        };
-        Some(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .px(px(12.))
-                .py(px(10.))
-                .border_t_1()
-                .border_color(theme::border2())
-                .child(
-                    ui::text(faces, says)
-                        .flex_1()
-                        .text_size(px(crate::style::LABEL)),
-                )
-                .child(button),
-        )
-    }
-
-    /// The right: how hard it thinks, then every other option it offers.
-    fn efforts(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Stateful<Div> {
-        let effort = s
-            .options
-            .iter()
-            .find(|o| o.category == Some(Category::ThoughtLevel));
-        let speed = speed(&s.options);
-        let others: Vec<_> = s
-            .options
-            .iter()
+            tabs.push(tab);
+        }
+        let rows = (models.iter().enumerate())
+            .map(|(n, m)| {
+                let pickable = draft || m.agent == s.meta.agent;
+                let also_on = (self.composer.draft.also_run.iter())
+                    .any(|(a, v)| a == &m.agent && v.as_deref() == Some(m.value.as_str()));
+                let mut row = PickerModel::new(n.to_string(), m.name.clone())
+                    .chosen(m.current)
+                    .favourite(self.favourite(m))
+                    .disabled(!pickable);
+                if let Some(about) = &m.about {
+                    row = row.description(about.clone());
+                }
+                if several {
+                    row = row.mark(mark(&m.agent));
+                }
+                if m.gone {
+                    row = row.badge(crate::tr("Unavailable"));
+                }
+                if draft && !m.current {
+                    row = row.also(also_on);
+                }
+                if n < 9 && pickable {
+                    row = row.key(Kbd::format(&crate::keys::numbered(n + 1)));
+                }
+                row
+            })
+            .collect();
+        let effort = (s.options.iter())
+            .find(|o| o.category == Some(Category::ThoughtLevel))
+            .and_then(picker_option);
+        let fast = speed(&s.options);
+        let others = (s.options.iter())
             .filter(|o| {
                 !matches!(
                     o.category,
                     Some(Category::Model | Category::Mode | Category::ThoughtLevel)
                 )
             })
-            .filter(|o| speed.as_ref().is_none_or(|x| x.config != *o.id.0))
-            .filter_map(|o| select_choices(&o.kind).map(|c| (o, c)))
+            .filter(|o| fast.as_ref().is_none_or(|x| x.config != *o.id.0))
+            .filter_map(picker_option)
             .collect();
-        let head = match (effort, others.is_empty() && speed.is_none()) {
-            (Some(o), _) => o.name.clone(),
-            (None, false) => crate::tr("Options").to_string(),
-            (None, true) => crate::tr("Effort").to_string(),
+        let empty = match (&self.picker.rail, query.is_empty()) {
+            (_, false) => "No models found",
+            (Rail::Favourites, true) => "No favourites yet",
+            (Rail::Agent(_), true) => "It has not said its models yet",
         };
-        let mut column = div()
-            .id("picker-options")
-            .flex()
-            .flex_col()
-            .w(px(192.))
-            .flex_none()
-            .overflow_y_scroll()
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .h(px(33.))
-                    .px(px(12.))
-                    .border_b_1()
-                    .border_color(theme::border2())
-                    .child(
-                        ui::text(faces, head)
-                            .flex_1()
-                            .text_size(px(crate::style::BODY))
-                            .text_color(theme::muted()),
-                    )
-                    .children(Self::option_name(s, &Category::Model).map(|m| {
-                        ui::one_line(
-                            ui::text(faces, m)
-                                .text_size(px(crate::style::CAPTION))
-                                .text_color(theme::faint()),
-                        )
-                        .w_auto()
-                        .max_w(px(90.))
-                    })),
-            );
-        let mut rows = div().flex().flex_col().p(px(6.)).gap(px(2.));
-        match effort.map(|o| (o, select_choices(&o.kind))) {
-            Some((o, Some((_, choices)))) => {
-                let config = o.id.0.to_string();
-                for (n, (value, name, on)) in choices.into_iter().enumerate() {
-                    let config = config.clone();
-                    rows = rows.child(
-                        ListItem::new(SharedString::from(format!("effort-{n}")))
-                            .h(px(32.))
-                            .px(px(8.))
-                            .rounded(px(4.))
-                            .child(ui::text(faces, name).text_size(px(crate::style::BODY)))
-                            .when(on, |d| {
-                                d.suffix(|_, _| ui::icon("check", 14.).text_color(theme::text2()))
-                            })
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.set_option(config.clone(), value.clone(), cx);
-                                this.popup = Popup::Model;
-                            })),
-                    );
+        let texts = ModelPickerTexts {
+            needs_setup: crate::tr("Needs sign-in"),
+            settings: crate::tr("Agent settings"),
+            search: Rc::new(|_| crate::tr("Search models…")),
+            speed: crate::tr("Speed"),
+            empty: crate::tr(empty),
+            add_favourite: crate::tr("Add to favourites"),
+            remove_favourite: crate::tr("Remove from favourites"),
+            also: crate::tr("Also run on"),
+        };
+        let tab = match &self.picker.rail {
+            Rail::Favourites => FAVOURITES.into(),
+            Rail::Agent(a) => SharedString::from(a.clone()),
+        };
+        let open_option = match &self.popup {
+            Popup::Option(id) => Some(SharedString::from(id.clone())),
+            _ => None,
+        };
+        let desk = cx.entity();
+        let of = |f: fn(&mut Self, &Model, &mut Window, &mut Context<Self>)| {
+            let (desk, models) = (desk.clone(), models.clone());
+            move |id: SharedString, window: &mut Window, cx: &mut App| {
+                if let Some(m) = id.parse().ok().and_then(|n: usize| models.get(n)) {
+                    desk.update(cx, |d, cx| f(d, m, window, cx));
                 }
             }
-            _ if others.is_empty() && speed.is_none() => {
-                rows = rows.child(
-                    ui::text(faces, crate::tr("No effort levels"))
-                        .p(px(8.))
-                        .text_size(px(crate::style::LABEL))
-                        .text_color(theme::faint()),
-                );
-            }
-            _ => {}
-        }
-        column = column.child(rows);
-        if !others.is_empty() || speed.is_some() {
-            column = column.child(Separator::horizontal().mx(px(6.)));
-        }
-        if let Some(Speed {
-            config,
-            name,
-            on,
-            other,
-        }) = speed
-        {
-            let desk = cx.entity();
-            column = column.child(
-                div().px(px(14.)).py(px(10.)).child(
-                    Switch::new("option-speed")
-                        .size(SwitchSize::Sm)
-                        .checked(on)
-                        .label_off(name.clone())
-                        .label_on(name)
-                        .on_checked_change(move |_, _, cx| {
-                            desk.update(cx, |this, cx| {
-                                this.set_option(config.clone(), other.clone(), cx);
-                                this.popup = Popup::Model;
-                            });
-                        }),
-                ),
-            );
-        }
-        for (n, (o, (current, choices))) in others.into_iter().enumerate() {
-            column = column.child(self.option_row(faces, n, o, current, choices, cx));
-        }
-        column
-    }
-
-    /// An option beyond the model, its mode and its effort: its name over
-    /// its value, its choices opening beside it.
-    fn option_row(
-        &self,
-        faces: &Faces,
-        n: usize,
-        o: &SessionConfigOption,
-        current: String,
-        choices: super::Choices,
-        cx: &mut Context<Self>,
-    ) -> Popover {
-        let line = ui::opener(SharedString::from(format!("option-{n}")))
-            .w_full()
-            .h(px(44.))
-            .px(px(8.))
-            .child(
-                div()
-                    .flex()
-                    .flex_1()
-                    .items_center()
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w(px(0.))
-                            .child(
-                                ui::text(faces, o.name.clone())
-                                    .text_size(px(crate::style::CAPTION))
-                                    .text_color(theme::faint()),
-                            )
-                            .child(ui::one_line(
-                                ui::text(faces, current).text_size(px(crate::style::BODY)),
-                            )),
-                    )
-                    .child(ui::icon("chevron-right", 12.).text_color(theme::faint())),
-            );
-        let shown = Popup::Option(o.id.0.to_string());
-        let config = o.id.0.to_string();
-        let (desk, drawn, faces) = (cx.entity(), cx.entity(), faces.clone());
-        Popover::new(SharedString::from(format!("option-{n}-choices")))
-            .anchor(Anchor::LeftCenter)
-            .trigger_style(gpui::StyleRefinement::default().w_full().px(px(6.)))
-            .p(px(6.))
-            .open(self.popup == shown)
-            .trigger(line)
-            .on_open_change(move |open, _, cx| {
-                desk.update(cx, |d, cx| {
-                    if *open {
-                        d.popup = shown.clone();
-                    } else if d.popup == shown {
-                        d.popup = Popup::Model;
-                    }
+        };
+        let mut picker = ModelPicker::new("model-picker", tabs, &self.menu_search)
+            .provider(query.is_empty().then_some(tab))
+            .models(rows)
+            .highlighted(Some(self.picker.at.min(models.len().saturating_sub(1))))
+            .levels(effort)
+            .speed(fast.as_ref().map(|x| PickerSwitch {
+                label: x.name.clone().into(),
+                on: x.on,
+            }))
+            .options(others)
+            .open_option(open_option)
+            .max_width(self.column.size.width - px(PICKER_MARGIN))
+            .texts(texts)
+            .on_provider_change(Self::with(&desk, |d, id: SharedString, _, cx| {
+                d.picker.rail = if id == FAVOURITES {
+                    Rail::Favourites
+                } else {
+                    Rail::Agent(id.to_string())
+                };
+                d.picker.at = 0;
+                cx.notify();
+            }))
+            .on_choose(of(|d, m, window, cx| {
+                d.pick_model(m, window, cx);
+                d.close_popup(window, cx);
+            }))
+            .on_highlight(Self::with(&desk, |d, n: usize, _, cx| {
+                if d.picker.at != n {
+                    d.picker.at = n;
                     cx.notify();
-                });
+                }
+            }))
+            .on_favourite(of(|d, m, _, cx| {
+                let f = Favourite {
+                    agent: m.agent.clone(),
+                    model: m.value.clone(),
+                };
+                d.toggle_favourite(&f, cx);
+            }))
+            .on_also(of(|d, m, _, cx| {
+                d.toggle_also_run(&m.agent, Some(m.value.clone()), cx);
+            }))
+            .on_option_change({
+                let desk = desk.clone();
+                move |config, value, _, cx| {
+                    desk.update(cx, |d, cx| {
+                        d.set_option(config.to_string(), value.to_string(), cx);
+                        d.popup = Popup::Model;
+                    });
+                }
             })
-            .content(move |_, _, cx| {
-                drawn.update(cx, |_, cx| {
-                    let mut list = div().flex().flex_col().w(px(220.));
-                    for (k, (value, label, on)) in choices.clone().into_iter().enumerate() {
-                        let config = config.clone();
-                        list = list.child(
-                            ListItem::new(SharedString::from(format!("option-{k}")))
-                                .h(px(30.))
-                                .px(px(8.))
-                                .rounded(px(4.))
-                                .child(ui::text(&faces, label).text_size(px(crate::style::LABEL)))
-                                .when(on, |d| {
-                                    d.suffix(|_, _| {
-                                        ui::icon("check", 13.).text_color(theme::text2())
-                                    })
-                                })
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.set_option(config.clone(), value.clone(), cx);
-                                    this.popup = Popup::Model;
-                                })),
-                        );
+            .on_option_open(Self::with(&desk, |d, open: Option<SharedString>, _, cx| {
+                match open {
+                    Some(id) => d.popup = Popup::Option(id.to_string()),
+                    None if matches!(d.popup, Popup::Option(_)) => d.popup = Popup::Model,
+                    None => {}
+                }
+                cx.notify();
+            }))
+            .on_speed_change({
+                let (desk, fast) = (desk.clone(), fast.clone());
+                move |_, _, cx| {
+                    if let Some(Speed { config, other, .. }) = &fast {
+                        desk.update(cx, |d, cx| {
+                            d.set_option(config.clone(), other.clone(), cx);
+                            d.popup = Popup::Model;
+                        });
                     }
-                    list
-                })
+                }
             })
+            .on_notice_action(Self::with(&desk, move |d, id: SharedString, window, cx| {
+                let Some(slot) = d.slot(host, &id) else {
+                    return;
+                };
+                if matches!(slot.stage, Stage::Missing(_) | Stage::Failed(_)) {
+                    d.close_popup(window, cx);
+                    d.open_tab(crate::pages::Tab::Agents, window, cx);
+                } else {
+                    d.sign_in_agent(host, &id, cx);
+                }
+            }))
+            .on_settings({
+                let desk = desk.clone();
+                move |window, cx| {
+                    desk.update(cx, |d, cx| {
+                        d.close_popup(window, cx);
+                        d.open_tab(crate::pages::Tab::Agents, window, cx);
+                    });
+                }
+            });
+        let usable = self.slots_on(host).filter(|x| x.usable()).count();
+        if draft && usable > 1 {
+            let all_on = self.composer.draft.also_run.len() + 1 >= usable;
+            let agent = s.meta.agent.clone();
+            picker = picker.fanout(
+                crate::tr_with("Send to all %{n} agents", &[("n", &usable)]),
+                Some(crate::tr(
+                    "A thread each, begun with the same words, each in a worktree of its own",
+                )),
+                all_on,
+                move |_, cx| {
+                    desk.update(cx, |this, cx| {
+                        if this.composer.draft.also_run.is_empty() {
+                            if !this.worktree_each() {
+                                return cx.notify();
+                            }
+                            this.composer.draft.also_run = (this.others(host, &agent).into_iter())
+                                .map(|(id, _)| (id, None))
+                                .collect();
+                        } else {
+                            this.composer.draft.also_run.clear();
+                        }
+                        cx.notify();
+                    });
+                },
+            );
+        }
+        if let Some(mode) = self.mode_button(faces, s, cx) {
+            picker = picker.mode(mode);
+        }
+        picker.into_any_element()
     }
 
-    /// The foot: a new session sent to every agent at once at the left,
-    /// the session's mode at the right.
-    fn picker_foot(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
-        let usable = self.slots_on(s.host).filter(|x| x.usable()).count();
-        let all_on = usable > 1 && self.composer.draft.also_run.len() + 1 >= usable;
-        let (host, current_agent) = (s.host, s.meta.agent.clone());
-        div()
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .px(px(12.))
-            .py(px(8.))
-            .border_t_1()
-            .border_color(theme::border2())
-            .bg(theme::rail())
-            .when(s.is_draft() && usable > 1, |d| {
-                d.child(
-                    ui::opener("fanout")
-                        .selected(all_on)
-                        .child(ui::icon("plus", 13.))
-                        .child(
-                            ui::text(
-                                faces,
-                                crate::tr_with("Send to all %{n} agents", &[("n", &usable)]),
-                            )
-                            .text_size(px(crate::style::CAPTION))
-                            .text_color(theme::muted()),
-                        )
-                        .tooltip(crate::tr(
-                            "A thread each, begun with the same words, each in a worktree of its own",
-                        ))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            if this.composer.draft.also_run.is_empty() {
-                                if !this.worktree_each() {
-                                    return cx.notify();
-                                }
-                                this.composer.draft.also_run = this
-                                    .others(host, &current_agent)
-                                    .into_iter()
-                                    .map(|(id, _)| (id, None))
-                                    .collect();
-                            } else {
-                                this.composer.draft.also_run.clear();
-                            }
-                            cx.notify();
-                        })),
-                )
-            })
-            .child(div().flex_1())
-            .children(self.mode_button(faces, s, cx))
+    /// A handler of the picker's given what it hands back, run on the desk.
+    fn with<T: 'static>(
+        desk: &Entity<Self>,
+        f: impl Fn(&mut Self, T, &mut Window, &mut Context<Self>) + 'static,
+    ) -> impl Fn(T, &mut Window, &mut App) + 'static {
+        let desk = desk.clone();
+        move |t, window, cx| desk.update(cx, |d, cx| f(d, t, window, cx))
     }
 
     /// Add or remove `(agent, model)` among the additional models a draft
@@ -1007,7 +655,10 @@ impl Desk {
 }
 
 /// An agent's speed option (ACP's `speed` category, as Codex's Fast mode)
-/// where it is a switch: two choices, the first the standard one.
+/// where it is a switch: two choices, the standard one listed first, as
+/// Codex lists Off before On. The switch shows the choice the agent
+/// reports as current, and turns it to the other.
+#[derive(Clone)]
 struct Speed {
     config: String,
     name: String,
@@ -1033,16 +684,33 @@ fn speed(options: &[SessionConfigOption]) -> Option<Speed> {
     })
 }
 
-/// How many of `EffortGlyph`'s five bars a thought level lights: by where
-/// it stands among the agent's own levels (`at` of `of`, lowest first),
-/// whatever it names them.
-fn effort_level_of(at: usize, of: usize) -> u0ui::t3::composer::EffortLevel {
-    use u0ui::t3::composer::EffortLevel;
-    if of < 2 {
-        return EffortLevel::Medium;
-    }
-    let bars = EffortLevel::ALL.len() - 1;
-    EffortLevel::ALL[(at.min(of - 1) * bars + (of - 1) / 2) / (of - 1)]
+/// An option of the agent's as the picker draws it: its choices in its
+/// order, the current one the one it reports.
+fn picker_option(o: &SessionConfigOption) -> Option<PickerOption> {
+    let (_, choices) = select_choices(&o.kind)?;
+    let choices = (choices.into_iter())
+        .map(|(value, name, on)| PickerChoice::new(value, name, on))
+        .collect();
+    Some(PickerOption::new(
+        o.id.0.to_string(),
+        o.name.clone(),
+        choices,
+    ))
+}
+
+/// What the agent says of its choice `value` of a select option.
+fn about_of(kind: &SessionConfigKind, value: &str) -> Option<String> {
+    let SessionConfigKind::Select(select) = kind else {
+        return None;
+    };
+    let found = match &select.options {
+        SessionConfigSelectOptions::Ungrouped(o) => o.iter().find(|o| &*o.value.0 == value),
+        SessionConfigSelectOptions::Grouped(g) => {
+            (g.iter().flat_map(|g| g.options.iter())).find(|o| &*o.value.0 == value)
+        }
+        _ => None,
+    };
+    found?.description.clone()
 }
 
 /// Whether a choice stands when `query` (lower case) is typed.
@@ -1052,9 +720,8 @@ fn shown_by(query: &str, value: &str, label: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{effort_level_of, speed};
+    use super::{about_of, picker_option, speed};
     use agent_client_protocol::v1::schema::NewSessionResponse;
-    use u0ui::t3::composer::EffortLevel;
 
     #[test]
     fn codex_fast_mode_is_a_switch_that_turns_to_its_other_choice() {
@@ -1096,16 +763,29 @@ mod tests {
     }
 
     #[test]
-    fn effort_bars_follow_where_a_level_stands_among_the_agents_own() {
-        let three: Vec<_> = (0..3).map(|at| effort_level_of(at, 3)).collect();
+    fn codex_options_are_drawn_as_it_states_them() {
+        let opened: NewSessionResponse = serde_json::from_str(include_str!(
+            "../../../core/src/fixtures/codex-session-new.json"
+        ))
+        .unwrap();
+        let options = opened.config_options.unwrap();
+        let of = |id: &str| options.iter().find(|o| &*o.id.0 == id).unwrap();
+        // Its effort keeps its own name, its six levels and the current one.
+        let effort = picker_option(of("reasoning_effort")).unwrap();
+        assert_eq!(effort.name, "Reasoning effort");
+        let names: Vec<_> = effort.choices.iter().map(|c| c.name.as_ref()).collect();
+        assert_eq!(names, ["Low", "Medium", "High", "Xhigh", "Max", "Ultra"]);
+        let on: Vec<_> = effort.choices.iter().filter(|c| c.on).collect();
+        assert_eq!((on.len(), on[0].value.as_ref()), (1, "ultra"));
+        // Collaboration mode is neither a level nor a speed: a menu row.
+        let collab = picker_option(of("collaboration_mode")).unwrap();
+        assert_eq!(collab.choices.len(), 2);
+        assert!(collab.choices[0].on);
+        // A model row says what Codex says of it.
         assert_eq!(
-            three,
-            [EffortLevel::Minimal, EffortLevel::Medium, EffortLevel::Max]
+            about_of(&of("model").kind, "gpt-6-luna").as_deref(),
+            Some("Fast and affordable model for easier tasks.")
         );
-        let five: Vec<_> = (0..5).map(|at| effort_level_of(at, 5)).collect();
-        assert_eq!(five, EffortLevel::ALL);
-        assert_eq!(effort_level_of(1, 4), EffortLevel::Low);
-        assert_eq!(effort_level_of(2, 4), EffortLevel::High);
-        assert_eq!(effort_level_of(0, 1), EffortLevel::Medium);
+        assert_eq!(about_of(&of("model").kind, "gpt-unknown"), None);
     }
 }

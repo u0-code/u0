@@ -182,13 +182,19 @@ composer, or else the agent's last answer.
 
 ## Models and modes
 
-⇧⌘M (or the model chip) opens the model picker: your favourites, the
-agents, and each agent's models. Search with **Search models…**, star a
-model to keep it among the favourites, and choose how hard it thinks
-under **Effort** (or the agent's other **Options**). A speed option the
-agent offers, such as Codex's **Fast mode**, is a switch under the effort,
-and a bolt beside the effort chip says it is on. ⇧⌘E opens it at the
-effort. Once a thread has begun, only its agent's models are offered.
+⇧⌘M (or the model chip) opens the model picker: **Favourites** and the
+agents down its left, the tab's models in the middle (each with what its
+agent says of it, ⌘1–⌘9 beside the first nine), the agent's options at
+the right, and **Agent settings** under the tabs. An agent that is
+starting, not installed or signed out says so on its tab, and with a
+button above its models. In a narrow window the tabs show only the
+agents' marks. Search with **Search models…** (across every agent), star a
+model to keep it among the favourites, and choose how hard it thinks under
+the agent's own name for it (Codex's **Reasoning effort**). A speed option
+the agent offers, such as Codex's **Fast mode**, is a switch under
+**Speed**, and a bolt beside the effort chip says it is on; any other
+option is a row that opens a menu of its choices. ⇧⌘E opens the picker
+too. Once a thread has begun, only its agent's models are offered.
 On a new thread, **+** beside any model adds it to **Also run on** (and
 **Send to all *n* agents** adds every usable agent), starting a thread
 and a worktree for each: adding one turns **Worktree** on, turning
