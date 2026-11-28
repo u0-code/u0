@@ -16,7 +16,7 @@ use gpui::component::{
 };
 use gpui::{
     AnyElement, BoxShadow, Context, Div, ElementId, Entity, Focusable as _, SharedString, Stateful,
-    Window, div, point, prelude::*, px, radians, rgb,
+    Window, div, point, prelude::*, px, radians,
 };
 use u0ui::{
     icons::{CarbonIcon, Icon as CarbonGlyph},
@@ -24,7 +24,7 @@ use u0ui::{
         Spin, Status as T3Status, fmt_elapsed,
         review::PullRequestState,
         shell::{
-            FolderCounts, IdentitySize, MachineKind, ProjectFavicon, PullRequestMiniBadge,
+            Count, FolderCounts, IdentitySize, MachineKind, ProjectFavicon, PullRequestMiniBadge,
             SidebarShelfHeader,
         },
     },
@@ -750,7 +750,6 @@ impl Desk {
     ) -> Stateful<Div> {
         let _ = self;
         let desk = desk.clone();
-        let (fill, text_color) = count_colors(T3Status::NeedsYou);
         div()
             .id("sb-needs-head")
             .flex()
@@ -780,17 +779,7 @@ impl Desk {
                             .weight(gpui::FontWeight::SEMIBOLD)
                             .text_color(theme::text()),
                     )
-                    .child(
-                        ui::text(faces, count.to_string())
-                            .text_size(px(crate::style::CAPTION))
-                            .line_height(px(18.))
-                            .min_w(px(18.))
-                            .px(px(5.))
-                            .text_center()
-                            .rounded(px(16.))
-                            .bg(fill)
-                            .text_color(text_color),
-                    ),
+                    .child(Count::new(count).status(T3Status::NeedsYou)),
             )
     }
 
@@ -1002,24 +991,11 @@ impl Desk {
                 .into_any_element()
         };
 
-        let count_pills =
-            div()
-                .flex()
-                .flex_none()
-                .gap(px(2.))
-                .children(counts.visible().into_iter().map(|(st, n)| {
-                    let (bg, fg) = count_colors(st);
-                    ui::text(faces, n.to_string())
-                        .flex()
-                        .justify_center()
-                        .min_w(px(18.))
-                        .px(px(4.))
-                        .rounded(px(16.))
-                        .bg(bg)
-                        .text_size(px(crate::style::CAPTION))
-                        .line_height(px(18.))
-                        .text_color(fg)
-                }));
+        let count_pills = div()
+            .flex()
+            .flex_none()
+            .gap(px(2.))
+            .children((counts.visible().into_iter()).map(|(st, n)| Count::new(n).status(st)));
 
         let (toggle_desk, add_desk, drop_desk, menu_desk) =
             (desk.clone(), desk.clone(), desk.clone(), desk.clone());
@@ -1653,28 +1629,6 @@ impl Desk {
                 inset: true,
             }])
             .child(Input::new(&self.rename).appearance(false).xsmall())
-    }
-}
-
-fn count_colors(st: T3Status) -> (gpui::Hsla, gpui::Hsla) {
-    match st {
-        T3Status::NeedsYou => (
-            theme::role(ColorRole::SupportWarning),
-            rgb(0x0016_1616).into(),
-        ),
-        T3Status::Failed => (
-            theme::role(ColorRole::SupportError),
-            if theme::is_light() {
-                gpui::white()
-            } else {
-                rgb(0x0016_1616).into()
-            },
-        ),
-        T3Status::Working => (
-            theme::role(ColorRole::TagBackgroundBlue),
-            theme::role(ColorRole::TagColorBlue),
-        ),
-        _ => (theme::role(ColorRole::LayerAccent01), theme::text2()),
     }
 }
 
