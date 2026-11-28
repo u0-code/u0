@@ -66,6 +66,8 @@ percent-encoding = "2.3"
 mime_guess = { version = "2.0.5", default-features = false }
 # A picture's kind and size from its first bytes: usvg's, through GPUI.
 imagesize = "0.14"
+# An animated GIF's frames counted, none decoded: image's, through GPUI.
+gif = { version = "0.14", default-features = false, features = ["std"] }
 # An SVG's size, read as GPUI reads the SVG to draw it.
 usvg = { version = "0.46", default-features = false }
 # A program on the PATH, as the shell finds it: executable, first in order.

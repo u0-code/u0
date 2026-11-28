@@ -20,6 +20,12 @@ const MOST_BYTES: u64 = 8 << 20;
 /// bytes before anything decodes it.
 const MOST_SIDE: usize = 8192;
 
+/// The most frames an animated picture may have, and the most pixels its
+/// frames may cover together, each drawn whole (512 MiB of them, what
+/// `image` lets one picture take).
+const MOST_FRAMES: u64 = 300;
+const MOST_PIXELS: u64 = 1 << 27;
+
 /// The addresses of the pictures `detail` shows, over HTTPS: in its
 /// description, what was said and its conversations on lines, each once,
 /// the first `MOST` of them.
@@ -206,14 +212,41 @@ fn picture(url: &url::Url, auth: Option<&str>) -> Result<Vec<u8>, String> {
 
 /// `bytes`, where they are a picture the desk draws, of a size it may.
 fn checked(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
-    if crate::session::Format::sniff(&bytes).is_none() {
+    use crate::session::Format;
+    let Some(format) = Format::sniff(&bytes) else {
         return Err("it is not a picture".into());
-    }
+    };
     let size = imagesize::blob_size(&bytes).map_err(|_| "it is not a picture".to_owned())?;
     if size.width > MOST_SIDE || size.height > MOST_SIDE {
         return Err("it is too large".into());
     }
+    if format == Format::Gif && !few_frames(&bytes) {
+        return Err("it has too many frames".into());
+    }
     Ok(bytes)
+}
+
+/// Whether the GIF `bytes` has no more than `MOST_FRAMES`, covering no
+/// more than `MOST_PIXELS` together: counted from each frame's
+/// description, none decoded.
+fn few_frames(bytes: &[u8]) -> bool {
+    let mut options = gif::DecodeOptions::new();
+    options.skip_frame_decoding(true);
+    let Ok(mut gif) = options.read_info(bytes) else {
+        return false;
+    };
+    let canvas = u64::from(gif.width()) * u64::from(gif.height());
+    let mut frames = 0;
+    loop {
+        match gif.next_frame_info() {
+            Ok(None) => return true,
+            Ok(Some(_)) => frames += 1,
+            Err(_) => return false,
+        }
+        if frames > MOST_FRAMES || frames * canvas > MOST_PIXELS {
+            return false;
+        }
+    }
 }
 
 /// Whether `url` is a file attached to what was written on GitHub
@@ -356,6 +389,30 @@ mod tests {
             checked(b"<svg/>".to_vec()),
             Err("it is not a picture".into())
         );
+    }
+
+    #[test]
+    fn an_animated_picture_of_too_many_frames_or_pixels_is_refused() {
+        let gif = |side: u16, frames: usize| {
+            let mut b = b"GIF89a".to_vec();
+            b.extend(side.to_le_bytes());
+            b.extend(side.to_le_bytes());
+            b.extend([0x80, 0, 0, 0, 0, 0, 0xff, 0xff, 0xff]);
+            for _ in 0..frames {
+                b.push(0x2c);
+                b.extend([0, 0, 0, 0]);
+                b.extend(side.to_le_bytes());
+                b.extend(side.to_le_bytes());
+                b.extend([0, 2, 2, 0x44, 0x01, 0]);
+            }
+            b.push(0x3b);
+            b
+        };
+        assert!(checked(gif(10, 1)).is_ok());
+        assert!(checked(gif(10, 300)).is_ok());
+        assert_eq!(checked(gif(10, 301)), Err("it has too many frames".into()));
+        assert!(checked(gif(4096, 8)).is_ok());
+        assert_eq!(checked(gif(4096, 9)), Err("it has too many frames".into()));
     }
 
     #[test]
