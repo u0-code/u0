@@ -232,8 +232,8 @@ impl Desk {
                 whole(w, &[], |_, _, _| {
                     super::pairing::add_u0_to_agent_card("devices-mcp").into_any_element()
                 }),
-                whole(w, &[], |_, faces, _| {
-                    super::pairing::install_u0_elsewhere_card("devices-install", faces)
+                whole(w, &[], |_, faces, cx| {
+                    super::pairing::install_u0_elsewhere_card("devices-install", faces, cx)
                         .into_any_element()
                 }),
             ],

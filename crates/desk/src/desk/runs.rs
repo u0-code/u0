@@ -331,13 +331,7 @@ impl Desk {
     /// tab, where u0 shows pages and Settings › Browser has them open
     /// there (`open_pages`); else your browser.
     pub(crate) fn pages_to(&self) -> To {
-        #[cfg(target_os = "macos")]
-        if self.settings.open_pages == crate::settings::PagesIn::Preview
-            && let Some(key) = self.current
-        {
-            return To::Preview(key);
-        }
-        To::Browser
+        pages_in(self.settings.open_pages, self.current)
     }
 
     /// A port brought here, to open `address` on; or why not.
@@ -852,9 +846,31 @@ impl Desk {
     }
 }
 
+/// Where a page opened from the session `current` goes, pages opening
+/// where Settings › Browser says (`open`): [`Desk::pages_to`].
+fn pages_in(open: crate::settings::PagesIn, current: Option<u64>) -> To {
+    #[cfg(target_os = "macos")]
+    if open == crate::settings::PagesIn::Preview
+        && let Some(key) = current
+    {
+        return To::Preview(key);
+    }
+    let _ = (open, current);
+    To::Browser
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_page_opens_where_settings_say_and_in_your_browser_with_no_session() {
+        use crate::settings::PagesIn;
+        assert_eq!(pages_in(PagesIn::Browser, Some(7)), To::Browser);
+        assert_eq!(pages_in(PagesIn::Preview, None), To::Browser);
+        #[cfg(target_os = "macos")]
+        assert_eq!(pages_in(PagesIn::Preview, Some(7)), To::Preview(7));
+    }
 
     #[test]
     fn an_address_brought_here_at_another_port_is_opened_there() {

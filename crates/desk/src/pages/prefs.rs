@@ -1025,11 +1025,8 @@ impl Desk {
                 crate::tr("The ACP registry, read again each hour."),
                 |_, _, cx| {
                     ui::button("open-registry", crate::tr("Open"), Weight::Quiet)
-                        .on_click(cx.listener(|_, _, _, cx| {
-                            crate::aside::rules::to_browser(
-                                "https://agentclientprotocol.com/registry",
-                                cx,
-                            );
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.browse("https://agentclientprotocol.com/registry", cx);
                         }))
                         .into_any_element()
                 },

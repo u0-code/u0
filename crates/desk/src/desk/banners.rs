@@ -18,13 +18,14 @@ use crate::{
 
 /// Build a full-width Carbon low-contrast `Alert` (`InlineNotification` /
 /// `ActionableNotification`), with an optional external support link below it
-/// (`.bnb-acts`) and an optional ghost action button.
+/// (`.bnb-acts`, opened by the desk's `browse`) and an optional ghost action
+/// button.
 pub(crate) fn banner(
     id: impl Into<gpui::ElementId>,
     variant: AlertVariant,
     title: impl Into<SharedString>,
     body: impl Into<SharedString>,
-    link: Option<(&str, SharedString)>,
+    link: Option<(&str, SharedString, WeakEntity<Desk>)>,
     action: Option<AlertAction>,
 ) -> AnyElement {
     let id = id.into();
@@ -36,7 +37,7 @@ pub(crate) fn banner(
         .when_some(action, Alert::action);
     match link {
         None => alert.into_any_element(),
-        Some((url, label)) => {
+        Some((url, label, desk)) => {
             let url = url.to_owned();
             div()
                 .flex()
@@ -52,7 +53,7 @@ pub(crate) fn banner(
                         .hover(|s| s.text_color(color(ColorRole::LinkPrimaryHover)))
                         .child(format!("{label} ↗"))
                         .on_click(move |_, _, cx| {
-                            crate::aside::rules::to_browser(&url, cx);
+                            let _ = desk.update(cx, |d, cx| d.browse(&url, cx));
                         }),
                 )
                 .into_any_element()
@@ -105,7 +106,7 @@ impl Desk {
                 div()
                     .px(px(16.))
                     .pt(px(8.))
-                    .child(Self::bad_policy_banner("thread-bad-policy", bad))
+                    .child(Self::bad_policy_banner("thread-bad-policy", bad, cx))
                     .into_any_element(),
             );
         } else if let Some(why) = &self.settings_refused {
@@ -274,7 +275,7 @@ impl Desk {
         if on == Host::HERE
             && let Err(bad) = crate::policy::current()
         {
-            out.push(Self::bad_policy_banner("settings-bad-policy", bad));
+            out.push(Self::bad_policy_banner("settings-bad-policy", bad, cx));
         } else if let Some(why) = match on {
             Host::HERE => self.settings_refused.clone(),
             _ => self.machine(on).and_then(|m| m.refused.clone()),
@@ -323,6 +324,7 @@ impl Desk {
                 (
                     u,
                     crate::tr_with("Questions go to %{url}", &[("url", &short_support(u))]),
+                    cx.entity().downgrade(),
                 )
             });
             out.push(banner(
@@ -388,7 +390,11 @@ impl Desk {
         })
     }
 
-    fn bad_policy_banner(id: &'static str, bad: &crate::policy::BadPolicy) -> AnyElement {
+    fn bad_policy_banner(
+        id: &'static str,
+        bad: &crate::policy::BadPolicy,
+        cx: &Context<Self>,
+    ) -> AnyElement {
         let title = match &bad.organization {
             Some(org) => crate::tr_with("%{org}’s policy does not read", &[("org", org)]),
             None => crate::tr("The policy does not read"),
@@ -397,6 +403,7 @@ impl Desk {
             (
                 u,
                 crate::tr_with("Ask at %{url}", &[("url", &short_support(u))]),
+                cx.entity().downgrade(),
             )
         });
         banner(

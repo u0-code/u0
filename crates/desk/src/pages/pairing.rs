@@ -278,7 +278,12 @@ pub(crate) fn add_u0_to_agent_card(id_prefix: &'static str) -> Div {
 }
 
 /// `"No computer with u0 yet?"` card (`Pairing.dc.html` Section 6).
-pub(crate) fn install_u0_elsewhere_card(id_prefix: &'static str, faces: &Faces) -> Div {
+pub(crate) fn install_u0_elsewhere_card(
+    id_prefix: &'static str,
+    faces: &Faces,
+    cx: &Context<Desk>,
+) -> Div {
+    let desk = cx.entity();
     pgc_card()
         .child(pgc_header(
             CarbonIcon::Download,
@@ -297,8 +302,10 @@ pub(crate) fn install_u0_elsewhere_card(id_prefix: &'static str, faces: &Faces) 
                 .variant(ButtonVariant::Tertiary)
                     .size(ButtonSize::Sm)
                     .icon(CarbonIcon::Download)
-                    .on_click(|_, _, cx| {
-                        crate::aside::rules::to_browser("https://github.com/u0-code/u0/releases/latest", cx);
+                    .on_click(move |_, _, cx| {
+                        desk.update(cx, |d, cx| {
+                            d.browse("https://github.com/u0-code/u0/releases/latest", cx);
+                        });
                     }),
             ),
         )

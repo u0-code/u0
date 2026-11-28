@@ -840,12 +840,8 @@ impl Desk {
                         )
                         .h(px(22.))
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.open_address(
-                                host,
-                                open.clone(),
-                                crate::desk::runs::To::Browser,
-                                cx,
-                            );
+                            let to = this.pages_to();
+                            this.open_address(host, open.clone(), to, cx);
                         })),
                     )
                     .child(
