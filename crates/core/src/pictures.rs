@@ -7,6 +7,7 @@
 use std::{
     collections::{HashMap, VecDeque},
     path::Path,
+    sync::{Arc, Mutex, PoisonError, Weak},
     time::{Duration, Instant},
 };
 
@@ -45,27 +46,46 @@ const KEPT: usize = 64 << 20;
 /// What came for a picture: its bytes, or why not.
 type Answer = Result<Bytes, String>;
 
-/// The pictures fetched lately, each answered again from what came; and
-/// those being fetched, with who waits for each.
+/// Who was told a picture: the one it was said to, held weakly, so that
+/// no other who asks after it is gone is taken for it.
+type Told = (
+    Weak<dyn Fn(crate::proto::Event) + Send + Sync>,
+    String,
+    Instant,
+);
+
+/// The pictures fetched lately, each answered again from what came; those
+/// being fetched, with who waits for each; and who was told which lately.
 #[derive(Default)]
 pub(crate) struct Fetched {
     came: VecDeque<(String, Instant, Answer)>,
     going: HashMap<String, Vec<Tell>>,
+    told: VecDeque<Told>,
 }
 
 impl Fetched {
     /// Of `urls`, the first `MOST` that `shown` holds (the pictures the
     /// item was found to show): each that came lately told to `tell` now,
     /// each being fetched told it as it comes, and the rest, to fetch,
-    /// returned, `tell` waiting for them too.
+    /// returned, `tell` waiting for them too. One `tell` was told within
+    /// `AGAIN` is not told again: whoever asks over and over hears each
+    /// picture once a minute, not a copy each time to queue on its link.
     pub(crate) fn ask(&mut self, urls: &[String], shown: &[String], tell: &Tell) -> Vec<String> {
         self.forget();
         let mut fetch = Vec::new();
         for url in urls.iter().filter(|u| shown.contains(u)).take(MOST) {
+            let heard = |(who, u, _): &Told| u == url && who.ptr_eq(&Arc::downgrade(tell));
+            if self.told.iter().any(heard) {
+                continue;
+            }
             if let Some((_, _, answer)) = self.came.iter().find(|(u, ..)| u == url) {
                 tell(picture_of(url, answer));
+                self.told
+                    .push_back((Arc::downgrade(tell), url.clone(), Instant::now()));
             } else if let Some(waiting) = self.going.get_mut(url) {
-                waiting.push(tell.clone());
+                if !waiting.iter().any(|w| Arc::ptr_eq(w, tell)) {
+                    waiting.push(tell.clone());
+                }
             } else {
                 self.going.insert(url.clone(), vec![tell.clone()]);
                 fetch.push(url.clone());
@@ -79,22 +99,77 @@ impl Fetched {
         let answer = answer.map(Bytes);
         for tell in self.going.remove(&url).unwrap_or_default() {
             tell(picture_of(&url, &answer));
+            self.told
+                .push_back((Arc::downgrade(&tell), url.clone(), Instant::now()));
         }
         self.came.push_back((url, Instant::now(), answer));
         self.forget();
     }
 
+    /// `url` will not come: each who waits for it told why, and nothing
+    /// kept, so that the next to ask has it fetched again.
+    fn lost(&mut self, url: &str) {
+        let why: Answer = Err("it could not be fetched".into());
+        for tell in self.going.remove(url).unwrap_or_default() {
+            tell(picture_of(url, &why));
+        }
+    }
+
     /// What came longer ago than `AGAIN` forgotten, and the oldest past
-    /// `KEPT` bytes.
+    /// `KEPT` bytes; who was told what then, too.
     fn forget(&mut self) {
         let size =
             |(_, _, answer): &(String, Instant, Answer)| answer.as_ref().map_or(0, |b| b.0.len());
+        self.told.retain(|(_, _, at)| at.elapsed() < AGAIN);
         self.came.retain(|(_, at, _)| at.elapsed() < AGAIN);
         let mut kept: usize = self.came.iter().map(size).sum();
         while kept > KEPT
             && let Some(old) = self.came.pop_front()
         {
             kept -= size(&old);
+        }
+    }
+}
+
+/// The pictures one fetch is to bring, as they come: what has not come
+/// as it ends, however it ends (a panic too), is lost (`Fetched::lost`),
+/// so that no one waits for it for ever.
+pub(crate) struct Going {
+    fetched: Arc<Mutex<Fetched>>,
+    left: Vec<String>,
+}
+
+impl Going {
+    /// The fetch of `urls`, which `fetched` gave to fetch.
+    pub(crate) fn new(fetched: Arc<Mutex<Fetched>>, urls: Vec<String>) -> Self {
+        Self {
+            fetched,
+            left: urls,
+        }
+    }
+
+    /// The pictures left to bring.
+    pub(crate) fn left(&self) -> Vec<String> {
+        self.left.clone()
+    }
+
+    /// What came for `url`.
+    pub(crate) fn came(&mut self, url: String, answer: Result<Vec<u8>, String>) {
+        self.left.retain(|u| *u != url);
+        self.fetched().came(url, answer);
+    }
+
+    fn fetched(&self) -> std::sync::MutexGuard<'_, Fetched> {
+        self.fetched.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl Drop for Going {
+    fn drop(&mut self) {
+        let left = std::mem::take(&mut self.left);
+        let mut fetched = self.fetched();
+        for url in left {
+            fetched.lost(&url);
         }
     }
 }
@@ -464,12 +539,70 @@ mod tests {
             *heard_second.lock().unwrap(),
             std::slice::from_ref(&picture)
         );
-        // Asked again within the minute: answered at once, nothing fetched.
-        assert!(fetched.ask(&shown, &shown, &first).is_empty());
-        assert_eq!(*heard_first.lock().unwrap(), [picture.clone(), picture]);
+        // Asked within the minute by another: answered at once, nothing
+        // fetched.
+        let (third, heard_third) = told();
+        assert!(fetched.ask(&shown, &shown, &third).is_empty());
+        assert_eq!(*heard_third.lock().unwrap(), std::slice::from_ref(&picture));
         // A minute on, it is fetched again.
         fetched.came[0].1 -= AGAIN;
-        assert_eq!(fetched.ask(&shown, &shown, &first), shown);
+        for told in &mut fetched.told {
+            told.2 -= AGAIN;
+        }
+        assert_eq!(fetched.ask(&shown, &shown, &third), shown);
+    }
+
+    #[test]
+    fn one_who_asks_again_and_again_is_told_each_picture_once_a_minute() {
+        let url = "https://example.com/a.png".to_owned();
+        let shown = [url.clone()];
+        let mut fetched = Fetched::default();
+        let (tell, heard) = told();
+        assert_eq!(fetched.ask(&shown, &shown, &tell), shown);
+        // Asked again while it is fetched: still told it once.
+        assert!(fetched.ask(&shown, &shown, &tell).is_empty());
+        fetched.came(url.clone(), Ok(vec![0; 1 << 20]));
+        for _ in 0..100 {
+            assert!(fetched.ask(&shown, &shown, &tell).is_empty());
+        }
+        assert_eq!(heard.lock().unwrap().len(), 1, "one copy, not a hundred");
+        // A minute on, it may be told again.
+        fetched.came[0].1 -= AGAIN;
+        fetched.told[0].2 -= AGAIN;
+        assert_eq!(fetched.ask(&shown, &shown, &tell), shown);
+    }
+
+    #[test]
+    fn a_fetch_that_panics_leaves_no_one_waiting_and_is_fetched_again() {
+        let urls = [
+            "https://example.com/a.png".to_owned(),
+            "https://example.com/b.png".to_owned(),
+        ];
+        let fetched = Arc::new(Mutex::new(Fetched::default()));
+        let (tell, heard) = told();
+        let fetch = fetched.lock().unwrap().ask(&urls, &urls, &tell);
+        assert_eq!(fetch, urls);
+        let going = Going::new(Arc::clone(&fetched), fetch);
+        let first = urls[0].clone();
+        let ended = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let mut going = going;
+            going.came(first, Ok(b"png".to_vec()));
+            panic!("a fetch that panics");
+        }));
+        assert!(ended.is_err());
+        assert_eq!(
+            *heard.lock().unwrap(),
+            [
+                (urls[0].clone(), Ok(Bytes(b"png".to_vec()))),
+                (urls[1].clone(), Err("it could not be fetched".to_owned())),
+            ]
+        );
+        // What was lost is asked for again by the next who asks.
+        let (again, _) = told();
+        assert_eq!(
+            fetched.lock().unwrap().ask(&urls, &urls, &again),
+            [urls[1].clone()]
+        );
     }
 
     #[test]

@@ -365,10 +365,10 @@ impl Server {
         if fetch.is_empty() {
             return;
         }
-        let fetched = self.fetched.clone();
+        let mut going = crate::pictures::Going::new(self.fetched.clone(), fetch);
         acp::runtime().spawn_blocking(move || {
-            crate::pictures::fetch(&item.0, &fetch, |url, picture| {
-                fetched.lock().expect("fetched").came(url, picture);
+            crate::pictures::fetch(&item.0, &going.left(), |url, picture| {
+                going.came(url, picture);
             });
         });
     }
