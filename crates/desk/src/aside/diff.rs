@@ -130,7 +130,7 @@ fn parsed(files: &[&FileDiff]) -> Vec<DiffFile> {
 }
 
 /// Infer Carbon's `FileStatus` (`A`, `M`, `D`, `R`) from a `FileDiff` patch.
-pub(super) fn file_status_of(f: &FileDiff) -> FileStatus {
+pub(crate) fn file_status_of(f: &FileDiff) -> FileStatus {
     if f.patch.contains("\nrename from ") {
         FileStatus::Renamed
     } else if f.patch.contains("\nnew file mode ") || f.patch.contains("--- /dev/null\n") {

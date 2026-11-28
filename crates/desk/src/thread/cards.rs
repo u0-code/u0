@@ -25,7 +25,6 @@ impl Desk {
     /// the latest), and once undone Redo puts its changes back.
     fn turn_changes(s: &Session, i: usize, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         use u0ui::t3::chat::{TurnChanges, TurnChangesTexts, TurnFile};
-        use u0ui::t3::review::FileStatus;
         let turn = s.turn_of(i)?;
         let marks = s.turns.get(turn)?;
         marks.before.as_ref()?;
@@ -33,14 +32,8 @@ impl Desk {
         let files = diff
             .iter()
             .map(|f| {
-                let status = if f.patch.contains("\nnew file mode") {
-                    FileStatus::Added
-                } else if f.patch.contains("\ndeleted file mode") {
-                    FileStatus::Deleted
-                } else {
-                    FileStatus::Modified
-                };
-                TurnFile::new(f.path.clone(), f.added, f.gone).status(status)
+                TurnFile::new(f.path.clone(), f.added, f.gone)
+                    .status(crate::aside::diff::file_status_of(f))
             })
             .collect();
         let idle = !matches!(

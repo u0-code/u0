@@ -3,7 +3,7 @@
 //! devices, terminals, preview and side chats; a changed file opens here whole.
 //! For an agent's page: what it is and how u0 runs it.
 
-mod diff;
+pub(crate) mod diff;
 mod files;
 mod output;
 #[cfg(target_os = "macos")]
