@@ -22918,3 +22918,13 @@ _version: 2
   pt-BR: "Um fluxo é um arquivo JSON seu em %{folder}: etapas com um agente, um comando ou uma pergunta. É lido ao ser listado ou iniciado."
   ru: "Рабочий процесс — ваш JSON-файл в %{folder}: шаги с агентом, командой или вопросом. Он читается при выводе списка или запуске."
   sv: "Ett arbetsflöde är en egen JSON-fil i %{folder}: steg med en agent, ett kommando eller en fråga. Den läses när den listas eller startas."
+"%{org} has set telemetry to %{level}.":
+  zh-CN: "%{org} 已将遥测设为%{level}。"
+  de: "%{org} hat die Telemetrie auf %{level} gesetzt."
+  es: "%{org} ha fijado la telemetría en %{level}."
+  fr: "%{org} a réglé la télémétrie sur %{level}."
+  ja: "%{org} がテレメトリを %{level} に設定しています。"
+  ko: "%{org}에서 원격 분석을 %{level}(으)로 설정했습니다."
+  pt-BR: "%{org} definiu a telemetria como %{level}."
+  ru: "%{org} установила телеметрию на уровень «%{level}»."
+  sv: "%{org} har ställt in telemetrin på %{level}."

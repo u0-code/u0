@@ -19,7 +19,9 @@ optional:
   the folders your agents already worked in.
 
 **Continue** adds the folders ticked, asks about telemetry (below), and
-does not show the setup again. Without a project, the window then asks
+does not show the setup again. Where an organisation's
+[policy](reference/policy.md) sets the level, nothing is asked: the setup
+says so, as **Example Corp has set telemetry to Off.** Without a project, the window then asks
 **What should we work on?**: open a folder, clone a repository, make a
 new empty project, or **Start without a project (⌥⌘N)**.
 

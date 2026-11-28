@@ -86,7 +86,8 @@ impl Onboarding {
 
 impl Desk {
     /// Complete first-run setup: adopt any ticked folders, persist
-    /// `settings.welcomed = true`, and ask telemetry consent if unset.
+    /// `settings.welcomed = true`, and ask telemetry consent if unset
+    /// (`ask_telemetry` asks nothing where a level is set).
     pub fn finish_welcome(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let picked: Vec<PathBuf> = self.onboarding.picked_folders.drain().collect();
         for folder in picked {
@@ -94,10 +95,21 @@ impl Desk {
         }
         self.settings.welcomed = true;
         self.save_settings();
-        if self.settings.telemetry.is_none() {
-            self.ask_telemetry(window, cx);
-        }
+        self.ask_telemetry(window, cx);
         cx.notify();
+    }
+
+    /// Where an organisation's policy sets the level of telemetry, as
+    /// a fresh home has it, so the sheet that would ask is not shown: the
+    /// setup says who set it, and to what.
+    fn telemetry_set_by(&self) -> Option<SharedString> {
+        let level = self.settings.telemetry?;
+        let org = (crate::policy::locked("telemetry"))
+            .or_else(|| crate::policy::default_of("telemetry").map(|(org, _)| org))?;
+        Some(crate::tr_with(
+            "%{org} has set telemetry to %{level}.",
+            &[("org", &org), ("level", &crate::tr(level.name()))],
+        ))
     }
 
     /// Full-window 3-card setup (`Welcome` board).
@@ -596,11 +608,14 @@ impl Desk {
                                     .child(
                                         div()
                                             .flex_1()
+                                            .flex()
+                                            .flex_col()
                                             .type_style(TypeStyle::Body01)
                                             .text_color(theme::role(ColorRole::TextSecondary))
                                             .child(crate::tr(
                                                 "You can change all of this later in Settings (⌘,).",
-                                            )),
+                                            ))
+                                            .children(self.telemetry_set_by()),
                                     )
                                     .child(
                                         Button::new("welcome-continue", crate::tr("Continue"))

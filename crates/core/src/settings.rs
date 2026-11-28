@@ -1453,10 +1453,12 @@ impl Default for Settings {
 
 impl Settings {
     /// Whether u0 should open on the first-run setup screen (`Welcome`):
-    /// before setup is completed, while no projects or telemetry choice exist.
+    /// before setup is completed, while there are no projects. A level of
+    /// telemetry set already (by a policy) does not skip it: only the sheet
+    /// that asks for one.
     #[must_use]
     pub fn needs_welcome(&self) -> bool {
-        !self.welcomed && self.folders.is_empty() && self.telemetry.is_none()
+        !self.welcomed && self.folders.is_empty()
     }
     /// These settings as a device that may only read is told them, as
     /// `Event::for_reader` tells it what happens: no value of an agent's
@@ -1828,6 +1830,22 @@ mod tests {
         let mut with_folder = Settings::default();
         with_folder.used(Path::new("/project"));
         assert!(!with_folder.needs_welcome());
+    }
+
+    #[test]
+    fn a_policy_setting_telemetry_still_shows_a_fresh_home_its_setup() {
+        // A fresh home: no settings.json.
+        let none = std::env::temp_dir().join(format!("u0-welcome-{}.json", std::process::id()));
+        for locked in [true, false] {
+            let policy: crate::policy::Policy = serde_json::from_value(serde_json::json!({
+                "organization": "Example Corp",
+                "settings": {"telemetry": {"value": 0, "locked": locked}},
+            }))
+            .unwrap();
+            let s = Settings::read(&none, Some(&policy)).unwrap();
+            assert!(s.telemetry.is_some());
+            assert!(s.needs_welcome());
+        }
     }
 
     #[test]
