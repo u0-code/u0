@@ -368,7 +368,7 @@ impl Desk {
                 crate::tr("A thread of its own, or the next turn of the first run's."),
                 |d, _, cx| {
                     let same = d.tasks.draft.as_ref().is_some_and(|d| d.task.same);
-                    ui::segmented(
+                    super::srow::picks(
                         "task-same",
                         vec![
                             (
@@ -473,7 +473,7 @@ impl Desk {
                 };
             })
         };
-        let schedule = ui::segmented(
+        let schedule = super::srow::picks(
             "task-kind",
             vec![
                 (
@@ -562,7 +562,7 @@ impl Desk {
                     .flex()
                     .flex_col()
                     .gap(px(8.))
-                    .child(ui::segmented(
+                    .child(super::srow::picks(
                         "task-moment",
                         vec![
                             (

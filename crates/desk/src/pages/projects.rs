@@ -207,7 +207,7 @@ impl Desk {
                             d.set_project_worktree(f, true, cx);
                         })),
                     );
-                    ui::segmented(
+                    super::srow::picks(
                         "project-worktree",
                         vec![
                             (crate::tr("Local"), !worktree, local),

@@ -544,6 +544,28 @@ pub fn segmented<T: Copy + PartialEq + 'static>(
         .into_any_element()
 }
 
+/// Carbon's `ContentSwitcher` over choices that each carry what picking
+/// it does, the one now chosen marked.
+pub fn picks(
+    id: impl Into<SharedString>,
+    choices: Vec<(impl Into<SharedString>, bool, ui::Pick)>,
+) -> AnyElement {
+    let id: SharedString = id.into();
+    let mut labels = Vec::new();
+    let mut picks: Vec<ui::Pick> = Vec::new();
+    let mut now = 0;
+    for (n, (label, on, pick)) in choices.into_iter().enumerate() {
+        labels.push((label.into(), n));
+        picks.push(pick);
+        if on {
+            now = n;
+        }
+    }
+    segmented(id, labels, now, false, move |n, window, cx| {
+        picks[n](&vec![n], window, cx);
+    })
+}
+
 /// Carbon's `Select` (`sm` 32px on `field-02`, `240px..320px`).
 pub fn select<T: Clone + PartialEq + 'static>(
     id: impl Into<ElementId>,

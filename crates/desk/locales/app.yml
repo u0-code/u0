@@ -1812,6 +1812,16 @@ _version: 2
   pt-BR: "Desligado, o compositor só diz que está ouvindo até você parar."
   ru: "Если выключено, поле ввода лишь показывает, что слушает, пока вы не остановитесь."
   sv: "Av: skrivfältet säger bara att det lyssnar tills du slutar."
+"On 127.0.0.1:%{port} · %{paired} paired · %{waiting} waiting for you":
+  zh-CN: "在 127.0.0.1:%{port} · 已配对 %{paired} · %{waiting} 个等你"
+  de: "Auf 127.0.0.1:%{port} · %{paired} gekoppelt · %{waiting} warten auf dich"
+  es: "En 127.0.0.1:%{port} · %{paired} emparejados · %{waiting} te esperan"
+  fr: "Sur 127.0.0.1:%{port} · %{paired} appairés · %{waiting} vous attendent"
+  ja: "127.0.0.1:%{port} · ペアリング済み %{paired} · 承認待ち %{waiting}"
+  ko: "127.0.0.1:%{port} · 페어링 %{paired} · 대기 %{waiting}"
+  pt-BR: "Em 127.0.0.1:%{port} · %{paired} pareados · %{waiting} esperando você"
+  ru: "На 127.0.0.1:%{port} · сопряжено %{paired} · ждут вас %{waiting}"
+  sv: "På 127.0.0.1:%{port} · %{paired} parade · %{waiting} väntar på dig"
 "Open Diagnostics":
   zh-CN: "打开诊断"
   de: "Diagnose öffnen"
@@ -8982,16 +8992,6 @@ _version: 2
   pt-BR: "Escutar em"
   ru: "Слушать на"
   sv: "Lyssna på"
-"Listening on 127.0.0.1:%{port} and networks under Reach; paired devices only.":
-  zh-CN: "正在 127.0.0.1:%{port} 及「可达」中所选网络上监听。仅限已配对设备。"
-  de: "Lauscht auf 127.0.0.1:%{port} und den Netzen unter Reach. Nur gekoppelte Geräte."
-  es: "Escuchando en 127.0.0.1:%{port} y las redes de Reach. Solo dispositivos emparejados."
-  fr: "À l’écoute sur 127.0.0.1:%{port} et les réseaux de Reach. Appareils appairés seulement."
-  ja: "127.0.0.1:%{port} と Reach のネットワークで待受中。ペアリング済みの端末のみ。"
-  ko: "127.0.0.1:%{port} 및 Reach의 네트워크에서 수신 중. 페어링된 기기만."
-  pt-BR: "Escutando em 127.0.0.1:%{port} e nas redes de Reach. Só dispositivos pareados."
-  ru: "Слушает 127.0.0.1:%{port} и сети из Reach. Только сопряжённые устройства."
-  sv: "Lyssnar på 127.0.0.1:%{port} och nätverken under Reach. Bara parade enheter."
 "Listening…":
   zh-CN: "正在聆听…"
   de: "Hört zu …"

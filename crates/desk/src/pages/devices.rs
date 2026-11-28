@@ -100,10 +100,21 @@ impl Desk {
         let serving = self.pages.shared.as_ref().map(|s| s.serving.clone());
         let about = match &serving {
             None => crate::tr_with("Asking %{on} how it is shared…", &[("on", &on)]),
-            Some(Some(Ok(port))) => crate::tr_with(
-                "Listening on 127.0.0.1:%{port} and networks under Reach; paired devices only.",
-                &[("port", port)],
-            ),
+            Some(Some(Ok(port))) => {
+                // How many are in, and how many wait for you, at a glance.
+                let devices = (self.pages.shared.as_ref())
+                    .and_then(|s| s.devices.as_ref().ok())
+                    .map_or(&[][..], Vec::as_slice);
+                let waiting = devices.iter().filter(|d| d.waiting).count();
+                crate::tr_with(
+                    "On 127.0.0.1:%{port} · %{paired} paired · %{waiting} waiting for you",
+                    &[
+                        ("port", port),
+                        ("paired", &(devices.len() - waiting)),
+                        ("waiting", &waiting),
+                    ],
+                )
+            }
             Some(Some(Err(_)) | None) => crate::tr("Off: nothing listens, and no device comes in."),
         };
         // The switch says what runs: on only while it listens. Asked for
@@ -244,7 +255,7 @@ impl Desk {
             crate::tr("What it may do"),
             crate::tr("Read only sees threads, diffs and files, and changes nothing."),
             move |_, _, cx| {
-                ui::segmented(
+                super::srow::picks(
                     "grant-scope",
                     vec![
                         (
@@ -267,7 +278,7 @@ impl Desk {
             crate::tr("For how long"),
             crate::tr("After that it is turned away, and pairs again with a new link."),
             move |_, _, cx| {
-                ui::segmented(
+                super::srow::picks(
                     "grant-days",
                     vec![
                         (
@@ -358,7 +369,7 @@ impl Desk {
                 for r in &kinds {
                     choices.push((crate::tr(r.name()), chosen == Some(*r), pick(Some(*r), cx)));
                 }
-                ui::segmented("link-route", choices).into_any_element()
+                super::srow::picks("link-route", choices).into_any_element()
             },
         );
         let renew = |w: &WeakEntity<Desk>, about: &str| {
@@ -536,7 +547,7 @@ impl Desk {
                 let pick = |to: Bind, cx: &mut Context<Desk>| -> ui::Pick {
                     Box::new(cx.listener(move |this, _, _, _| this.share(Share::Bind(to))))
                 };
-                ui::segmented(
+                super::srow::picks(
                     "listen-on",
                     vec![
                         (
