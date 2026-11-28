@@ -62,10 +62,13 @@ impl Desk {
         let parsed: std::rc::Rc<[Line]> = output::lines(&full).into();
         let total = parsed.len();
         let bytes = crate::tidy::shown(full.len() as u64);
-        let title = s
-            .tools()
-            .find(|t| &t.call.tool_call_id == id)
-            .map_or_else(|| id.0.to_string(), crate::session::Tool::command_line);
+        let tool = s.tools().find(|t| &t.call.tool_call_id == id);
+        let title = tool.map_or_else(|| id.0.to_string(), crate::session::Tool::command_line);
+        // `LongAndMany`: how long it took, where that is known, and its size.
+        let said = tool
+            .and_then(crate::session::Tool::took_said)
+            .map(crate::when::took)
+            .map_or_else(|| bytes.clone(), |took| format!("{took} \u{b7} {bytes}"));
 
         let query = if self.find.open {
             self.find.input.read(cx).value().trim().to_lowercase()
@@ -91,7 +94,8 @@ impl Desk {
             .items_center()
             .gap(px(8.))
             .h(px(36.))
-            .px(px(12.))
+            .pl(px(12.))
+            .pr(px(8.))
             .bg(color(ColorRole::Layer01))
             .border_b_1()
             .border_color(theme::border())
@@ -112,7 +116,7 @@ impl Desk {
                     .flex_none()
                     .type_style(TypeStyle::Label01)
                     .text_color(theme::muted())
-                    .child(format!("{total} · {bytes}")),
+                    .child(said),
             )
             .child(
                 Button::new("copy-full-output", crate::tr("Copy"))
@@ -195,41 +199,26 @@ impl Desk {
                     let matched =
                         !query_list.is_empty() && line.text.to_lowercase().contains(&query_list);
                     let current = active_line == Some(ix);
+                    // `.lmb-out pre`: mono 12/18 in `text-primary`, 12px at each side.
                     div()
-                        .flex()
-                        .items_center()
-                        .gap(px(10.))
-                        .h(px(18.))
+                        .h(px(crate::style::MONO_LINE))
                         .px(px(12.))
                         .when(current, |d| d.bg(color(ColorRole::LayerSelected02)))
                         .when(matched && !current, |d| {
                             d.bg(color(ColorRole::LayerSelected01))
                         })
-                        .child(
-                            div()
-                                .w(px(44.))
-                                .flex_none()
-                                .text_right()
-                                .font_family(faces_list.mono.clone())
-                                .text_size(px(11.))
-                                .text_color(theme::faint())
-                                .child((ix + 1).to_string()),
-                        )
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w(px(0.))
-                                .overflow_hidden()
-                                .whitespace_nowrap()
-                                .font_family(faces_list.mono.clone())
-                                .text_size(px(crate::style::MONO))
-                                .line_height(px(18.))
-                                .child(output::styled_one(&faces_list, line)),
-                        )
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .font_family(faces_list.mono.clone())
+                        .text_size(px(crate::style::MONO))
+                        .line_height(px(crate::style::MONO_LINE))
+                        .text_color(theme::text())
+                        .child(output::styled_one(&faces_list, line))
                 })
                 .collect()
         })
         .track_scroll(&self.output_scroll)
+        .py(px(8.))
         .flex_1()
         .min_h(px(0.));
 
@@ -238,7 +227,7 @@ impl Desk {
             .flex_col()
             .flex_1()
             .min_h(px(0.))
-            .bg(color(ColorRole::Background))
+            .bg(color(ColorRole::Layer01))
             .child(head)
             .children(search)
             .child(list)

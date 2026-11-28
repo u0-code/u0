@@ -107,7 +107,7 @@ A file's menu has **Open**, **Open in your editor**, **Reveal in Finder**,
 **Add to chat**, **Copy path** and **Copy as mention**. In an open file,
 choose lines and **Comment on the lines chosen** to send them to the
 agent; **Save** saves your edits; Markdown can show as **Source** or
-**Drawn**. PDFs are drawn page by page.
+**Rendered**. PDFs are drawn page by page.
 
 ## Details
 

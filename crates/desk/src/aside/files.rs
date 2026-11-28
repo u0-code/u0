@@ -27,8 +27,8 @@ use gpui::component::{
     scroll::ScrollableElement as _,
 };
 use gpui::{
-    AnyElement, App, AppContext as _, Context, Div, Entity, FontWeight, ImageFormat, SharedString,
-    Window, div, img, prelude::*, px, rgb,
+    AnyElement, App, AppContext as _, BoxShadow, Context, Div, Entity, FontWeight, ImageFormat,
+    SharedString, Window, div, img, point, prelude::*, px, rgb,
 };
 use u0ui::{
     components::{
@@ -630,13 +630,14 @@ impl Desk {
         });
 
         let showing_lines = editable.is_some() && !(markdown && self.viewer.drawn);
+        // `FilesDevices`: 36px, `padding: 0 4px 0 16px`, `gap: 8px`, on `background`.
         let head = div()
             .flex()
             .flex_none()
             .items_center()
-            .gap(px(4.))
+            .gap(px(8.))
             .h(px(36.))
-            .pl(px(12.))
+            .pl(px(16.))
             .pr(px(4.))
             .bg(theme::role(ColorRole::Background))
             .border_b_1()
@@ -650,7 +651,6 @@ impl Desk {
                         .flex_none()
                         .items_center()
                         .gap(px(6.))
-                        .pr(px(4.))
                         .child(
                             div()
                                 .size(px(8.))
@@ -687,11 +687,15 @@ impl Desk {
             .when(!changed && editable.is_some() && !outside, |d| {
                 d.child(
                     ui::text(faces, crate::tr("Saved"))
-                        .pr(px(6.))
                         .type_style(TypeStyle::Label01)
                         .text_color(theme::role(ColorRole::TextHelper)),
                 )
-            })
+            });
+        // The file's icon buttons, side by side as a toolbar's are.
+        let tools = div()
+            .flex()
+            .flex_none()
+            .items_center()
             .when(showing_lines, |d| {
                 let wrap_now = self.viewer.wrap;
                 d.child(
@@ -785,6 +789,7 @@ impl Desk {
                     });
                 }),
             );
+        let head = head.child(tools);
 
         let outside_banner = outside.then(|| {
             let d_copy = desk.clone();
@@ -805,7 +810,7 @@ impl Desk {
                             &[("project", &project_name)],
                         ))
                         .description(crate::tr_with(
-                            "%{path} is read only. Copy it into the project to let the agent edit it.",
+                            "%{path} is read only here, and the agent can read it. To let the agent edit it, copy it into the project.",
                             &[("path", &rel_display)],
                         ))
                         .action(
@@ -844,7 +849,7 @@ impl Desk {
                 let switcher = ToggleGroup::new("file-md-mode")
                     .size(ToggleSize::Sm)
                     .value([mode])
-                    .item(ToggleGroupItem::new("preview").child(crate::tr("Preview")))
+                    .item(ToggleGroupItem::new("preview").child(crate::tr("Rendered")))
                     .item(ToggleGroupItem::new("source").child(crate::tr("Source")))
                     .on_value_change(move |vals, _, cx| {
                         let preview = vals.first().is_some_and(|v| v.as_ref() == "preview");
@@ -855,7 +860,7 @@ impl Desk {
                     });
                 let bar = fv_bar(faces, CarbonIcon::Document, rel_display.clone())
                     .child(div().flex_1())
-                    .child(div().flex_none().w(px(160.)).mr(px(4.)).child(switcher));
+                    .child(div().flex_none().w(px(192.)).mr(px(4.)).child(switcher));
 
                 let content: AnyElement = if self.viewer.drawn {
                     let rendered = if mermaid {
@@ -970,7 +975,10 @@ impl Desk {
                 let host = s.host;
                 let remaining = total_bytes.saturating_sub(100 * 1024);
 
+                // `.fv-warn`: a 3px `support-warning` edge on its left, a
+                // `border-subtle-01` line under it.
                 let warn = div()
+                    .relative()
                     .flex()
                     .flex_none()
                     .items_center()
@@ -978,9 +986,17 @@ impl Desk {
                     .px(px(12.))
                     .py(px(10.))
                     .bg(theme::role(ColorRole::Layer01))
-                    .border_l(px(3.))
-                    .border_color(theme::role(ColorRole::SupportWarning))
                     .border_b_1()
+                    .border_color(theme::role(ColorRole::BorderSubtle01))
+                    .child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .bottom_0()
+                            .left_0()
+                            .w(px(3.))
+                            .bg(theme::role(ColorRole::SupportWarning)),
+                    )
                     .child(
                         Icon::carbon(CarbonIcon::WarningAltFilled)
                             .size_length(px(16.))
@@ -1825,8 +1841,24 @@ impl Desk {
             .rounded(px(34.))
             .p(px(5.))
             .bg(rgb(0x0026_2626))
-            .border_1()
-            .border_color(theme::role(ColorRole::BorderStrong01))
+            // The hardware's outline, outside its 236 × 500: the screen keeps
+            // its 226 × 490 that a touch is read against.
+            .shadow(vec![
+                BoxShadow {
+                    color: rgb(0x00c6_c6c6).into(),
+                    offset: point(px(0.), px(0.)),
+                    blur_radius: px(0.),
+                    spread_radius: px(1.),
+                    inset: false,
+                },
+                BoxShadow {
+                    color: gpui::hsla(0., 0., 0., 0.15),
+                    offset: point(px(0.), px(2.)),
+                    blur_radius: px(6.),
+                    spread_radius: px(0.),
+                    inset: false,
+                },
+            ])
             .child(inner_screen);
 
         let d_rail = desk;

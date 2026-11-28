@@ -405,28 +405,32 @@ impl Desk {
                     &[("name", &d.name)],
                 ))
                 .description(div().max_w(px(300.)).child(crate::tr(
-                    "Needs AXe (this Xcode has no Simulator.app). The screen shows as stills.",
+                    "Without AXe a simulator is touched in Simulator.app, and the Xcode in use has none. Its screen shows here as pictures, one at a time.",
                 )))
         });
 
-        let miss_rows = missing.iter().filter(|m| *m != NO_SIMULATOR).map(|m| {
-            div()
-                .flex()
-                .items_start()
-                .gap(px(8.))
-                .child(
-                    Icon::carbon(CarbonIcon::Information)
-                        .size_length(px(16.))
-                        .color(theme::role(ColorRole::IconSecondary)),
-                )
-                .child(
-                    ui::text(faces, crate::tr_with("Not found: %{m}", &[("m", m)]))
-                        .flex_1()
-                        .min_w(px(0.))
-                        .type_style(TypeStyle::Label01)
-                        .text_color(theme::role(ColorRole::TextSecondary)),
-                )
-        });
+        // While AXe installs, what is missing of it is not said: the busy line says it.
+        let miss_rows = missing
+            .iter()
+            .filter(|m| *m != NO_SIMULATOR && !(self.sims.axe_installing && *m == AXE))
+            .map(|m| {
+                div()
+                    .flex()
+                    .items_start()
+                    .gap(px(8.))
+                    .child(
+                        Icon::carbon(CarbonIcon::Information)
+                            .size_length(px(16.))
+                            .color(theme::role(ColorRole::IconSecondary)),
+                    )
+                    .child(
+                        ui::text(faces, crate::tr_with("Not found: %{m}", &[("m", m)]))
+                            .flex_1()
+                            .min_w(px(0.))
+                            .type_style(TypeStyle::Label01)
+                            .text_color(theme::role(ColorRole::TextSecondary)),
+                    )
+            });
 
         let axe_missing = missing.iter().any(|m| m == AXE);
         let cmd = format!("brew install {AXE_FORMULA}");
@@ -523,7 +527,9 @@ impl Desk {
                 body = body.child(
                     ui::text(
                         faces,
-                        crate::tr("Installs AXe with Homebrew, only when you press it."),
+                        crate::tr(
+                            "Your press is the asking: it runs AXe’s own way to install it, with Homebrew, and nothing before.",
+                        ),
                     )
                     .type_style(TypeStyle::Label01)
                     .text_color(theme::role(ColorRole::TextSecondary)),
