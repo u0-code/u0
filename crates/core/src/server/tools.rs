@@ -169,6 +169,24 @@ impl Tools {
         )
     }
 
+    /// The sessions kept that it may read: each, but for one that may
+    /// only read, which reads those of a project or worktree alone
+    /// (`access::Roots`), as such a device does.
+    fn readable(&self) -> Result<Vec<Meta>, String> {
+        let mut sessions = self.shared.index.lock().expect("index").clone()?.sessions;
+        if self.reads_only() {
+            let roots = self.shared.roots();
+            sessions.retain(|m| roots.hold(&m.project));
+        }
+        Ok(sessions)
+    }
+
+    /// The session `id` of `agent`, where it may read it (`readable`).
+    fn may_read(&self, agent: &str, id: &SessionId) -> Result<(), String> {
+        let may = !self.reads_only() || self.shared.roots().hold_session(agent, id);
+        if may { Ok(()) } else { Err(NOT_HERE.into()) }
+    }
+
     /// Ask you whether `tool` may do what `title` says, with `input`, in
     /// the thread it calls from: yes where you allowed it always there.
     async fn allowed(
@@ -219,6 +237,7 @@ impl Tools {
             Some(Caller::Session(_, None)) => return Err(OUTSIDE.into()),
             _ => return Err(READS.into()),
         };
+        self.may_read(agent, on)?;
         let (from, own, once) = match card {
             Some((from, own)) => (from, own, true),
             None => (agent.to_owned(), on.clone(), false),
@@ -312,14 +331,14 @@ impl Tools {
     /// `folder`, or where the thread it calls from works.
     /// One not in a thread of u0's (outside u0, on a device) reads
     /// only in a project of yours or a worktree, as a device that may only
-    /// read does (`access::within`).
+    /// read does (`access::Roots`).
     fn folder(&self, folder: Option<PathBuf>) -> Result<PathBuf, String> {
         let folder = folder
             .or_else(|| self.session().map(|(_, m)| m.folder))
             .ok_or("Name the folder")?;
         match self.caller() {
             Some(Caller::Session(..)) => Ok(folder),
-            _ if crate::access::within(&self.shared.home, &[&folder]) => Ok(folder),
+            _ if self.shared.roots().hold(&folder) => Ok(folder),
             _ => Err(NOT_HERE.into()),
         }
     }
@@ -496,24 +515,27 @@ impl Tools {
         &self,
         Parameters(ask): Parameters<ListSessions>,
     ) -> Result<String, String> {
-        let index = self.shared.index.lock().expect("index").clone()?;
-        let sessions = (index.sessions.iter())
-            .filter(|m| ask.project.as_ref().is_none_or(|p| &m.project == p));
+        let sessions = self.readable()?;
+        let sessions =
+            (sessions.iter()).filter(|m| ask.project.as_ref().is_none_or(|p| &m.project == p));
         said(&Listed::latest(sessions))
     }
 
     /// What was said in a thread: what the user said (led by "You:")
     /// and what its agent answered.
     #[tool]
-    async fn read_session(&self, Parameters(ask): Parameters<ReadSession>) -> String {
-        let said = (self.shared)
-            .said_in(&ask.agent, &SessionId::new(ask.session), false)
-            .await;
-        if said.is_empty() {
+    async fn read_session(
+        &self,
+        Parameters(ask): Parameters<ReadSession>,
+    ) -> Result<String, String> {
+        let id = SessionId::new(ask.session);
+        self.may_read(&ask.agent, &id)?;
+        let said = self.shared.said_in(&ask.agent, &id, false).await;
+        Ok(if said.is_empty() {
             "Nothing was said in it, or u0 does not keep it.".into()
         } else {
             said
-        }
+        })
     }
 
     /// What is not committed in a folder, as a unified diff.
@@ -562,7 +584,7 @@ impl Tools {
                 .clone()
                 .or_else(|| settings.folders.first().cloned())
                 .ok_or("Name the project folder")?;
-            if !crate::access::within(&self.shared.home, &[&project]) {
+            if !self.shared.roots().hold(&project) {
                 return Err(NOT_HERE.into());
             }
             let agent = ask
@@ -763,6 +785,7 @@ impl Tools {
     async fn wait_for_turn(&self, Parameters(ask): Parameters<WaitFor>) -> Result<String, String> {
         let id = SessionId::new(ask.session);
         self.not_mine(&ask.agent, &id)?;
+        self.may_read(&ask.agent, &id)?;
         let idle = (self.shared.happened).idle(&ask.agent, &id, waited(ask.seconds));
         if !self.while_let_in(idle).await? {
             return Err("Its turn still goes on".into());
@@ -1257,6 +1280,8 @@ esac; done"#;
     #[test]
     fn the_tools_answer_streamable_http_on_this_mac_by_a_key_alone() {
         let home = tempfile::tempdir().unwrap();
+        let settings = json!({"enabled": [], "folders": [home.path()]});
+        std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
         let (server, _said) = server(home.path());
         server.handle(Call::Keep(vec![meta(home.path(), "Fix the build")]));
         let key = door(home.path()).key;
@@ -1356,10 +1381,17 @@ esac; done"#;
     }
 
     #[test]
-    fn an_agent_outside_u0_reads_the_sessions_kept_but_may_not_act() {
+    fn an_agent_outside_u0_reads_the_sessions_of_your_projects_but_may_not_act() {
         let home = tempfile::tempdir().unwrap();
+        let (project, elsewhere) = (home.path().join("p"), home.path().join("q"));
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        let settings = json!({"enabled": [], "folders": [project]});
+        std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
         let (server, _said) = server(home.path());
-        server.handle(Call::Keep(vec![meta(home.path(), "Fix the build")]));
+        let mut hidden = meta(&elsewhere, "Hidden");
+        hidden.id = Some(SessionId::new("s2"));
+        server.handle(Call::Keep(vec![meta(&project, "Fix the build"), hidden]));
         let mut client = Client::new(home.path(), None);
         client.ask("tools/list", &json!({}));
         let listed = client.reply();
@@ -1417,6 +1449,22 @@ esac; done"#;
         client.call("list_sessions", &json!({}));
         let (sessions, failed) = client.result();
         assert!(!failed && sessions.contains("Fix the build"), "{sessions}");
+        assert!(!sessions.contains("Hidden"), "of no project: {sessions}");
+        for tool in ["read_session", "wait_for_turn"] {
+            client.call(tool, &json!({"agent": "a", "session": "s2"}));
+            assert_eq!(client.result(), (NOT_HERE.to_owned(), true), "{tool}");
+        }
+        // Let act, it acts on the threads of your projects alone: nothing
+        // of one elsewhere is said back, nor asked of you.
+        let acts = json!({"enabled": [], "folders": [project], "outside_acts": true});
+        std::fs::write(home.path().join("settings.json"), acts.to_string()).unwrap();
+        let on_hidden = json!({"agent": "a", "session": "s2", "prompt": "Go", "wait": true});
+        client.call("send_to_session", &on_hidden);
+        assert_eq!(client.result(), (NOT_HERE.to_owned(), true));
+        let answer = json!({"agent": "a", "session": "s2", "request": 1, "option": "yes"});
+        client.call("answer_request", &answer);
+        assert_eq!(client.result(), (NOT_HERE.to_owned(), true));
+        std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
         client.call(
             "delegate_task",
             &json!({"prompt": "Do it", "title": "It", "agent": "a", "project": "/p"}),
@@ -1693,7 +1741,10 @@ esac; done"#;
     #[test]
     fn a_subscriber_to_events_is_told_each_time_something_happens() {
         let home = tempfile::tempdir().unwrap();
+        let settings = json!({"enabled": [], "folders": [home.path()]});
+        std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
         let (server, _said) = server(home.path());
+        server.handle(Call::Keep(vec![meta(home.path(), "Work")]));
         let mut listener = Client::keyed(home.path(), None);
         let hello = json!({"io.modelcontextprotocol/protocolVersion": "2026-07-28",
             "io.modelcontextprotocol/clientCapabilities": {}});
@@ -1716,13 +1767,20 @@ esac; done"#;
         let read = reader.reply();
         let text = read["result"]["contents"][0]["text"].as_str().unwrap();
         assert!(text.contains("May I?"), "{text}");
+        // Of a thread of no project of yours, one outside u0 hears nothing.
+        let hidden = crate::server::happened::Happened::asks("Hidden?");
+        (server.shared.happened).happened("a", &SessionId::new("s9"), hidden);
+        reader.ask("resources/read", &json!({"uri": "u0://events"}));
+        let read = reader.reply();
+        let text = read["result"]["contents"][0]["text"].as_str().unwrap();
+        assert!(!text.contains("Hidden?"), "{text}");
         // And the events tool lets through only those of a session named.
         reader.call("events", &json!({"after": 0, "session": "other"}));
         let (none, _) = reader.result();
         let none: Value = serde_json::from_str(&none).unwrap();
         assert_eq!(
             (none["happened"].as_array().unwrap().len(), &none["last"]),
-            (0, &json!(1))
+            (0, &json!(2))
         );
         reader.call(
             "events",

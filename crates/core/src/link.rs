@@ -39,9 +39,9 @@ use tokio_tungstenite::{
 };
 
 use crate::{
-    access::{Access, Scope, Turned},
+    access::{Scope, Turned},
     key::Key,
-    proto::{Call, Challenge, Event, Hello, PROTOCOL, Pair, Then, Welcome},
+    proto::{Call, Challenge, Event, Hello, PROTOCOL, Pair, Then, Told, Welcome},
     reach::Way,
     server::Server,
 };
@@ -96,15 +96,23 @@ pub struct Outbox {
     open: AtomicBool,
 }
 
-/// A frame as every link is sent it, and as a device that may only read
-/// is, where that differs (`Event::for_reader`).
-type Frame = (u64, Utf8Bytes, Option<Utf8Bytes>);
+/// A frame, by its number, as every desk is sent it: one that may only
+/// read is told it as `Event::for_reader` says.
+type Frame = (u64, Utf8Bytes);
 
 #[derive(Default)]
 struct Frames {
     kept: VecDeque<Frame>,
     bytes: usize,
     last: u64,
+}
+
+impl Frames {
+    /// Whether all said after the number `n` is kept.
+    fn holds_after(&self, n: u64) -> bool {
+        let first = self.kept.front().map_or(self.last + 1, |(n, ..)| *n);
+        n + 1 >= first && n <= self.last
+    }
 }
 
 impl Default for Outbox {
@@ -125,35 +133,29 @@ impl Outbox {
             return;
         }
         let json = serde_json::to_string(event).expect("an event serializes");
-        let read =
-            (event.for_reader()).map(|e| serde_json::to_string(&e).expect("an event serializes"));
         let mut f = self.frames.lock().expect("outbox");
         f.last += 1;
         let n = f.last;
         let frame = Utf8Bytes::from(format!("[{n},{json}]"));
-        let read = read.map(|json| Utf8Bytes::from(format!("[{n},{json}]")));
-        f.bytes += frame.len() + read.as_ref().map_or(0, |r| r.len());
-        f.kept.push_back((n, frame, read));
+        f.bytes += frame.len();
+        f.kept.push_back((n, frame));
         while f.bytes > KEPT
-            && let Some((_, old, read)) = f.kept.pop_front()
+            && let Some((_, old)) = f.kept.pop_front()
         {
-            f.bytes -= old.len() + read.as_ref().map_or(0, |r| r.len());
+            f.bytes -= old.len();
         }
         self.said.send_replace(f.last);
     }
 
-    /// What was said after the number `since`, as a device of `scope` is
-    /// told it; none where some of it is no longer kept.
-    fn after(&self, since: u64, scope: Scope) -> Option<Vec<(u64, Utf8Bytes)>> {
+    /// What was said after the number `since`; none where some of it is
+    /// no longer kept.
+    fn after(&self, since: u64) -> Option<Vec<Frame>> {
         let f = self.frames.lock().expect("outbox");
-        let first = f.kept.front().map_or(f.last + 1, |(n, _, _)| *n);
-        (since + 1 >= first && since <= f.last).then(|| {
-            (f.kept.iter())
-                .filter(|(n, _, _)| *n > since)
-                .map(|(n, all, read)| match (scope, read) {
-                    (Scope::Read, Some(read)) => (*n, read.clone()),
-                    _ => (*n, all.clone()),
-                })
+        (f.holds_after(since)).then(|| {
+            f.kept
+                .iter()
+                .filter(|(n, ..)| *n > since)
+                .cloned()
                 .collect()
         })
     }
@@ -161,11 +163,10 @@ impl Outbox {
     /// Where a desk that last heard `since` begins: after what it heard,
     /// where all after that is kept (resumed); else after all said so far.
     fn resume(&self, since: Option<(u64, u64)>) -> (u64, bool) {
+        let f = self.frames.lock().expect("outbox");
         match since {
-            Some((boot, n)) if boot == self.boot && self.after(n, Scope::Read).is_some() => {
-                (n, true)
-            }
-            _ => (self.frames.lock().expect("outbox").last, false),
+            Some((boot, n)) if boot == self.boot && f.holds_after(n) => (n, true),
+            _ => (f.last, false),
         }
     }
 }
@@ -778,45 +779,35 @@ async fn serve(
     // A device that may only read is told once, on its link alone, that
     // what it asked to change was not done.
     let mut told = false;
-    // The pictures and searches this desk asked for, said on its link
-    // alone: a picture of one project, or the lines a search found, are
-    // not another device's to see.
+    // What this desk asked for that answers it alone (`Server::handle_for`),
+    // said on its link alone: a picture, a record or a diff by its key
+    // there is not another device's to hear.
     let (to_asker, mut for_asker) = mpsc::unbounded_channel::<Event>();
+    let asker: crate::server::Send = Arc::new(move |event| {
+        let _ = to_asker.send(event);
+    });
+    let reads = scope == Scope::Read;
     loop {
         if let Some(message) = next.take() {
             ws.send(message).await.map_err(|e| e.to_string())?;
         }
         tokio::select! {
             heard = ws.next() => match heard {
-                Some(Ok(Message::Text(t))) => match serde_json::from_str::<Call>(&t) {
-                    Ok(call) if Access::allows(scope, &call, server.home()) => match call {
-                        Call::Pictures { folder, kind, number, urls } => {
-                            let to_asker = to_asker.clone();
-                            let tell: crate::server::Send = Arc::new(move |event| {
-                                let _ = to_asker.send(event);
-                            });
-                            server.pictures((folder, kind, number), &urls, &tell);
+                Some(Ok(Message::Text(t))) => match serde_json::from_str::<Call>(&t)
+                    .map(|call| if reads { server.roots().narrow(call) } else { Some(call) })
+                {
+                    Ok(Some(call)) => {
+                        let offers = matches!(call, Call::Share(crate::share::Share::Link(..)));
+                        server.handle_for(call, &asker);
+                        // The link made is said on this link alone: every
+                        // other device hears only that there is one.
+                        if offers && let Some((link, made, grant)) = server.offered() {
+                            let offered = Event::Offered { link, made, grant };
+                            let frame = serde_json::to_string(&(at, offered)).expect("an event serializes");
+                            next = Some(Message::text(frame));
                         }
-                        Call::Search { query, records } => {
-                            let to_asker = to_asker.clone();
-                            let tell = Arc::new(move |event| {
-                                let _ = to_asker.send(event);
-                            });
-                            server.search(query, records, tell);
-                        }
-                        call => {
-                            let offers = matches!(call, Call::Share(crate::share::Share::Link(..)));
-                            server.handle(call);
-                            // The link made is said on this link alone: every
-                            // other device hears only that there is one.
-                            if offers && let Some((link, made, grant)) = server.offered() {
-                                let offered = Event::Offered { link, made, grant };
-                                let frame = serde_json::to_string(&(at, offered)).expect("an event serializes");
-                                next = Some(Message::text(frame));
-                            }
-                        }
-                    },
-                    Ok(_) => {
+                    }
+                    Ok(None) => {
                         tracing::info!("a call refused: its device may only read");
                         if !std::mem::replace(&mut told, true) {
                             let refused = Event::Notice(Err((
@@ -834,22 +825,44 @@ async fn serve(
                 Some(Ok(_)) => {}
             },
             _ = said.changed() => {
-                let Some(frames) = outbox.after(at, scope) else {
+                let Some(frames) = outbox.after(at) else {
                     return refuse(ws, "Too much was missed; come back afresh").await;
                 };
+                let roots = reads.then(|| server.roots());
                 for (n, frame) in frames {
-                    ws.feed(Message::Text(frame)).await.map_err(|e| e.to_string())?;
+                    let frame = match &roots {
+                        None => Some(frame),
+                        Some(roots) => for_reader(n, frame, roots),
+                    };
+                    if let Some(frame) = frame {
+                        ws.feed(Message::Text(frame)).await.map_err(|e| e.to_string())?;
+                    }
                     at = n;
                 }
                 ws.flush().await.map_err(|e| e.to_string())?;
             }
-            Some(asked) = for_asker.recv() => {
-                let frame = serde_json::to_string(&(at, asked)).expect("an event serializes");
+            Some(answer) = for_asker.recv() => {
+                let frame = serde_json::to_string(&(at, answer)).expect("an event serializes");
                 next = Some(Message::text(frame));
             }
             why = &mut ends => return refuse(ws, &why).await,
             _ = ping.tick() => next = Some(Message::Ping(Bytes::new())),
         }
+    }
+}
+
+/// The frame `n`, `frame`, as a device that may only read `roots` is
+/// told it (`Event::for_reader`): read back, and told otherwise or not
+/// at all where it says so.
+fn for_reader(n: u64, frame: Utf8Bytes, roots: &crate::access::Roots) -> Option<Utf8Bytes> {
+    let (_, event): (u64, Event) = serde_json::from_str(&frame).ok()?;
+    match event.for_reader(roots) {
+        Told::Same => Some(frame),
+        Told::As(told) => {
+            let json = serde_json::to_string(&(n, told)).expect("an event serializes");
+            Some(Utf8Bytes::from(json))
+        }
+        Told::Not => None,
     }
 }
 
@@ -1660,15 +1673,133 @@ mod tests {
         link.send(Call::Stash(vec!["mine".into()]));
         link.send(Call::Stash(vec!["again".into()]));
         link.send(Call::Watch);
-        // Told once that it was not done; then the index, unchanged.
+        // Told once that it was not done; then the index, unchanged (the
+        // tasks, said to each desk, may come before it).
         let Event::Notice(Err((said, _))) = told(&heard) else {
             panic!("told it may only watch")
         };
         assert!(said.contains("only watch"), "{said}");
-        let Event::Index(Ok(index)) = told(&heard) else {
-            panic!("the index, read")
+        let index = loop {
+            match told(&heard) {
+                Event::Index(Ok(index)) => break index,
+                Event::Tasks(_) => {}
+                other => panic!("the index, read: {other:?}"),
+            }
         };
         assert!(index.stashed.is_empty(), "nothing it asked was kept");
+    }
+
+    #[test]
+    fn a_device_that_may_only_read_hears_nothing_of_what_lies_in_no_project() {
+        use agent_client_protocol::v1::schema::SessionId;
+        let home = tempfile::tempdir().unwrap();
+        let (a, b) = (home.path().join("a"), home.path().join("b"));
+        for folder in [&a, &b] {
+            std::fs::create_dir_all(folder).unwrap();
+            std::fs::write(folder.join("f"), "x").unwrap();
+        }
+        let settings = serde_json::json!({"enabled": [], "folders": [a]});
+        std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
+        let (server, port) = server(home.path());
+        let kept_in =
+            |id: &str, folder: &std::path::Path| crate::access::tests::kept(id, folder, None);
+        server.handle(Call::Keep(vec![kept_in("in_a", &a), kept_in("in_b", &b)]));
+        let read = crate::access::Grant {
+            scope: crate::access::Scope::Read,
+            ..crate::access::Grant::default()
+        };
+        let watcher = kept();
+        pair_as(&server, port, &watcher, read);
+        let (watching, _, theirs, _) = desk(port, key(&watcher), None).unwrap();
+        let (owning, _, mine, _) = desk(port, Key::generate(), Some(&server)).unwrap();
+        let (in_a, in_b) = (SessionId::new("in_a"), SessionId::new("in_b"));
+        // Both desks number their sessions from 1, and look for the same
+        // words: what the one of full scope asks of `b` is its own.
+        let asks = |link: &Link, folder: &std::path::Path, id: &SessionId| {
+            link.send(Call::ReadFile {
+                path: folder.join("f"),
+                full: false,
+            });
+            link.send(Call::Read {
+                key: 1,
+                agent: "x".into(),
+                id: id.clone(),
+            });
+            link.send(Call::Search {
+                query: "secret".into(),
+                records: vec![(1, "x".into(), id.clone())],
+            });
+            link.send(Call::Grep {
+                folder: folder.to_path_buf(),
+                words: "secret".into(),
+                how: crate::git::Match::default(),
+            });
+        };
+        asks(&owning, &b, &in_b);
+        owning.send(Call::Watch);
+        asks(&watching, &a, &in_a);
+        // Refused: a record of no project, under another key.
+        watching.send(Call::Read {
+            key: 2,
+            agent: "x".into(),
+            id: in_b.clone(),
+        });
+        watching.send(Call::Watch);
+        for id in [&in_b, &in_a] {
+            server.say(Event::Appended {
+                agent: "x".into(),
+                id: id.clone(),
+                events: Vec::new(),
+            });
+        }
+        while !matches!(told(&mine), Event::Appended { id, .. } if id == in_a) {}
+        let mut heard = Vec::new();
+        while let Ok(e) = theirs.recv_timeout(Duration::from_millis(500)) {
+            heard.push(e);
+        }
+        let said = serde_json::to_string(&heard).unwrap();
+        let in_no_project = b.join("f").to_string_lossy().into_owned();
+        assert!(
+            !said.contains("in_b") && !said.contains(&in_no_project),
+            "{said}"
+        );
+        let count = |is: fn(&Event) -> bool| heard.iter().filter(|e| is(e)).count();
+        assert_eq!(
+            count(|e| matches!(e, Event::Record { .. })),
+            1,
+            "its own record: {said}"
+        );
+        assert_eq!(
+            count(|e| matches!(e, Event::Found { .. })),
+            1,
+            "its own search: {said}"
+        );
+        assert_eq!(
+            count(|e| matches!(e, Event::Grepped { .. })),
+            1,
+            "its own grep: {said}"
+        );
+        assert_eq!(
+            count(|e| matches!(e, Event::FileRead { .. })),
+            1,
+            "its own file: {said}"
+        );
+        let index = (heard.iter())
+            .find_map(|e| match e {
+                Event::Index(Ok(index)) => Some(index),
+                _ => None,
+            })
+            .expect("its index");
+        assert_eq!(index.sessions.len(), 1, "{said}");
+        assert!(
+            heard
+                .iter()
+                .any(|e| matches!(e, Event::Appended { id, .. } if *id == in_a))
+        );
+        assert!(
+            heard.iter().any(|e| matches!(e, Event::Notice(Err(_)))),
+            "told it was refused"
+        );
     }
 
     #[test]
@@ -2428,6 +2559,8 @@ esac; done"#;
     #[test]
     fn a_device_that_may_only_read_is_never_told_a_webhooks_address() {
         let home = tempfile::tempdir().unwrap();
+        let settings = serde_json::json!({"enabled": [], "folders": [home.path()]});
+        std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
         let (server, port) = server(home.path());
         let read = crate::access::Grant {
             scope: crate::access::Scope::Read,

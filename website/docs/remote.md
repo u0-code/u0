@@ -30,8 +30,12 @@ A device is let in by a key, never by a password:
 
 Each call a device makes is checked here, on the machine controlled,
 against what that device may do. A device that may only read watches
-threads, diffs and the files of your projects and their worktrees, and
-changes nothing; anything else it asks is refused.
+the threads, diffs and files of your projects and of the worktrees of
+their threads (all of them: it is not limited to some), and changes
+nothing; anything else it asks is refused, as are this Mac's processes,
+log and storage. It is told nothing of a folder that is not one of
+them, of a thread or a scheduled task elsewhere, of your terminals,
+of notices, or of what another device asked for.
 
 Turning listening off cuts every link at once and withdraws every unused
 pairing code. **Revoke** on a device removes its key and closes its links,

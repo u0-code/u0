@@ -102,6 +102,7 @@ impl Tools {
     ) -> Result<String, String> {
         let id = SessionId::new(ask.session.clone());
         self.not_mine(&ask.agent, &id)?;
+        self.may_read(&ask.agent, &id)?;
         let asked =
             (self.shared.happened.subscribe().borrow().iter().rev()).find_map(|m: &Milestone| {
                 match &m.what {

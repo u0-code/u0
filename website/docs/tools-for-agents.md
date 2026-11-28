@@ -128,9 +128,12 @@ There are two kinds of caller:
 - **An agent outside u0** (below). It reads: `list_sessions`,
   `read_session`, `read_diff`, `wait_for_turn`, `events`, `list_devices`,
   `device_screen`, and each tool that lists, finds or reads above (a
-  folder it names must be in a project of yours, or a worktree of one). With **Settings › Agents › Agents outside u0 may
+  folder it names must be in a project of yours, or a worktree of one;
+  the threads it lists, reads, searches, waits on or hears of are those
+  working or begun in one). With **Settings › Agents › Agents outside u0 may
   act** on (`outside_acts`), it may also `send_to_session`,
-  `interrupt_session`, `organize_session` and `answer_request`, each asked of you on that thread's card with
+  `interrupt_session`, `organize_session` and `answer_request` on such a
+  thread, each asked of you on that thread's card with
   **Allow** and **Reject** alone: every agent outside u0 comes in by
   the one key in `mcp.json`, so an **Always allow** would let each of
   them, and there is none. Any

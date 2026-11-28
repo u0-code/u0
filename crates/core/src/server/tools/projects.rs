@@ -121,7 +121,7 @@ impl Tools {
         if query.is_empty() {
             return Err("Say what to look for".into());
         }
-        let index = self.shared.index.lock().expect("index").clone()?;
+        let sessions = self.readable()?;
         let home = self.shared.home.clone();
         let found = off(move || {
             let holds = |m: &&store::Meta| {
@@ -129,7 +129,7 @@ impl Tools {
                     || (m.id.as_ref())
                         .is_some_and(|id| store::finds(&home, &m.agent, &id.0, &query).is_some())
             };
-            Listed::latest(index.sessions.iter().filter(holds))
+            Listed::latest(sessions.iter().filter(holds))
         })
         .await?;
         said(&found)
@@ -186,11 +186,15 @@ mod tests {
         repo_at(&elsewhere, &[("secret.rs", "build()\n")]);
         let settings = json!({"enabled": [], "folders": [project]});
         std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
-        let record = crate::store::record_path(home.path(), "a", "s1");
-        std::fs::create_dir_all(record.parent().unwrap()).unwrap();
-        std::fs::write(&record, "{\"you\":\"the test is Flaky\"}\n").unwrap();
+        for id in ["s1", "s2"] {
+            let record = crate::store::record_path(home.path(), "a", id);
+            std::fs::create_dir_all(record.parent().unwrap()).unwrap();
+            std::fs::write(&record, "{\"you\":\"the test is Flaky\"}\n").unwrap();
+        }
         let (server, _said) = server(home.path());
-        server.handle(Call::Keep(vec![meta(&project, "Fix the build")]));
+        let mut hidden = meta(&elsewhere, "Build elsewhere");
+        hidden.id = Some(agent_client_protocol::v1::schema::SessionId::new("s2"));
+        server.handle(Call::Keep(vec![meta(&project, "Fix the build"), hidden]));
         let mut client = Client::new(home.path(), None);
         let mut said = |tool: &str, args: serde_json::Value| {
             client.call(tool, &args);
@@ -202,6 +206,7 @@ mod tests {
         for words in ["BUILD", "flaky"] {
             let (found, _) = said("search_sessions", json!({"query": words}));
             assert!(found.contains("Fix the build"), "{words}: {found}");
+            assert!(!found.contains("elsewhere"), "of no project: {found}");
         }
         // Not by the record's JSON.
         for none in ["none such", "\"you\":"] {

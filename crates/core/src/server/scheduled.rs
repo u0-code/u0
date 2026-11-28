@@ -73,7 +73,7 @@ impl Server {
     }
 
     /// The tasks as they are, to the desk.
-    pub(super) fn say_tasks(&self) {
+    pub(crate) fn say_tasks(&self) {
         self.shared.say_tasks();
     }
 }

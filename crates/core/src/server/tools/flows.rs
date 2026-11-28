@@ -7,7 +7,10 @@ use rmcp::{handler::server::wrapper::Parameters, schemars, tool, tool_router};
 use serde::{Deserialize, Serialize};
 
 use super::{Tools, said};
-use crate::{proto::Event, workflows};
+use crate::{
+    proto::{Event, Told},
+    workflows,
+};
 
 #[derive(Serialize, Deserialize, schemars::JsonSchema)]
 struct StartWorkflow {
@@ -50,11 +53,11 @@ impl Tools {
         let runs = (self.shared.runs.lock().expect("runs").clone()).map(|r| r.runs);
         let all = Event::Workflows { flows, runs };
         let told = if self.reads_only() {
-            all.for_reader()
+            all.for_reader(&self.shared.roots())
         } else {
-            Some(all)
+            Told::As(all)
         };
-        let Some(Event::Workflows { flows, runs }) = told else {
+        let Told::As(Event::Workflows { flows, runs }) = told else {
             return Err("The workflows could not be told".into());
         };
         let flows: Vec<_> = (flows.into_iter())
@@ -90,11 +93,17 @@ impl Tools {
     /// address is not given.
     #[tool]
     async fn list_tasks(&self) -> Result<String, String> {
-        let tasks = self.shared.tasks.lock().expect("tasks").clone()?;
-        match Event::Tasks(Ok(tasks.tasks)).for_reader() {
-            Some(Event::Tasks(Ok(tasks))) => said(&tasks),
-            _ => Err("The tasks could not be told".into()),
+        let mut tasks = self.shared.tasks.lock().expect("tasks").clone()?.tasks;
+        if self.reads_only() {
+            let roots = self.shared.roots();
+            tasks.retain(|t| roots.hold(&t.project));
         }
+        for task in &mut tasks {
+            if let crate::tasks::Schedule::Hook(hook) = &mut task.schedule {
+                hook.token.clear();
+            }
+        }
+        said(&tasks)
     }
 
     /// Pause a scheduled task, resume it, run it now or take it away. You

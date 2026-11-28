@@ -47,17 +47,23 @@ impl Tools {
             })
     }
 
+    /// What of `happened` it may hear: all, but for one that may only
+    /// read, which hears of the threads of a project or worktree alone
+    /// (`readable`).
+    fn told(&self, mut happened: Vec<Milestone>) -> Vec<Milestone> {
+        if self.reads_only() {
+            let roots = self.shared.roots();
+            happened.retain(|m| roots.hold_session(&m.agent, &m.session));
+        }
+        happened
+    }
+
     /// The latest of what happened, as `u0://events` reads.
     pub(super) fn latest(&self) -> rmcp::model::ReadResourceResult {
         let kept = self.shared.happened.subscribe();
-        let latest: Vec<Milestone> = kept
-            .borrow()
-            .iter()
-            .rev()
-            .take(100)
-            .rev()
-            .cloned()
-            .collect();
+        let all = kept.borrow().iter().cloned().collect();
+        let told = self.told(all);
+        let latest = &told[told.len().saturating_sub(100)..];
         let text = said(&serde_json::json!({"happened": latest})).unwrap_or_default();
         rmcp::model::ReadResourceResult::new(vec![rmcp::model::ResourceContents::text(
             text, EVENTS,
@@ -118,7 +124,7 @@ impl Tools {
             let (happened, lost) = self.shared.happened.after(after, left).await;
             missed |= lost;
             after = happened.last().map_or(after, |m| m.n);
-            let found: Vec<_> = (happened.into_iter())
+            let found: Vec<_> = (self.told(happened).into_iter())
                 .filter(|m| self.wanted(&ask, m))
                 .collect();
             if !found.is_empty() || Instant::now() >= until {

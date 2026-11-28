@@ -377,13 +377,23 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   as its `Grant` says: its scope, its days, and whether it waits for you
   (closed with 1013 and the server's name until then). Each `Call` on a
   link is checked against its device's scope before it is handled
-  (`Access::allows`): a `read` device makes only calls that read
+  (`access::Roots::narrow`): a `read` device makes only calls that read
   (`Call::reads`, which names every call), and only of what lies, by
-  its real path, in a project or a worktree. What a link is told is
-  told as its scope may hear it: a `read` device is never sent a
-  webhook's token (`Event::for_reader`) nor a pairing link, which goes
-  only to the desk that asked for it (`Event::Offered`), as a picture an
-  issue or pull request shows does (`Event::Picture`, `Server::pictures`). Every link a device opens (a desk's,
+  its real path, in a project or the worktree of a session begun in
+  one (`access::Roots`, made again as the settings or the index
+  change), a session's record only of such a session (a search is
+  narrowed to those); never of the whole Mac (its processes, its log,
+  sizes). A scope is no narrower than that: a `read` device reads every
+  project of its server. What answers a call that reads (a record, a
+  search, a diff, a grep, a picture: named by its key on the desk that
+  asked) is said on the link it came on alone (`Server::handle_for`),
+  never to every link. What every link is told, a `read` device is told
+  as `Event::for_reader` says (which names every event): only what is
+  of those projects (the index, the tasks, the sessions' lines), never a
+  terminal, a notice or another desk's answer, never a webhook's token,
+  a step's command or a run's input; u0's tools read and act so for an
+  agent outside u0 or on such a device. A pairing link goes
+  only to the desk that asked for it (`Event::Offered`). Every link a device opens (a desk's,
   a port carried, the tools) lasts only while it may come in as it
   did (`link::lasts`): revoked, ended or narrowed, it is closed. Revoke
   removes the key and closes its links, as an access ended does; turning listening off

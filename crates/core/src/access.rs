@@ -18,6 +18,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use agent_client_protocol::v1::schema::SessionId;
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
@@ -383,37 +384,66 @@ impl Access {
         }
         Ok(d.scope)
     }
-
-    /// Whether a device of `scope` may make `call` here, in u0's home
-    /// `home`: one of full scope anything; one that may only read, a call
-    /// that only reads, of what lies in a project of yours or a worktree
-    /// of u0's, by their real paths, so that no `..` or link leads out.
-    pub fn allows(scope: Scope, call: &crate::proto::Call, home: &Path) -> bool {
-        if scope == Scope::Full {
-            return true;
-        }
-        let Some(paths) = call.reads() else {
-            return false;
-        };
-        within(home, &paths)
-    }
 }
 
-/// Whether each of `paths` lies, by its real path (so that no `..` or link
-/// leads out), in a project of yours or a worktree of u0's home `home`:
-/// all that one who may only read is let read.
-pub fn within(home: &Path, paths: &[&Path]) -> bool {
-    if paths.is_empty() {
-        return true;
+/// What one who may only read reads in u0's home: your projects, by
+/// their real paths (so that no `..` or link leads out), the worktrees
+/// of the sessions kept of them, and those sessions. Made again as the
+/// settings or the index change (`Server::roots`).
+#[derive(Debug, Default)]
+pub struct Roots {
+    dirs: Vec<PathBuf>,
+    sessions: std::collections::HashSet<(String, SessionId)>,
+}
+
+impl Roots {
+    /// The projects the settings of `home` name now, and of the sessions
+    /// `kept`, those begun in one of them, with their worktrees.
+    pub fn of(home: &Path, kept: &[crate::store::Meta]) -> Self {
+        let settings = crate::settings::Settings::load(home).0;
+        let mut roots = Self {
+            dirs: (settings.folders.iter())
+                .filter_map(|r| std::fs::canonicalize(r).ok())
+                .collect(),
+            sessions: std::collections::HashSet::default(),
+        };
+        let theirs: Vec<_> = (kept.iter()).filter(|m| roots.hold(&m.project)).collect();
+        for meta in theirs {
+            if let Some(id) = &meta.id {
+                roots.sessions.insert((meta.agent.clone(), id.clone()));
+            }
+            let worktree = meta.worktree.as_ref().map(|w| &w.path);
+            roots
+                .dirs
+                .extend(worktree.and_then(|w| std::fs::canonicalize(w).ok()));
+        }
+        roots
     }
-    let settings = crate::settings::Settings::load(home).0;
-    let roots: Vec<PathBuf> = (settings.folders.iter())
-        .chain(&settings.worktree_folders(home))
-        .filter_map(|r| std::fs::canonicalize(r).ok())
-        .collect();
-    paths
-        .iter()
-        .all(|p| std::fs::canonicalize(p).is_ok_and(|p| roots.iter().any(|r| p.starts_with(r))))
+
+    /// Whether `path` lies, by its real path, in one of them.
+    pub fn hold(&self, path: &Path) -> bool {
+        std::fs::canonicalize(path).is_ok_and(|p| self.dirs.iter().any(|r| p.starts_with(r)))
+    }
+
+    /// Whether the session `id` of `agent` is one of theirs: kept, and
+    /// begun in a project.
+    pub fn hold_session(&self, agent: &str, id: &SessionId) -> bool {
+        self.sessions.contains(&(agent.to_owned(), id.clone()))
+    }
+
+    /// `call` as a device that may only read may make it: one that reads
+    /// (`Call::reads`) of what they hold alone, a search, or what
+    /// sessions used, narrowed to their sessions; none else.
+    pub fn narrow(&self, mut call: crate::proto::Call) -> Option<crate::proto::Call> {
+        use crate::proto::Call;
+        if let Call::Search { records, .. } | Call::Used { records } = &mut call {
+            records.retain(|(_, agent, id)| self.hold_session(agent, id));
+        }
+        let reads = call.reads()?;
+        let may = reads.paths.iter().all(|p| self.hold(p))
+            && (reads.sessions.iter()).all(|(agent, id)| self.hold_session(agent, id));
+        may.then_some(call)
+    }
 }
 
 /// Whether a pairing code made is `said`, compared in constant time, as a
@@ -441,7 +471,7 @@ pub fn number() -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{key::Key, proto::Pair};
 
@@ -566,13 +596,22 @@ mod tests {
         let settings = serde_json::json!({"enabled": [], "folders": [project]});
         std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
         let read = |path: PathBuf| Call::ReadFile { path, full: false };
-        let may = |call: &Call| Access::allows(Scope::Read, call, home.path());
-        assert!(may(&read(project.join("a.rs"))));
-        assert!(may(&Call::Watch));
-        assert!(!may(&read(home.path().join("mcp.json"))), "outside");
-        assert!(!may(&read(project.join("../mcp.json"))), "led out by ..");
-        assert!(!may(&read(project.join("out"))), "led out by a link");
-        assert!(!may(&Call::Stash(Vec::new())), "it changes something");
+        let roots = Roots::of(home.path(), &[]);
+        let may = |call: Call| roots.narrow(call).is_some();
+        assert!(may(read(project.join("a.rs"))));
+        assert!(may(Call::Watch));
+        assert!(!may(read(home.path().join("mcp.json"))), "outside");
+        assert!(!may(read(project.join("../mcp.json"))), "led out by ..");
+        assert!(!may(read(project.join("out"))), "led out by a link");
+        assert!(!may(Call::Stash(Vec::new())), "it changes something");
+        assert!(!may(Call::Weigh), "the processes of the whole Mac");
+        let list = |places: Vec<PathBuf>| Call::List {
+            agent: "a".into(),
+            places,
+            under: Vec::new(),
+        };
+        assert!(may(list(vec![project.clone()])));
+        assert!(!may(list(vec![home.path().into()])), "sessions elsewhere");
         let act = Call::TermOpen {
             id: 1,
             dir: project.clone(),
@@ -580,7 +619,130 @@ mod tests {
             first: None,
             size: (1, 1),
         };
-        assert!(!may(&act) && Access::allows(Scope::Full, &act, home.path()));
+        assert!(!may(act));
+    }
+
+    /// A session of the agent `x` called `id`, begun in `project`, working
+    /// in `worktree` where there is one.
+    pub(crate) fn kept(id: &str, project: &Path, worktree: Option<&Path>) -> crate::store::Meta {
+        let folder = worktree.unwrap_or(project);
+        let worktree =
+            worktree.map(|w| serde_json::json!({"repo": project, "path": w, "branch": "u0/x"}));
+        serde_json::from_value(serde_json::json!({
+            "agent": "x", "id": id, "project": project, "folder": folder,
+            "worktree": worktree, "title": id, "begun": 1, "updated": 1,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_reader_reads_the_sessions_and_worktrees_of_your_projects_alone() {
+        use crate::proto::Call;
+        let home = tempfile::tempdir().unwrap();
+        let (a, b) = (home.path().join("a"), home.path().join("b"));
+        // u0's worktrees: one of a session of `a`, one of `b`'s.
+        let trees = home.path().join("worktrees");
+        let (of_a, of_b) = (trees.join("a-1"), trees.join("b-1"));
+        for folder in [&a, &b, &of_a, &of_b] {
+            std::fs::create_dir_all(folder).unwrap();
+            std::fs::write(folder.join("f"), "x").unwrap();
+        }
+        let settings = serde_json::json!({"enabled": [], "folders": [a]});
+        std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
+        let roots = Roots::of(
+            home.path(),
+            &[kept("in_a", &a, Some(&of_a)), kept("in_b", &b, Some(&of_b))],
+        );
+        assert!(roots.hold(&of_a.join("f")), "a worktree of a project");
+        assert!(!roots.hold(&of_b.join("f")), "a worktree of no project");
+        assert!(!roots.hold(&trees), "u0's worktrees, as a whole");
+        let (in_a, in_b) = (SessionId::new("in_a"), SessionId::new("in_b"));
+        let read = |id: &SessionId| Call::Read {
+            key: 1,
+            agent: "x".into(),
+            id: id.clone(),
+        };
+        assert!(roots.narrow(read(&in_a)).is_some());
+        assert!(roots.narrow(read(&in_b)).is_none(), "of no project");
+        let gone = SessionId::new("gone");
+        assert!(roots.narrow(read(&gone)).is_none(), "not kept");
+        let records = vec![(1, "x".to_owned(), in_a.clone()), (2, "x".to_owned(), in_b)];
+        let searched = Call::Search {
+            query: "key".into(),
+            records: records.clone(),
+        };
+        let Some(Call::Search { records: left, .. }) = roots.narrow(searched) else {
+            panic!("a search is narrowed, not refused");
+        };
+        assert_eq!(left, vec![(1, "x".to_owned(), in_a.clone())]);
+        let Some(Call::Used { records: left }) = roots.narrow(Call::Used { records }) else {
+            panic!("what was used is narrowed, not refused");
+        };
+        assert_eq!(left, vec![(1, "x".to_owned(), in_a)]);
+    }
+
+    #[test]
+    fn a_reader_is_told_of_your_projects_alone_and_of_no_desks_answers() {
+        use crate::proto::{Event, Told};
+        let home = tempfile::tempdir().unwrap();
+        let (a, b) = (home.path().join("a"), home.path().join("b"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        let settings = serde_json::json!({"enabled": [], "folders": [a]});
+        std::fs::write(home.path().join("settings.json"), settings.to_string()).unwrap();
+        let sessions = [kept("in_a", &a, None), kept("in_b", &b, None)];
+        let roots = Roots::of(home.path(), &sessions);
+        let told = |event: Event| event.for_reader(&roots);
+        let heard = |event: Event| !matches!(told(event), Told::Not);
+        let appended = |id: &str| Event::Appended {
+            agent: "x".into(),
+            id: SessionId::new(id),
+            events: Vec::new(),
+        };
+        assert!(heard(appended("in_a")));
+        assert!(!heard(appended("in_b")), "a session of no project");
+        let file = |path: PathBuf| Event::FileRead {
+            path,
+            body: Err("x".into()),
+        };
+        assert!(heard(file(a.clone())));
+        assert!(!heard(file(b.clone())), "a file elsewhere");
+        // What answers a desk is said on its link alone: none is told
+        // another's, whatever its key.
+        assert!(!heard(Event::Record {
+            key: 1,
+            events: None
+        }));
+        assert!(!heard(Event::Grepped {
+            words: "secret".into(),
+            found: Vec::new()
+        }));
+        let output = Event::TermOutput {
+            id: 1,
+            bytes: b"secret".to_vec(),
+        };
+        assert!(!heard(output), "a terminal");
+        assert!(!heard(Event::Troubles(Vec::new())), "the log");
+        let index = crate::store::Index {
+            sessions: sessions.to_vec(),
+            ..crate::store::Index::default()
+        };
+        let Told::As(Event::Index(Ok(index))) = told(Event::Index(Ok(index))) else {
+            panic!("the index, as it may read it")
+        };
+        assert_eq!(index.sessions, vec![sessions[0].clone()]);
+        let task = |title: &str, project: &Path| -> crate::tasks::Task {
+            serde_json::from_value(serde_json::json!({
+                "id": 0, "title": title, "prompt": "Look", "agent": "x",
+                "project": project, "schedule": {"every": 60}}))
+            .unwrap()
+        };
+        let tasks = vec![task("Of a", &a), task("Of b", &b)];
+        let Told::As(Event::Tasks(Ok(tasks))) = told(Event::Tasks(Ok(tasks))) else {
+            panic!("the tasks, as it may read them")
+        };
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].title, "Of a");
     }
 
     #[test]

@@ -334,7 +334,7 @@ pub enum Call {
     /// The pictures at `urls` that the pull request or issue `number` of
     /// the project in `folder` shows: only those the server found there
     /// as it read it (`pictures::of`) are fetched, each answered as an
-    /// `Event::Picture` to the desk that asked alone (`Server::pictures`).
+    /// `Event::Picture` to the desk that asked alone (`Server::handle_for`).
     Pictures {
         folder: PathBuf,
         kind: crate::github::Kind,
@@ -554,36 +554,80 @@ pub enum Call {
     NewToolsKey,
 }
 
+/// What a call that only reads reads (`Call::reads`): the paths on the
+/// disk, and the sessions whose records it reads.
+#[derive(Debug, Default)]
+pub struct Reads<'a> {
+    pub paths: Vec<&'a std::path::Path>,
+    pub sessions: Vec<(&'a str, &'a SessionId)>,
+}
+
+impl<'a> Reads<'a> {
+    fn paths(paths: Vec<&'a std::path::Path>) -> Self {
+        Self {
+            paths,
+            ..Self::default()
+        }
+    }
+
+    /// Of the sessions `records` (by key, agent and id).
+    fn records(records: &'a [(u64, String, SessionId)]) -> Self {
+        Self {
+            sessions: (records.iter())
+                .map(|(_, agent, id)| (agent.as_str(), id))
+                .collect(),
+            ..Self::default()
+        }
+    }
+}
+
+/// How a device that may only read is told an event
+/// (`Event::for_reader`).
+#[derive(Debug)]
+pub enum Told {
+    /// As every desk is.
+    Same,
+    /// So, rather.
+    As(Event),
+    /// Not at all.
+    Not,
+}
+
 impl Call {
-    /// Where it only reads, what of the disk it reads (nothing but
-    /// u0's own index, records and registry: none); `None` where it
-    /// changes something, runs a program, or acts as you anywhere. Each
-    /// call is named here, so that a new one is placed as it is added: a
-    /// device that may only read is let make those that read
-    /// (`access::Scope::Read`).
-    pub fn reads(&self) -> Option<Vec<&std::path::Path>> {
+    /// Where it only reads, what it reads; `None` where it changes
+    /// something, runs a program, acts as you anywhere, or reads what
+    /// lies beyond your projects (the processes, the log, the disk's
+    /// sizes). Each call is named here, so that a new one is placed as it
+    /// is added: a device that may only read is let make those that read
+    /// (`access::Scope::Read`), of what lies in a project or its worktree
+    /// (`access::Roots::narrow`).
+    pub fn reads(&self) -> Option<Reads<'_>> {
         use crate::{github::Ask, share::Share, telemetry::Ask as Count};
         Some(match self {
             Self::Fetch
-            | Self::Weigh
-            | Self::Troubles
             | Self::Here { .. }
             | Self::Watch
             | Self::Share(Share::Look)
-            | Self::Read { .. }
-            | Self::Search { .. }
-            | Self::Used { .. }
-            | Self::List { .. }
             | Self::Forges
             | Self::Workflows
             | Self::Devices
             | Self::Screen { .. }
-            | Self::Telemetry(Count::Opened(_) | Count::Window(_) | Count::Show(_)) => Vec::new(),
+            | Self::Telemetry(Count::Opened(_) | Count::Window(_) | Count::Show(_)) => {
+                Reads::default()
+            }
+            Self::Read { agent, id, .. } => Reads {
+                sessions: vec![(agent.as_str(), id)],
+                ..Reads::default()
+            },
+            Self::Search { records, .. } | Self::Used { records } => Reads::records(records),
+            Self::List { places, under, .. } => {
+                Reads::paths(places.iter().chain(under).map(PathBuf::as_path).collect())
+            }
             Self::Look { folder, .. }
+            | Self::Grep { folder, .. }
             | Self::ReadProject { folder }
             | Self::ListPrs { folder }
             | Self::ListFiles { folder }
-            | Self::Grep { folder, .. }
             | Self::Pictures { folder, .. }
             | Self::Forge {
                 folder,
@@ -595,24 +639,23 @@ impl Call {
                     | Ask::Log(_)
                     | Ask::Templates,
                 ..
-            } => vec![folder.as_path()],
+            } => Reads::paths(vec![folder.as_path()]),
             Self::Uncommitted { dir, .. }
             | Self::ScopeDiff { dir, .. }
             | Self::Commits { dir, .. }
             | Self::ReadPr { dir, .. }
             | Self::PrText { dir, .. }
-            | Self::Folders { dir } => vec![dir.as_path()],
-            Self::ReadFile { path, .. } => vec![path.as_path()],
-            Self::Sizes { kept } => kept
-                .under
-                .iter()
-                .chain(&kept.projects)
-                .map(PathBuf::as_path)
-                .collect(),
-            Self::Place { calls, .. } => (calls.iter())
-                .flat_map(|(_, files)| files.iter().map(|(path, _)| path.as_path()))
-                .collect(),
-            Self::Install { .. }
+            | Self::Folders { dir } => Reads::paths(vec![dir.as_path()]),
+            Self::ReadFile { path, .. } => Reads::paths(vec![path.as_path()]),
+            Self::Place { calls, .. } => Reads::paths(
+                (calls.iter())
+                    .flat_map(|(_, files)| files.iter().map(|(path, _)| path.as_path()))
+                    .collect(),
+            ),
+            Self::Weigh
+            | Self::Troubles
+            | Self::Sizes { .. }
+            | Self::Install { .. }
             | Self::CancelInstall { .. }
             | Self::InstallAxe
             | Self::Start { .. }
@@ -1077,21 +1120,67 @@ pub enum Event {
 }
 
 impl Event {
-    /// This event as a device that may only read is told it, where it
-    /// carries what would let one act: a webhook task's address (its
-    /// token) taken out; the settings as it reads them in its welcome
-    /// (`Settings::for_reader`); the workflows without their steps'
-    /// commands, their runs without what each step gave back or why one
-    /// paused (a command's output may hold a key). None where it carries
-    /// nothing such.
-    pub fn for_reader(&self) -> Option<Self> {
+    /// This event as a device that may only read is told it (`Told`),
+    /// `roots` what it reads. Each event is named here, so that a new one
+    /// is placed as it is added. It is told what is of your projects and
+    /// their worktrees (`access::Roots`), and of what would let one act,
+    /// nothing: no webhook task's address (its token), the settings as it
+    /// reads them in its welcome (`Settings::for_reader`), no step's
+    /// command of a workflow nor a run's input, what each step gave back
+    /// or why one paused (a command's output may hold a key). An answer
+    /// to a call is said on the link that asked (`Server::handle_for`), so
+    /// such a device is told none another desk asked for; nor a terminal,
+    /// nor what tells of the whole Mac (its processes, its log, sizes,
+    /// notices).
+    pub fn for_reader(&self, roots: &crate::access::Roots) -> Told {
+        let folder = |path: &std::path::Path| {
+            if roots.hold(path) {
+                Told::Same
+            } else {
+                Told::Not
+            }
+        };
+        let session = |agent: &str, id: &SessionId| {
+            if roots.hold_session(agent, id) {
+                Told::Same
+            } else {
+                Told::Not
+            }
+        };
         match self {
-            Self::Settings(settings) => Some(Self::Settings(Box::new(settings.for_reader()))),
-            Self::Secrets { .. } => Some(Self::Secrets {
+            Self::Registry(_)
+            | Self::Installing { .. }
+            | Self::Installed { .. }
+            | Self::Started { .. }
+            | Self::Running { .. }
+            | Self::Signed { .. }
+            | Self::LoggedOut { .. }
+            | Self::Telemetry { .. }
+            | Self::Here(_)
+            | Self::CliVersion { .. }
+            | Self::Shared(_)
+            | Self::Devices { .. }
+            | Self::Screen { .. }
+            | Self::AxeInstalled(_)
+            | Self::Forges(_)
+            | Self::Index(Err(_))
+            | Self::Tasks(Err(_)) => Told::Same,
+            Self::Settings(settings) => Told::As(Self::Settings(Box::new(settings.for_reader()))),
+            Self::Secrets { .. } => Told::As(Self::Secrets {
                 providers: Vec::new(),
                 refs: Ok(Vec::new()),
             }),
-            Self::Tasks(Ok(tasks)) => Some(Self::Tasks(Ok((tasks.iter().cloned())
+            Self::Index(Ok(index)) => Told::As(Self::Index(Ok(store::Index {
+                sessions: (index.sessions.iter())
+                    .filter(|m| roots.hold(&m.project))
+                    .cloned()
+                    .collect(),
+                gone: Vec::new(),
+                stashed: Vec::new(),
+            }))),
+            Self::Tasks(Ok(tasks)) => Told::As(Self::Tasks(Ok((tasks.iter())
+                .filter(|t| roots.hold(&t.project))
+                .cloned()
                 .map(|mut t| {
                     if let tasks::Schedule::Hook(hook) = &mut t.schedule {
                         hook.token.clear();
@@ -1099,7 +1188,7 @@ impl Event {
                     t
                 })
                 .collect()))),
-            Self::Workflows { flows, runs } => Some(Self::Workflows {
+            Self::Workflows { flows, runs } => Told::As(Self::Workflows {
                 flows: (flows.iter().cloned())
                     .map(|flow| {
                         flow.map(|mut f| {
@@ -1115,6 +1204,7 @@ impl Event {
                 runs: runs.clone().map(|runs| {
                     (runs.into_iter())
                         .map(|mut run| {
+                            run.input.clear();
                             run.done.iter_mut().for_each(|d| d.result.clear());
                             if let workflows::State::Paused(why) = &mut run.state {
                                 why.clear();
@@ -1124,7 +1214,73 @@ impl Event {
                         .collect()
                 }),
             }),
-            _ => None,
+            Self::Said { agent, event } => match &**event {
+                acp::Event::Update(update) => session(agent, &update.session_id),
+                acp::Event::Permission { request, .. } => session(agent, &request.session_id),
+                acp::Event::Elicit { .. } => Told::Not,
+                acp::Event::Exited { .. } => Told::Same,
+            },
+            Self::Appended { agent, id, .. }
+            | Self::Answered {
+                agent, session: id, ..
+            } => session(agent, id),
+            Self::Organized(meta) | Self::TaskTurn { meta, .. } => folder(&meta.project),
+            Self::Listed { agent, result } => Told::As(Self::Listed {
+                agent: agent.clone(),
+                result: result.as_ref().map_err(Clone::clone).map(|listed| {
+                    (listed.iter())
+                        .filter(|(project, _)| roots.hold(project))
+                        .cloned()
+                        .collect()
+                }),
+            }),
+            Self::FileRead { path: at, .. }
+            | Self::Folders { dir: at, .. }
+            | Self::Held { folder: at, .. }
+            | Self::Files { folder: at, .. }
+            | Self::Prs { folder: at, .. }
+            | Self::Forge { folder: at, .. }
+            | Self::Cloned { dir: at, .. } => folder(at),
+            Self::Record { .. }
+            | Self::Found { .. }
+            | Self::Used(_)
+            | Self::Looked { .. }
+            | Self::Uncommitted { .. }
+            | Self::Diffed { .. }
+            | Self::Commits { .. }
+            | Self::Pr { .. }
+            | Self::PrText { .. }
+            | Self::Grepped { .. }
+            | Self::Placed { .. }
+            | Self::Picture { .. }
+            | Self::Offered { .. }
+            | Self::Opened { .. }
+            | Self::Loaded { .. }
+            | Self::Probed { .. }
+            | Self::Forked { .. }
+            | Self::Deleted { .. }
+            | Self::Written { .. }
+            | Self::Ended { .. }
+            | Self::Options { .. }
+            | Self::Refused { .. }
+            | Self::Worktree { .. }
+            | Self::Checkpoint { .. }
+            | Self::Restored { .. }
+            | Self::GitStep { .. }
+            | Self::Git { .. }
+            | Self::Turned { .. }
+            | Self::Elsewhere { .. }
+            | Self::Repos(_)
+            | Self::Weighed { .. }
+            | Self::Troubles(_)
+            | Self::Sizes(_)
+            | Self::Tidied(_)
+            | Self::Cloning { .. }
+            | Self::Notice(_)
+            | Self::TermOpened { .. }
+            | Self::TermOutput { .. }
+            | Self::TermEnded { .. }
+            | Self::TermClosed { .. } => Told::Not,
         }
     }
 }
@@ -2198,7 +2354,10 @@ mod tests {
             "env": {"a": {"API_KEY": "sk-1"}}, "commands": {"a": "a --key sk-2"},
         }))
         .unwrap();
-        let Some(Event::Settings(told)) = Event::Settings(Box::new(settings)).for_reader() else {
+        let roots = crate::access::Roots::default();
+        let Told::As(Event::Settings(told)) =
+            Event::Settings(Box::new(settings)).for_reader(&roots)
+        else {
             panic!("told otherwise")
         };
         let told = serde_json::to_string(&told).unwrap();

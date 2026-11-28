@@ -65,6 +65,10 @@ type Running = Arc<Mutex<BTreeMap<String, Arc<Agent>>>>;
 /// what is said there is the answer, not a thread.
 type Writing = Arc<Mutex<HashMap<SessionId, String>>>;
 
+/// What one who may only read reads, and the time of the settings file
+/// it was made of.
+type KeptRoots = (Option<std::time::SystemTime>, Arc<crate::access::Roots>);
+
 pub struct Server {
     shared: Shared,
     /// The switch that stops each agent's install going on.
@@ -128,14 +132,40 @@ struct Shared {
     callers: door::Callers,
     /// What is counted, and sent as far as you let it.
     telemetry: Arc<crate::telemetry::Telemetry>,
+    /// What one who may only read reads (`Shared::roots`), as the
+    /// settings stood when it was made (their file's time); none since
+    /// the index changed.
+    roots: Arc<Mutex<Option<KeptRoots>>>,
 }
 
 impl Shared {
+    /// What one who may only read reads now (`access::Roots`): made
+    /// again only once the settings or the index changed.
+    fn roots(&self) -> Arc<crate::access::Roots> {
+        let stamp = std::fs::metadata(self.home.join("settings.json"))
+            .and_then(|m| m.modified())
+            .ok();
+        let kept = (self.roots.lock().expect("roots").as_ref())
+            .filter(|(at, _)| *at == stamp)
+            .map(|(_, roots)| roots.clone());
+        if let Some(roots) = kept {
+            return roots;
+        }
+        // Made and kept under the index's lock, as `change_index` forgets
+        // them: a change meanwhile is not lost.
+        let index = self.index.lock().expect("index");
+        let sessions = index.as_ref().map_or(&[][..], |i| &i.sessions);
+        let roots = Arc::new(crate::access::Roots::of(&self.home, sessions));
+        *self.roots.lock().expect("roots") = Some((stamp, roots.clone()));
+        roots
+    }
+
     /// Change the index by `change` and write it, unless it did not read.
     fn change_index(&self, change: impl FnOnce(&mut Index)) {
         let mut index = self.index.lock().expect("index");
         if let Ok(index) = &mut *index {
             change(index);
+            *self.roots.lock().expect("roots") = None;
             store::queue(Job::Write(
                 store::index_path(&self.home),
                 store::bytes(index),
@@ -301,6 +331,7 @@ impl Server {
                 runs: Arc::new(Mutex::new(runs)),
                 watched: Arc::default(),
                 callers: door::Callers::default(),
+                roots: Arc::default(),
                 telemetry,
             },
             installs: Mutex::default(),
@@ -342,24 +373,6 @@ impl Server {
         });
     }
 
-    /// Look for `query` in what was said in the sessions `records`,
-    /// telling what is found to `tell`: the desk that asked alone, as the
-    /// lines found are what was said there.
-    pub(crate) fn search(&self, query: String, records: Vec<(u64, String, SessionId)>, tell: Send) {
-        let home = self.shared.home.clone();
-        acp::runtime().spawn_blocking(move || {
-            tell(Event::Found {
-                said: (records.into_iter())
-                    .filter_map(|(key, agent, id)| {
-                        let (at, line) = store::finds(&home, &agent, &id.0, &query)?;
-                        Some((key, at, line))
-                    })
-                    .collect(),
-                query,
-            });
-        });
-    }
-
     /// Keep that `item` shows the pictures at `urls`, as reading it would.
     #[cfg(test)]
     pub(crate) fn shows(&self, item: (PathBuf, crate::github::Kind, u64), urls: Vec<String>) {
@@ -386,6 +399,11 @@ impl Server {
         &self.access
     }
 
+    /// What a device that may only read reads here (`access::Roots`).
+    pub(crate) fn roots(&self) -> Arc<crate::access::Roots> {
+        self.shared.roots()
+    }
+
     /// The settings in this server's home, or why they do not read.
     pub fn settings(&self) -> Result<Box<crate::settings::Settings>, String> {
         match crate::settings::Settings::load(&self.shared.home) {
@@ -399,8 +417,16 @@ impl Server {
         store::settle();
     }
 
-    /// Do what `call` asks.
+    /// Do what the desk in this process asks.
     pub fn handle(self: &Arc<Self>, call: Call) {
+        let here = self.here.clone();
+        self.handle_for(call, &here);
+    }
+
+    /// Do what `call` asks. What answers the asker alone (a record, a
+    /// search, a diff or a picture, named by its key on the desk that
+    /// asked) is told `asker`: the desk here, or the link it came on.
+    pub(crate) fn handle_for(self: &Arc<Self>, call: Call, asker: &Send) {
         self.shared.telemetry.call(&call);
         match call {
             Call::Fetch => self.fetch(),
@@ -567,10 +593,7 @@ impl Server {
                 store::queue(Job::Remove(self.shared.records.path(&agent, &id)));
             }
             Call::Read { key, agent, id } => {
-                let (path, send) = (
-                    self.shared.records.path(&agent, &id),
-                    self.shared.send.clone(),
-                );
+                let (path, send) = (self.shared.records.path(&agent, &id), asker.clone());
                 store::queue(Job::Then(Box::new(move || {
                     send(Event::Record {
                         key,
@@ -600,7 +623,7 @@ impl Server {
             }
             Call::Used { records } => {
                 let home = self.shared.home.clone();
-                self.off(move || {
+                Self::off_to(asker, move || {
                     Event::Used(
                         (records.into_iter())
                             .map(|(key, agent, id)| {
@@ -612,8 +635,19 @@ impl Server {
                     )
                 });
             }
-            Call::Search { query, records } => self.search(query, records, self.here.clone()),
-            Call::Look { key, folder } => self.off(move || repo::look(key, folder)),
+            Call::Search { query, records } => {
+                let home = self.shared.home.clone();
+                Self::off_to(asker, move || Event::Found {
+                    said: (records.into_iter())
+                        .filter_map(|(key, agent, id)| {
+                            let (at, line) = store::finds(&home, &agent, &id.0, &query)?;
+                            Some((key, at, line))
+                        })
+                        .collect(),
+                    query,
+                });
+            }
+            Call::Look { key, folder } => Self::off_to(asker, move || repo::look(key, folder)),
             Call::SaveScript {
                 dir,
                 at,
@@ -626,7 +660,7 @@ impl Server {
                 key,
                 since,
                 no_spacing,
-            } => self.off(move || Event::Uncommitted {
+            } => Self::off_to(asker, move || Event::Uncommitted {
                 key,
                 result: git::uncommitted(&dir, since.as_deref(), no_spacing),
             }),
@@ -636,19 +670,21 @@ impl Server {
                 scope,
                 base,
                 no_spacing,
-            } => self.off(move || repo::scope_diff(&dir, key, scope, base.as_deref(), no_spacing)),
-            Call::Commits { dir, key } => self.off(move || Event::Commits {
+            } => Self::off_to(asker, move || {
+                repo::scope_diff(&dir, key, scope, base.as_deref(), no_spacing)
+            }),
+            Call::Commits { dir, key } => Self::off_to(asker, move || Event::Commits {
                 key,
                 commits: git::log(&dir, 12),
                 stashes: git::stashes(&dir),
                 branches: git::branches(&dir),
                 upstream: git::upstream(&dir),
             }),
-            Call::ReadPr { dir, key } => self.off(move || Event::Pr {
+            Call::ReadPr { dir, key } => Self::off_to(asker, move || Event::Pr {
                 key,
                 pr: git::read_pr(&dir).map(Box::new),
             }),
-            Call::PrText { dir, number } => self.off(move || Event::PrText {
+            Call::PrText { dir, number } => Self::off_to(asker, move || Event::PrText {
                 text: git::pull_request_text(&dir, number),
                 number,
             }),
@@ -704,8 +740,8 @@ impl Server {
                 kind,
                 number,
                 urls,
-            } => self.pictures((folder, kind, number), &urls, &self.here),
-            Call::Grep { folder, words, how } => self.off(move || Event::Grepped {
+            } => self.pictures((folder, kind, number), &urls, asker),
+            Call::Grep { folder, words, how } => Self::off_to(asker, move || Event::Grepped {
                 found: git::grep(&folder, &words, how),
                 words,
             }),
@@ -796,7 +832,7 @@ impl Server {
             Call::DropCheckpoints { dir, uid } => {
                 acp::runtime().spawn_blocking(move || git::drop_checkpoints(&dir, &uid));
             }
-            Call::Place { key, calls } => self.off(move || repo::place(key, calls)),
+            Call::Place { key, calls } => Self::off_to(asker, move || repo::place(key, calls)),
             Call::Sizes { kept } => {
                 let home = self.shared.home.clone();
                 self.off(move || Event::Sizes(tidy::report(&home, &kept)));
@@ -927,7 +963,12 @@ impl Server {
 
     /// Do `work` off the window's thread, and send what it comes to back.
     fn off(&self, work: impl FnOnce() -> Event + std::marker::Send + 'static) {
-        let send = self.shared.send.clone();
+        Self::off_to(&self.shared.send, work);
+    }
+
+    /// As `off`, what it gives told `to` alone.
+    fn off_to(to: &Send, work: impl FnOnce() -> Event + std::marker::Send + 'static) {
+        let send = to.clone();
         acp::runtime().spawn_blocking(move || send(work()));
     }
 
