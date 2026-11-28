@@ -2057,11 +2057,6 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.pages.on != host {
-            self.pages.on = host;
-            self.pages.project = None;
-            self.pages.scope = None;
-        }
         let c = (self.settings_on(host).commands.get(id))
             .cloned()
             .unwrap_or_default();
@@ -2074,7 +2069,7 @@ impl Desk {
         if let Some(cli) = self.here_on(host, id).and_then(|h| h.cli.clone()) {
             self.call(host, Call::CliVersion { cli });
         }
-        self.open_tab(crate::pages::Tab::Agents, window, cx);
+        self.settings_of(host, window, cx);
         self.pages.agent = Some(id.to_owned());
     }
 
@@ -2129,7 +2124,11 @@ impl Desk {
 
     /// Open the settings on the server `host`'s own: its agents first.
     pub fn settings_of(&mut self, host: hub::Host, window: &mut Window, cx: &mut Context<Self>) {
-        self.pages.on = host;
+        if self.pages.on != host {
+            self.pages.on = host;
+            self.pages.project = None;
+            self.pages.scope = None;
+        }
         self.open_tab(crate::pages::Tab::Agents, window, cx);
     }
 

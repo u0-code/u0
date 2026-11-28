@@ -78,9 +78,11 @@ GitHub Copilot, OpenCode and more) can be switched on in
 
 An agent that needs something shows at the foot of the sidebar with its
 logo and what it needs: **Sign in**, **Install**, **Installing** or
-**Stopped**. Several show as one, their logos stacked (with their
-number, such as **3 agents**, when they need different things), which opens
-**Settings › Agents**.
+**Stopped**. Several show as one, their logos stacked, the worst first: a
+stopped agent leads, in red, then one to sign in, to install, and last one
+installing. When they need different things the worst's word shows with how
+many more, such as **Stopped +2**. It opens **Settings › Agents** on the
+server of the one that leads.
 
 ### Installing
 

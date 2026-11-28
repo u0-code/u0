@@ -15,13 +15,14 @@ use std::rc::Rc;
 
 use gpui::component::{
     InteractiveElementExt as _, Selectable as _, Sizable as _,
-    button::{Button as KitButton, ButtonVariants as _},
+    button::{Button as KitButton, ButtonVariants},
     input::Input,
     resizable::{HandleEdge, resize_handle},
 };
 use gpui::{Context, Div, Focusable as _, SharedString, div, prelude::*, px};
 use u0ui::{
     components::{
+        MarkGroup,
         badge::{Badge, BadgeSize, BadgeVariant},
         button::{Button as CarbonButton, ButtonSize, ButtonVariant},
     },
@@ -601,14 +602,17 @@ impl Desk {
 
     /// 40px sidebar footer (`sb-foot`): `Settings`, compact `Update to …`
     /// prompt when an update is available, and one pill for the agents that
-    /// need something: an agent's own, or their marks stacked when several
-    /// do (opening Settings › Agents), so `Settings` keeps its room.
+    /// need something, worst first: an agent's own, or their marks stacked
+    /// when several do, the worst's word leading (in red, where one has
+    /// stopped) and the settings opening on its server's agents, so
+    /// `Settings` keeps its room.
     fn sidebar_foot(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
-        let needing: Vec<_> = self
+        let mut needing: Vec<_> = self
             .slots
             .iter()
             .filter_map(|slot| {
                 let word = match &slot.stage {
+                    Stage::Failed(_) => "Stopped",
                     Stage::Ready | Stage::Running { .. }
                         if matches!(slot.auth, crate::hub::Auth::Needed(_)) =>
                     {
@@ -616,20 +620,16 @@ impl Desk {
                     }
                     Stage::Missing(_) => "Install",
                     Stage::Installing(_) => "Installing",
-                    Stage::Failed(_) => "Stopped",
                     _ => return None,
                 };
                 Some((slot, word))
             })
             .collect();
+        needing.sort_by_key(|(_, word)| worst(word));
         let pill = needing.first().map(|&(first, word)| {
             let (host, id) = (first.host, first.entry.id.clone());
             let one = needing.len() == 1;
-            let shown = if needing.iter().all(|(_, w)| *w == word) {
-                crate::tr(word)
-            } else {
-                crate::tr_with("%{n} agents", &[("n", &needing.len())])
-            };
+            let shown = needs_shown(&needing.iter().map(|(_, w)| *w).collect::<Vec<_>>());
             let told = needing
                 .iter()
                 .map(|(slot, word)| {
@@ -648,19 +648,14 @@ impl Desk {
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
-            let marks = needing.iter().enumerate().fold(
-                div().flex().items_center(),
-                |marks, (ix, (slot, _))| {
-                    marks.child(div().when(ix > 0, |d| d.ml(px(-4.))).child(ui::mark(
-                        faces,
-                        &self.mark_of(&slot.entry.id),
-                        12.,
-                    )))
-                },
+            let marks = MarkGroup::new(12.).ring(theme::rail()).marks(
+                (needing.iter())
+                    .map(|(slot, _)| ui::mark(faces, &self.mark_of(&slot.entry.id), 12.)),
             );
             KitButton::new("sb-agents")
                 .outline()
                 .xsmall()
+                .when(word == "Stopped", ButtonVariants::danger)
                 .child(marks)
                 .child(shown)
                 .accessibility_label(told.clone())
@@ -669,7 +664,7 @@ impl Desk {
                     if one {
                         this.open_agent(host, &id, window, cx);
                     } else {
-                        this.open_tab(Tab::Agents, window, cx);
+                        this.settings_of(host, window, cx);
                     }
                 }))
         });
@@ -845,9 +840,40 @@ pub(crate) fn gist(said: &str) -> String {
     ui::fit(&words, 110)
 }
 
+/// What agents need of you, worst first: one stopped, then one waiting
+/// on you to sign in or install it, then one installing.
+const NEEDS: [&str; 4] = ["Stopped", "Sign in", "Install", "Installing"];
+
+/// Where `need` ranks among `NEEDS`.
+fn worst(need: &str) -> usize {
+    NEEDS.iter().position(|n| *n == need).unwrap_or(NEEDS.len())
+}
+
+/// The pill's words for the needs of several agents, worst first: the
+/// worst's, and how many more when they differ.
+fn needs_shown(needs: &[&str]) -> SharedString {
+    match needs {
+        [first, rest @ ..] if rest.iter().any(|n| n != first) => crate::tr_with(
+            "%{word} +%{n}",
+            &[("word", &crate::tr(first)), ("n", &rest.len())],
+        ),
+        [first, ..] => crate::tr(first),
+        [] => SharedString::default(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::gist;
+    use super::{gist, needs_shown, worst};
+
+    #[test]
+    fn a_stopped_agent_leads_the_pill_however_many_install() {
+        let mut needs = vec!["Installing", "Install", "Stopped", "Sign in"];
+        needs.sort_by_key(|n| worst(n));
+        assert_eq!(needs, ["Stopped", "Sign in", "Install", "Installing"]);
+        assert_eq!(needs_shown(&needs), "Stopped +3");
+        assert_eq!(needs_shown(&["Installing", "Installing"]), "Installing");
+    }
 
     #[test]
     fn a_cards_words_are_the_prose_without_code_trees_or_marks() {
