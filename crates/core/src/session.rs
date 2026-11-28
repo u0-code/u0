@@ -2541,13 +2541,18 @@ mod tests {
     /// its adapter sends them (recorded, its words made neutral): each by
     /// its id, its thread read from its updates.
     fn claude_subagents() -> Vec<(String, Session)> {
+        loaded(include_str!("fixtures/claude-subagents-load.json"))
+    }
+
+    /// The sessions of the updates `sent` (a fixture), each by its id.
+    fn loaded(sent: &str) -> Vec<(String, Session)> {
         let sent: Vec<agent_client_protocol::v1::schema::SessionNotification> =
-            serde_json::from_str(include_str!("fixtures/claude-subagents-load.json")).unwrap();
+            serde_json::from_str(sent).unwrap();
         let mut sessions: Vec<(String, Session)> = Vec::new();
         for n in sent {
             let id = n.session_id.0.to_string();
             if !sessions.iter().any(|(s, _)| *s == id) {
-                let mut s = Session::new(sessions.len() as u64, "claude-acp", "/tmp".into());
+                let mut s = Session::new(sessions.len() as u64, "agent", "/tmp".into());
                 s.meta.id = Some(n.session_id.clone());
                 sessions.push((id.clone(), s));
             }
@@ -2555,6 +2560,49 @@ mod tests {
             s.replay(vec![store::Event::Update(Box::new(n.update))]);
         }
         sessions
+    }
+
+    #[test]
+    fn an_antigravity_load_reads_as_what_it_said_thought_and_did() {
+        // Recorded from `agy acp` 1.5.18 (its words made neutral): it
+        // sends no plan and no subagents of the schema's, its steps a call
+        // of its own among the others.
+        let sessions = loaded(include_str!("fixtures/antigravity-load.json"));
+        let items = &sessions[0].1.items;
+        assert!(matches!(&items[0], Item::You(t) if t.starts_with("Review the parser")));
+        assert!(
+            matches!(&items[1], Item::Thought { text, .. } if text.contains("its tests come next"))
+        );
+        let tools: Vec<_> = (items.iter())
+            .filter_map(|i| match i {
+                Item::Tool(t) => Some((t.call.title.as_str(), t.call.status)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tools.len(), 6);
+        assert_eq!(
+            tools[2],
+            ("cargo test -p parser", ToolCallStatus::Completed)
+        );
+        assert_eq!(tools[5], ("Run manage_task", ToolCallStatus::Failed));
+        assert!(matches!(items.last(), Some(Item::Agent(t)) if t.starts_with("# The parser")));
+        assert!(
+            !items
+                .iter()
+                .any(|i| matches!(i, Item::Plan(_) | Item::Child { .. }))
+        );
+    }
+
+    #[test]
+    fn a_codex_subagent_comes_as_the_schemas() {
+        let sessions = loaded(include_str!("fixtures/codex-tools-load.json"));
+        let items = &sessions[0].1.items;
+        assert!(
+            items
+                .iter()
+                .any(|i| matches!(i, Item::Child { title, .. } if title == "Review acceptance")),
+            "{items:?}"
+        );
     }
 
     #[test]

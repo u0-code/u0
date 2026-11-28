@@ -11,7 +11,7 @@ use u0ui::{
     t3::timeline::{ApprovalCard, ApprovalKind, ApprovalOption},
 };
 
-use super::{bare, meta};
+use super::{given, meta};
 use crate::{
     acp::Asker,
     desk::Desk,
@@ -231,18 +231,23 @@ impl Desk {
                 _ => None,
             };
         }
+        // A title that is only the command asked to run says no more than
+        // the command shown under it.
+        let input = (asked.input.as_ref()).or_else(|| call.and_then(|c| c.raw_input.as_ref()));
+        let command = given(&asked.title, input)
+            .unwrap_or_else(|| asked.title.trim().trim_matches('`').to_owned());
         let title = match (&asked.asker, plan.is_some(), kind) {
             (_, true, _) => crate::tr("Proposed a plan"),
             (Asker::Agent, _, Some(ToolKind::Execute))
-                if said.detail.as_deref() == Some(bare(&asked.title).as_str()) =>
+                if said.detail.as_ref() == Some(&command) =>
             {
                 crate::tr("Run a command")
             }
             (Asker::Agent, _, None | Some(ToolKind::Other)) if said.detail.is_none() => {
-                said.detail = Some(bare(&asked.title));
+                said.detail = Some(asked.title.trim().to_owned());
                 crate::tr_with("%{name} asks before it goes on", &[("name", &name)])
             }
-            _ => SharedString::from(bare(&asked.title)),
+            _ => SharedString::from(asked.title.trim().to_owned()),
         };
         let waiting = (asked.chosen.is_none())
             .then(|| asked.asked_at.elapsed().ok())

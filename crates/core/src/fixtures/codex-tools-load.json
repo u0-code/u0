@@ -1,0 +1,10 @@
+[
+  {"sessionId": "c1", "update": {"sessionUpdate": "tool_call", "toolCallId": "exec-1", "name": "exec_command", "kind": "execute", "title": "git status --short", "status": "completed", "content": [{"type": "terminal", "terminalId": "exec-1"}], "rawInput": {"command": "git status --short", "cwd": "/work/project"}, "_meta": {"terminal_info": {"cwd": "/work/project", "terminal_id": "exec-1"}}}},
+  {"sessionId": "c1", "update": {"sessionUpdate": "tool_call_update", "toolCallId": "exec-1", "rawOutput": {"exit_code": 0}, "_meta": {"terminal_output_delta": {"data": " M src/parser.rs\n", "terminal_id": "exec-1"}, "terminal_exit": {"exit_code": 0, "signal": null, "terminal_id": "exec-1"}}}},
+  {"sessionId": "c1", "update": {"sessionUpdate": "tool_call", "toolCallId": "exec-2", "name": "exec_command", "kind": "read", "title": "Read file '/work/project/src/parser.rs'", "status": "completed", "locations": [{"path": "/work/project/src/parser.rs"}]}},
+  {"sessionId": "c1", "update": {"sessionUpdate": "tool_call", "toolCallId": "exec-3", "name": "exec_command", "kind": "search", "title": "Search for 'fn parse|struct Token' in src", "status": "completed"}},
+  {"sessionId": "c1", "update": {"sessionUpdate": "tool_call", "toolCallId": "exec-4", "kind": "edit", "title": "Editing files", "status": "completed", "content": [{"type": "diff", "oldText": "fn parse(", "newText": "pub fn parse(", "path": "/work/project/src/parser.rs", "_meta": {"kind": "update"}}]}},
+  {"sessionId": "c1", "update": {"sessionUpdate": "tool_call", "toolCallId": "call_5", "kind": "other", "title": "wait", "status": "completed", "rawInput": {"prompt": null, "senderThreadId": "c1", "receiverThreadIds": [], "agentsStates": {}, "model": null, "reasoningEffort": null, "status": "completed"}}},
+  {"sessionId": "c1", "update": {"sessionUpdate": "subagent_update", "sessionId": "c1:subagent:s1", "capabilities": {}, "title": "Review acceptance"}},
+  {"sessionId": "c1", "update": {"sessionUpdate": "subagent_update", "sessionId": "c1:subagent:s1", "state": {"state": "idle", "stopReason": "end_turn"}}}
+]
