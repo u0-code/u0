@@ -93,19 +93,29 @@ pub enum Went {
     Reached { address: String, answered: bool },
 }
 
-/// The host and port a web address is reached at, to see that something
-/// answers there before a page is shown; none for a file.
+/// The host and port a web address on this Mac is reached at (a dev
+/// server here, or a port brought from another Mac), to see that
+/// something answers there before a page is shown; none for any other,
+/// which the engine reaches as the system does (through its proxy, its
+/// VPN) and says itself if it cannot, nor for a file.
 fn door(address: &str) -> Option<(String, u16)> {
     let url = url::Url::parse(address).ok()?;
     if !matches!(url.scheme(), "http" | "https") {
         return None;
     }
+    let here = match url.host()? {
+        url::Host::Domain(name) => name.eq_ignore_ascii_case("localhost"),
+        url::Host::Ipv4(ip) => ip.is_loopback() || ip.is_unspecified(),
+        url::Host::Ipv6(ip) => ip.is_loopback() || ip.is_unspecified(),
+    };
+    if !here {
+        return None;
+    }
     Some((url.host_str()?.to_owned(), url.port_or_known_default()?))
 }
 
-/// Whether anything answers at `address`: a connection taken at its host
-/// and port within two seconds; a file, always (the engine says if it is
-/// not there).
+/// Whether anything answers at `address` on this Mac: a connection taken
+/// at its port within two seconds; any other, always (`door`).
 pub fn answers(address: &str) -> bool {
     use std::net::{TcpStream, ToSocketAddrs as _};
     let Some((host, port)) = door(address) else {
@@ -238,7 +248,7 @@ impl Desk {
                     .web
                     .pages
                     .get_mut(&key)
-                    .filter(|p| *p.opened.borrow() == address)
+                    .filter(|p| p.address == address)
                 {
                     // Something answers again: the page is loaded afresh.
                     if answered
@@ -268,17 +278,26 @@ impl Desk {
         cx.notify();
     }
 
-    /// Load the session `key`'s page again, once something is seen to
-    /// answer where it was opened (Reload, Try again).
-    pub(crate) fn reload_page(&mut self, key: u64, cx: &mut Context<Self>) {
+    /// Load the session `key`'s page again (Reload, Try again), past
+    /// the cache when `fresh`; while nothing answers where it is, once
+    /// something is seen to.
+    pub(crate) fn reload_page(&mut self, key: u64, fresh: bool, cx: &mut Context<Self>) {
         if let Some(page) = self.web.pages.get(&key) {
-            let opened = page.opened.borrow().clone();
             if page.unreached.is_none()
                 && let Some(view) = &page.view
             {
-                let _ = view.read(cx).raw().reload();
+                use wry::WebViewExtMacOS as _;
+                let webkit = view.read(cx).raw().webview();
+                // SAFETY: WebKit's view, on the main thread it lives on.
+                drop(unsafe {
+                    if fresh {
+                        webkit.reloadFromOrigin()
+                    } else {
+                        webkit.reload()
+                    }
+                });
             }
-            crate::hub::knock(key, opened, self.tx.clone());
+            crate::hub::knock(key, page.address.clone(), self.tx.clone());
         }
     }
 
@@ -541,13 +560,34 @@ mod tests {
             door("http://127.0.0.1:5173/cover"),
             Some(("127.0.0.1".into(), 5173))
         );
-        assert_eq!(
-            door("https://example.com/"),
-            Some(("example.com".into(), 443))
-        );
+        assert_eq!(door("https://localhost/"), Some(("localhost".into(), 443)));
         assert_eq!(door("http://[::1]:8000/"), Some(("[::1]".into(), 8000)));
         assert_eq!(door("file:///tmp/a.html"), None);
         assert!(answers("file:///tmp/nowhere.html"));
+    }
+
+    #[test]
+    fn a_page_elsewhere_is_left_to_the_engine_and_its_proxy() {
+        for elsewhere in [
+            "https://example.com/",
+            "http://10.0.0.7:3000/",
+            "http://intranet:8080/",
+        ] {
+            assert_eq!(door(elsewhere), None, "{elsewhere}");
+            assert!(answers(elsewhere), "{elsewhere}");
+        }
+    }
+
+    #[test]
+    fn a_page_on_this_mac_answers_while_something_listens_at_its_port() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a port");
+        let address = format!(
+            "http://127.0.0.1:{}/",
+            listener.local_addr().expect("its port").port()
+        );
+        assert!(answers(&address), "a listener answers");
+        drop(listener);
+        assert!(!answers(&address), "none, nothing does");
     }
 
     #[test]

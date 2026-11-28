@@ -14,7 +14,7 @@ use u0ui::{
     },
     icons::{CarbonIcon, Icon},
     t3::workspace::{PreviewChrome, PreviewChromeTexts, PreviewStrip},
-    tokens::ColorRole,
+    tokens::{ColorRole, SPACING_06, SPACING_07},
 };
 
 use super::{Page, VIEWPORTS, fit, one_server, openable};
@@ -33,10 +33,13 @@ impl Desk {
         if let Some(page) = page {
             let address = page.address.clone();
             let tab = tab
-                .child(self.page_strip(key, &address, cx))
+                .child(
+                    self.page_strip(key, &address, cx)
+                        .answering(page.unreached.is_none()),
+                )
                 .children(self.forwarded_note(&address, cx));
             if let Some(unreached) = &page.unreached {
-                return tab.child(Self::unreached(key, unreached, cx));
+                return tab.child(self.unreached(key, unreached, cx));
             }
             // Its webview is made once this frame is drawn.
             return match page.view.clone() {
@@ -116,7 +119,7 @@ impl Desk {
                 })
                 .on_reload({
                     let desk = desk.clone();
-                    move |_, cx| desk.update(cx, |d, cx| d.reload_page(key, cx))
+                    move |_, cx| desk.update(cx, |d, cx| d.reload_page(key, false, cx))
                 })
                 .on_stop(move |_, cx| {
                     use wry::WebViewExtMacOS as _;
@@ -147,7 +150,6 @@ impl Desk {
             return vec![viewport];
         };
         let (copied, opened) = (page.address.clone(), page.address.clone());
-        let fresh = page.view.clone();
         let unshown = page.view.is_none() || page.unreached.is_some();
         let zoom = |label: &str, by: i32| {
             let desk = desk.clone();
@@ -157,14 +159,11 @@ impl Desk {
         vec![
             MenuItem::item(crate::tr("Reload")).on_select({
                 let desk = desk.clone();
-                move |_, cx| desk.update(cx, |d, cx| d.reload_page(key, cx))
+                move |_, cx| desk.update(cx, |d, cx| d.reload_page(key, false, cx))
             }),
-            MenuItem::item(crate::tr("Reload, skipping the cache")).on_select(move |_, cx| {
-                if let Some(view) = &fresh {
-                    use wry::WebViewExtMacOS as _;
-                    // SAFETY: on the main thread WebKit's view lives on.
-                    drop(unsafe { view.read(cx).raw().webview().reloadFromOrigin() });
-                }
+            MenuItem::item(crate::tr("Reload, skipping the cache")).on_select({
+                let desk = desk.clone();
+                move |_, cx| desk.update(cx, |d, cx| d.reload_page(key, true, cx))
             }),
             MenuItem::item(crate::tr("Copy address")).on_select(move |_, cx| {
                 cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()));
@@ -284,10 +283,11 @@ impl Desk {
         )
     }
 
-    /// In the page's place while nothing answers where it was opened
-    /// (the `WebViewStates` board's "The page does not load"): what did not
-    /// answer and why that may be, Try again, and your browser.
-    fn unreached(key: u64, address: &str, cx: &mut Context<Self>) -> Div {
+    /// In the page's place while nothing answers at its address on this
+    /// Mac (the `WebViewStates` board's "The page does not load"): what did
+    /// not answer and why that may be (a dev server here, or the Mac a
+    /// port is brought from), Try again, and your browser.
+    fn unreached(&self, key: u64, address: &str, cx: &mut Context<Self>) -> Div {
         let (desk, browse) = (cx.entity(), cx.entity());
         let url = url::Url::parse(address).ok();
         let port = url.as_ref().and_then(url::Url::port_or_known_default);
@@ -296,18 +296,19 @@ impl Desk {
             .and_then(|u| u.host_str().map(str::to_owned))
             .unwrap_or_default();
         let at = port.map_or_else(|| host.clone(), |p| format!("{host}:{p}"));
-        let here = matches!(
-            host.as_str(),
-            "localhost" | "127.0.0.1" | "[::1]" | "0.0.0.0"
-        );
-        let why = match port.filter(|_| here) {
-            Some(port) => crate::tr_with(
-                "Is the dev server running? Nothing answered on port %{port} on this Mac.",
-                &[("port", &port)],
+        let brought = self
+            .dev_servers()
+            .into_iter()
+            .find(|s| one_server(&s.url, address))
+            .and_then(|s| Some((s.forwarded?.0, s.machine)));
+        let why = match brought {
+            Some((there, machine)) => crate::tr_with(
+                "Nothing answered on port %{port} of %{machine}, forwarded to this Mac. Is its dev server running, and %{machine} in reach?",
+                &[("port", &there), ("machine", &machine)],
             ),
             None => crate::tr_with(
-                "Nothing answered at %{address}. Check the address, or your connection.",
-                &[("address", &at)],
+                "Is the dev server running? Nothing answered on port %{port} on this Mac.",
+                &[("port", &port.unwrap_or_default())],
             ),
         };
         let opened = address.to_owned();
@@ -315,9 +316,9 @@ impl Desk {
         div()
             .flex_1()
             .min_h(px(0.))
-            .px(px(24.))
-            .pt(px(32.))
-            .pb(px(24.))
+            .px(px(SPACING_06.px_value()))
+            .pt(px(SPACING_07.px_value()))
+            .pb(px(SPACING_06.px_value()))
             .child(
                 Empty::new()
                     .child(
@@ -343,7 +344,7 @@ impl Desk {
                                     .size(ButtonSize::Sm)
                                     .icon(CarbonIcon::Renew)
                                     .on_click(move |_, _, cx| {
-                                        desk.update(cx, |d, cx| d.reload_page(key, cx));
+                                        desk.update(cx, |d, cx| d.reload_page(key, false, cx));
                                     }),
                             )
                             .child(

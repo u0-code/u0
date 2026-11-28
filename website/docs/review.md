@@ -146,9 +146,13 @@ five seconds), and nowhere else: nothing is saved by u0. Only a web
 address is ever handed to your browser; a file page has no **Open in your
 browser**. A page goes on only to web
 addresses; one opened as a file stays on that file. When nothing answers
-where a page was opened (most often, its dev server is not running), u0
-says so in its place: **Can't reach** the address, with **Try again** and
-**Open in your browser**; **Reload** looks again too.
+at a page's address on this Mac (most often, its dev server is not
+running; for a port brought from another Mac, that Mac may be out of
+reach too), u0 says so in its place: **Can't reach** the address, with
+**Try again** and **Open in your browser**; **Reload** looks again too,
+and the strip's dot turns red. A page elsewhere is reached as the system
+reaches it, through its proxy or VPN, and the web view says if it
+cannot.
 
 A page opens only when you open it, never from what an agent says. It is
 hidden while another tab or thread is shown, and closed with its tab. On
