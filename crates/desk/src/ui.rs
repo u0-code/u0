@@ -107,10 +107,13 @@ pub fn icon_path(name: &str) -> SharedString {
 }
 
 /// A sharp icon by name at `size` px, in `icon-secondary` (`theme::muted()`).
+/// It never shrinks: an SVG has no width of its own to hold, so in a row
+/// whose text runs over, GPUI would squeeze it with the text.
 pub fn icon(name: &str, size: f32) -> Svg {
     svg()
         .path(icon_path(name))
         .size(px(size))
+        .flex_none()
         .text_color(theme::muted())
 }
 
@@ -686,5 +689,11 @@ mod tests {
             "/srv/…/c/d"
         );
         assert_eq!(short_path(Path::new("/srv/a"), None), "/srv/a");
+    }
+
+    #[test]
+    fn an_icon_never_shrinks_in_a_row_whose_text_runs_over() {
+        let mut drawn = icon("terminal", 16.);
+        assert_eq!(drawn.style().flex_shrink, Some(0.));
     }
 }
