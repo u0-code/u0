@@ -121,8 +121,9 @@ changed), **Linked** (pull requests and issues linked to it), **Plan**,
 ## Preview
 
 The **Preview** tab shows a web page beside the thread. With none open
-(**No page open**), it lists the **Dev servers** the thread's terminals
-printed and the addresses **Opened lately**: choose one to open it. You
+(**No preview yet**), it lists the **Local servers** the thread's
+terminals printed and the addresses **Recently used**: choose one to open
+it. You
 can also type an address in its bar and press Return: a URL
 (`localhost:5173` is read as `http://localhost:5173`), or the path of an
 HTML file of yours (only typed, or opened lately: a file a repository's
@@ -135,13 +136,14 @@ The bar has **Back**, **Forward**, **Reload** (**Stop** while it loads),
 the address and **More actions**: **Reload**, **Reload, skipping the
 cache**, **Copy address**, **Open in your browser**, **Add a screenshot to
 the chat** (the page alone, as the web view draws it, never a window or
-notification over it, beside what you write), **Zoom in**,
-**Zoom out** and **Actual size** (the bar says the zoom), the **Viewport** (**Responsive**, **iPhone 16**, **iPad**,
-**Desktop 1440**: a width wider than the column is zoomed to fit) and
-**Close the page**. Under it, a strip names the dev server the page is of
+notification over it, beside what you write), **Viewport** (**Responsive**,
+**iPhone 16**, **iPad**, **Desktop 1440**: a width wider than the column is
+zoomed to fit), **Zoom** (**Zoom in**, **Zoom out** and **Actual size**;
+the bar says the zoom) and **Close the page**. **Open in your browser**
+names the browser it opens. Under it, a strip names the dev server the page is of
 (its menu switches to another), the machine it runs on, and **Open in
 your browser**; a page of a port brought from another Mac says so under
-the strip, with **Stop forwarding**. A window a page asks for, or a
+the strip, with **Stop**. A window a page asks for, or a
 download it starts, goes to your browser if it is a web address (one in
 five seconds), and nowhere else: nothing is saved by u0. Only a web
 address is ever handed to your browser; a file page has no **Open in your
@@ -150,7 +152,7 @@ addresses; one opened as a file stays on that file. When nothing answers
 at a page's address on this Mac (most often, its dev server is not
 running; for a port brought from another Mac, that Mac may be out of
 reach too), u0 says so in its place: **Can't reach** the address, with
-**Try again** and **Open in your browser**; **Reload** looks again too,
+**Try again** (the strip keeps **Open in your browser**); **Reload** looks again too,
 and the strip's dot turns red. A page elsewhere is reached as the system
 reaches it, through its proxy or VPN, and the web view says if it
 cannot.

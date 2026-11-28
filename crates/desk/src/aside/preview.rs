@@ -30,17 +30,19 @@ impl Desk {
             .map(|s| LocalServer::new(s.port().unwrap_or_default(), s.title.clone()))
             .collect();
         let body = if cfg!(target_os = "macos") {
-            crate::tr("Open a dev server from your terminals, or type a URL or HTML file above.")
+            crate::tr(
+                "Type a URL above, or run a dev script. Local servers this thread starts appear here.",
+            )
         } else {
             crate::tr("Dev servers your terminals print open in your browser.")
         };
         PreviewEmptyState::new("preview-empty")
             .servers(cards)
             .texts(PreviewEmptyTexts {
-                title: crate::tr("No page open"),
+                title: crate::tr("No preview yet"),
                 body,
-                servers: crate::tr("Dev servers"),
-                recent: crate::tr("Opened lately"),
+                servers: crate::tr("Local servers"),
+                recent: crate::tr("Recently used"),
             })
             .on_server(move |n, _, cx| {
                 if let Some(s) = servers.get(n) {

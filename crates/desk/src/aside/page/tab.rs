@@ -1,20 +1,21 @@
-//! The Preview tab with a page in it, as the `TerminalBrowser` board draws
-//! it in the 400 column: u0ui's narrow `PreviewChrome` (its More a menu
-//! holding the viewport), u0ui's `PreviewStrip` naming the dev server, an
-//! actionable notification for a port brought from another Mac, then the
-//! page; with none, the dev servers and the addresses opened lately.
+//! The Preview tab with a page in it, as the `TerminalBrowser` and
+//! `RightColumnStates` boards draw it in the 400 column: u0ui's narrow
+//! `PreviewChrome` (its More a menu holding the viewport and the zoom),
+//! u0ui's `PreviewStrip` naming the dev server, a note for a port brought
+//! from another Mac, then the page, or why it does not load
+//! (`WebViewStates`); with none, the dev servers and the addresses opened
+//! lately.
 
 use gpui::{ClipboardItem, Context, Div, Entity, SharedString, canvas, div, prelude::*, px};
 use gpui_webview::WebView;
 use u0ui::{
     components::{
-        Button, ButtonSize, ButtonVariant, Empty, EmptyContent, EmptyDescription, EmptyHeader,
-        EmptyMedia, EmptyTitle, MenuItem,
-        alert::{Alert, AlertAction, AlertVariant},
+        Button, ButtonSize, ButtonVariant, EmptyDescription, EmptyHeader, EmptyTitle, MenuItem,
     },
     icons::{CarbonIcon, Icon},
     t3::workspace::{PreviewChrome, PreviewChromeTexts, PreviewStrip},
-    tokens::{ColorRole, SPACING_06, SPACING_07},
+    tokens::{ColorRole, SPACING_03, SPACING_04, SPACING_05, SPACING_06, SPACING_07, TypeStyle},
+    typography::TypeStyled as _,
 };
 
 use super::{Page, VIEWPORTS, fit, one_server, openable};
@@ -130,8 +131,9 @@ impl Desk {
         chrome
     }
 
-    /// More's menu: what to do with the page, and the viewport it is laid
-    /// out at; nothing but the viewport with no page open.
+    /// More's menu (`RightColumnStates`, "More, above the page"): what to
+    /// do with the page, then its viewport and zoom, each a menu of its
+    /// own; nothing but the viewport with no page open.
     fn page_menu(&self, key: u64, cx: &mut Context<Self>) -> Vec<MenuItem> {
         let desk = cx.entity();
         let names: Vec<SharedString> = VIEWPORTS.iter().map(|(n, _)| crate::tr(n)).collect();
@@ -156,6 +158,18 @@ impl Desk {
             MenuItem::item(crate::tr(label))
                 .on_select(move |_, cx| desk.update(cx, |d, cx| d.zoom_page(key, by, cx)))
         };
+        // The browser it opens in, by name, as the board's `Safari`: the
+        // one chosen in Settings › Browser, else the system's, once known.
+        let mut browse = MenuItem::item(crate::tr("Open in your browser"));
+        if let Some(name) = self
+            .settings
+            .browser
+            .as_ref()
+            .or_else(|| self.browsers.iter().find(|b| b.default).map(|b| &b.app))
+            .and_then(|app| app.file_stem())
+        {
+            browse = browse.shortcut(name.to_string_lossy().into_owned());
+        }
         vec![
             MenuItem::item(crate::tr("Reload")).on_select({
                 let desk = desk.clone();
@@ -169,12 +183,13 @@ impl Desk {
                 cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()));
             }),
             // A file page is yours, not your browser's.
-            MenuItem::item(crate::tr("Open in your browser"))
+            browse
                 .disabled(rules::for_browser(&opened).is_none())
                 .on_select({
                     let desk = desk.clone();
                     move |_, cx| desk.update(cx, |d, cx| d.browse(&opened, cx))
                 }),
+            MenuItem::divider(),
             // The page as WebKit draws it, beside what you write: only
             // while one is shown.
             MenuItem::item(crate::tr("Add a screenshot to the chat"))
@@ -183,12 +198,12 @@ impl Desk {
                     let desk = desk.clone();
                     move |_, cx| desk.update(cx, |d, cx| d.shoot_page(key, cx))
                 }),
-            MenuItem::divider(),
-            zoom("Zoom in", 1),
-            zoom("Zoom out", -1),
-            zoom("Actual size", 0),
-            MenuItem::divider(),
-            viewport,
+            MenuItem::item(crate::tr("Viewport")).submenu([viewport]),
+            MenuItem::item(crate::tr("Zoom")).submenu([
+                zoom("Zoom in", 1),
+                zoom("Zoom out", -1),
+                zoom("Actual size", 0),
+            ]),
             MenuItem::divider(),
             MenuItem::item(crate::tr("Close the page")).on_select(move |_, cx| {
                 desk.update(cx, |d, cx| {
@@ -219,14 +234,18 @@ impl Desk {
             )
             .machine(crate::tr("This Mac"))
         };
-        // `dev · pnpm dev · :5173 · This Mac`, as the board's menu.
+        // `dev · pnpm dev · localhost:5173 · This Mac`: the board's two
+        // lines of each server in one, as u0ui's radio item has one.
         let labels: Vec<SharedString> = servers
             .iter()
             .map(|s| {
                 [
                     Some(s.title.clone()),
                     s.command.clone(),
-                    s.port().map(|p| format!(":{p}")),
+                    url::Url::parse(&s.printed).ok().and_then(|u| {
+                        let port = u.port_or_known_default()?;
+                        Some(format!("{}:{port}", u.host_str()?))
+                    }),
                     Some(s.machine.clone()),
                 ]
                 .into_iter()
@@ -259,28 +278,59 @@ impl Desk {
         }
     }
 
-    /// Under the strip, for a page of a server on another Mac: that its
-    /// port is brought here, and the way to stop that (Carbon's actionable
-    /// notification, u0ui's `Alert` with an action).
-    fn forwarded_note(&self, address: &str, cx: &mut Context<Self>) -> Option<Alert> {
+    /// Under the strip, for a page of a server on another Mac
+    /// (`RightColumnStates`' `.pv-fwd`): that its port is brought here,
+    /// and Stop, which ends that.
+    fn forwarded_note(&self, address: &str, cx: &mut Context<Self>) -> Option<Div> {
         let s = self
             .dev_servers()
             .into_iter()
             .find(|s| s.forwarded.is_some() && one_server(&s.url, address))?;
         let (there, here) = s.forwarded?;
         let (desk, host) = (cx.entity(), s.host);
+        // `.pv-fwd { display: flex; align-items: flex-start; gap: 8px; padding:
+        // 8px 8px 8px 12px; border-bottom: 1px solid border-subtle-01;
+        // background: layer-02; font-size: 12px; line-height: 16px; color:
+        // text-secondary }`, its icon and words 8px down, level with the
+        // button's label.
         Some(
-            Alert::new("page-forwarded")
-                .variant(AlertVariant::Info)
-                .full_width(true)
-                .description(crate::tr_with(
-                    "Port %{there} on %{machine}, forwarded to 127.0.0.1:%{here}",
-                    &[("there", &there), ("machine", &s.machine), ("here", &here)],
-                ))
-                .action(
-                    AlertAction::new(crate::tr("Stop forwarding")).on_click(move |_, cx| {
-                        desk.update(cx, |d, cx| d.stop_forward(host, there, cx));
-                    }),
+            div()
+                .flex()
+                .flex_none()
+                .items_start()
+                .gap(px(SPACING_03.px_value()))
+                .py(px(SPACING_03.px_value()))
+                .pr(px(SPACING_03.px_value()))
+                .pl(px(SPACING_04.px_value()))
+                .border_b_1()
+                .border_color(theme::role(ColorRole::BorderSubtle01))
+                .bg(theme::role(ColorRole::Layer02))
+                .child(
+                    div().flex_none().mt(px(SPACING_03.px_value())).child(
+                        Icon::carbon(CarbonIcon::Plug)
+                            .size_length(px(16.))
+                            .color(theme::role(ColorRole::IconSecondary)),
+                    ),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w(px(0.))
+                        .pt(px(SPACING_03.px_value()))
+                        .type_style(TypeStyle::Label01)
+                        .text_color(theme::role(ColorRole::TextSecondary))
+                        .child(crate::tr_with(
+                            "Port %{there} on %{machine}, forwarded to 127.0.0.1:%{here} on this Mac over its own signed link. Your browser opens the same address.",
+                            &[("there", &there), ("machine", &s.machine), ("here", &here)],
+                        )),
+                )
+                .child(
+                    Button::new("page-forwarded-stop", crate::tr("Stop"))
+                        .variant(ButtonVariant::Ghost)
+                        .size(ButtonSize::Sm)
+                        .on_click(move |_, _, cx| {
+                            desk.update(cx, |d, cx| d.stop_forward(host, there, cx));
+                        }),
                 ),
         )
     }
@@ -288,9 +338,9 @@ impl Desk {
     /// In the page's place while nothing answers at its address on this
     /// Mac (the `WebViewStates` board's "The page does not load"): what did
     /// not answer and why that may be (a dev server here, or the Mac a
-    /// port is brought from), Try again, and your browser.
+    /// port is brought from), and Try again; your browser is in the strip.
     fn unreached(&self, key: u64, address: &str, cx: &mut Context<Self>) -> Div {
-        let (desk, browse) = (cx.entity(), cx.entity());
+        let desk = cx.entity();
         let url = url::Url::parse(address).ok();
         let port = url.as_ref().and_then(url::Url::port_or_known_default);
         let host = url
@@ -313,54 +363,47 @@ impl Desk {
                 &[("port", &port.unwrap_or_default())],
             ),
         };
-        let opened = address.to_owned();
-        // `.wv { padding: 32px 24px 24px }`, its icon `support-error` at 32.
+        // `.wv { display: flex; flex-direction: column; gap: 16px; padding:
+        // 32px 24px 24px }`: its icon (`support-error`, 32), the empty
+        // state's words with no padding of their own, then `.wv-acts`, a
+        // column 8px apart.
         div()
+            .flex()
+            .flex_col()
             .flex_1()
             .min_h(px(0.))
+            .gap(px(SPACING_05.px_value()))
             .px(px(SPACING_06.px_value()))
             .pt(px(SPACING_07.px_value()))
             .pb(px(SPACING_06.px_value()))
+            .overflow_hidden()
             .child(
-                Empty::new()
+                Icon::carbon(CarbonIcon::ErrorFilled)
+                    .size_length(px(32.))
+                    .color(theme::role(ColorRole::SupportError)),
+            )
+            .child(
+                EmptyHeader::new()
+                    .child(EmptyTitle::new(crate::tr_with(
+                        "Can't reach %{address}",
+                        &[("address", &at)],
+                    )))
+                    .child(EmptyDescription::new(why)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_start()
+                    .gap(px(SPACING_03.px_value()))
                     .child(
-                        EmptyHeader::new()
-                            .child(
-                                EmptyMedia::new().child(
-                                    Icon::carbon(CarbonIcon::ErrorFilled)
-                                        .size_length(px(32.))
-                                        .color(theme::role(ColorRole::SupportError)),
-                                ),
-                            )
-                            .child(EmptyTitle::new(crate::tr_with(
-                                "Can't reach %{address}",
-                                &[("address", &at)],
-                            )))
-                            .child(EmptyDescription::new(why)),
-                    )
-                    .child(
-                        EmptyContent::new()
-                            .child(
-                                Button::new("page-again", crate::tr("Try again"))
-                                    .variant(ButtonVariant::Primary)
-                                    .size(ButtonSize::Sm)
-                                    .icon(CarbonIcon::Renew)
-                                    .on_click(move |_, _, cx| {
-                                        desk.update(cx, |d, cx| d.reload_page(key, false, cx));
-                                    }),
-                            )
-                            .child(
-                                Button::new(
-                                    "page-unreached-browser",
-                                    crate::tr("Open in your browser"),
-                                )
-                                .variant(ButtonVariant::Ghost)
-                                .size(ButtonSize::Sm)
-                                .icon(CarbonIcon::Launch)
-                                .on_click(move |_, _, cx| {
-                                    browse.update(cx, |d, cx| d.browse(&opened, cx));
-                                }),
-                            ),
+                        Button::new("page-again", crate::tr("Try again"))
+                            .variant(ButtonVariant::Primary)
+                            .size(ButtonSize::Sm)
+                            .icon(CarbonIcon::Renew)
+                            .on_click(move |_, _, cx| {
+                                desk.update(cx, |d, cx| d.reload_page(key, false, cx));
+                            }),
                     ),
             )
     }
