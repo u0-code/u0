@@ -124,11 +124,8 @@ fn public(ip: IpAddr) -> bool {
             if let Some(v4) = v6.to_ipv4_mapped() {
                 return public(IpAddr::V4(v4));
             }
-            // NAT64's well-known prefix carries an IPv4 address in its last
-            // 32 bits.
-            if s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
-                let v4 = Ipv4Addr::from((u32::from(s[6]) << 16) | u32::from(s[7]));
-                return public(IpAddr::V4(v4));
+            if !carried(v6).into_iter().all(|v4| public(IpAddr::V4(v4))) {
+                return false;
             }
             !(v6.is_unspecified()
                 || v6.is_loopback()
@@ -139,6 +136,28 @@ fn public(ip: IpAddr) -> bool {
                 || (s[0] == 0x2001 && s[1] == 0x0db8)
                 || s[..6] == [0; 6])
         }
+    }
+}
+
+/// The IPv4 addresses `v6` leads to, where it is a way to one: NAT64's
+/// well-known prefix (its last 32 bits), 6to4 (`2002::/16`, the next 32
+/// bits) and Teredo (`2001::/32`: its server, and its client with each bit
+/// flipped). NAT64's local-use prefix (`64:ff9b:1::/48`) leads to one where
+/// its network's own prefix length says, which no address tells: it is
+/// judged as leading to `0.0.0.0`, refused.
+fn carried(v6: std::net::Ipv6Addr) -> Vec<Ipv4Addr> {
+    let s = v6.segments();
+    let o = v6.octets();
+    let at = |a: usize, b: usize, c: usize, d: usize| Ipv4Addr::new(o[a], o[b], o[c], o[d]);
+    match s {
+        [0x64, 0xff9b, 0, 0, 0, 0, ..] => vec![at(12, 13, 14, 15)],
+        [0x64, 0xff9b, 1, ..] => vec![Ipv4Addr::UNSPECIFIED],
+        [0x2002, ..] => vec![at(2, 3, 4, 5)],
+        [0x2001, 0, ..] => vec![
+            at(4, 5, 6, 7),
+            Ipv4Addr::from(!u32::from(at(12, 13, 14, 15))),
+        ],
+        _ => Vec::new(),
     }
 }
 
@@ -282,6 +301,11 @@ mod tests {
             "::ffff:127.0.0.1",
             "::ffff:169.254.169.254",
             "64:ff9b::a00:1",
+            "2002:7f00:1::",
+            "2002:a9fe:a9fe::1",
+            "2001:0:4136:e378:8000:63bf:f5ff:fffe",
+            "2001:0:a00:1::1",
+            "64:ff9b:1::808:808",
         ] {
             let ip: IpAddr = near.parse().unwrap();
             assert!(!super::public(ip), "{near}");
@@ -291,6 +315,9 @@ mod tests {
             "185.199.108.133",
             "2606:50c0:8000::154",
             "::ffff:8.8.8.8",
+            "64:ff9b::808:808",
+            "2002:808:808::1",
+            "2001:0:4136:e378:8000:63bf:f7f7:f7f7",
         ] {
             let ip: IpAddr = far.parse().unwrap();
             assert!(super::public(ip), "{far}");

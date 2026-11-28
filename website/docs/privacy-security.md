@@ -30,7 +30,8 @@ asks before it acts, and answers them only as you choose. u0's own
   the item was read, as with any picture fetched from it. Only GitHub's
   attachments are asked with your GitHub token. No address on the
   server's own machine or networks (loopback, private, link-local, a
-  carrier's NAT, multicast) is reached.
+  carrier's NAT, multicast) is reached, nor an IPv6 address that leads
+  to one (NAT64, 6to4, Teredo).
 
 What your agents send to their own services is between you and them.
 
