@@ -796,9 +796,12 @@ impl Desk {
     pub(super) fn turn_over(&mut self, key: u64, ok: bool, cx: &mut Context<Self>) {
         let away = self.current != Some(key);
         let behind = self.behind;
-        // A turn that ended while you looked elsewhere is unread.
-        if let Some(s) = self.sessions.at_mut(key).filter(|_| away || behind) {
-            s.meta.flags.unread = true;
+        if let Some(s) = self.sessions.at_mut(key) {
+            // Kept, so the list says so before its record is read back.
+            s.meta.flags.failed = !ok;
+            s.meta.flags.failed |= s.outcome() == Some("failed");
+            // A turn that ended while you looked elsewhere is unread.
+            s.meta.flags.unread |= away || behind;
             self.save_index();
         }
         // With u0 behind other windows, macOS says so; in front, with

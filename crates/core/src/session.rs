@@ -926,10 +926,14 @@ impl Session {
 
     /// How its last turn came out, where that is worth a word in a list:
     /// a plan made in a mode that only plans, waiting to be carried out;
-    /// or a turn that failed (the agent refused, ran out, or erred).
+    /// or a turn that failed (the agent refused, ran out, or erred). Its
+    /// record not read back yet, the index says whether it failed.
     pub fn outcome(&self) -> Option<&'static str> {
         if !matches!(self.state, State::Idle | State::Closed) {
             return None;
+        }
+        if self.items.is_empty() {
+            return self.meta.flags.failed.then_some("failed");
         }
         let start = self.items.iter().rposition(|i| matches!(i, Item::You(_)))?;
         let turn = &self.items[start..];
@@ -2636,5 +2640,13 @@ mod tests {
         s.said("again");
         s.ended(Ok(StopReason::EndTurn), Vec::new());
         assert_eq!(s.outcome(), None);
+    }
+
+    #[test]
+    fn a_session_not_read_back_fails_as_its_index_says() {
+        let mut meta = Session::new(1, "x", std::env::temp_dir()).meta;
+        meta.flags.failed = true;
+        let s = Session::stored(1, crate::servers::Host::HERE, meta);
+        assert_eq!(s.outcome(), Some("failed"));
     }
 }

@@ -132,6 +132,10 @@ mod epoch {
 /// Where a session stands in your lists.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "each is a field of sessions.json of its own, set apart from the others"
+)]
 pub struct Flags {
     /// Pinned to the top, in this order among the pinned.
     #[serde(default)]
@@ -155,6 +159,10 @@ pub struct Flags {
     /// Never done on its own, however long it is left.
     #[serde(default)]
     pub kept: bool,
+    /// Its last turn failed: what a list says of it before its record is
+    /// read back.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub failed: bool,
 }
 
 /// One line of a session's record.

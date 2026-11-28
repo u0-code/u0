@@ -16152,6 +16152,16 @@ _version: 2
   pt-BR: "⌘Return se houver várias linhas"
   ru: "⌘Return для многострочного"
   sv: "⌘Retur om flera rader"
+"%{n} in other projects hidden":
+  zh-CN: "其他项目中的 %{n} 个已隐藏"
+  de: "%{n} in anderen Projekten ausgeblendet"
+  es: "%{n} en otros proyectos ocultos"
+  fr: "%{n} dans d’autres projets masqués"
+  ja: "他のプロジェクトの %{n} 件を非表示"
+  ko: "다른 프로젝트의 %{n}개 숨김"
+  pt-BR: "%{n} em outros projetos ocultos"
+  ru: "Скрыто в других проектах: %{n}"
+  sv: "%{n} i andra projekt dolda"
 "%{n} more hidden by %{tags}":
   zh-CN: "另有 %{n} 个被 %{tags} 隐藏"
   de: "%{n} weitere durch %{tags} ausgeblendet"
@@ -19845,6 +19855,16 @@ _version: 2
   pt-BR: "Descartar stash"
   ru: "Удалить stash"
   sv: "Ta bort stash"
+"Drop to move it to %{project}":
+  zh-CN: "松开以移到 %{project}"
+  de: "Ablegen, um es nach %{project} zu verschieben"
+  es: "Suelta para moverlo a %{project}"
+  fr: "Déposez pour le déplacer dans %{project}"
+  ja: "ドロップして %{project} に移動"
+  ko: "놓아서 %{project}(으)로 이동"
+  pt-BR: "Solte para movê-lo para %{project}"
+  ru: "Отпустите, чтобы перенести в %{project}"
+  sv: "Släpp för att flytta den till %{project}"
 "Made on %{branch}. Apply and Pop change your %{n} uncommitted files.":
   zh-CN: "创建于 %{branch}。应用或弹出将更改你未提交的 %{n} 个文件。"
   de: "Erstellt auf %{branch}. Anwenden und Pop ändern deine %{n} nicht committeten Dateien."

@@ -26,7 +26,7 @@ description: u0 存储什么、存在哪里、发送什么，以及如何把智�
 | 路径 | 内容 |
 |---|---|
 | `settings.json` | 你的[设置](reference/settings.md)。标记为机密的智能体变量只在这里记下名称，从不存储其值。 |
-| `sessions.json` | 见过的线程的索引：标题、置顶、归档、工作树。 |
+| `sessions.json` | 见过的线程的索引：标题、置顶、归档、工作树、上一轮是否失败。 |
 | `transcripts/<agent>/<id>.jsonl` | 每个线程的记录：你和智能体说过的话，按发生顺序。 |
 | `keybindings.json` | 你的[按键](reference/keybindings.md)。 |
 | `tasks.json`、`runs.json`、`workflows/` | [计划任务、工作流运行记录、你的工作流](automation.md)。 |

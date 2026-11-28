@@ -37,7 +37,7 @@ use crate::{
     desk::{Desk, Place, Renaming, lists},
     fonts::{Faces, Weighted as _},
     hub::{Host, Up},
-    session::{Item, Session},
+    session::{Item, Session, State},
     settings::{Icon as ProjectIcon, Sort},
     store, theme, ui, when,
 };
@@ -627,6 +627,48 @@ impl Desk {
             }
         }
 
+        // What the Projects filter keeps out is said, with the way to see it.
+        let hidden = (self.sessions.all.iter())
+            .filter(|s| self.listed_now(s) && !shown_project(s))
+            .count();
+        if hidden > 0 {
+            let clear = desk.clone();
+            push_group(
+                &mut groups,
+                true,
+                div().child(
+                    div()
+                        .id("hidden-projects")
+                        .flex()
+                        .items_center()
+                        .h(px(32.))
+                        .px(px(12.))
+                        .cursor_pointer()
+                        .on_click(move |_, _, cx| {
+                            clear.update(cx, |d, cx| {
+                                d.filter.clear();
+                                cx.notify();
+                            });
+                        })
+                        .child(
+                            ui::text(
+                                faces,
+                                format!(
+                                    "{} · {}",
+                                    crate::tr_with(
+                                        "%{n} in other projects hidden",
+                                        &[("n", &hidden)]
+                                    ),
+                                    crate::tr("Clear")
+                                ),
+                            )
+                            .text_size(px(crate::style::CAPTION))
+                            .text_color(theme::text2()),
+                        ),
+                ),
+            );
+        }
+
         if self.machines.len() > 1 {
             let mut mach = div().flex().flex_col();
             for m in self.machines.iter().skip(1) {
@@ -957,7 +999,7 @@ impl Desk {
         desk: &Entity<Self>,
         cx: &mut Context<Self>,
     ) -> Div {
-        let _ = cx;
+        let dragging = cx.has_active_drag();
         let project_name = self.project_name(folder);
         let group = SharedString::from(format!(
             "prow-{}-{}",
@@ -1059,7 +1101,7 @@ impl Desk {
                     div()
                         .flex_none()
                         .invisible()
-                        .group_hover(group, gpui::Styled::visible)
+                        .group_hover(group.clone(), gpui::Styled::visible)
                         .child(
                             Button::new(SharedString::from(format!(
                                 "new-in-{}-{}",
@@ -1082,6 +1124,34 @@ impl Desk {
                             }),
                         ),
                 )
+                // A thread dragged over it is told where it goes, laid over
+                // the row (its name said in the words) so nothing moves; only
+                // while a drag goes on, since it takes the row's clicks.
+                .when(dragging, |row| {
+                    row.child(
+                        div()
+                            .absolute()
+                            // Inside the drop outline, which stays drawn.
+                            .inset(px(2.))
+                            .flex()
+                            .items_center()
+                            .px(px(10.))
+                            .bg(theme::role(ColorRole::LayerHover01))
+                            .invisible()
+                            .drag_over::<Dragged>(|st, _, _, _| st.visible())
+                            .child(
+                                ui::text(
+                                    faces,
+                                    crate::tr_with(
+                                        "Drop to move it to %{project}",
+                                        &[("project", &project_name)],
+                                    ),
+                                )
+                                .text_size(px(crate::style::CAPTION))
+                                .text_color(theme::link()),
+                            ),
+                    )
+                })
                 .context_menu(move |menu, window, cx| {
                     Desk::side_menu(&menu_desk, &row_id, menu, window, cx)
                 }),
@@ -1636,13 +1706,11 @@ fn folder_counts(sessions: &[&Session]) -> FolderCounts {
     let mut c = FolderCounts::default();
     for s in sessions {
         match lists::status(s) {
-            Some(lists::Status::Approval | lists::Status::SignIn | lists::Status::Plan) => {
-                c.needs_you += 1;
-            }
             Some(lists::Status::Failed | lists::Status::Limited) => c.failed += 1,
             Some(lists::Status::Working) => c.working += 1,
             Some(lists::Status::Done | lists::Status::Woke) => c.done += 1,
-            None => {}
+            // What needs you is counted on its own shelf, not again here.
+            Some(lists::Status::Approval | lists::Status::SignIn | lists::Status::Plan) | None => {}
         }
     }
     c
@@ -1695,7 +1763,8 @@ impl Glyph {
             Some(lists::Status::Failed | lists::Status::Limited) => Self::Failed,
             _ if s.is_draft() => Self::Draft,
             _ if s.meta.flags.unread => Self::Unread,
-            _ if !s.items.is_empty() => Self::Done,
+            // One kept and not read back yet has its turns in its record.
+            _ if !s.items.is_empty() || s.state == State::Closed => Self::Done,
             _ => Self::New,
         }
     }
@@ -1733,7 +1802,6 @@ pub(crate) fn glyph(g: Glyph, key: u64) -> AnyElement {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::State;
 
     #[test]
     fn a_thread_leads_with_where_it_stands_before_anything_else() {
@@ -1749,6 +1817,27 @@ mod tests {
         assert_eq!(Glyph::of(&s), Glyph::Unread);
         s.meta.flags.unread = false;
         assert_eq!(Glyph::of(&s), Glyph::Done);
+    }
+
+    #[test]
+    fn a_project_does_not_count_again_what_needs_you_counts() {
+        let mut asks = Session::new(1, "codex", "/p".into());
+        asks.state = State::SignIn;
+        let mut broke = Session::new(2, "codex", "/p".into());
+        broke.state = State::Broken("exit 1".into());
+        let c = folder_counts(&[&asks, &broke]);
+        assert_eq!((c.needs_you, c.failed), (0, 1));
+    }
+
+    #[test]
+    fn a_thread_not_opened_yet_shows_how_its_last_turn_ended() {
+        let meta = Session::new(1, "codex", "/p".into()).meta;
+        let s = Session::stored(1, Host::HERE, meta.clone());
+        assert_eq!(Glyph::of(&s), Glyph::Done);
+        let mut failed = meta;
+        failed.flags.failed = true;
+        let s = Session::stored(2, Host::HERE, failed);
+        assert_eq!(Glyph::of(&s), Glyph::Failed);
     }
 
     #[test]

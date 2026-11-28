@@ -42,7 +42,7 @@ Everything is in u0's home, `~/.u0` (or `U0_HOME`):
 | Path | What it holds |
 |---|---|
 | `settings.json` | Your [settings](reference/settings.md). Agent variables marked secret are named here, never stored. |
-| `sessions.json` | The index of threads seen: title, pins, archive, worktree. |
+| `sessions.json` | The index of threads seen: title, pins, archive, worktree, whether its last turn failed. |
 | `transcripts/<agent>/<id>.jsonl` | The record of each thread: what you and the agent said, as it happened. |
 | `keybindings.json` | Your [keys](reference/keybindings.md). |
 | `tasks.json`, `runs.json`, `workflows/` | [Scheduled tasks, workflow runs, your workflows](automation.md). |

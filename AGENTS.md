@@ -462,7 +462,7 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
 - Sessions belong to each agent, which lists them (`session/list`, by
   project). u0 keeps an index of those it has seen (`sessions.json`:
   title, pins, archive, worktree, the pull requests and issues linked,
-  tags) and a record of each
+  tags, whether its last turn failed) and a record of each
   (`transcripts/<agent>/<id>.jsonl`), so the list and a thread show at
   once. A session with a record is resumed (`session/resume`); one
   without is loaded (`session/load`), and recorded as it comes.
