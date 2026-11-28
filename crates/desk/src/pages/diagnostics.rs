@@ -168,6 +168,9 @@ impl Desk {
                 let pid: u32 = entry.item().id.parse().unwrap_or_default();
                 let (agents, processes) = &desk.read(cx).pages.processes;
                 let p = processes.procs.iter().find(|p| p.pid == pid).cloned();
+                // The tree's root is the server itself, on whichever machine:
+                // u0 is not stopped from its own page.
+                let ours = p.as_ref().is_some_and(|p| p.depth == 0);
                 let agent = (agents.iter())
                     .find(|(_, id)| *id == pid)
                     .map(|(a, _)| a.clone());
@@ -186,8 +189,6 @@ impl Desk {
                     )
                 });
                 let stop = desk.clone();
-                // u0 is not stopped from its own page.
-                let ours = pid == std::process::id();
                 let control = match agent {
                     _ if ours => None,
                     Some(id) => Some(
