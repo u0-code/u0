@@ -372,10 +372,7 @@ impl Desk {
                 let on = f.name == chosen.name;
                 let name = f.name.clone();
                 let trigger = self.workflow_trigger_short(&f.name);
-                let sub = crate::tr_with(
-                    "%{n} steps · %{trigger}",
-                    &[("n", &f.steps.len()), ("trigger", &trigger)],
-                );
+                let sub = steps_line(f.steps.len(), &trigger);
                 let desk_tab = cx.entity();
                 gpui::base::Button::new(SharedString::from(format!("wf-tab-{i}")))
                     .accessibility_label(f.name.clone())
@@ -613,13 +610,7 @@ impl Desk {
                 } else {
                     r.trigger.clone()
                 };
-                let started = match when::ago(store::time(r.began), now).as_str() {
-                    "now" => crate::tr("now").to_string(),
-                    s if s.ends_with('m') || s.ends_with('h') => {
-                        crate::tr_with("%{ago} ago", &[("ago", &s)]).to_string()
-                    }
-                    other => other.to_owned(),
-                };
+                let started = started_said(r.began, now);
                 let desk_r = cx.entity();
                 runs_col = runs_col.child(
                     WorkflowRunRow::new(
@@ -700,15 +691,6 @@ impl Desk {
         now: SystemTime,
         cx: &mut Context<Self>,
     ) -> Div {
-        let now_secs = store::secs(now);
-        let elapsed = run.ended.unwrap_or(now_secs).saturating_sub(run.began);
-        let ago = when::ago(store::time(run.began), now);
-        let trig = if run.trigger.is_empty() {
-            crate::tr("by hand").to_string()
-        } else {
-            run.trigger.to_lowercase()
-        };
-
         // Determine which step index failed (either recorded with non-zero exit_code at the end of `done`, or paused at `done.len()`).
         let last_done_failed = matches!(run.state, State::Paused(_))
             && run
@@ -721,33 +703,7 @@ impl Desk {
             _ => None,
         };
 
-        let sub_line = match (&run.state, failed_idx) {
-            (State::Paused(_), Some(idx)) => crate::tr_with(
-                "Started %{ago} ago by %{trigger} · stopped at step %{step} after %{elapsed}",
-                &[
-                    ("ago", &ago),
-                    ("trigger", &trig),
-                    ("step", &(idx + 1)),
-                    ("elapsed", &fmt_elapsed(elapsed)),
-                ],
-            ),
-            (State::Done, _) => crate::tr_with(
-                "Started %{ago} ago by %{trigger} · completed in %{elapsed}",
-                &[
-                    ("ago", &ago),
-                    ("trigger", &trig),
-                    ("elapsed", &fmt_elapsed(elapsed)),
-                ],
-            ),
-            _ => crate::tr_with(
-                "Started %{ago} ago by %{trigger} · running for %{elapsed}",
-                &[
-                    ("ago", &ago),
-                    ("trigger", &trig),
-                    ("elapsed", &fmt_elapsed(elapsed)),
-                ],
-            ),
-        };
+        let sub_line = started_line(run, failed_idx, now);
 
         let total_steps = flow.steps.len().max(run.done.len());
         let show_full_log = self.flows.full_log == Some(run.id);
@@ -1402,5 +1358,96 @@ impl Desk {
                         )
                     }),
             )
+    }
+}
+
+/// A run's line under its name: when it began, what began it, and where it
+/// is now. What began it is the server's word ("By hand", "Webhook"), set
+/// apart, so none reads "by by hand".
+fn started_line(run: &Run, failed: Option<usize>, now: SystemTime) -> SharedString {
+    let elapsed = fmt_elapsed(
+        run.ended
+            .unwrap_or_else(|| store::secs(now))
+            .saturating_sub(run.began),
+    );
+    let when = started_said(run.began, now);
+    let trigger = if run.trigger.is_empty() {
+        crate::tr("by hand").to_string()
+    } else {
+        run.trigger.to_lowercase()
+    };
+    let said: [(&str, &dyn std::fmt::Display); 3] = [
+        ("when", &when),
+        ("trigger", &trigger),
+        ("elapsed", &elapsed),
+    ];
+    match (&run.state, failed) {
+        (State::Paused(_), Some(idx)) => crate::tr_with(
+            "Started %{when} · %{trigger} · stopped at step %{step} after %{elapsed}",
+            &[said[0], said[1], said[2], ("step", &(idx + 1))],
+        ),
+        (State::Done, _) => crate::tr_with(
+            "Started %{when} · %{trigger} · completed in %{elapsed}",
+            &said,
+        ),
+        _ => crate::tr_with(
+            "Started %{when} · %{trigger} · running for %{elapsed}",
+            &said,
+        ),
+    }
+}
+
+/// When a run began, as its row and its line say: "now", "27m ago", or
+/// the day ("Fri") once it is older.
+fn started_said(began: u64, now: SystemTime) -> String {
+    match when::ago(store::time(began), now).as_str() {
+        "now" => crate::tr("now").to_string(),
+        s if s.ends_with('m') || s.ends_with('h') => {
+            crate::tr_with("%{ago} ago", &[("ago", &s)]).to_string()
+        }
+        other => other.to_owned(),
+    }
+}
+
+/// A workflow's tab line: how many steps, and what starts it.
+fn steps_line(steps: usize, trigger: &str) -> SharedString {
+    if steps == 1 {
+        crate::tr_with("1 step · %{trigger}", &[("trigger", &trigger)])
+    } else {
+        crate::tr_with(
+            "%{n} steps · %{trigger}",
+            &[("n", &steps), ("trigger", &trigger)],
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_run_started_by_hand_says_by_once() {
+        let now = SystemTime::now();
+        let run = Run {
+            id: 1,
+            workflow: "release".into(),
+            input: String::new(),
+            trigger: "By hand".into(),
+            began: store::secs(now) - 120,
+            ended: Some(store::secs(now) - 60),
+            state: State::Done,
+            done: Vec::new(),
+            turn: None,
+            worktree: None,
+        };
+        let line = started_line(&run, None, now);
+        assert!(line.starts_with("Started 2m ago · by hand"), "{line}");
+        assert!(!line.contains("by by"), "{line}");
+    }
+
+    #[test]
+    fn a_workflow_of_one_step_says_step_not_steps() {
+        assert_eq!(steps_line(1, "by hand").as_ref(), "1 step · by hand");
+        assert_eq!(steps_line(3, "webhook").as_ref(), "3 steps · webhook");
     }
 }

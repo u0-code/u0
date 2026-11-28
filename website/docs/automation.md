@@ -26,7 +26,7 @@ Open **Settings › Scheduled tasks** and choose **New task**:
 | **Project** | Where it works. |
 | **Each run** | **Says its prompt** to the agent, or **Begins** one of your [workflows](#workflows), the prompt (filled as a webhook's or an event's is) its input. |
 | **Schedule** | **Every** (minutes, or a duration such as `2h`), **Daily** (a time, and the days of the week; none chosen means every day), **Once** (such as `tomorrow`, `5pm`, `in 3h`), **On webhook**, or **On an event**. |
-| **Each run** | **A new thread each run**, or **One thread, continued** (each run is the next turn of the first run's thread). |
+| **Thread** | **A new thread each run**, or **One thread, continued** (each run is the next turn of the first run's thread). |
 | **In a worktree of its own** | With a new thread each run: each run works on a new branch, away from your checkout. |
 
 A new task starts as Daily at 09:00 on weekdays. Each task's ⋯ menu

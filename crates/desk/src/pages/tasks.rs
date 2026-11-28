@@ -305,7 +305,7 @@ impl Desk {
             .layout(Axis::Vertical),
             item(
                 w,
-                crate::tr("Each run"),
+                crate::tr("Thread"),
                 crate::tr("A thread of its own, or the next turn of the first run's."),
                 |d, _, cx| {
                     let same = d.tasks.draft.as_ref().is_some_and(|d| d.task.same);
