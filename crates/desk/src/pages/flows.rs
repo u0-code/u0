@@ -287,8 +287,12 @@ impl Desk {
         }
 
         if valid.is_empty() {
-            let folder = Desk::shown(&crate::workflows::folder(self.home_on(self.pages.on)));
-            let desk_new = cx.entity();
+            use u0ui::components::empty::{
+                Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle,
+            };
+            let path = crate::workflows::folder(self.home_on(self.pages.on));
+            let folder = Desk::shown(&path);
+            let here = self.pages.on == crate::hub::Host::HERE;
             return div()
                 .id("workflows-workspace")
                 .flex_1()
@@ -307,38 +311,38 @@ impl Desk {
                         .child(header)
                         .children(self.unreadable_flows(cx))
                         .child(
-                            div()
-                                .flex()
-                                .flex_col()
-                                .items_start()
-                                .gap(px(12.))
-                                .p(px(24.))
-                                .bg(theme::role(ColorRole::Layer01))
+                            Empty::new()
                                 .child(
-                                    div()
-                                        .type_style(TypeStyle::HeadingCompact01)
-                                        .text_color(theme::role(ColorRole::TextPrimary))
-                                        .child(crate::tr("No workflows yet")),
-                                )
-                                .child(
-                                    div()
-                                        .type_style(TypeStyle::Body01)
-                                        .text_color(theme::role(ColorRole::TextSecondary))
-                                        .child(crate::tr_with(
-                                            "Create a workflow with New workflow, or add a JSON file in %{folder}.",
+                                    EmptyHeader::new()
+                                        .child(EmptyTitle::new(crate::tr("No workflows yet")))
+                                        .child(EmptyDescription::new(crate::tr_with(
+                                            "A workflow is a JSON file of yours in %{folder}: steps an agent, a command or a question. It is read as it is listed or started.",
                                             &[("folder", &folder)],
-                                        )),
+                                        ))),
                                 )
-                                .child(
-                                    Button::new("wf-empty-new", crate::tr("New workflow"))
-                                        .size(ButtonSize::Sm)
-                                        .icon(CarbonIcon::Add)
-                                        .on_click(move |_, window, cx| {
-                                            desk_new.update(cx, |this, cx| {
-                                                this.begin_edit_flow(None, window, cx);
-                                            });
-                                        }),
-                                ),
+                                // The folder is revealed where it is on this
+                                // Mac; before the first workflow is saved it
+                                // is not there yet, and its home is shown.
+                                .when(here, |e| {
+                                    e.child(
+                                        EmptyContent::new().child(
+                                            Button::new(
+                                                "wf-empty-folder",
+                                                crate::tr("Open the folder"),
+                                            )
+                                            .variant(ButtonVariant::Secondary)
+                                            .size(ButtonSize::Sm)
+                                            .icon(CarbonIcon::FolderOpen)
+                                            .on_click(move |_, _, cx| {
+                                                let shown = Some(path.as_path())
+                                                    .filter(|p| p.is_dir())
+                                                    .or(path.parent())
+                                                    .unwrap_or(&path);
+                                                cx.reveal_path(shown);
+                                            }),
+                                        ),
+                                    )
+                                }),
                         ),
                 );
         }
