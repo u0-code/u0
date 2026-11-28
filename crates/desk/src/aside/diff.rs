@@ -10,22 +10,25 @@ use std::path::Path;
 
 use gpui::component::{
     Sizable as _,
-    checkbox::Checkbox,
     diff::{
-        Diff, DiffAnnotation, DiffChangeIndicator, DiffFile, DiffLinePosition, DiffMode, DiffSide,
-        DiffSpanHighlight, DiffState,
+        Diff, DiffAnnotation, DiffChangeIndicator, DiffFile, DiffFileStatus as KitStatus,
+        DiffLinePosition, DiffMode, DiffSide, DiffSpanHighlight, DiffState,
     },
     input::Input,
     list::ListItem,
     tree::{TreeItem, tree},
 };
-use gpui::{AnyElement, App, Context, Div, SharedString, div, prelude::*, px};
+use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 use u0ui::{
-    components::{Badge, BadgeSize, BadgeVariant, Button, ButtonSize, ButtonVariant},
+    components::{
+        AvatarColor, Badge, BadgeSize, BadgeVariant, Button, ButtonSize, ButtonVariant, CopyButton,
+    },
     icons::{CarbonIcon, Icon},
-    t3::review::{DiffStat, FileStatus},
+    t3::review::{DiffFileStatus, DiffStat, FileStatus, StartTruncatedPath},
+    theme::LayerLevel,
     tokens::{ColorRole, TypeStyle},
     typography::TypeStyled as _,
+    u0::panels::git::check_box,
 };
 
 use super::{empty, fine};
@@ -418,19 +421,6 @@ impl Desk {
             )
             .child(
                 tool(
-                    "diff-split",
-                    "panel-right",
-                    "Side by side",
-                    self.settings.side_by_side,
-                )
-                .on_click(cx.listener(|this, _, _, cx| {
-                    this.settings.side_by_side = !this.settings.side_by_side;
-                    this.save_settings();
-                    cx.notify();
-                })),
-            )
-            .child(
-                tool(
                     "diff-wrap",
                     "arrow-right",
                     "Wrap long lines",
@@ -561,8 +551,76 @@ impl Desk {
             .child(head)
             .child(tools)
             .children(find)
+            .children(self.pending_strip(faces, s, cx))
             .child(body)
             .children(self.diff_foot(faces, s, cx))
+    }
+
+    /// `.rp-pending` (`Main`): the comments not sent yet, over the files,
+    /// with `Send to <agent>`.
+    fn pending_strip(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
+        let said = self.review.comments.len();
+        if said == 0 {
+            return None;
+        }
+        let count = if said == 1 {
+            crate::tr("1 pending comment")
+        } else {
+            crate::tr_with("%{n} pending comments", &[("n", &said)])
+        };
+        let desk = cx.entity();
+        Some(
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .gap(px(8.))
+                .min_h(px(36.))
+                .pl(px(16.))
+                .pr(px(8.))
+                .bg(theme::role(ColorRole::Layer01))
+                .border_b_1()
+                .border_color(theme::role(ColorRole::BorderSubtle01))
+                .child(
+                    Icon::carbon(CarbonIcon::Chat)
+                        .size_length(px(16.))
+                        .color(theme::role(ColorRole::IconSecondary)),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_1()
+                        .min_w(px(0.))
+                        .overflow_hidden()
+                        .gap(px(4.))
+                        .child(
+                            ui::text(faces, count)
+                                .flex_none()
+                                .type_style(TypeStyle::Label01)
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .text_color(theme::role(ColorRole::TextPrimary)),
+                        )
+                        .child(ui::one_line(
+                            ui::text(faces, crate::tr("\u{00b7} not sent yet"))
+                                .type_style(TypeStyle::Label01)
+                                .text_color(theme::role(ColorRole::TextSecondary)),
+                        )),
+                )
+                .child(
+                    Button::new(
+                        "send-comments",
+                        crate::tr_with(
+                            "Send to %{name}",
+                            &[("name", &self.name_of(&s.meta.agent))],
+                        ),
+                    )
+                    .variant(ButtonVariant::Ghost)
+                    .size(ButtonSize::Sm)
+                    .on_click(move |_, window, cx| {
+                        desk.update(cx, |this, cx| this.send_comments(window, cx));
+                    }),
+                ),
+        )
     }
 
     /// The tree of the files shown: a click brings one into view.
@@ -645,12 +703,10 @@ impl Desk {
             .iter()
             .map(|(place, span)| DiffSpanHighlight::new(place.clone(), span.clone()));
         let input = self.review.comment.clone();
-        let (repo, left_out, viewed_set, whole) = (
-            s.git_dir().is_some(),
-            s.git.left_out.clone(),
-            s.git.viewed.clone(),
-            self.panes.whole,
-        );
+        let (viewed_set, whole) = (s.git.viewed.clone(), self.panes.whole);
+        let said_paths: Vec<String> = (self.review.comments.iter())
+            .map(|c| c.0.display().to_string())
+            .collect();
         let diff_state = self.review.diff.clone();
         let key = s.key;
         let faces = crate::fonts::faces(cx).clone();
@@ -667,13 +723,16 @@ impl Desk {
                         return div().into_any_element();
                     };
                     let (path, line) = (std::path::PathBuf::from(at.path().as_ref()), at.line());
+                    // `.rc-thread-wrap` (12 24 16 116) in the window; `12 16 16`
+                    // on `background` in the column (`Main`).
+                    let wrap = div()
+                        .pt(px(12.))
+                        .pb(px(16.))
+                        .pl(px(if whole { 116. } else { 16. }))
+                        .pr(px(if whole { 24. } else { 16. }))
+                        .bg(theme::role(ColorRole::Background));
                     if *note.id() == gpui::ElementId::from("saying") {
-                        return div()
-                            .pl(px(if whole { 72. } else { 12. }))
-                            .pr(px(16.))
-                            .py(px(8.))
-                            .child(Input::new(&input).small())
-                            .into_any_element();
+                        return wrap.child(Input::new(&input).small()).into_any_element();
                     }
                     let said = comments
                         .iter()
@@ -684,149 +743,144 @@ impl Desk {
                     let edit_path = path.clone();
                     // `.t3-rthread--pending`: Layer02 card with 1px BorderSubtle01 frame
                     // and 3px SupportWarning start bar.
-                    div()
-                        .pl(px(if whole { 72. } else { 12. }))
-                        .pr(px(if whole { 24. } else { 12. }))
-                        .py(px(10.))
-                        .child(
-                            div()
-                                .relative()
-                                .flex()
-                                .flex_col()
-                                .bg(theme::role(ColorRole::Layer02))
-                                .border_1()
-                                .border_color(theme::role(ColorRole::BorderSubtle01))
-                                .child(
-                                    div()
-                                        .flex()
-                                        .items_start()
-                                        .gap(px(12.))
-                                        .p(px(12.))
-                                        .border_b_1()
-                                        .border_color(theme::role(ColorRole::BorderSubtle01))
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .flex_none()
-                                                .items_center()
-                                                .justify_center()
-                                                .size(px(24.))
-                                                .rounded_full()
-                                                .bg(theme::role(ColorRole::LayerAccent01))
-                                                .child(
-                                                    Icon::carbon(CarbonIcon::User)
-                                                        .size_length(px(14.))
-                                                        .color(theme::role(ColorRole::IconPrimary)),
-                                                ),
-                                        )
-                                        .child(
-                                            div()
-                                                .flex()
-                                                .flex_col()
-                                                .flex_1()
-                                                .min_w(px(0.))
-                                                .child(
-                                                    div()
-                                                        .flex()
-                                                        .items_center()
-                                                        .gap(px(8.))
-                                                        .child(
-                                                            ui::text(&faces, crate::tr("You"))
-                                                                .type_style(TypeStyle::Label01)
-                                                                .font_weight(
-                                                                    gpui::FontWeight::SEMIBOLD,
-                                                                )
-                                                                .text_color(theme::role(
-                                                                    ColorRole::TextPrimary,
-                                                                )),
-                                                        )
-                                                        .child(
-                                                            ui::text(
-                                                                &faces,
-                                                                crate::tr_with(
-                                                                    "on line %{n}",
-                                                                    &[("n", &line)],
-                                                                ),
-                                                            )
+                    let (avatar_bg, avatar_ink) = AvatarColor::Gray.colors();
+                    wrap.child(
+                        div()
+                            .relative()
+                            .flex()
+                            .flex_col()
+                            .bg(theme::role(ColorRole::Layer02))
+                            .border_1()
+                            .border_color(theme::role(ColorRole::BorderSubtle01))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_start()
+                                    .gap(px(12.))
+                                    .p(px(12.))
+                                    .border_b_1()
+                                    .border_color(theme::role(ColorRole::BorderSubtle01))
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_none()
+                                            .items_center()
+                                            .justify_center()
+                                            .size(px(24.))
+                                            .rounded_full()
+                                            .bg(avatar_bg)
+                                            .child(
+                                                Icon::carbon(CarbonIcon::User)
+                                                    .size_length(px(16.))
+                                                    .color(avatar_ink),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_col()
+                                            .flex_1()
+                                            .min_w(px(0.))
+                                            .child(
+                                                div()
+                                                    .flex()
+                                                    .items_center()
+                                                    .gap(px(8.))
+                                                    .child(
+                                                        ui::text(&faces, crate::tr("You"))
                                                             .type_style(TypeStyle::Label01)
+                                                            .font_weight(gpui::FontWeight::SEMIBOLD)
                                                             .text_color(theme::role(
-                                                                ColorRole::TextSecondary,
+                                                                ColorRole::TextPrimary,
                                                             )),
+                                                    )
+                                                    .child(
+                                                        ui::text(
+                                                            &faces,
+                                                            crate::tr_with(
+                                                                "on line %{n}",
+                                                                &[("n", &line)],
+                                                            ),
                                                         )
-                                                        .child(
-                                                            Badge::new(crate::tr("Pending"))
-                                                                .variant(BadgeVariant::WarmGray)
-                                                                .size(BadgeSize::Sm),
-                                                        ),
-                                                )
-                                                .child(
-                                                    ui::text(&faces, said)
-                                                        .mt(px(4.))
-                                                        .type_style(TypeStyle::Body01)
+                                                        .type_style(TypeStyle::Label01)
                                                         .text_color(theme::role(
-                                                            ColorRole::TextPrimary,
+                                                            ColorRole::TextSecondary,
                                                         )),
-                                                ),
-                                        ),
-                                )
-                                .child(
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .gap(px(8.))
-                                        .pl(px(16.))
-                                        .pr(px(8.))
-                                        .py(px(8.))
-                                        .child(
-                                            ui::text(&faces, crate::tr("Not sent yet"))
-                                                .flex_1()
-                                                .type_style(TypeStyle::Label01)
-                                                .text_color(theme::role(ColorRole::TextHelper)),
-                                        )
-                                        .child(
-                                            Button::new(
-                                                SharedString::from(format!("edit-comment-{line}")),
-                                                crate::tr("Edit"),
+                                                    )
+                                                    .child(
+                                                        Badge::new(crate::tr("Pending"))
+                                                            .variant(BadgeVariant::WarmGray)
+                                                            .size(BadgeSize::Sm),
+                                                    ),
                                             )
-                                            .variant(ButtonVariant::Ghost)
-                                            .size(ButtonSize::Sm)
-                                            .on_click(
-                                                move |_, window, cx| {
-                                                    let p = edit_path.clone();
-                                                    d_edit.update(cx, |d, cx| {
-                                                        d.begin_comment(p, line, window, cx);
-                                                    });
-                                                },
+                                            .child(
+                                                ui::text(&faces, said)
+                                                    .mt(px(4.))
+                                                    .type_style(TypeStyle::Body01)
+                                                    .text_color(theme::role(
+                                                        ColorRole::TextPrimary,
+                                                    )),
                                             ),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap(px(8.))
+                                    .pl(px(16.))
+                                    .pr(px(8.))
+                                    .py(px(8.))
+                                    .child(
+                                        ui::text(&faces, crate::tr("Not sent yet"))
+                                            .flex_1()
+                                            .type_style(TypeStyle::Label01)
+                                            .text_color(theme::role(ColorRole::TextHelper)),
+                                    )
+                                    .child(
+                                        Button::new(
+                                            SharedString::from(format!("edit-comment-{line}")),
+                                            crate::tr("Edit"),
                                         )
-                                        .child(
-                                            Button::new(
-                                                SharedString::from(format!("del-comment-{line}")),
-                                                crate::tr("Delete"),
-                                            )
-                                            .variant(ButtonVariant::Ghost)
-                                            .size(ButtonSize::Sm)
-                                            .on_click(
-                                                move |_, _, cx| {
-                                                    let p = path.clone();
-                                                    d_del.update(cx, |d, cx| {
-                                                        d.drop_comment(&p, line, cx);
-                                                    });
-                                                },
-                                            ),
+                                        .variant(ButtonVariant::Ghost)
+                                        .size(ButtonSize::Sm)
+                                        .on_click(
+                                            move |_, window, cx| {
+                                                let p = edit_path.clone();
+                                                d_edit.update(cx, |d, cx| {
+                                                    d.begin_comment(p, line, window, cx);
+                                                });
+                                            },
                                         ),
-                                )
-                                .child(
-                                    div()
-                                        .absolute()
-                                        .top_0()
-                                        .left_0()
-                                        .bottom_0()
-                                        .w(px(3.))
-                                        .bg(theme::role(ColorRole::SupportWarning)),
-                                ),
-                        )
-                        .into_any_element()
+                                    )
+                                    .child(
+                                        Button::new(
+                                            SharedString::from(format!("del-comment-{line}")),
+                                            crate::tr("Delete"),
+                                        )
+                                        .variant(ButtonVariant::Ghost)
+                                        .size(ButtonSize::Sm)
+                                        .on_click(
+                                            move |_, _, cx| {
+                                                let p = path.clone();
+                                                d_del.update(cx, |d, cx| {
+                                                    d.drop_comment(&p, line, cx);
+                                                });
+                                            },
+                                        ),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .absolute()
+                                    .top_0()
+                                    .left_0()
+                                    .bottom_0()
+                                    .w(px(3.))
+                                    .bg(theme::role(ColorRole::SupportWarning)),
+                            ),
+                    )
+                    .into_any_element()
                 }
             })
             .on_add_annotation({
@@ -837,86 +891,99 @@ impl Desk {
                     desk.update(cx, |d, cx| d.begin_comment(path, line, window, cx));
                 }
             })
-            .render_header_suffix({
+            .render_header({
                 let faces = faces.clone();
-                move |file, _, _| {
+                let said = said_paths.clone();
+                move |file, _, cx| {
                     let path = file.path().to_string();
-                    let copied = path.clone();
-                    let desk = desk.clone();
-                    let diff_state = diff_state.clone();
-                    let faces = faces.clone();
-                    let mut row = div().flex().items_center().gap(px(6.)).child(
-                        ui::icon_button(
-                            SharedString::from(format!("copy-{path}")),
-                            "copy",
-                            crate::tr("Copy its path"),
+                    let shown: SharedString = match (file.original_path(), file.modified_path()) {
+                        (Some(old), Some(new)) if old != new => {
+                            format!("{old} \u{2192} {new}").into()
+                        }
+                        _ => file.path().clone(),
+                    };
+                    let status = match file.status() {
+                        KitStatus::Added => FileStatus::Added,
+                        KitStatus::Deleted => FileStatus::Deleted,
+                        KitStatus::Renamed | KitStatus::Copied => FileStatus::Renamed,
+                        _ => FileStatus::Modified,
+                    };
+                    let folded = diff_state.read(cx).is_file_collapsed(file.path());
+                    let notes = said.iter().filter(|p| **p == path).count();
+                    let is_viewed = viewed_set.contains(&path);
+                    let (desk, diff_state) = (desk.clone(), diff_state.clone());
+                    let vpath = path.clone();
+                    // `.t3-viewed`: the box and its 12px word, ticked as you go;
+                    // a file viewed folds.
+                    let viewed = div()
+                        .id(SharedString::from(format!("viewed-{path}")))
+                        .flex()
+                        .flex_none()
+                        .items_center()
+                        .gap(px(4.))
+                        .h(px(24.))
+                        .px(px(8.))
+                        .cursor_pointer()
+                        .child(check_box(is_viewed, false))
+                        .child(
+                            ui::text(&faces, crate::tr("Viewed"))
+                                .type_style(TypeStyle::Label01)
+                                .text_color(theme::role(ColorRole::TextSecondary)),
                         )
-                        .size(px(20.))
                         .on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(gpui::ClipboardItem::new_string(copied.clone()));
-                        }),
-                    );
-                    if whole {
-                        let is_viewed = viewed_set.contains(&path);
-                        let vpath = path.clone();
-                        row = row.child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(6.))
-                                .pl(px(4.))
-                                .child(
-                                    Checkbox::new(SharedString::from(format!("viewed-{path}")))
-                                        .small()
-                                        .checked(is_viewed)
-                                        .on_click(move |_: &bool, _, cx: &mut App| {
-                                            let next = !is_viewed;
-                                            let p = vpath.clone();
-                                            desk.update(cx, |d, cx| {
-                                                if let Some(s) = d.sessions.at_mut(key) {
-                                                    if next {
-                                                        s.git.viewed.insert(p.clone());
-                                                    } else {
-                                                        s.git.viewed.remove(&p);
-                                                    }
-                                                }
-                                                cx.notify();
-                                            });
-                                            diff_state.update(cx, |st, cx| {
-                                                st.set_file_collapsed(&vpath, next, cx);
-                                            });
-                                        }),
-                                )
-                                .child(
-                                    ui::text(&faces, crate::tr("Viewed"))
-                                        .type_style(TypeStyle::Label01)
-                                        .text_color(theme::role(ColorRole::TextSecondary)),
-                                ),
-                        );
-                    } else if repo {
-                        let goes = !left_out.contains(&path);
-                        row = row.child(
-                            Checkbox::new(SharedString::from(format!("goes-{path}")))
-                                .small()
-                                .checked(goes)
-                                .tooltip(if goes {
-                                    crate::tr("In the next commit: click to leave it out")
-                                } else {
-                                    crate::tr("Left out of the next commit")
-                                })
-                                .on_click(move |_: &bool, _, cx: &mut App| {
-                                    desk.update(cx, |d, cx| {
-                                        if let Some(s) = d.sessions.at_mut(key)
-                                            && !s.git.left_out.remove(&path)
-                                        {
-                                            s.git.left_out.insert(path.clone());
-                                        }
-                                        cx.notify();
-                                    });
-                                }),
-                        );
-                    }
-                    row
+                            let next = !is_viewed;
+                            let p = vpath.clone();
+                            desk.update(cx, |d, cx| {
+                                if let Some(s) = d.sessions.at_mut(key) {
+                                    if next {
+                                        s.git.viewed.insert(p.clone());
+                                    } else {
+                                        s.git.viewed.remove(&p);
+                                    }
+                                }
+                                cx.notify();
+                            });
+                            diff_state.update(cx, |st, cx| st.set_file_collapsed(&p, next, cx));
+                        });
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap(px(8.))
+                        .w_full()
+                        .min_w(px(0.))
+                        .child(DiffFileStatus::new(status))
+                        .child(div().min_w(px(0.)).child(StartTruncatedPath::new(shown)))
+                        .child(
+                            CopyButton::new(SharedString::from(format!("copy-{path}")), path)
+                                .label(crate::tr("Copy path"))
+                                .feedback(crate::tr("Copied!"))
+                                .size(32.)
+                                .layer(LayerLevel::One),
+                        )
+                        .child(div().flex_1())
+                        // `.dfh-ccount`: a folded file's comments not sent yet.
+                        .when(folded && notes > 0, |d| {
+                            d.child(
+                                div()
+                                    .flex()
+                                    .flex_none()
+                                    .items_center()
+                                    .gap(px(4.))
+                                    .child(
+                                        Icon::carbon(CarbonIcon::Chat)
+                                            .size_length(px(16.))
+                                            .color(theme::role(ColorRole::TextSecondary)),
+                                    )
+                                    .child(
+                                        ui::text(&faces, notes.to_string())
+                                            .type_style(TypeStyle::Label01)
+                                            .text_color(theme::role(ColorRole::TextSecondary)),
+                                    ),
+                            )
+                        })
+                        // The column hides the stat's bar (`.t3-dfh .t3-diffstat-bar`).
+                        .child(DiffStat::new(file.additions(), file.deletions()).bar(whole))
+                        .child(viewed)
                 }
             })
     }
@@ -924,7 +991,6 @@ impl Desk {
     /// Under the diff (`RightColumnStates` Column 4): contextual `.ft` cards
     /// offering what git can do for the repository's current state.
     fn diff_foot(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
-        let said = self.review.comments.len();
         let (ahead, behind, origin) = s.git.upstream;
         let gh = self.on_path.contains(&"gh");
         let idle = !matches!(s.state, State::Working | State::Opening);
@@ -935,30 +1001,6 @@ impl Desk {
         let desk = cx.entity();
 
         let mut cards: Vec<Div> = Vec::new();
-
-        if said > 0 {
-            let name = self.name_of(&s.meta.agent);
-            let d_send = desk.clone();
-            let label = crate::tr_with(
-                if said == 1 {
-                    "Put %{n} comment to %{name} in the line"
-                } else {
-                    "Put %{n} comments to %{name} in the line"
-                },
-                &[("n", &said), ("name", &name)],
-            );
-            cards.push(
-                div().flex().child(
-                    Button::new("send-comments", label)
-                        .variant(ButtonVariant::Secondary)
-                        .size(ButtonSize::Sm)
-                        .icon(CarbonIcon::Chat)
-                        .on_click(move |_, window, cx| {
-                            d_send.update(cx, |this, cx| this.send_comments(window, cx));
-                        }),
-                ),
-            );
-        }
 
         if let Some(pr) = s.git.pr.as_ref().filter(|p| p.state == "merged") {
             let base = if pr.base.is_empty() {
@@ -978,10 +1020,27 @@ impl Desk {
                 .child(
                     ui::text(
                         faces,
-                        crate::tr_with(
-                            "#%{n} merged into %{base}",
-                            &[("n", &pr.number), ("base", &base)],
-                        ),
+                        match (pr.merged_at.as_deref()).and_then(crate::when::parse) {
+                            Some(t) => crate::tr_with(
+                                "#%{n} merged into %{base} at %{time}",
+                                &[
+                                    ("n", &pr.number),
+                                    ("base", &base),
+                                    (
+                                        "time",
+                                        &crate::when::short_at(
+                                            t,
+                                            std::time::SystemTime::now(),
+                                            self.settings.twelve,
+                                        ),
+                                    ),
+                                ],
+                            ),
+                            None => crate::tr_with(
+                                "#%{n} merged into %{base}",
+                                &[("n", &pr.number), ("base", &base)],
+                            ),
+                        },
                     )
                     .type_style(TypeStyle::Body01)
                     .text_color(theme::role(ColorRole::TextPrimary)),
@@ -991,7 +1050,13 @@ impl Desk {
                 crate::tr("Its pull request merged"),
                 line,
                 None,
-                crate::tr("Settles on its own; the worktree stays until you archive it."),
+                if self.settings_on(s.host).settle_merged {
+                    crate::tr(
+                        "The thread settles on its own. Its worktree stays until you archive it.",
+                    )
+                } else {
+                    crate::tr("Its worktree stays until you archive it.")
+                },
             ));
         } else if has_repo
             && !origin
@@ -1061,7 +1126,9 @@ impl Desk {
                     ),
                     line,
                     Some(acts),
-                    crate::tr("Creates a GitHub repository under your gh login and pushes."),
+                    crate::tr(
+                        "A new GitHub repository under your gh login, pushed. Offered where gh is installed.",
+                    ),
                 )
                 .relative()
                 .child(div().absolute().top(px(4.)).right(px(4.)).child(close)),
@@ -1124,7 +1191,7 @@ impl Desk {
                 Some(acts),
                 if origin {
                     crate::tr(
-                        "The writer drafts its title and description, then commits, pushes and opens it.",
+                        "Create PR has the writer write the title and description, then commits, pushes and opens it.",
                     )
                 } else {
                     crate::tr("It has no remote: a commit stays here, and a pull request waits for one.")

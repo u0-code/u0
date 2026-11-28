@@ -222,7 +222,7 @@ impl Desk {
                 row = row
                     .child(
                         div()
-                            .when(need_n > 0, |d| d.ml(px(4.)))
+                            .when(need_n > 0, |d| d.ml(px(6.)))
                             .child(status_dot(ColorRole::SupportInfo)),
                     )
                     .child(
@@ -235,7 +235,7 @@ impl Desk {
                 row = row
                     .child(
                         div()
-                            .when(need_n + work_n > 0, |d| d.ml(px(4.)))
+                            .when(need_n + work_n > 0, |d| d.ml(px(6.)))
                             .child(status_dot(ColorRole::SupportError)),
                     )
                     .child(
@@ -445,7 +445,7 @@ impl Desk {
             let unpushed = s.git.commits.iter().filter(|c| c.unpushed).count();
             let meta =
                 (unpushed > 0).then(|| crate::tr_with("%{n} not pushed", &[("n", &unpushed)]));
-            rail = rail.child(div().mt(px(16.)).child(rc_heading(
+            rail = rail.child(div().mt(px(24.)).child(rc_heading(
                 faces,
                 crate::tr_with("Commits on %{branch}", &[("branch", &branch)]),
                 meta,
@@ -492,7 +492,7 @@ impl Desk {
         }
 
         if !s.git.stashes.is_empty() {
-            rail = rail.child(div().mt(px(16.)).child(rc_heading(
+            rail = rail.child(div().mt(px(24.)).child(rc_heading(
                 faces,
                 crate::tr("Stashes"),
                 None,
@@ -803,8 +803,7 @@ impl Desk {
                 .gap(px(8.))
                 .mt(px(16.))
                 .mx(px(16.))
-                .pl(px(15.))
-                .pr(px(12.))
+                .px(px(12.))
                 .py(px(8.))
                 .bg(theme::role(ColorRole::NotificationBackgroundWarning))
                 .child(
@@ -824,13 +823,21 @@ impl Desk {
                 )
                 .child(
                     div()
+                        .flex()
+                        .flex_wrap()
                         .flex_1()
                         .min_w(px(0.))
-                        .type_style(TypeStyle::Label01)
-                        .text_color(theme::role(ColorRole::TextPrimary))
+                        .gap_x(px(4.))
                         .child(
-                            ui::text(faces, format!("{bold_part} {rest_part}"))
-                                .type_style(TypeStyle::Label01),
+                            ui::text(faces, bold_part)
+                                .type_style(TypeStyle::Label01)
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(theme::role(ColorRole::TextPrimary)),
+                        )
+                        .child(
+                            ui::text(faces, rest_part)
+                                .type_style(TypeStyle::Label01)
+                                .text_color(theme::role(ColorRole::TextPrimary)),
                         ),
                 )
         });
@@ -921,7 +928,7 @@ impl Desk {
                             .child(
                                 Icon::carbon(CarbonIcon::Branch)
                                     .size_length(px(16.))
-                                    .color(theme::role(ColorRole::IconSecondary)),
+                                    .color(theme::role(ColorRole::TextPrimary)),
                             )
                             .child(
                                 ui::mono(faces, branch.to_owned())

@@ -40,23 +40,29 @@ Choose what to compare:
 - a commit, chosen from **Commits**;
 - **Edit**: one tool call's change.
 
-The toolbar has a file tree, **Expand all files** / **Collapse all
-files**, **Side by side** (or one above the other), **Wrap long lines**,
-**Leave out changes only in spacing**, **Hide test files**, **Find in the
-diff**, and **Read the changes again**. In a folder of several
-repositories, a chip chooses the repository.
+**Split view**, beside the choice, shows the files side by side (or one
+above the other). The toolbar has a file tree, **Expand all files** /
+**Collapse all files**, **Wrap long lines**, **Leave out changes only in
+spacing**, **Hide test files**, **Find in the diff**, and **Read the
+changes again**. In a folder of several repositories, a chip chooses the
+repository.
+
+Each file's header has its status, its path, **Copy path**, its lines
+added and removed, and **Viewed**: a file you tick folds.
 
 ### Comments for the agent
 
 Press **+** on a line to comment on it. Your comments show under their
-lines (each with **Take it back**), and **Put *n* comments to *agent* in
-the line** puts them in the composer as `- path:line — comment`, for you
-to send.
+lines, **Pending**, each with **Edit** and **Delete**; a folded file's
+header counts its own. A strip over the files counts those **not sent
+yet**, and **Send to *agent*** puts them in the composer as
+`- path:line — comment`, for you to send.
 
 ### Commit and push
 
-Each file has a checkbox: a file left out stays out of the next commit.
-Under the diff:
+In **Review changes** (⇧⌘B widens the column over the thread), each file
+under **Changes** has a checkbox: a file left out stays out of the next
+commit. Under the diff:
 
 - **Commit…** opens the commit form. **Write it** has the writer draft
   the message (with your instructions from **Settings › Writing**).

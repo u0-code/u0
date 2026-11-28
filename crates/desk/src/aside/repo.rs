@@ -1,5 +1,5 @@
 //! The column's changes as git reads them (`RightColumnStates` Columns 1 & 3):
-//! multi-repository `.rp-bar` with the `340px` `Layer02` repository picker
+//! multi-repository `.rp-bar` with the `376px` `Layer02` repository picker
 //! popover and inline Carbon `Select` for `Changes` scope, commit message form,
 //! and the `Pull request` tab with `.pr-box` merge readiness, `Watch` switch,
 //! `ChecksList`, and conflict resolution card.
@@ -19,6 +19,11 @@ use u0ui::{
 };
 
 use super::git_button;
+use u0ui::u0::foundations::truncate::{Truncate, TruncateMode};
+
+/// The repository picker's width (`.rp-menu`): the 400px column less 12px
+/// each side.
+const REPO_MENU: f32 = 376.;
 use crate::{
     desk::{Desk, Popup},
     fonts::Faces,
@@ -29,33 +34,48 @@ use crate::{
 };
 
 impl Desk {
-    /// `.rp-bar`: repository or branch picker on the left, inline Carbon
-    /// `Select` (`Changes`) on the right.
+    /// `.rp-bar` (`RightColumnStates`) with a repository or branch picker
+    /// on the left, `.rp-scope` (`Main`) without one: the inline Carbon
+    /// `Select` (`Changes`), then `Split view`.
     pub(super) fn diff_bar(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Div {
+        let chip = if s.git.repos.is_empty() {
+            (s.branch.as_deref()).map(|branch| self.branch_chip(faces, s, branch, cx))
+        } else {
+            Some(self.repo_chip(faces, s, cx))
+        };
         let mut bar = div()
             .flex()
             .flex_none()
             .items_center()
             .gap(px(8.))
-            .pl(px(12.))
+            .pl(px(if chip.is_some() { 12. } else { 16. }))
             .pr(px(8.))
             .py(px(8.))
             .border_b_1()
-            .border_color(theme::role(ColorRole::BorderSubtle01));
-
-        if !s.git.repos.is_empty() {
-            bar = bar.child(self.repo_chip(faces, s, cx));
-        } else if let Some(branch) = s.branch.as_deref() {
-            bar = bar.child(self.branch_chip(faces, s, branch, cx));
-        }
+            .border_color(theme::role(ColorRole::BorderSubtle01))
+            .children(chip);
 
         if s.git_dir().is_some() {
             bar = bar.child(div().flex_1().min_w(px(0.)).child(self.scope_select(s, cx)));
             if self.review.scope == Scope::Branch && !s.git.branches.is_empty() {
                 bar = bar.child(self.compare_chip(faces, s, cx));
             }
+        } else {
+            bar = bar.child(div().flex_1());
         }
-        bar
+        bar.child(
+            Button::new("diff-split", crate::tr("Split view"))
+                .variant(ButtonVariant::Ghost)
+                .size(ButtonSize::Sm)
+                .icon(CarbonIcon::Grid)
+                .icon_only(true)
+                .selected(self.settings.side_by_side)
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.settings.side_by_side = !this.settings.side_by_side;
+                    this.save_settings();
+                    cx.notify();
+                })),
+        )
     }
 
     /// Inline Carbon `Select` (`Changes`: `Last turn`, `All turns`, `Uncommitted`, `Against <base>`).
@@ -142,8 +162,9 @@ impl Desk {
             })
     }
 
-    /// Multi-repository picker (`RightColumnStates` Column 1): ghost `sm` button
-    /// opening a `340px` `Layer02` popover listing each repository's branch and changes.
+    /// Multi-repository picker (`RightColumnStates` Column 1): a ghost `sm`
+    /// button (32px, its chevron 16) opening the `Layer02` popover listing
+    /// each repository's branch and changes.
     pub(super) fn repo_chip(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Popover {
         let shown = s
             .git
@@ -153,9 +174,9 @@ impl Desk {
             .unwrap_or_else(|| crate::tr("Repository").into());
         let link = theme::role(ColorRole::LinkPrimary);
         let chip = ui::opener("repository")
-            .h(px(28.))
-            .px(px(8.))
-            .gap(px(6.))
+            .h(px(32.))
+            .px(px(12.))
+            .gap(px(8.))
             .child(
                 ui::text(faces, shown)
                     .type_style(TypeStyle::BodyCompact01)
@@ -163,7 +184,7 @@ impl Desk {
             )
             .child(
                 Icon::carbon(CarbonIcon::ChevronDown)
-                    .size_length(px(14.))
+                    .size_length(px(16.))
                     .color(link),
             );
         let (faces, key) = (faces.clone(), s.key);
@@ -178,7 +199,8 @@ impl Desk {
         .anchor(gpui::Anchor::TopLeft)
     }
 
-    /// `.rp-menu`: `340px` `Layer02` popover with header and `.rp-opt` rows.
+    /// `.rp-menu`: the `Layer02` popover, the column's width less its 12px
+    /// sides, with its header and `.rp-opt` rows.
     fn repo_popover(&self, faces: &Faces, key: u64, cx: &mut Context<Self>) -> Div {
         let Some(s) = self.sessions.at(key) else {
             return div();
@@ -193,7 +215,7 @@ impl Desk {
             &[("project", &project), ("n", &total)],
         );
         let mut list = div()
-            .w(px(340.))
+            .w(px(REPO_MENU))
             .flex()
             .flex_col()
             .bg(theme::role(ColorRole::Layer02))
@@ -282,15 +304,27 @@ impl Desk {
                                     .type_style(TypeStyle::Body01)
                                     .text_color(theme::role(ColorRole::TextPrimary)),
                             ))
-                            .child(ui::one_line(
-                                ui::mono(faces, sub)
+                            .child(
+                                // A path and a branch keep both ends (`LongAndMany`).
+                                div()
+                                    .min_w(px(0.))
+                                    .font_family(faces.mono.clone())
                                     .type_style(TypeStyle::Code01)
-                                    .text_color(theme::role(ColorRole::TextSecondary)),
-                            )),
+                                    .text_color(theme::role(ColorRole::TextSecondary))
+                                    .child(
+                                        Truncate::new(
+                                            SharedString::from(format!("repo-sub-{i}")),
+                                            sub,
+                                        )
+                                        .mode(TruncateMode::Middle),
+                                    ),
+                            ),
                     )
                     .child(
                         ui::text(faces, state_text)
                             .flex_none()
+                            .max_w(px(88.))
+                            .text_right()
                             .type_style(TypeStyle::Label01)
                             .text_color(theme::role(ColorRole::TextSecondary)),
                     )
@@ -320,7 +354,6 @@ impl Desk {
         s: &Session,
         cx: &mut Context<Self>,
     ) -> Popover {
-        use u0ui::u0::foundations::truncate::{Truncate, TruncateMode};
         let shown = s.git.compare_to.clone().unwrap_or_else(|| "main".into());
         let chip = ui::opener("compare")
             .h(px(24.))
@@ -661,7 +694,24 @@ impl Desk {
             Method::Merge => crate::tr("Create merge commit…"),
             Method::Rebase => crate::tr("Rebase and merge…"),
         };
-        let merge_blocked = !open || pr.failed > 0 || pr.going > 0 || pr.conflicts;
+        // Why Merge waits, said where it is pressed (`title="1 check failed"`).
+        let merge_waits = if pr.failed == 1 {
+            Some(crate::tr("1 check failed"))
+        } else if pr.failed > 1 {
+            Some(crate::tr_with("%{n} checks failed", &[("n", &pr.failed)]))
+        } else if pr.going > 0 {
+            Some(crate::tr("Its checks are still running"))
+        } else if pr.conflicts {
+            Some(crate::tr_with(
+                "It conflicts with %{base}",
+                &[("base", &base)],
+            ))
+        } else if pr.draft {
+            Some(crate::tr("A draft is not merged"))
+        } else {
+            None
+        };
+        let merge_blocked = !open || merge_waits.is_some();
         let (key, url) = (s.key, pr.url.clone());
         let desk = cx.entity();
 
@@ -716,22 +766,24 @@ impl Desk {
             .flex_wrap()
             .gap(px(8.))
             .when(pr.state == "open", |d| {
-                d.child(
-                    Button::new("merge-pr", merge_label)
-                        .variant(ButtonVariant::Primary)
-                        .size(ButtonSize::Sm)
-                        .disabled(merge_blocked)
-                        .on_click(move |_, _, cx| {
-                            d_merge.update(cx, |this, cx| {
-                                let p = this.session().map(crate::desk::Place::project_of);
-                                let cfg = this.settings_in(p.as_ref());
-                                this.git_action(
-                                    crate::repo::GitAction::Merge(cfg.merge, cfg.uncredit),
-                                    cx,
-                                );
-                            });
-                        }),
-                )
+                let merge = Button::new("merge-pr", merge_label)
+                    .variant(ButtonVariant::Primary)
+                    .size(ButtonSize::Sm)
+                    .disabled(merge_blocked)
+                    .on_click(move |_, _, cx| {
+                        d_merge.update(cx, |this, cx| {
+                            let p = this.session().map(crate::desk::Place::project_of);
+                            let cfg = this.settings_in(p.as_ref());
+                            this.git_action(
+                                crate::repo::GitAction::Merge(cfg.merge, cfg.uncredit),
+                                cx,
+                            );
+                        });
+                    });
+                match merge_waits {
+                    Some(why) => d.child(Tooltip::new("merge-pr-why", merge).content(why)),
+                    None => d.child(merge),
+                }
             })
             .child(
                 Button::new("open-pr", crate::tr("Open"))
@@ -785,7 +837,7 @@ impl Desk {
                             ui::text(
                                 faces,
                                 crate::tr_with(
-                                    "Checked every two minutes; %{name} is told of checks and reviews.",
+                                    "Checked every two minutes; when its checks finish or a review arrives, %{name} is told in this thread.",
                                     &[("name", &agent_name)],
                                 ),
                             )
@@ -901,8 +953,10 @@ impl Desk {
                                 .text_color(theme::role(ColorRole::TextSecondary)),
                         )
                         .child(
+                            // `.pr-title`: 20/28 at 600.
                             ui::text(faces, pr.title.clone())
                                 .type_style(TypeStyle::Heading03)
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
                                 .text_color(theme::role(ColorRole::TextPrimary)),
                         )
                         .child(
