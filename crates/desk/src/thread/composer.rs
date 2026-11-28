@@ -73,7 +73,7 @@ impl Desk {
         } else if suggested.is_some() {
             SharedString::default()
         } else if waiting_approval {
-            crate::tr("Reply, or answer the card above")
+            crate::tr("Answer the card above, or reply with a note")
         } else if working {
             crate::tr("Waits its turn, or ⇧⌘↵ steers")
         } else if s.items.is_empty() {

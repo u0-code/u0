@@ -982,7 +982,7 @@ impl Desk {
                 EmptyHeader::new()
                     .child(EmptyTitle::new(crate::tr("Nothing said")))
                     .child(EmptyDescription::new(crate::tr(
-                        "No agent reported cost or tokens in this period.",
+                        "No agent said what a thread cost or took in this time.",
                     ))),
             )
             .when(self.pages.period == Some(1), |e| {
