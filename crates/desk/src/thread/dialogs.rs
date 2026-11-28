@@ -736,7 +736,7 @@ impl Desk {
             [only] if sole_wt.is_some() => self
                 .sessions
                 .at(*only)
-                .and_then(|s| s.total.as_ref())
+                .and_then(|s| s.total())
                 .map(|files| files.iter().map(|f| f.path.clone()).collect())
                 .unwrap_or_default(),
             _ => Vec::new(),

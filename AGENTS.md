@@ -298,7 +298,7 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   any other key refuses the file) and what its new sessions of each agent
   begin with (`last`: the options and mode last chosen), and what you
   closed of what u0 offers there until it says something new (`closed`:
-  the changes bar, by a mark of its changes; the offer to publish, until
+  the changes bar, by its folder, a mark of its changes (`git::mark`); the offer to publish, until
   it has a remote).
 - `~/.u0/viewed.json` (the desk's) holds the files of each pull
   request you marked viewed, by its address, each with a mark of its

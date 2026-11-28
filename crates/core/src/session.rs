@@ -490,8 +490,11 @@ pub struct Session {
     pub chosen_mode: Option<String>,
     /// Each turn's checkpoints, by turn, the first turn first.
     pub turns: Vec<Turn>,
-    /// What changed from before the first turn to after the latest.
-    pub total: Option<Vec<git::FileDiff>>,
+    /// What changed from before the first turn to after the latest
+    /// (`set_total`).
+    total: Option<Vec<git::FileDiff>>,
+    /// A mark of `total`, made the first time it is asked for.
+    total_mark: std::sync::OnceLock<String>,
     /// A turn undone, and the checkpoint that puts it back.
     pub redo: Option<(usize, String)>,
     pub state: State,
@@ -753,6 +756,23 @@ impl Session {
         self.git_dir().is_some() && self.wants_worktree && self.meta.worktree.is_none()
     }
 
+    /// What changed from before the first turn to after the latest.
+    pub fn total(&self) -> Option<&Vec<git::FileDiff>> {
+        self.total.as_ref()
+    }
+
+    /// What changed now, its mark to be made again when asked for.
+    pub fn set_total(&mut self, total: Option<Vec<git::FileDiff>>) {
+        self.total = total;
+        self.total_mark = std::sync::OnceLock::new();
+    }
+
+    /// A mark of what changed (`git::mark`), made once for each `total`.
+    pub fn total_mark(&self) -> Option<&str> {
+        let total = self.total.as_ref()?;
+        Some(self.total_mark.get_or_init(|| git::mark(total)))
+    }
+
     /// Work in the worktree `wt` made for it before its first turn, with
     /// the scripts its repository names: a repository of its own now, or
     /// a folder of worktrees of those its folder held, so nothing read of
@@ -767,7 +787,7 @@ impl Session {
         self.git = git::View::default();
         self.git.repos = wt.repos.iter().map(|w| w.path.clone()).collect();
         self.git.repo = self.git.repos.first().cloned();
-        self.total = None;
+        self.set_total(None);
         self.meta.worktree = Some(wt);
     }
 
@@ -1028,6 +1048,7 @@ impl Session {
             chosen_mode: None,
             turns: Vec::new(),
             total: None,
+            total_mark: std::sync::OnceLock::new(),
             redo: None,
             state: State::Draft,
             items: Vec::new(),
@@ -1790,6 +1811,24 @@ pub fn said(events: Vec<store::Event>, last: bool) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_mark_of_what_changed_is_made_again_once_it_changes() {
+        let file = |patch: &str| crate::git::FileDiff {
+            path: "a.rs".into(),
+            added: 1,
+            gone: 0,
+            patch: patch.into(),
+        };
+        let mut s = super::Session::new(1, "agent", std::path::PathBuf::from("/p"));
+        assert_eq!(s.total_mark(), None);
+        s.set_total(Some(vec![file("+one\n")]));
+        let closed = s.total_mark().map(str::to_owned);
+        s.set_total(Some(vec![file("+one\n")]));
+        assert_eq!(s.total_mark().map(str::to_owned), closed);
+        s.set_total(Some(vec![file("+two\n")]));
+        assert_ne!(s.total_mark().map(str::to_owned), closed);
+    }
+
     #[test]
     fn text_sent_beside_the_line_is_named_again_in_the_thread_by_where_it_came_from() {
         use super::{Context, file_of};

@@ -206,7 +206,7 @@ impl Desk {
                     t.after = Some(snap.commit);
                     t.diff = snap.turn;
                     if snap.total.is_some() {
-                        s.total = snap.total;
+                        s.set_total(snap.total);
                     }
                 } else {
                     t.before = Some(snap.commit);
@@ -277,7 +277,7 @@ impl Desk {
         };
         match result {
             Ok((back, total)) => {
-                s.total = total;
+                s.set_total(total);
                 if undo {
                     s.redo = Some((turn, back));
                     s.items.push(Item::Note {

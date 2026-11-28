@@ -104,8 +104,10 @@ Write a task or a question and press Return (see `send` in
 bring back messages you sent before.
 
 While the folder has uncommitted changes, a bar above the composer counts
-them, with **Review changes** and **Commit changes**. × closes it for the
-project until the changes change.
+them, with **Review changes** and **Commit changes**. × closes it for that
+folder (the project's, or a thread's worktree) until the changes change.
+It is kept on the project's server, so every Mac paired with it sees it
+closed.
 
 ### Chips
 

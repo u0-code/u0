@@ -1471,7 +1471,7 @@ impl Desk {
     }
 
     /// Square Carbon changed-files bar above the composer; closed for
-    /// its project until the changes change.
+    /// its folder until the changes change (`close_changes`).
     fn changes_row(
         &self,
         faces: &Faces,
@@ -1479,12 +1479,14 @@ impl Desk {
         column: f32,
         cx: &mut Context<Self>,
     ) -> Option<Div> {
-        let files = s.total.as_ref().filter(|f| !f.is_empty())?;
+        let files = s.total().filter(|f| !f.is_empty())?;
         let project = crate::desk::Place::project_of(s);
-        let mark = changes_mark(files);
-        if self.prefs(&project).closed.changes.as_ref() == Some(&mark) {
+        let closed = (self.settings_on(s.host).prefs.get(&project.folder))
+            .and_then(|p| p.closed.changes.get(&s.meta.folder));
+        if closed.is_some_and(|m| s.total_mark() == Some(m.as_str())) {
             return None;
         }
+        let key = s.key;
         let file_count = files.len();
         let (added, gone) = files
             .iter()
@@ -1560,13 +1562,31 @@ impl Desk {
                         .icon(CarbonIcon::Close)
                         .icon_only(true)
                         .on_click(move |_, _, cx| {
-                            desk_close.update(cx, |this, cx| {
-                                let mark = Some(mark.clone());
-                                this.set_prefs(&project, cx, |p| p.closed.changes = mark);
-                            });
+                            desk_close.update(cx, |this, cx| this.close_changes(key, cx));
                         }),
                 ),
         )
+    }
+
+    /// Close the changes bar of the session `key` until its folder's
+    /// changes change; the marks of folders no session here works in any
+    /// more are let go.
+    fn close_changes(&mut self, key: u64, cx: &mut Context<Self>) {
+        let Some(s) = self.sessions.at(key) else {
+            return;
+        };
+        let Some(mark) = s.total_mark().map(str::to_owned) else {
+            return;
+        };
+        let (project, folder) = (crate::desk::Place::project_of(s), s.meta.folder.clone());
+        let held: std::collections::HashSet<_> = (self.sessions.all.iter())
+            .filter(|o| crate::desk::Place::project_of(o) == project)
+            .map(|o| o.meta.folder.clone())
+            .collect();
+        self.set_prefs(&project, cx, |p| {
+            p.closed.changes.retain(|f, _| held.contains(f));
+            p.closed.changes.insert(folder, mark);
+        });
     }
 
     /// `/` commands and `@` mentions rendered via `u0ui::t3::composer::ComposerCommandMenu`.
@@ -2122,33 +2142,4 @@ fn chip_text(faces: &Faces, text: impl Into<SharedString>) -> Div {
         .flex_none()
         .text_size(px(12.))
         .text_color(theme::role(ColorRole::TextSecondary))
-}
-
-/// A mark of the changes `files` hold: another once they change.
-fn changes_mark(files: &[crate::git::FileDiff]) -> String {
-    use std::hash::{Hash as _, Hasher as _};
-    let mut hasher = std::hash::DefaultHasher::new();
-    for f in files {
-        (&f.path, &f.patch).hash(&mut hasher);
-    }
-    format!("{:016x}", hasher.finish())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::changes_mark;
-    use crate::git::FileDiff;
-
-    #[test]
-    fn a_changes_bar_closed_shows_again_once_the_changes_change() {
-        let file = |patch: &str| FileDiff {
-            path: "a.rs".into(),
-            added: 1,
-            gone: 0,
-            patch: patch.into(),
-        };
-        let closed = changes_mark(&[file("+one\n")]);
-        assert_eq!(changes_mark(&[file("+one\n")]), closed);
-        assert_ne!(changes_mark(&[file("+two\n")]), closed);
-    }
 }

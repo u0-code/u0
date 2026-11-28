@@ -499,7 +499,7 @@ impl Desk {
             Event::Uncommitted { key, result } => {
                 if let Some(s) = self.sessions.at_mut(key) {
                     match result {
-                        Ok(files) => s.total = Some(files),
+                        Ok(files) => s.set_total(Some(files)),
                         Err(why) => {
                             tracing::warn!("what is not committed could not be read: {why}");
                         }

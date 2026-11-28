@@ -46,7 +46,7 @@ const LINES_SHOWN: usize = 24;
 /// and where git reads nothing (no repository), as the agent's edits were.
 pub fn files_of<'a>(s: &'a Session, scope: &Scope) -> Option<Cow<'a, [FileDiff]>> {
     let from_git = match scope {
-        Scope::All => s.total.as_ref(),
+        Scope::All => s.total(),
         Scope::Turn(n) => s.turns.get(*n).and_then(|t| t.diff.as_ref()),
         Scope::Call(item) => return Some(Cow::Owned(edits(s, Some(*item)))),
         scope => s
@@ -995,7 +995,12 @@ impl Desk {
                     "The thread settles on its own (Threads \u{203a} Auto-settle merged threads). Its worktree stays until you archive it.",
                 ),
             ));
-        } else if has_repo && !origin && gh && !self.prefs(&place).closed.publish {
+        } else if has_repo
+            && !origin
+            && gh
+            && !(self.settings_on(s.host).prefs.get(&place.folder))
+                .is_some_and(|p| p.closed.publish)
+        {
             let project = s.meta.project.file_name().map_or_else(
                 || Desk::shown(&s.meta.project),
                 |n| n.to_string_lossy().into_owned(),

@@ -69,7 +69,7 @@ Each entry of `prefs`:
 | `external_folders` | list of paths | `[]` | External folders linked into this project. |
 | `excluded_submodules` | list of paths | `[]` | Submodule paths excluded when creating worktrees. |
 | `env` | map: name → value | `{}` | Environment variables and `secret:<NAME>` references given to agents and actions in this project. |
-| `closed` | `{changes, publish}` | `{}` | What you closed here with ×: `changes`, the mark of the changes whose bar above the composer you closed (it shows again once they change); `publish`, the right column's offer to publish it (offered again once it has had a remote and lost it). |
+| `closed` | `{changes, publish}` | `{}` | What you closed here with ×: `changes`, by folder (the project's or a worktree's), the mark of the changes whose bar above the composer you closed (it shows again once they change); `publish`, the right column's offer to publish it (offered again once it has had a remote and lost it). |
 
 ## Threads
 

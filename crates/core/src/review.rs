@@ -4,8 +4,6 @@
 //! changes), and how much of it is code, tests, mocks, generated or docs,
 //! as t3code sorts them.
 
-use std::hash::{Hash as _, Hasher as _};
-
 /// What a changed file is, by its path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Part {
@@ -202,11 +200,11 @@ pub fn files(patch: &str) -> Vec<File> {
             | FileOperation::Rename { to: p, .. }
             | FileOperation::Copy { to: p, .. } => p.into_owned(),
         };
-        let mut hasher = std::hash::DefaultHasher::new();
         let (mut added, mut removed) = (0, 0);
         let lines = (file.patch().as_text().into_iter())
             .flat_map(diffy::Patch::hunks)
             .flat_map(diffy::Hunk::lines);
+        let mut signed = Vec::new();
         for line in lines {
             let (sign, text) = match line {
                 Line::Context(t) => (' ', t),
@@ -219,13 +217,13 @@ pub fn files(patch: &str) -> Vec<File> {
                     ('+', t)
                 }
             };
-            (sign, *text).hash(&mut hasher);
+            signed.push((sign, *text));
         }
         File {
             path: named,
             added,
             removed,
-            mark: format!("{:016x}", hasher.finish()),
+            mark: crate::git::mark(&signed),
         }
     })
     .collect()
