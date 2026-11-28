@@ -1337,7 +1337,8 @@ impl Desk {
             };
             p = folder;
         }
-        let typed = self.typed(cx);
+        // What was typed as it was, a first space or line kept.
+        let typed = self.composer.input.read(cx).value().to_string();
         let key = self.sessions.take_key();
         let s = self.begun_in(key, &drawn.meta.agent, p);
         self.sessions.all.push(s);
