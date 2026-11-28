@@ -913,7 +913,7 @@ impl Desk {
                                     .type_style(TypeStyle::Body01)
                                     .text_color(theme::role(ColorRole::TextSecondary))
                                     .child(crate::tr(
-                                        "Tokens and limits as each agent reported them. u0 adds no figures of its own and puts no price on them.",
+                                        "As each agent reported them; u0 adds no figures or prices.",
                                     )),
                             ),
                     )
@@ -982,7 +982,7 @@ impl Desk {
                 EmptyHeader::new()
                     .child(EmptyTitle::new(crate::tr("Nothing said")))
                     .child(EmptyDescription::new(crate::tr(
-                        "No agent said what a thread cost or took in this time. Not every agent says; u0 does not guess.",
+                        "No agent reported cost or tokens in this period.",
                     ))),
             )
             .when(self.pages.period == Some(1), |e| {

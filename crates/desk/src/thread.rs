@@ -1540,7 +1540,7 @@ impl Desk {
         };
         menu.item(row(
             "Roll back to here",
-            "What came after is left behind; it is in the composer to say again. The files stay as they are.",
+            "Removes later turns; your message returns to the composer. Files stay.",
             false,
         ))
         .when(files, |m| {

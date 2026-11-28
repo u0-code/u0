@@ -120,8 +120,7 @@ impl Desk {
             crate::tr("u0 may not use speech recognition"),
             Some(
                 crate::tr(
-                    "Allow it in System Settings › Privacy & Security › Speech Recognition, \
-                 and the microphone under Microphone.",
+                    "Allow Speech Recognition and Microphone in System Settings › Privacy & Security.",
                 )
                 .into(),
             ),
@@ -184,9 +183,7 @@ impl Desk {
             SpeechEvent::Error(why) => {
                 let why = match why {
                     SpeechError::Unsupported => crate::tr(
-                        "macOS can't hear this language on this Mac \
-                        alone: choose another, or add it under System Settings › Keyboard › \
-                        Dictation. u0 run outside u0.app (from cargo) can't listen at all.",
+                        "Language not on this Mac: add it in System Settings › Keyboard › Dictation.",
                     )
                     .into(),
                     why => why.to_string(),

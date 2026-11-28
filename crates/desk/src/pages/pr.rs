@@ -263,7 +263,7 @@ impl Desk {
             None => body
                 .child(ui::fine(
                     faces,
-                    crate::tr("A guide leads you through the changes in the order that makes them easiest to read, with what to look at in each. The writer writes it."),
+                    crate::tr("The writer orders the changes for reading, with what to check."),
                 ))
                 .child(div().child(ask("Write a review guide"))),
             Some((_, _, None)) => body.child(
@@ -272,12 +272,18 @@ impl Desk {
                     .items_center()
                     .gap(px(6.))
                     .child(ui::live_dot())
-                    .child(ui::fine(faces, crate::tr("The writer is reading the changes…"))),
+                    .child(ui::fine(
+                        faces,
+                        crate::tr("The writer is reading the changes…"),
+                    )),
             ),
             Some((_, _, Some(Err(e)))) => body
                 .child(
-                    ui::fine(faces, crate::tr_with("The writer couldn't write it: %{e}", &[("e", e)]))
-                        .text_color(theme::coral()),
+                    ui::fine(
+                        faces,
+                        crate::tr_with("The writer couldn't write it: %{e}", &[("e", e)]),
+                    )
+                    .text_color(theme::coral()),
                 )
                 .child(div().child(ask("Try again"))),
             Some((_, head, Some(Ok(text)))) => {
@@ -289,7 +295,10 @@ impl Desk {
                             .flex()
                             .items_center()
                             .gap(px(8.))
-                            .child(ui::fine(faces, crate::tr("Written before its latest commits.")))
+                            .child(ui::fine(
+                                faces,
+                                crate::tr("Written before its latest commits."),
+                            ))
                             .child(ask("Write it again")),
                     )
                 })

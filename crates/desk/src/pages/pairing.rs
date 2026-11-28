@@ -240,9 +240,7 @@ pub(crate) fn add_u0_to_agent_card(id_prefix: &'static str) -> Div {
         .child(pgc_header(
             CarbonIcon::Link,
             crate::tr("Add u0 to an agent"),
-            crate::tr(
-                "Run once in a terminal. The agent then reads through u0, and asks on a card before it acts.",
-            ),
+            crate::tr("Run once in a terminal. The agent asks you before it acts."),
             None,
         ))
         .child(
@@ -272,7 +270,7 @@ pub(crate) fn add_u0_to_agent_card(id_prefix: &'static str) -> Div {
                 .line_height(px(16.))
                 .text_color(theme::role(ColorRole::TextHelper))
                 .child(crate::tr(
-                    "With -s user, Claude Code adds u0 for every project. u0 --mcp finds the port and key in ~/.u0/mcp.json, made anew each time u0 starts.",
+                    "-s user adds u0 to every project. u0 --mcp reads ~/.u0/mcp.json.",
                 )),
         )
 }
@@ -289,7 +287,7 @@ pub(crate) fn install_u0_elsewhere_card(
             CarbonIcon::Download,
             crate::tr("No computer with u0 yet?"),
             crate::tr(
-                "On a Mac, install the app. On a Linux box, run the server without a window and pair a Mac with it.",
+                "Mac: install the app. Linux: run the server headless and pair a Mac.",
             ),
             None,
         ))
@@ -341,7 +339,7 @@ pub(crate) fn install_u0_elsewhere_card(
                         .line_height(px(16.))
                         .text_color(theme::role(ColorRole::TextHelper))
                         .child(crate::tr(
-                            "It also prints the link's QR. Reach it with ssh -L 4317:127.0.0.1:4317 host, Tailscale, or its own cloudflared tunnel.",
+                            "Reach it by ssh -L 4317:127.0.0.1:4317 host, Tailscale or a tunnel.",
                         )),
                 ),
         )
@@ -680,7 +678,7 @@ impl Desk {
                     .line_height(px(16.))
                     .text_color(theme::role(ColorRole::TextHelper))
                     .child(crate::tr(
-                        "What it may do and for how long were set on the link. To give more, turn it away and pair again with a new link.",
+                        "Set by the link. To give more, turn it away and pair with a new link.",
                     )),
             )
             .child(
@@ -1010,7 +1008,7 @@ impl Desk {
                 .line_height(px(16.))
                 .text_color(theme::role(ColorRole::TextHelper))
                 .child(crate::tr(
-                    "Each choice above makes a new link at once. Copy copies it; New link makes another and withdraws this one.",
+                    "Changing a choice makes a new link; New link withdraws this one.",
                 )),
         )
     }
@@ -1029,15 +1027,12 @@ impl Desk {
             .map(|ds| ds.iter().filter(|d| d.waiting).cloned().collect())
             .unwrap_or_default();
 
-        let mut root = pgc_card()
-            .child(pgc_header(
-                CarbonIcon::QrCode,
-                crate::tr("Pair a device with this Mac"),
-                crate::tr(
-                    "Open the link on the other Mac, scan the QR with the phone, or paste it there. It works once, for 10 minutes.",
-                ),
-                Some(close_btn),
-            ));
+        let mut root = pgc_card().child(pgc_header(
+            CarbonIcon::QrCode,
+            crate::tr("Pair a device with this Mac"),
+            crate::tr("Open or scan the link on the other device. Once, within 10 minutes."),
+            Some(close_btn),
+        ));
 
         if let Some(alert) = self.approved_device_alert(cx) {
             root = root.child(alert);
@@ -1096,7 +1091,7 @@ impl Desk {
                     .line_height(px(16.))
                     .text_color(theme::role(ColorRole::TextHelper))
                     .child(crate::tr(
-                        "A page in a browser can't pair or reach u0; a browser only hands the u0:// link to the app.",
+                        "Browsers can't pair; they only hand the u0:// link to the app.",
                     )),
             );
 
@@ -1136,7 +1131,7 @@ impl Desk {
                         .child(pgc_kv_row(
                             crate::tr("Key"),
                             crate::tr_with(
-                                "%{print}, made on this Mac for %{host} alone; its private half stays in this Mac's Keychain",
+                                "%{print}, for %{host} alone; its private half stays in the Keychain",
                                 &[
                                     ("print", &short_fingerprint(&pending.print)),
                                     ("host", &host),
@@ -1165,7 +1160,7 @@ impl Desk {
                             .line_height(px(16.))
                             .text_color(theme::role(ColorRole::TextHelper))
                             .child(crate::tr_with(
-                                "Ticked, this Mac starts listening and %{host} pairs back with a key of its own, if its link was made with Pair both ways. Where it can't reach this Mac, the pairing stays one way and says why.",
+                                "This Mac listens and %{host} pairs back, if its link allows Pair both ways.",
                                 &[("host", &host)],
                             )),
                     )
@@ -1211,9 +1206,7 @@ impl Desk {
             .child(pgc_header(
                 CarbonIcon::Laptop,
                 crate::tr("Control another Mac from this one"),
-                crate::tr(
-                    "Settings › Devices › Control other Macs, or the u0 menu's Pair a Device…. Opening a u0://pair link from a QR scan, Mail or open does the same.",
-                ),
+                crate::tr("Settings › Devices › Control other Macs, or u0 › Pair a Device…"),
                 Some(close_btn),
             ))
             .child(

@@ -187,7 +187,7 @@ impl Desk {
                         match back {
                             None if waiting => self.done(
                                 crate::tr_with(
-                                    "Paired with %{name}: it comes into this window once it is let in there, under Settings › Devices",
+                                    "Paired with %{name}: let it in there, under Settings › Devices",
                                     &[("name", &name)],
                                 ),
                                 None,

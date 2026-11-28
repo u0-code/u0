@@ -279,7 +279,7 @@ impl Desk {
                     .type_style(TypeStyle::Body01)
                     .text_color(theme::role(ColorRole::TextSecondary))
                     .child(crate::tr(
-                        "Only files change; the conversation stays as it is. Redo brings the changes back, and your own uncommitted work is kept. Click a file to preview what goes back.",
+                        "Only files go back; the thread stays. Your uncommitted work is kept.",
                     )),
             )
             .child(tree);
@@ -624,7 +624,7 @@ impl Desk {
                     .type_style(TypeStyle::Body01)
                     .text_color(theme::role(ColorRole::TextSecondary))
                     .child(crate::tr(
-                        "The thread shows the PR's checks and reviews, and settles by itself once the pull request merges.",
+                        "The thread follows the PR's checks and reviews until it merges.",
                     )),
             )
             .child(

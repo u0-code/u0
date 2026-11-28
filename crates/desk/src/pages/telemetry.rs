@@ -121,7 +121,7 @@ impl Desk {
                 w,
                 crate::tr("What u0 tells"),
                 crate::tr(
-                    "Each level sends what the one before it does, and more; none sends what you or an agent wrote, a path, a name of yours or an error's words. README.md lists every field.",
+                    "Each level adds to the last; never text, paths or names. See README.md.",
                 ),
                 |d, faces, cx| levels(&d.pages.level, faces, cx),
             ),
@@ -149,7 +149,7 @@ impl Desk {
         items.push(item(
             w,
             crate::tr("Reset install id"),
-            crate::tr("From the next batch on, this install is sent under a new random id, unlinked from the old."),
+            crate::tr("Later batches go under a new random id, unlinked from the old."),
             |d, faces, cx| {
                 let id = d.pages.install_id.clone();
                 div()
@@ -203,7 +203,7 @@ impl Desk {
                         }),
                         intro: std::rc::Rc::new(|_| {
                             crate::tr(
-                                "Choose what you share to help improve u0. Nothing is sent until you continue, and you can change it any time in Settings › Telemetry.",
+                                "Nothing is sent until you continue. Change it later in Settings › Telemetry.",
                             )
                         }),
                         slider: crate::tr("Telemetry"),

@@ -50,7 +50,7 @@ impl Desk {
         let memory = crate::tidy::shown(processes.memory);
         let held = crate::tidy::shown(processes.procs.iter().map(|p| p.kb * 1024).sum());
         let mac = crate::tr_with(
-            "Load %{load} on %{cores} cores, %{memory} of memory; u0's processes hold %{held}.",
+            "Load %{load} on %{cores} cores, %{memory} memory; u0 uses %{held}.",
             &[
                 ("load", &processes.load),
                 ("cores", &processes.cores),

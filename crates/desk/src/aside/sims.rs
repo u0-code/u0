@@ -405,7 +405,7 @@ impl Desk {
                     &[("name", &d.name)],
                 ))
                 .description(div().max_w(px(300.)).child(crate::tr(
-                    "Without AXe a simulator is touched in Simulator.app, and the Xcode in use has none. Its screen shows here as pictures, one at a time.",
+                    "Needs AXe (this Xcode has no Simulator.app). The screen shows as stills.",
                 )))
         });
 
@@ -523,9 +523,7 @@ impl Desk {
                 body = body.child(
                     ui::text(
                         faces,
-                        crate::tr(
-                            "Your press is the asking: it runs AXe’s own way to install it, with Homebrew, and nothing before.",
-                        ),
+                        crate::tr("Installs AXe with Homebrew, only when you press it."),
                     )
                     .type_style(TypeStyle::Label01)
                     .text_color(theme::role(ColorRole::TextSecondary)),

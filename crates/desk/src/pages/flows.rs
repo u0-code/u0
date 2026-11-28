@@ -262,7 +262,7 @@ impl Desk {
                     .type_style(TypeStyle::Body01)
                     .text_color(theme::role(ColorRole::TextSecondary))
                     .child(crate::tr(
-                        "Agent steps, commands and questions, started by hand, on a schedule or by a webhook.",
+                        "Agent steps, commands and questions, run by hand, schedule or webhook.",
                     )),
             );
 
@@ -1023,7 +1023,7 @@ impl Desk {
                             .type_style(TypeStyle::Label01)
                             .text_color(theme::role(ColorRole::TextHelper))
                             .child(crate::tr_with(
-                                "The thread works in this run’s worktree, so Re-run from step %{n} picks up the fix.",
+                                "Fix it in this run’s worktree, then Re-run from step %{n}.",
                                 &[("n", &(idx + 1))],
                             )),
                     );

@@ -409,7 +409,7 @@ impl Desk {
                 if crate::acp::EACH_TIME.contains(&tool.as_str()) =>
             {
                 crate::tr_with(
-                    "Asked each time: what %{tool} is given can be steered by text nobody vetted (a pull request’s body, a CI log, a webhook), so a yes is for this once.",
+                    "Asked each time: %{tool} can be steered by unvetted text.",
                     &[("tool", tool)],
                 )
             }

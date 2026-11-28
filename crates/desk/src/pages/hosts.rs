@@ -45,7 +45,7 @@ impl Desk {
             })
             .collect();
         let mut page = SettingPage::new(crate::tr("Source control")).description(crate::tr(
-            "Where your projects' code and issues are. A token of yours is used over the CLI's own sign-in, and kept in the macOS Keychain, never in a file; it may be a 1Password reference (op://).",
+            "A token, if set, is used over the CLI's sign-in; kept in the Keychain.",
         ));
         if let Some(b) = banners {
             page = page.group(b);
@@ -57,7 +57,7 @@ impl Desk {
                 vec![item(
                     w,
                     crate::tr("Agents' credits in a squash"),
-                    crate::tr("Co-authored-by lines and footers that credit an agent are taken out of a squashed commit's message; a person's stay."),
+                    crate::tr("Lines crediting an agent are removed; a person's stay."),
                     |d, _, cx| {
                         d.own(
                             "uncredit",

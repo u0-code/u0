@@ -23,7 +23,7 @@ impl Desk {
         banners: Option<SettingGroup>,
     ) -> SettingPage {
         let mut page = SettingPage::new(super::Tab::Browser.title()).description(crate::tr(
-            "Where the pages you open show: a dev server's address, a link, an HTML file of yours. u0 shows them in the system's own web view, or your browser does.",
+            "Dev servers, links and HTML files open in u0's web view or your browser.",
         ));
         if let Some(b) = banners {
             page = page.group(b);
@@ -46,9 +46,7 @@ impl Desk {
             item(
                 w,
                 crate::tr("Open pages in"),
-                crate::tr(
-                    "Preview shows the page in the right column, with Open in your browser beside it.",
-                ),
+                crate::tr("Preview shows pages in the right column."),
                 |d, _, cx| {
                     d.pick(
                         "open_pages",
@@ -66,9 +64,7 @@ impl Desk {
             item(
                 w,
                 crate::tr("Web engine"),
-                crate::tr(
-                    "Pages use the system's own engine, kept current with the system; u0 brings none. Where the system has none, pages open in your browser.",
-                ),
+                crate::tr("The system's own engine; without one, pages open in your browser."),
                 |_, faces, _| {
                     ui::text(
                         faces,
@@ -84,9 +80,7 @@ impl Desk {
             item(
                 w,
                 crate::tr("⌘-click a printed address"),
-                crate::tr(
-                    "An address a terminal prints opens where pages open; ⌥⌘-click opens it in your browser.",
-                ),
+                crate::tr("Opens where pages open; ⌥⌘-click opens it in your browser."),
                 |d, _, cx| {
                     let switch = Switch::new("cmd-click-urls")
                         .accessibility_label(crate::tr("⌘-click a printed address"))
@@ -183,9 +177,7 @@ impl Desk {
         item(
             w,
             crate::tr("Website data"),
-            crate::tr(
-                "Cookies, storage and cache the pages you opened kept, in a store of u0's own, apart from your browser's.",
-            ),
+            crate::tr("Cookies, storage and cache, kept apart from your browser's."),
             |d, _, _| {
                 let tx = d.tx.clone();
                 Button::new("website-data-clear", crate::tr("Clear…"))
@@ -199,7 +191,7 @@ impl Desk {
                             alert
                                 .title(crate::tr("Clear website data?"))
                                 .description(crate::tr(
-                                    "Every page you opened in Preview forgets its cookies, storage and cache. Your browser's are not touched.",
+                                    "Preview forgets all cookies, storage and cache. Your browser is untouched.",
                                 ))
                                 .ok_text(crate::tr("Clear"))
                                 .show_cancel(true)

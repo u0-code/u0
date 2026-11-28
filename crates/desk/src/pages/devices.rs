@@ -110,7 +110,7 @@ impl Desk {
         let about = match &serving {
             None => crate::tr_with("Asking %{on} how it is shared…", &[("on", &on)]),
             Some(Some(Ok(port))) => crate::tr_with(
-                "Listening on 127.0.0.1:%{port}, and on the networks chosen under Reach. Only a device paired with it comes in.",
+                "Listening on 127.0.0.1:%{port} and networks under Reach; paired devices only.",
                 &[("port", port)],
             ),
             Some(Some(Err(_)) | None) => crate::tr("Off: nothing listens, and no device comes in."),
@@ -149,7 +149,7 @@ impl Desk {
             w,
             crate::tr("Control other Macs"),
             if control {
-                "The Macs paired with are in this window beside this one; pair with another's link."
+                "Paired Macs show in this window; pair one with its link."
             } else {
                 "Off: this Mac controls only itself."
             },
@@ -165,7 +165,7 @@ impl Desk {
             },
         );
         let mut page = SettingPage::new(crate::tr("Devices")).description(crate::tr(
-            "Use u0 on one Mac from another: its agents, threads, files and terminals, as there. Each device comes in by a key of its own, made as it pairs: its private half stays in that device's Keychain, and only the public half, shown by its fingerprint, is sent.",
+            "Use u0 from another Mac. Each pairs with its own key, kept on it.",
         ));
         if let Some(b) = banners {
             page = page.group(b);
@@ -261,9 +261,7 @@ impl Desk {
         let scope = item(
             w,
             crate::tr("What it may do"),
-            crate::tr(
-                "Read only: it watches threads, diffs and your projects' files, and changes nothing. Its calls are checked here, on this Mac.",
-            ),
+            crate::tr("Read only sees threads, diffs and files, and changes nothing."),
             move |_, _, cx| {
                 ui::segmented(
                     "grant-scope",
@@ -319,9 +317,7 @@ impl Desk {
         let ask = item(
             w,
             crate::tr("Ask me before letting it in"),
-            crate::tr(
-                "The device pairs, then waits under Devices that control this Mac until you let it in: for a link you send someone.",
-            ),
+            crate::tr("It waits under Devices until you let it in."),
             move |_, _, cx| {
                 Switch::new("grant-ask")
                     .accessibility_label(crate::tr("Ask me before letting it in"))
@@ -339,9 +335,7 @@ impl Desk {
         let both = item(
             w,
             crate::tr("Pair both ways"),
-            crate::tr(
-                "If the other Mac asks, this Mac pairs with it too, and controls it from here: for a Mac of yours.",
-            ),
+            crate::tr("Pair back when asked and control the other Mac too. For your own Macs."),
             move |_, _, cx| {
                 Switch::new("grant-both")
                     .accessibility_label(crate::tr("Pair both ways"))
@@ -366,9 +360,7 @@ impl Desk {
         let way = item(
             w,
             crate::tr("Reached by"),
-            crate::tr(
-                "The way the link names. One on a network pins this Mac's certificate in the link, so the device trusts this Mac alone.",
-            ),
+            crate::tr("On a network, the link pins this Mac's certificate."),
             move |_, _, cx| {
                 let pick = |route: Option<Route>, cx: &mut Context<Desk>| -> ui::Pick {
                     Box::new(cx.listener(move |this, _, _, cx| {
@@ -426,7 +418,7 @@ impl Desk {
                 w,
                 link.clone(),
                 crate::tr_with(
-                    "%{lets_in}. Works once, for ten minutes (made %{ago}): open it on the other Mac, or scan its code, or paste it under Pair with another Mac there.",
+                    "%{lets_in}. Works once, within 10 minutes (made %{ago}).",
                     &[("lets_in", &lets_in), ("ago", &ago(at))],
                 ),
                 move |_, _, cx| {
@@ -497,10 +489,7 @@ impl Desk {
         let named = shared.named.is_some();
         let address = match &shared.named {
             Some(host) => crate::tr_with("A named tunnel of yours, at %{host}.", &[("host", host)]),
-            None => {
-                "A quick tunnel: a new address each time it starts, so pair again with a new link."
-                    .into()
-            }
+            None => "A quick tunnel: a new address each start, so pair again.".into(),
         };
         let mode = item(w, crate::tr("Address"), address, move |d, _, cx| {
             if named {
@@ -552,9 +541,7 @@ impl Desk {
         let listen = item(
             w,
             crate::tr("Listen on"),
-            crate::tr(
-                "Beyond this Mac and its tunnel: Tailscale, or every network it is on, Tailscale too. There u0 speaks TLS itself, on the port after its own; a device pairs with a link that pins its certificate.",
-            ),
+            crate::tr("Also on Tailscale or every network, with TLS on the next port."),
             move |_, _, cx| {
                 let pick = |to: Bind, cx: &mut Context<Desk>| -> ui::Pick {
                     Box::new(cx.listener(move |this, _, _, _| this.share(Share::Bind(to))))
@@ -622,7 +609,7 @@ impl Desk {
                     let waiting = d.waiting;
                     let about = if waiting {
                         crate::tr_with(
-                            "Waits to be let in (%{standing}). Its key: %{print}: check it is the one the device shows. Paired %{paired}",
+                            "Waiting (%{standing}). Check key %{print} matches the device. Paired %{paired}",
                             &[
                                 ("standing", &standing(d).to_lowercase()),
                                 ("print", &print),
@@ -738,7 +725,7 @@ impl Desk {
                         EmptyHeader::new()
                             .child(EmptyTitle::new(crate::tr("No device is paired")))
                             .child(EmptyDescription::new(crate::tr(
-                                "The Macs paired with are in this window beside this one; pair with another’s link.",
+                                "Paired Macs show in this window. Pair with another’s link.",
                             ))),
                     )
                     .child(
@@ -763,9 +750,7 @@ impl Desk {
         item(
             w,
             crate::tr("Pair with a link"),
-            crate::tr(
-                "Paste the link the other Mac shows under Pair a device with this Mac, or open it here. Its projects come down the left, beside this Mac's.",
-            ),
+            crate::tr("Paste the link the other Mac shows under Pair a device with this Mac."),
             |d, _, cx| {
                 div()
                     .flex()

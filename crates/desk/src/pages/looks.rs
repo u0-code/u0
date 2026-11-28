@@ -382,7 +382,7 @@ impl Desk {
                 self.global_select_srow(
                     "sort",
                     "The sidebar sorts by",
-                    "A project's threads, and the projects: your last message, anything happening, when each began, or name. Pinned ones stay on top.",
+                    "For threads and projects alike; pinned ones stay on top.",
                     [
                         ("Your message", Sort::Used),
                         ("Activity", Sort::Updated),

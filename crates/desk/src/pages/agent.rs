@@ -480,7 +480,7 @@ impl Desk {
                     .full_width(true)
                     .variant(AlertVariant::Warning)
                     .title(crate::tr_with(
-                        "It speaks ACP version %{version}; u0 speaks version 1. Some of what it says may not show.",
+                        "It speaks ACP %{version}; u0 speaks 1. Some output may not show.",
                         &[("version", &format!("{:?}", init.protocol_version))],
                     ))
                     .into_any_element(),
@@ -506,7 +506,7 @@ impl Desk {
         let settings = self.settings_on(host);
         let held = self.held("enabled");
         let mut section = SettingsSection::new(crate::tr("Instances")).description(crate::tr(
-            "Another instance is the agent run again with its own sign-in and settings, side by side with this one: a thread begun in it stays with it.",
+            "A second copy of the agent, with its own sign-in and settings.",
         ));
         if let Some(by) = managed(faces, "enabled") {
             section = section.action(by);
@@ -620,7 +620,7 @@ impl Desk {
         };
         let held = self.held("env");
         let mut section = SettingsSection::new(crate::tr("Variables")).description(crate::tr(
-            "Set in the agent's environment as it starts. A secret one is kept in the macOS Keychain, never in u0's files; a value may be a 1Password reference, read by op as it starts.",
+            "Set as the agent starts. Secret ones stay in the Keychain; op:// works.",
         ));
         if let Some(by) = managed(faces, "env") {
             section = section.action(by);
@@ -737,19 +737,19 @@ impl Desk {
             self.srow(
                 "no_tools",
                 crate::tr("Give its threads u0's tools"),
-                crate::tr("Each new thread of it is given u0's tools, as an MCP server: the threads u0 keeps, a diff, a task handed to another thread, a pull request, a task scheduled, a question put to you. What acts asks you here first."),
+                crate::tr("An MCP server for threads, diffs, PRs and tasks. Actions ask first."),
             )
-                .switch(on, move |on, _, cx| {
-                    desk.update(cx, |this, cx| {
-                        let off = &mut this.settings_on_mut(host).no_tools;
-                        off.retain(|t| *t != agent);
-                        if !on {
-                            off.push(agent.clone());
-                        }
-                        this.save_settings_on(host);
-                        cx.notify();
-                    });
-                }),
+            .switch(on, move |on, _, cx| {
+                desk.update(cx, |this, cx| {
+                    let off = &mut this.settings_on_mut(host).no_tools;
+                    off.retain(|t| *t != agent);
+                    if !on {
+                        off.push(agent.clone());
+                    }
+                    this.save_settings_on(host);
+                    cx.notify();
+                });
+            }),
         )
     }
 
@@ -787,18 +787,28 @@ impl Desk {
         let command = self.srow("commands", crate::tr("Command"), about);
         let held = command.is_locked();
         SettingsSection::new(crate::tr("Use this command"))
-            .description(crate::tr("A command of yours starts it instead of the registry's way (your own build, a version manager's): it must speak ACP on its standard input and output."))
+            .description(crate::tr(
+                "Your own command to start it; it must speak ACP over stdio.",
+            ))
             .child(
                 command.control(
                     div()
                         .flex()
                         .items_center()
                         .gap(px(8.))
-                        .child(field(Input::new(&self.pages.command), faces, true, held).w(px(240.)))
                         .child(
-                            button("save-command", crate::tr("Check that it speaks ACP"), ButtonVariant::Tertiary)
-                                .disabled(held)
-                                .on_click(cx.listener(move |this, _, _, cx| this.save_command(host, &a, cx))),
+                            field(Input::new(&self.pages.command), faces, true, held).w(px(240.)),
+                        )
+                        .child(
+                            button(
+                                "save-command",
+                                crate::tr("Check that it speaks ACP"),
+                                ButtonVariant::Tertiary,
+                            )
+                            .disabled(held)
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.save_command(host, &a, cx)),
+                            ),
                         ),
                 ),
             )
@@ -832,18 +842,25 @@ impl Desk {
         }
         let a = id.to_owned();
         SettingsSection::new(crate::tr("Your own models"))
-            .description(crate::tr("Model ids of yours are offered in the composer beside those the agent lists; the agent may refuse one it does not know."))
+            .description(crate::tr(
+                "Offered in the composer too; the agent may refuse unknown ids.",
+            ))
             .when_some(managed(faces, "models"), SettingsSection::action)
             .when(any, |s| s.child(chips))
             .child(
                 foot()
-                    .when(any, |d| d.border_t_1().border_color(theme::role(ColorRole::BorderSubtle01)))
+                    .when(any, |d| {
+                        d.border_t_1()
+                            .border_color(theme::role(ColorRole::BorderSubtle01))
+                    })
                     .child(field(Input::new(&self.pages.model), faces, true, held).w(px(300.)))
                     .child(
                         button("add-model", crate::tr("Add a model"), ButtonVariant::Ghost)
                             .icon(CarbonIcon::Add)
                             .disabled(held)
-                            .on_click(cx.listener(move |this, _, window, cx| this.add_model(host, &a, window, cx))),
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.add_model(host, &a, window, cx);
+                            })),
                     ),
             )
     }

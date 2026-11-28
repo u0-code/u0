@@ -282,7 +282,7 @@ impl Desk {
                     s.redo = Some((turn, back));
                     s.items.push(Item::Note {
                         text: crate::tr_with(
-                            "The files are back as they were before turn %{turn}. %{name} still remembers that turn: tell it what changed.",
+                            "Files restored to before turn %{turn}. Tell %{name} what changed.",
                             &[("turn", &(turn + 1)), ("name", &name)],
                         )
                         .into(),
