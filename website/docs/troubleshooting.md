@@ -26,6 +26,9 @@ description: Diagnostics, logs, and what to do when something does not start or 
 u0 opened from the Dock reads the `PATH` your login shell sets up, so
 the programs it looks for (`claude`, `codex`, `npm`, `uv`, `gh`, `glab`,
 `cloudflared`, `op`, `adb`) are found where your terminal finds them.
+It takes your login shell's proxy too (`https_proxy`, `http_proxy`,
+`all_proxy`, `no_proxy`, in either case) where it was started with none,
+so the agents go out the way `claude` or `codex` do in your terminal.
 
 ## A file does not read
 

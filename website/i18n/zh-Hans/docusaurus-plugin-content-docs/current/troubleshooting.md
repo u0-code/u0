@@ -12,7 +12,7 @@ description: 诊断信息、日志，以及某样东西无法启动或无法读�
 - 日志是 `<home>/logs/u0.<date>.log`，每天一个文件，保留最近 14 天（`log_days`）。launchd 服务还会记录到 `<home>/logs/service.log`。从终端启动 u0 前设置 `RUST_LOG`（例如 `RUST_LOG=u0_core=debug,u0_desk=debug`）可以记录更多内容。
 - `u0 status` 说明主目录中有什么：已开启的智能体、服务器是否在监听、服务、任务，以及 `settings.json` 是否可读。
 
-从 Dock 打开的 u0 会读取你的登录 shell 设置的 `PATH`，因此它要找的程序（`claude`、`codex`、`npm`、`uv`、`gh`、`glab`、`cloudflared`、`op`、`adb`）会在你的终端能找到它们的地方被找到。
+从 Dock 打开的 u0 会读取你的登录 shell 设置的 `PATH`，因此它要找的程序（`claude`、`codex`、`npm`、`uv`、`gh`、`glab`、`cloudflared`、`op`、`adb`）会在你的终端能找到它们的地方被找到。启动时若没有代理设置，它也会取你的登录 shell 设置的代理（`https_proxy`、`http_proxy`、`all_proxy`、`no_proxy`，大小写均可），因此智能体联网的方式与你在终端里运行 `claude` 或 `codex` 时相同。
 
 ## 文件无法读取 {#a-file-does-not-read}
 
