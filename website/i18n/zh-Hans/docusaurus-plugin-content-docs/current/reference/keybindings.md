@@ -28,6 +28,8 @@ description: u0 的默认按键、所有可绑定的操作，以及 keybindings.
 | 按键 | 操作 |
 |---|---|
 | ⌘F | 在线程中查找 |
+| ⌘G / ⇧⌘G | 查找下一个 / 上一个 |
+| ⌘E | 使用所选内容查找 |
 | ⌘. | 停止本轮 |
 | ⇧⌘M | 选择模型 |
 | ⇧⌘A | 选择模式 |
@@ -58,7 +60,7 @@ description: u0 的默认按键、所有可绑定的操作，以及 keybindings.
 | ⇧⌘B | 将右侧栏展开覆盖对话 |
 | ⌘T | 在右侧栏打开标签页 |
 | ⇧⌘T | 重新打开最近关闭的标签页 |
-| ⌘W | 关闭右侧栏的标签页 |
+| ⌘W | 关闭右侧栏的标签页，或隐藏窗口 |
 | ⇧⌘K | 复制拉取请求的地址 |
 | ⌘O | 在编辑器中打开线程的文件夹 |
 
@@ -119,8 +121,8 @@ description: u0 的默认按键、所有可绑定的操作，以及 keybindings.
 | 分组 | 操作 |
 |---|---|
 | 线程 | `new_session`, `new_here`, `new_scratch`, `next_session`, `previous_session`, `settle`, `pin`, `copy_id` |
-| 对话 | `find`, `stop`, `model`, `mode`, `effort`, `dictate`, `previous_turn`, `next_turn`, `transcript_view` |
-| 导航 | `palette`, `go_to_file`, `search_words`, `back`, `ahead`, `next_area`, `toggle_sidebar`, `settings`, `usage` |
+| 对话 | `find`, `find_next`, `find_previous`, `use_selection_for_find`, `stop`, `model`, `mode`, `effort`, `dictate`, `previous_turn`, `next_turn`, `transcript_view` |
+| 导航 | `palette`, `go_to_file`, `search_words`, `back`, `ahead`, `next_area`, `toggle_sidebar`, `settings`, `workflows`, `usage` |
 | 侧栏 | `review`, `right_column`, `open_surface`, `reopen_surface`, `close_surface`, `pull_requests`, `issues`, `copy_pr`, `open_folder` |
 | 终端 | `drawer`, `next_terminal`, `previous_terminal`, `clear_terminal` |
 | 窗口 | `light_or_dark`, `full_screen`, `minimize`, `quit` |

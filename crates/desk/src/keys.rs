@@ -104,13 +104,18 @@ actions!(
 /// Each action a binding of yours can name: its name, what it does, and
 /// the action. The keys page lists them in this order.
 type Make = fn() -> Box<dyn Action>;
-pub const ACTIONS: [(&str, &str, Make); 53] = [
+pub const ACTIONS: [(&str, &str, Make); 56] = [
     ("palette", "Go to anything", || Box::new(Palette)),
     ("new_session", "New thread", || Box::new(NewSession)),
     ("new_here", "New thread in this project", || {
         Box::new(NewHere)
     }),
     ("find", "Find in the thread", || Box::new(Find)),
+    ("find_next", "Find next", || Box::new(FindNext)),
+    ("find_previous", "Find previous", || Box::new(FindPrevious)),
+    ("use_selection_for_find", "Use selection for find", || {
+        Box::new(UseSelectionForFind)
+    }),
     ("drawer", "Terminal", || Box::new(Drawer)),
     ("model", "Choose the model", || Box::new(Model)),
     ("stop", "Stop the turn", || Box::new(Stop)),
@@ -240,6 +245,9 @@ pub const GROUPS: [(&str, &[&str]); 6] = [
         "The thread",
         &[
             "find",
+            "find_next",
+            "find_previous",
+            "use_selection_for_find",
             "stop",
             "model",
             "mode",
@@ -781,6 +789,13 @@ mod tests {
     fn each_name_a_binding_can_take_is_an_action() {
         for (name, _, _) in ACTIONS {
             assert!(action(name).is_some(), "{name}");
+        }
+        let thread_group = GROUPS
+            .iter()
+            .find_map(|(g, names)| (*g == "The thread").then_some(*names))
+            .unwrap();
+        for name in ["find_next", "find_previous", "use_selection_for_find"] {
+            assert!(thread_group.contains(&name), "{name}");
         }
         assert!(action("no_such_action").is_none());
     }

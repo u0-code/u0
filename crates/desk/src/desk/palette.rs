@@ -373,7 +373,9 @@ fn icon_of(name: &str) -> &'static str {
     match name {
         "new_session" | "new_here" => "square-pen",
         "new_scratch" => "square-dashed",
-        "find" => "search",
+        "find" | "use_selection_for_find" => "search",
+        "find_next" => "arrow-down",
+        "find_previous" => "arrow-up",
         "drawer" => "terminal",
         "model" | "mode" | "effort" => "sliders",
         "stop" => "square",

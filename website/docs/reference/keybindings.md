@@ -30,6 +30,8 @@ home, which you can also edit by hand.
 | Keys | Action |
 |---|---|
 | ⌘F | Find in the thread |
+| ⌘G / ⇧⌘G | Find next / previous |
+| ⌘E | Use selection for find |
 | ⌘. | Stop the turn |
 | ⇧⌘M | Choose the model |
 | ⇧⌘A | Choose the mode |
@@ -60,7 +62,7 @@ home, which you can also edit by hand.
 | ⇧⌘B | Widen the right column over the thread |
 | ⌘T | Open a tab in the right column |
 | ⇧⌘T | Reopen the tab closed last |
-| ⌘W | Close the right column's tab |
+| ⌘W | Close the right column's tab, or hide the window |
 | ⇧⌘K | Copy the pull request's address |
 | ⌘O | Open the thread's folder in your editor |
 
@@ -125,8 +127,8 @@ untouched rather than writing over it.
 | Group | Actions |
 |---|---|
 | Threads | `new_session`, `new_here`, `new_scratch`, `next_session`, `previous_session`, `settle`, `pin`, `copy_id` |
-| The thread | `find`, `stop`, `model`, `mode`, `effort`, `dictate`, `previous_turn`, `next_turn`, `transcript_view` |
-| Going about | `palette`, `go_to_file`, `search_words`, `back`, `ahead`, `next_area`, `toggle_sidebar`, `settings`, `usage` |
+| The thread | `find`, `find_next`, `find_previous`, `use_selection_for_find`, `stop`, `model`, `mode`, `effort`, `dictate`, `previous_turn`, `next_turn`, `transcript_view` |
+| Going about | `palette`, `go_to_file`, `search_words`, `back`, `ahead`, `next_area`, `toggle_sidebar`, `settings`, `workflows`, `usage` |
 | The column beside | `review`, `right_column`, `open_surface`, `reopen_surface`, `close_surface`, `pull_requests`, `issues`, `copy_pr`, `open_folder` |
 | Terminal | `drawer`, `next_terminal`, `previous_terminal`, `clear_terminal` |
 | The window | `light_or_dark`, `full_screen`, `minimize`, `quit` |
