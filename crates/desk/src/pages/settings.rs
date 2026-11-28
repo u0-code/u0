@@ -302,6 +302,12 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // Usage and Workflows are pages of the window: picked here, the
+        // settings close onto them, as their keys and the palette do.
+        if matches!(tab, Tab::Usage | Tab::Workflows) {
+            self.open_tab(tab, window, cx);
+            return;
+        }
         if self.pages.tab != tab || self.pages.agent.is_some() {
             self.pages.tab = tab;
             self.pages.agent = None;
