@@ -1963,23 +1963,9 @@ impl Desk {
         }
         self.pages.tab = tab;
         self.pages.agent = None;
-        let page_ix = crate::pages::Tab::ALL
-            .iter()
-            .position(|t| *t == tab)
-            .unwrap_or(0);
         self.pages
             .settings_search
             .update(cx, |i, cx| i.set_value("", window, cx));
-        self.pages.settings.update(cx, |s, cx| {
-            s.set_query("", window, cx);
-            s.set_selected_index(
-                gpui::component::setting::SelectIndex {
-                    page_ix,
-                    group_ix: None,
-                },
-                cx,
-            );
-        });
         self.tab_shown(tab, window, cx);
         if !self.pages.open {
             // Asked of the system as the dialog opens, not as it is drawn.
@@ -1996,6 +1982,7 @@ impl Desk {
                 dialog
                     .w(px(crate::style::SETTINGS_DIALOG_WIDTH))
                     .h(tall)
+                    .centered()
                     .p_0()
                     .rounded(px(0.))
                     .close_button(false)
@@ -2051,7 +2038,6 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.pages.agents.shown(tab);
         let on = self.pages.on;
         let page = format!("settings/{tab:?}").to_lowercase();
         self.call(on, Call::Telemetry(crate::telemetry::Ask::Opened(page)));

@@ -1,25 +1,22 @@
 //! The settings that are u0's own, a tab each: `General` and `New threads`
-//! rendered natively on Carbon `SettingsSection` + `SRow`, plus the shared
-//! `item` / `whole` / `group` / `managed` / `pick` helpers used across
-//! `pages/`.
+//! row by row (`SRow`), Chat and About as pages of items,
+//! and the `managed` / `pick` helpers used across `pages/`.
 
-use gpui::component::setting::{SettingField, SettingGroup, SettingItem, SettingPage};
-use gpui::component::{Disableable as _, Sizable as _, switch::Switch};
-use gpui::{AnyElement, App, Context, Div, SharedString, WeakEntity, div, prelude::*, px};
+use gpui::{AnyElement, App, Context, Div, SharedString, WeakEntity, Window, div, prelude::*, px};
 use u0ui::{
     components::button::{Button as CarbonButton, ButtonSize, ButtonVariant},
     icons::{CarbonIcon, Icon as CarbonGlyph},
     tokens::ColorRole,
 };
 
-use super::srow::{SGroup, SRow, carbon_page};
+use super::srow::{Page, SGroup, SRow, carbon_page, group, item, select, whole};
 use crate::{
     desk::Desk,
     fonts::{Faces, Weighted as _},
     hub::Host,
     settings::{Notify, Quit, Settings, Submodules},
     theme,
-    ui::{self, Pick, Weight},
+    ui::{self, Weight},
 };
 
 impl Desk {
@@ -69,9 +66,12 @@ impl Desk {
         match tab {
             Tab::General => {
                 let any_managed = [
+                    "sort",
                     "notify",
                     "awake",
                     "editor",
+                    "language",
+                    "twelve",
                     "merge",
                     "settle_days",
                     "settle_merged",
@@ -97,12 +97,32 @@ impl Desk {
                 }
                 let groups = vec![
                     SGroup::new(
-                        crate::tr("While you are away"),
+                        crate::tr("Sidebar"),
+                        vec![self.global_select_srow(
+                            "sort",
+                            "Thread order",
+                            "For threads and projects alike; pinned ones stay on top.",
+                            [
+                                ("Your last message", crate::settings::Sort::Used),
+                                ("Activity", crate::settings::Sort::Updated),
+                                ("Began", crate::settings::Sort::Begun),
+                                ("Name", crate::settings::Sort::Name),
+                            ],
+                            self.settings.sort,
+                            defaults.sort,
+                            |s, v| s.sort = v,
+                            scoped,
+                            cx,
+                        )],
+                    )
+                    .description(crate::tr("How threads are ordered.")),
+                    SGroup::new(
+                        crate::tr("Notifications"),
                         vec![
                             self.global_select_srow(
                                 "notify",
-                                "When a thread ends a turn or needs you",
-                                "From macOS when u0 is behind; in u0 when another thread is shown.",
+                                "Thread notifications",
+                                "From threads you are not looking at.",
                                 [
                                     ("Off", Notify::Off),
                                     ("Notify", Notify::Banner),
@@ -172,6 +192,23 @@ impl Desk {
                     SGroup::new(
                         crate::tr("Files"),
                         vec![self.editor_srow(scoped, cx)],
+                    ),
+                    SGroup::new(
+                        crate::tr("Language and time"),
+                        vec![
+                            self.window_language_srow(scoped, cx),
+                            self.global_segmented_srow(
+                                "twelve",
+                                "Time format",
+                                "When a message was said, and what u0 says of times.",
+                                [("24-hour", false), ("12-hour", true)],
+                                self.settings.twelve,
+                                defaults.twelve,
+                                |s, v| s.twelve = v,
+                                scoped,
+                                cx,
+                            ),
+                        ],
                     ),
                     SGroup::new(
                         crate::tr("Pull requests"),
@@ -353,7 +390,7 @@ impl Desk {
                 Some(carbon_page(
                     "settings-general",
                     tab.title(),
-                    crate::tr("How u0 tells you things, and what it does while you are away."),
+                    crate::tr("The sidebar, notifications, files, language and confirmations."),
                     Some(banners.into_any_element()),
                     groups,
                     query,
@@ -724,108 +761,91 @@ impl Desk {
         }
     }
 
-    /// Legacy `SettingPage` tabs (`Chat`, `Keybindings`, `Writing`, `About`,
+    /// Pages of items (`Chat`, `Writing`, `About`,
     /// `SourceControl`).
-    pub(super) fn own_tab(
-        &self,
-        tab: super::Tab,
-        w: &WeakEntity<Desk>,
-        banners: Option<SettingGroup>,
-        _: &App,
-    ) -> Option<SettingPage> {
+    pub(super) fn own_tab(&self, tab: super::Tab, w: &WeakEntity<Desk>, _: &App) -> Option<Page> {
         use super::Tab;
         let (lede, groups) = match tab {
             Tab::Chat => (
-                "What you write, and what the agent did.",
+                "The composer, and what the transcript shows.",
                 vec![
                     group(
-                        crate::tr("While a turn goes on"),
-                        vec![item(
-                            w,
-                            crate::tr("What you send waits, or steers"),
-                            crate::tr("Steer interrupts the turn; waiting sends once it ends."),
-                            |d, _, cx| {
-                                d.pick(
-                                    "steer",
-                                    [
-                                        (crate::tr("Wait its turn"), false),
-                                        (crate::tr("Steer"), true),
-                                    ],
-                                    d.settings.steer,
-                                    |s, v| s.steer = v,
-                                    cx,
-                                )
-                            },
-                        )],
-                    ),
-                    group(
-                        crate::tr("Spelling"),
-                        vec![item(
-                            w,
-                            crate::tr("Check spelling as you type"),
-                            crate::tr("Unknown words are underlined; right-click for suggestions."),
-                            |d, _, cx| {
-                                Switch::new("spell-check")
-                                    .accessibility_label(crate::tr("Check spelling as you type"))
-                                    .small()
-                                    .checked(d.settings.spell_check)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.settings.spell_check = !this.settings.spell_check;
-                                        this.save_settings();
-                                        this.sync_spelling(cx);
-                                        cx.notify();
-                                    }))
-                                    .into_any_element()
-                            },
-                        )],
-                    ),
-                    group(
-                        crate::tr("Sending"),
-                        vec![item(
-                            w,
-                            crate::tr("What sends what you write"),
-                            crate::tr(
-                                "If Return doesn't send, it breaks the line; the other key starts a thread beside it.",
-                            ),
-                            |d, _, cx| {
-                                d.pick(
-                                    "send",
-                                    [
-                                        (crate::tr("Return"), crate::settings::SendKey::Return),
-                                        (
-                                            crate::tr("⌘Return if multiline"),
-                                            crate::settings::SendKey::Multiline,
-                                        ),
-                                        (crate::tr("⌘Return"), crate::settings::SendKey::Command),
-                                    ],
-                                    d.settings.send,
-                                    |s, v| s.send = v,
-                                    cx,
-                                )
-                            },
-                        )],
-                    ),
-                    group(
-                        crate::tr("The agent's work"),
+                        crate::tr("Composer"),
                         vec![
                             item(
                                 w,
-                                crate::tr("Transcript view (⌃O)"),
-                                crate::tr(
-                                    "From least to most shown: Answers, Quiet, Normal, Thinking, Verbose.",
-                                ),
+                                "Send shortcut",
+                                "Where ↵ does not send, it adds a new line.",
+                                |d, _, cx| {
+                                    d.pick(
+                                        "send",
+                                        [
+                                            ("↵ sends", crate::settings::SendKey::Return),
+                                            (
+                                                "⌘↵ once multiline",
+                                                crate::settings::SendKey::Multiline,
+                                            ),
+                                            ("⌘↵ sends", crate::settings::SendKey::Command),
+                                        ],
+                                        d.settings.send,
+                                        |s, v| s.send = v,
+                                        cx,
+                                    )
+                                },
+                            ),
+                            item(
+                                w,
+                                "What you send waits, or steers",
+                                "Waiting sends it once the turn ends; Steer says it now.",
+                                |d, _, cx| {
+                                    d.pick(
+                                        "steer",
+                                        [("Waits its turn", false), ("Steer", true)],
+                                        d.settings.steer,
+                                        |s, v| s.steer = v,
+                                        cx,
+                                    )
+                                },
+                            ),
+                            item(
+                                w,
+                                "Check spelling as you type",
+                                "Unknown words are underlined; right-click one for its guesses.",
+                                |d, _, cx| {
+                                    super::srow::flip(
+                                        "spell-check",
+                                        crate::tr("Check spelling as you type"),
+                                        d.settings.spell_check,
+                                        cx,
+                                        |this, _, cx| {
+                                            this.settings.spell_check = !this.settings.spell_check;
+                                            this.save_settings();
+                                            this.sync_spelling(cx);
+                                            cx.notify();
+                                        },
+                                    )
+                                    .into_any_element()
+                                },
+                            ),
+                        ],
+                    )
+                    .description(crate::tr("How the message box behaves while you write.")),
+                    group(
+                        crate::tr("Transcript"),
+                        vec![
+                            item(
+                                w,
+                                "Transcript view (⌃O)",
+                                "How much of the agent's work a thread shows; ⌃O goes round them.",
                                 |d, _, cx| {
                                     d.pick(
                                         "view",
                                         [
-                                            (crate::tr("Answers"), crate::settings::View::Zen),
-                                            (crate::tr("Quiet"), crate::settings::View::Quiet),
-                                            (crate::tr("Normal"), crate::settings::View::Normal),
-                                            (
-                                                crate::tr("Thinking"),
-                                                crate::settings::View::Thinking,
-                                            ),
-                                            (crate::tr("Verbose"), crate::settings::View::Verbose),
+                                            ("Answers", crate::settings::View::Zen),
+                                            ("Quiet", crate::settings::View::Quiet),
+                                            ("Normal", crate::settings::View::Normal),
+                                            ("Thinking", crate::settings::View::Thinking),
+                                            ("Verbose", crate::settings::View::Verbose),
                                         ],
                                         d.settings.view,
                                         |s, v| s.view = v,
@@ -835,37 +855,26 @@ impl Desk {
                             ),
                             item(
                                 w,
-                                crate::tr("An answer streams in"),
-                                crate::tr(
-                                    "A paragraph at a time holds each back until it is whole.",
-                                ),
+                                "An answer streams in",
+                                "A paragraph at a time holds each back until it is whole.",
                                 |d, _, cx| {
                                     d.pick(
                                         "paragraphs",
-                                        [
-                                            (crate::tr("Word by word"), false),
-                                            (crate::tr("A paragraph at a time"), true),
-                                        ],
+                                        [("Word by word", false), ("A paragraph at a time", true)],
                                         d.settings.paragraphs,
                                         |s, v| s.paragraphs = v,
                                         cx,
                                     )
                                 },
                             ),
-                            Self::window_language(w),
                             item(
                                 w,
-                                crate::tr("Math"),
-                                crate::tr(
-                                    "TeX in what an agent says, $…$ and $$…$$, set as formulas.",
-                                ),
+                                "Math",
+                                "TeX in what an agent says, $…$ and $$…$$, set as formulas.",
                                 |d, _, cx| {
                                     d.pick(
                                         "math",
-                                        [
-                                            (crate::tr("As written"), false),
-                                            (crate::tr("Set as formulas"), true),
-                                        ],
+                                        [("As written", false), ("Set as formulas", true)],
                                         d.settings.math,
                                         |s, v| s.math = v,
                                         cx,
@@ -873,57 +882,51 @@ impl Desk {
                                 },
                             ),
                         ],
-                    ),
+                    )
+                    .description(crate::tr(
+                        "What a thread shows between your messages and the replies.",
+                    )),
                 ],
             ),
-            Tab::Writing => return Some(Self::writing_tab(w, banners)),
-            Tab::Browser => return Some(self.browser_tab(w, banners)),
-            Tab::About => return Some(self.about_u0(w, banners)),
-            Tab::SourceControl => return Some(self.source_control(w, banners)),
+            Tab::Writing => return Some(Self::writing_tab(w)),
+            Tab::Browser => return Some(self.browser_tab(w)),
+            Tab::About => return Some(self.about_u0(w)),
+            Tab::SourceControl => return Some(self.source_control(w)),
             _ => return None,
         };
-        let mut all = Vec::new();
-        if let Some(b) = banners {
-            all.push(b);
-        }
-        all.extend(groups);
         Some(
-            SettingPage::new(tab.title())
+            Page::new(tab.title())
                 .description(crate::tr(lede))
-                .groups(all),
+                .groups(groups),
         )
     }
 
-    fn window_language(w: &WeakEntity<Desk>) -> SettingItem {
-        let mut choices = vec![(SharedString::default(), crate::tr("As the system"))];
-        choices
-            .extend((crate::i18n::LANGUAGES.iter()).map(|(l, name)| ((*l).into(), (*name).into())));
-        let (read, write) = (w.clone(), w.clone());
-        SettingItem::new(
+    /// The language of u0's window: as the system's, or one chosen.
+    fn window_language_srow(&self, scoped: bool, cx: &mut Context<Self>) -> SRow {
+        let mut choices = vec![(crate::tr("As the system"), None)];
+        choices.extend(
+            (crate::i18n::LANGUAGES.iter())
+                .map(|(l, name)| ((*name).into(), Some((*l).to_owned()))),
+        );
+        let desk = cx.entity();
+        self.srow(
+            "language",
             crate::tr("Language"),
-            SettingField::scrollable_dropdown(
-                choices,
-                move |cx| {
-                    let now = read
-                        .upgrade()
-                        .and_then(|d| d.read(cx).settings.language.clone());
-                    now.map(SharedString::from).unwrap_or_default()
-                },
-                move |locale, cx| {
-                    let _ = write.update(cx, |d, cx| {
-                        d.settings.language = (!locale.is_empty()).then(|| locale.to_string());
-                        d.save_settings();
-                        d.settings_took(cx);
-                        cx.notify();
-                    });
-                },
-            ),
+            crate::tr("The words of u0's window; agents' stay as they say them."),
         )
-        .description(crate::tr(
-            "The words of u0's window; what agents say stays as they say it.",
-        ))
+        .disabled(scoped)
+        .select(choices, &self.settings.language, move |locale, _, cx| {
+            desk.update(cx, |d, cx| {
+                d.settings.language = locale;
+                d.save_settings();
+                d.settings_took(cx);
+                cx.notify();
+            });
+        })
     }
 
+    /// Carbon's content switcher over `choices`, or its select past three,
+    /// each saved to the settings by `set` as it is picked.
     pub(super) fn pick<T: Copy + PartialEq + 'static, const N: usize>(
         &self,
         id: &str,
@@ -934,40 +937,52 @@ impl Desk {
     ) -> AnyElement {
         let choices = choices
             .into_iter()
-            .map(|(label, value)| {
-                let pick: Pick = Box::new(cx.listener(move |this, _, _, cx| {
-                    set(&mut this.settings, value);
-                    this.save_settings();
-                    this.settings_took(cx);
-                    cx.notify();
-                }));
-                (crate::tr(&label.into()), value == now, pick)
-            })
-            .collect();
-        let readonly = self.settings_readonly(Host::HERE);
-        let group = ui::segmented(id, choices).disabled(readonly);
+            .map(|(label, value)| (crate::tr(&label.into()), value));
         let key = id.split_once('-').map_or(id, |(key, _)| key);
-        if let Some(by) = crate::policy::locked(id).or_else(|| crate::policy::locked(key)) {
-            managed(group.disabled(true), by)
+        let locked = crate::policy::locked(id).or_else(|| crate::policy::locked(key));
+        let readonly = self.settings_readonly(Host::HERE) || locked.is_some();
+        let desk = cx.entity();
+        let picked = move |value, _: &mut Window, cx: &mut App| {
+            desk.update(cx, |this, cx| {
+                set(&mut this.settings, value);
+                this.save_settings();
+                this.settings_took(cx);
+                cx.notify();
+            });
+        };
+        let id = SharedString::from(id.to_owned());
+        // Past three, the choices take a menu rather than a row of buttons.
+        let group = if N > 3 {
+            select(id.clone(), choices, &now, readonly, picked)
+        } else {
+            super::srow::segmented(id.clone(), choices, now, readonly, picked)
+        };
+        let id = id.as_ref();
+        if let Some(by) = locked {
+            managed(group, by)
         } else if let Some((by, _)) =
             crate::policy::default_of(id).or_else(|| crate::policy::default_of(key))
         {
             defaulted(group, by)
         } else {
-            group.into_any_element()
+            group
         }
     }
 
-    fn about_u0(&self, w: &WeakEntity<Desk>, banners: Option<SettingGroup>) -> SettingPage {
+    fn about_u0(&self, w: &WeakEntity<Desk>) -> Page {
         let rows = vec![
             item(
                 w,
                 crate::tr("The u0 command"),
                 crate::tr("u0 <folder> opens a folder as a project. Installed in ~/.local/bin."),
                 |_, _, cx| {
-                    ui::button("install-command", crate::tr("Add"), Weight::Quiet)
-                        .on_click(cx.listener(|this, _, _, _| this.install_command()))
-                        .into_any_element()
+                    super::srow::button(
+                        "install-command",
+                        crate::tr("Install command"),
+                        Weight::Secondary,
+                    )
+                    .on_click(cx.listener(|this, _, _, _| this.install_command()))
+                    .into_any_element()
                 },
             ),
             item(
@@ -976,7 +991,7 @@ impl Desk {
                 Desk::shown(&self.home),
                 |d, _, _| {
                     let home = d.home.clone();
-                    ui::button("show-home", crate::tr("Show"), Weight::Quiet)
+                    super::srow::button("show-home", crate::tr("Show"), Weight::Secondary)
                         .on_click(move |_, _, cx| cx.open_with_system(&home))
                         .into_any_element()
                 },
@@ -987,7 +1002,7 @@ impl Desk {
                 crate::tr("A file a day in logs/: send it with a bug report."),
                 |d, _, _| {
                     let logs = d.home.join("logs");
-                    ui::button("show-logs", crate::tr("Show"), Weight::Quiet)
+                    super::srow::button("show-logs", crate::tr("Show"), Weight::Secondary)
                         .on_click(move |_, _, cx| cx.open_with_system(&logs))
                         .into_any_element()
                 },
@@ -1015,7 +1030,7 @@ impl Desk {
                 crate::tr("The agents come from"),
                 crate::tr("The ACP registry, read again each hour."),
                 |_, _, cx| {
-                    ui::button("open-registry", crate::tr("Open"), Weight::Quiet)
+                    super::srow::button("open-registry", crate::tr("Open"), Weight::Secondary)
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.browse("https://agentclientprotocol.com/registry", cx);
                         }))
@@ -1023,13 +1038,24 @@ impl Desk {
                 },
             ),
         ];
-        let mut page =
-            SettingPage::new(super::Tab::About.title()).description(crate::update::this_build());
-        if let Some(b) = banners {
-            page = page.group(b);
-        }
-        page.group(SettingGroup::new().items(rows))
+        let channel = match self.settings.channel {
+            crate::update::Channel::Stable => crate::tr("Stable"),
+            crate::update::Channel::Nightly => crate::tr("Nightly"),
+        };
+        Page::new(super::Tab::About.title())
+            .description(format!(
+                "{} · {channel} · Apache-2.0",
+                crate::update::this_build()
+            ))
             .group(self.updates_group(w))
+            .group(group(crate::tr("u0 on this Mac"), rows))
+            .group(group(
+                crate::tr("Get u0 elsewhere"),
+                vec![whole(w, &["download", "linux"], |_, faces, cx| {
+                    super::pairing::install_u0_elsewhere_card("about-install", faces, cx)
+                        .into_any_element()
+                })],
+            ))
     }
 }
 
@@ -1074,60 +1100,6 @@ pub(super) fn managed_info_banner(faces: &Faces) -> Div {
         )
 }
 
-/// A setting as gpui-kit's Settings draws one: what it is, said plainly
-/// (and found by its search), and its control, which the desk, `w`, draws.
-pub(super) fn item(
-    w: &WeakEntity<Desk>,
-    name: impl Into<SharedString>,
-    about: impl Into<SharedString>,
-    control: impl Fn(&mut Desk, &Faces, &mut Context<Desk>) -> AnyElement + 'static,
-) -> SettingItem {
-    let w = w.clone();
-    let about = crate::tr(&about.into());
-    let item = SettingItem::new(
-        crate::tr(&name.into()),
-        SettingField::render(move |options, _, cx| {
-            let control = w
-                .update(cx, |d, cx| {
-                    let faces = crate::fonts::faces(cx).clone();
-                    control(d, &faces, cx)
-                })
-                .unwrap_or_else(|_| div().into_any_element());
-            if options.is_disabled() {
-                div()
-                    .relative()
-                    .child(control)
-                    .child(div().absolute().inset_0().occlude())
-                    .into_any_element()
-            } else {
-                control
-            }
-        }),
-    );
-    if about.is_empty() {
-        item
-    } else {
-        item.description(about)
-    }
-}
-
-/// What the desk, `w`, draws whole as one setting, found by `words`.
-pub(crate) fn whole(
-    w: &WeakEntity<Desk>,
-    words: &[&'static str],
-    draw: impl Fn(&mut Desk, &Faces, &mut Context<Desk>) -> AnyElement + 'static,
-) -> SettingItem {
-    let w = w.clone();
-    SettingItem::render(move |_, _, cx| {
-        w.update(cx, |d, cx| {
-            let faces = crate::fonts::faces(cx).clone();
-            draw(d, &faces, cx)
-        })
-        .unwrap_or_else(|_| div().into_any_element())
-    })
-    .keywords(words.iter().copied())
-}
-
 /// A control the policy locks, disabled, with who manages it beside it.
 pub(super) fn managed(control: impl IntoElement, by: &str) -> AnyElement {
     div()
@@ -1160,11 +1132,4 @@ pub(super) fn defaulted(control: impl IntoElement, by: &str) -> AnyElement {
                 )),
         )
         .into_any_element()
-}
-
-/// Settings under a caption.
-pub(super) fn group(caption: impl Into<SharedString>, items: Vec<SettingItem>) -> SettingGroup {
-    SettingGroup::new()
-        .title(crate::tr(&caption.into()))
-        .items(items)
 }

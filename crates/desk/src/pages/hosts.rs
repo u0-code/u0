@@ -2,23 +2,15 @@
 //! or issues can be on, the CLI found for it here and a token of yours,
 //! kept in the Keychain; and what merging leaves out.
 
-use gpui::component::{Sizable as _, input::Input, setting::SettingPage};
+use gpui::component::{Sizable as _, input::Input};
 use gpui::{AnyElement, Context, SharedString, WeakEntity, Window, div, prelude::*, px};
 
-use super::prefs::{group, item};
-use crate::{
-    desk::Desk,
-    forge::Host,
-    ui::{self, Weight},
-};
+use super::srow::{Page, group, item};
+use crate::{desk::Desk, forge::Host, ui::Weight};
 
 impl Desk {
     /// The Source control tab: each host, and what merging leaves out.
-    pub(super) fn source_control(
-        &self,
-        w: &WeakEntity<Desk>,
-        banners: Option<gpui::component::setting::SettingGroup>,
-    ) -> SettingPage {
+    pub(super) fn source_control(&self, w: &WeakEntity<Desk>) -> Page {
         // A token holds everywhere: with a project chosen, it is not changed.
         let scoped = self.pages.scope.is_some();
         let hosts = Host::ALL
@@ -44,13 +36,11 @@ impl Desk {
                 item(w, host.name(), about, move |d, _, cx| d.token_field(n, cx)).disabled(scoped)
             })
             .collect();
-        let mut page = SettingPage::new(crate::tr("Source control")).description(crate::tr(
-            "A token, if set, is used over the CLI's sign-in; kept in the Keychain.",
-        ));
-        if let Some(b) = banners {
-            page = page.group(b);
-        }
-        page.group(Self::scope_group(w))
+        Page::new(super::Tab::SourceControl.title())
+            .description(crate::tr(
+                "Accounts for pull requests and issues, and what a merge keeps.",
+            ))
+            .group(Self::scope_group(w))
             .group(group(crate::tr("Hosts"), hosts))
             .group(group(
                 crate::tr("Merging"),
@@ -77,7 +67,7 @@ impl Desk {
     fn token_field(&self, n: usize, cx: &mut Context<Self>) -> AnyElement {
         let host = Host::ALL[n];
         if self.pages.forges.iter().any(|s| s.host == host && s.token) {
-            return ui::button(
+            return super::srow::button(
                 SharedString::from(format!("drop-token-{n}")),
                 crate::tr("Remove token"),
                 Weight::Secondary,
@@ -95,7 +85,7 @@ impl Desk {
                     .child(Input::new(&self.pages.tokens[n]).small().mask_toggle()),
             )
             .child(
-                ui::button(
+                super::srow::button(
                     SharedString::from(format!("keep-token-{n}")),
                     crate::tr("Keep"),
                     Weight::Secondary,

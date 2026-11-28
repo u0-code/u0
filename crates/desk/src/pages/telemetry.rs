@@ -5,21 +5,27 @@
 
 use gpui::component::{
     WindowExt as _,
-    setting::SettingGroup,
-    slider::{Slider, SliderEvent, SliderState},
+    slider::{SliderEvent, SliderState},
 };
 use gpui::{AnyElement, Context, Entity, WeakEntity, Window, div, prelude::*, px};
-use u0ui::u0::settings::Payload;
+use u0ui::{
+    components::{
+        button::{Button, ButtonSize, ButtonVariant},
+        slider::Slider,
+    },
+    icons::{CarbonIcon, Icon as CarbonGlyph},
+    tokens::ColorRole,
+    u0::settings::{Payload, TelemetryPreview, TelemetryPreviewTexts},
+};
 
-use super::prefs::{group, item, whole};
+use super::srow::{Group, group, item, whole};
 use crate::{
     desk::Desk,
-    fonts::Faces,
+    fonts::{Faces, Weighted as _},
     hub::Host,
     proto::Call,
     telemetry::{Ask, Level},
-    theme,
-    ui::{self, Weight},
+    theme, ui,
 };
 
 /// The level a slider stands at.
@@ -82,95 +88,171 @@ fn payload_of(batch: &str) -> Payload {
         .map_or_else(|_| Payload::String(batch.to_owned().into()), |v| of(&v))
 }
 
-/// The slider, with each level's name under its step and what the level
-/// sends under that.
+/// The slider across the page, and under it each level and what it sends,
+/// the one chosen marked; a policy's lock said.
 fn levels(state: &Entity<SliderState>, faces: &Faces, cx: &gpui::App) -> AnyElement {
     let at = level_of(state.read(cx));
     let by = crate::policy::locked("telemetry");
     let names = Level::ALL.map(|l| {
-        let shown = ui::fine(faces, crate::tr(l.name())).text_color(if l == at {
-            theme::text()
-        } else {
-            theme::faint()
-        });
-        div().w(px(80.)).flex().justify_center().child(shown)
+        ui::fine(faces, crate::tr(l.name()))
+            .weight(if l == at {
+                gpui::FontWeight::SEMIBOLD
+            } else {
+                gpui::FontWeight::NORMAL
+            })
+            .text_color(if l == at {
+                theme::text()
+            } else {
+                theme::text2()
+            })
+    });
+    let rows = Level::ALL.map(|l| {
+        let chosen = l == at;
+        let name = format!("{} · {}", u8::from(l), crate::tr(l.name()));
+        div()
+            .flex()
+            .gap(px(16.))
+            .py(px(8.))
+            .px(px(12.))
+            .border_l(px(3.))
+            .border_color(if chosen {
+                theme::role(ColorRole::BorderInteractive)
+            } else {
+                gpui::transparent_black()
+            })
+            .when(chosen, |d| d.bg(theme::role(ColorRole::LayerSelected01)))
+            .child(
+                div().w(px(112.)).flex_none().child(
+                    ui::text(faces, name)
+                        .text_size(px(crate::style::BODY))
+                        .weight(if chosen {
+                            gpui::FontWeight::SEMIBOLD
+                        } else {
+                            gpui::FontWeight::NORMAL
+                        }),
+                ),
+            )
+            .child(
+                ui::fine(faces, crate::tr(l.about()))
+                    .flex_1()
+                    .min_w(px(0.))
+                    .text_color(theme::text2()),
+            )
     });
     div()
         .flex()
         .flex_col()
-        .gap(px(6.))
-        .w(px(320.))
+        .gap(px(12.))
+        .w_full()
         .child(
-            div().px(px(40.)).child(
-                Slider::new(state)
-                    .accessibility_label(crate::tr("Telemetry"))
-                    .disabled(by.is_some()),
-            ),
+            Slider::new("telemetry-level", state)
+                .label(crate::tr("Telemetry level"))
+                .layer(u0ui::theme::LayerLevel::Two)
+                .hide_input(true)
+                .disabled(by.is_some()),
         )
-        .child(div().flex().children(names))
-        .child(ui::fine(faces, crate::tr(at.about())))
-        .children(by.map(|by| ui::fine(faces, crate::tr_with("Managed by %{by}", &[("by", &by)]))))
+        .child(div().flex().justify_between().children(names))
+        .child(div().flex().flex_col().children(rows))
+        .child(ui::fine(
+            faces,
+            crate::tr("Each level sends what the one before it does, and more; never what you write, a path, a name of yours or a host."),
+        ))
+        .children(by.map(|by| {
+            div()
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .child(
+                    CarbonGlyph::carbon(CarbonIcon::Locked)
+                        .size_length(px(14.))
+                        .color(theme::role(ColorRole::IconSecondary)),
+                )
+                .child(ui::fine(
+                    faces,
+                    crate::tr_with("Managed by %{by}", &[("by", &by)]),
+                ))
+        }))
         .into_any_element()
 }
 
 impl Desk {
     /// The Telemetry tab, of the server the settings are of.
-    pub(super) fn telemetry_tab(&self, w: &WeakEntity<Desk>) -> Vec<SettingGroup> {
-        let mut items = vec![
-            item(
-                w,
-                crate::tr("What u0 tells"),
-                crate::tr(
-                    "Each level adds to the last; never text, paths or names. See README.md.",
-                ),
-                |d, faces, cx| levels(&d.pages.level, faces, cx),
-            ),
-            item(
-                w,
-                crate::tr("Show what is sent"),
-                crate::tr("The next day's batch at this level, exactly as it goes."),
-                |_, _, cx| {
-                    ui::button("telemetry-show", crate::tr("Show"), Weight::Secondary)
-                        .on_click(cx.listener(|this, _, _, cx| {
+    pub(super) fn telemetry_tab(&self, w: &WeakEntity<Desk>) -> Vec<Group> {
+        let tells = vec![whole(w, &["telemetry", "level"], |d, faces, cx| {
+            levels(&d.pages.level, faces, cx)
+        })];
+        let mut install = vec![item(
+            w,
+            crate::tr("Show what is sent"),
+            crate::tr("The next day's batch at this level, exactly as it goes."),
+            |_, _, cx| {
+                let desk = cx.entity();
+                Button::new("telemetry-show", crate::tr("Show"))
+                    .variant(ButtonVariant::Tertiary)
+                    .size(ButtonSize::Sm)
+                    .on_click(move |_, _, cx| {
+                        desk.update(cx, |this, cx| {
                             let level = level_of(this.pages.level.read(cx));
                             this.call(this.pages.on, Call::Telemetry(Ask::Show(level)));
-                        }))
-                        .into_any_element()
-                },
-            ),
-        ];
+                        });
+                    })
+                    .into_any_element()
+            },
+        )];
         if self.pages.sent.iter().any(Option::is_some) {
-            items.push(whole(w, &["telemetry"], |d, faces, cx| {
+            install.push(whole(w, &["telemetry", "json"], |d, _, cx| {
                 let at = level_of(d.pages.level.read(cx));
                 let sent = d.pages.sent[usize::from(u8::from(at))].clone();
-                ui::fine_mono(faces, sent.unwrap_or_default()).into_any_element()
+                TelemetryPreview::new(
+                    "telemetry-sent",
+                    u32::from(u8::from(at)),
+                    payload_of(&sent.unwrap_or_default()),
+                )
+                .texts(TelemetryPreviewTexts {
+                    at_level: std::rc::Rc::new(|n| {
+                        crate::tr_with("What is sent at level %{n}", &[("n", &n.to_string())])
+                    }),
+                    copy: crate::tr("Copy JSON"),
+                    copied: crate::tr("Copied"),
+                    ..TelemetryPreviewTexts::default()
+                })
+                .into_any_element()
             }));
         }
-        items.push(item(
+        install.push(item(
             w,
             crate::tr("Reset install id"),
             crate::tr("Later batches go under a new random id, unlinked from the old."),
             |d, faces, cx| {
                 let id = d.pages.install_id.clone();
+                let desk = cx.entity();
                 div()
                     .flex()
                     .items_center()
                     .gap(px(8.))
                     .children(id.map(|s| ui::fine_mono(faces, s)))
                     .child(
-                        ui::button("telemetry-forget", crate::tr("Reset"), Weight::Quiet).on_click(
-                            cx.listener(|this, _, _, cx| {
-                                this.call(this.pages.on, Call::Telemetry(Ask::Forget));
-                                this.pages.sent = Default::default();
-                                this.pages.install_id = None;
-                                cx.notify();
+                        Button::new("telemetry-forget", crate::tr("Reset"))
+                            .variant(ButtonVariant::Tertiary)
+                            .size(ButtonSize::Sm)
+                            .on_click(move |_, _, cx| {
+                                desk.update(cx, |this, cx| {
+                                    this.call(this.pages.on, Call::Telemetry(Ask::Forget));
+                                    this.pages.sent = Default::default();
+                                    this.pages.install_id = None;
+                                    cx.notify();
+                                });
                             }),
-                        ),
                     )
                     .into_any_element()
             },
         ));
-        vec![group(crate::tr("Telemetry"), items)]
+        vec![
+            group(crate::tr("What u0 tells"), tells).description(crate::tr(
+                "Counts of how u0 is used, never what you or your agents write.",
+            )),
+            group(crate::tr("This install"), install),
+        ]
     }
 
     /// Ask, as u0 first opens, how much it may tell: Carbon `ConsentSheet`

@@ -10,7 +10,7 @@ projects' pull requests and issues from where their code is hosted.
 
 ## Hosts
 
-**Settings › Source control › Hosts** shows each host and how u0
+**Settings › Source control & issues › Hosts** shows each host and how u0
 reaches it. A token you give there is used instead of the CLI's own
 sign-in, and is kept in the macOS Keychain, never in a file. It may be a
 1Password reference (`op://vault/item/field`), read with `op` when used.

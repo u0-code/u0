@@ -8,14 +8,16 @@ use gpui::component::{
     Selectable as _, Sizable as _,
     input::{Input, Textarea},
     menu::PopupMenu,
-    setting::{SettingGroup, SettingItem},
-    switch::Switch,
-    tag::Tag,
     time_field::TimeField,
 };
-use gpui::{Axis, Context, Div, IntoElement, SharedString, WeakEntity, div, prelude::*, px};
+use gpui::{Context, Div, IntoElement, SharedString, WeakEntity, div, prelude::*, px};
 
-use super::prefs::{group, item, whole};
+use u0ui::{
+    icons::{CarbonIcon, Icon as CarbonGlyph},
+    tokens::ColorRole,
+};
+
+use super::srow::{Group, Item, group, item, whole};
 use crate::{
     desk::{Desk, Popup},
     fonts::Faces,
@@ -33,23 +35,48 @@ impl Desk {
     fn task_row(&self, faces: &Faces, task: &Task, cx: &mut Context<Self>) -> Div {
         let now = SystemTime::now();
         let twelve = self.settings.twelve;
+        // An event's task runs as it happens: its schedule says when.
         let when_next = match task.next {
-            _ if task.paused => crate::tr("Paused"),
-            Some(at) if at <= store::secs(now) => crate::tr("Due now"),
-            Some(at) => crate::tr_with(
-                "Next %{when}",
+            _ if task.paused => Some(crate::tr("Paused")),
+            Some(at) if at <= store::secs(now) => Some(crate::tr("Due now")),
+            Some(at) => Some(crate::tr_with(
+                "Next run %{when}",
                 &[("when", &when::said_at(store::time(at), now, twelve))],
-            ),
-            None if matches!(task.schedule, Schedule::Hook(_)) => crate::tr("When called"),
-            None if matches!(task.schedule, Schedule::On { .. }) => {
-                task.schedule.said(twelve).into()
-            }
-            None => crate::tr("Not scheduled"),
+            )),
+            None if matches!(task.schedule, Schedule::Hook(_)) => Some(crate::tr("When called")),
+            None if matches!(task.schedule, Schedule::On { .. }) => None,
+            None => Some(crate::tr("Not scheduled")),
         };
-        let status = task.last.as_ref().map(|r| match (&r.error, r.going) {
-            (_, true) => Tag::info().small().child(crate::tr("Running")),
-            (Some(_), _) => Tag::danger().small().child(crate::tr("Failed")),
-            (None, _) => Tag::success().small().child(crate::tr("Succeeded")),
+        // How it last went, on the right: a status glyph and when.
+        let last = task.last.as_ref().map(|r| {
+            let (glyph, role, said) = match (&r.error, r.going) {
+                (_, true) => (CarbonIcon::InProgress, ColorRole::SupportInfo, "Running"),
+                (Some(_), _) => (CarbonIcon::ErrorFilled, ColorRole::SupportError, "Failed"),
+                (None, _) => (
+                    CarbonIcon::CheckmarkFilled,
+                    ColorRole::SupportSuccess,
+                    "Succeeded",
+                ),
+            };
+            div()
+                .flex()
+                .items_center()
+                .gap(px(4.))
+                .child(
+                    CarbonGlyph::carbon(glyph)
+                        .size_length(px(14.))
+                        .color(theme::role(role)),
+                )
+                .child(ui::fine(
+                    faces,
+                    crate::tr_with(
+                        "%{how} · last run %{when}",
+                        &[
+                            ("how", &crate::tr(said)),
+                            ("when", &when::said_at(store::time(r.at), now, twelve)),
+                        ],
+                    ),
+                ))
         });
         let session =
             task.last
@@ -64,7 +91,7 @@ impl Desk {
                 });
         let (id, menu_id) = (task.id, task.id);
         let line = format!(
-            "{} · {} · {} · {when_next}",
+            "{} · {} · {}",
             task.schedule.said(twelve),
             self.name_of(&task.agent),
             self.project_name(&crate::desk::Place::new(
@@ -100,16 +127,6 @@ impl Desk {
                             .gap(px(8.))
                             .pt(px(2.))
                             .child(ui::fine(faces, line))
-                            .children(status)
-                            .children(session.map(|(key, title)| {
-                                ui::opener(SharedString::from(format!("task-session-{id}")))
-                                    .xsmall()
-                                    .label(ui::fit(&title, 32))
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.close_settings(window, cx);
-                                        this.show(key, window, cx);
-                                    }))
-                            }))
                             .children(task.last.as_ref().and_then(|r| r.error.clone()).map(
                                 |why| {
                                     // Whole, folded where long, with Copy.
@@ -119,15 +136,57 @@ impl Desk {
                     ),
             )
             .child(
-                Switch::new(SharedString::from(format!("task-on-{id}")))
-                    .accessibility_label(crate::tr("On"))
-                    .small()
-                    .checked(!task.paused)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.pause_task(id);
-                        cx.notify();
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_end()
+                    .gap(px(2.))
+                    .flex_none()
+                    .children(last)
+                    .children(when_next.map(|n| ui::fine(faces, n)))
+                    .children(session.map(|(key, title)| {
+                        div()
+                            .id(SharedString::from(format!("task-session-{id}")))
+                            .cursor_pointer()
+                            .text_size(px(crate::style::CAPTION))
+                            .line_height(px(16.))
+                            .text_color(theme::link())
+                            .hover(gpui::Styled::underline)
+                            .tooltip(move |window, cx| {
+                                gpui::component::tooltip::Tooltip::new(title.clone())
+                                    .build(window, cx)
+                            })
+                            .child(crate::tr("Open thread"))
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.close_settings(window, cx);
+                                this.show(key, window, cx);
+                            }))
                     })),
             )
+            .child(
+                u0ui::components::button::Button::new(
+                    SharedString::from(format!("task-run-{id}")),
+                    crate::tr("Run now"),
+                )
+                .variant(u0ui::components::button::ButtonVariant::Ghost)
+                .size(u0ui::components::button::ButtonSize::Sm)
+                .icon(CarbonIcon::Play)
+                .icon_only(true)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.run_task(id);
+                    cx.notify();
+                })),
+            )
+            .child(super::srow::flip(
+                SharedString::from(format!("task-on-{id}")),
+                crate::tr("On"),
+                !task.paused,
+                cx,
+                move |this, _, cx| {
+                    this.pause_task(id);
+                    cx.notify();
+                },
+            ))
             .child(self.task_menu(menu_id, cx))
     }
 
@@ -170,21 +229,9 @@ impl Desk {
     }
 
     /// The Scheduled tasks tab: the one being written, and the tasks.
-    pub(super) fn tasks(&self, w: &WeakEntity<Desk>) -> Vec<SettingGroup> {
-        let mut list: Vec<SettingItem> = Vec::new();
+    pub(super) fn tasks(&self, w: &WeakEntity<Desk>) -> Vec<Group> {
+        let mut list: Vec<Item> = Vec::new();
         let has_tasks = matches!(self.tasks_on(self.pages.on), Some(Ok(t)) if !t.is_empty());
-        if self.tasks.draft.is_none() && has_tasks {
-            list.push(item(
-                w,
-                crate::tr("A new task"),
-                crate::tr("Its prompt, said to an agent on a schedule."),
-                |_, _, cx| {
-                    ui::button("new-task", crate::tr("New task"), Weight::Secondary)
-                        .on_click(cx.listener(|this, _, window, cx| this.new_task(window, cx)))
-                        .into_any_element()
-                },
-            ));
-        }
         match self.tasks_on(self.pages.on) {
             None => list.push(whole(w, &[], |_, _, _| {
                 use u0ui::components::spinner::{Spinner, SpinnerSize};
@@ -248,14 +295,26 @@ impl Desk {
                 }
             }
         }
-        let mut groups: Vec<SettingGroup> = self.task_form(w).into_iter().collect();
+        if self.tasks.draft.is_none() && has_tasks {
+            list.push(whole(w, &["new"], |_, _, cx| {
+                super::srow::button(
+                    "new-task",
+                    crate::tr("New scheduled task"),
+                    Weight::Secondary,
+                )
+                .icon(CarbonIcon::Add)
+                .on_click(cx.listener(|this, _, window, cx| this.new_task(window, cx)))
+                .into_any_element()
+            }));
+        }
+        let mut groups: Vec<Group> = self.task_form(w).into_iter().collect();
         groups.push(group(crate::tr("Tasks"), list));
         groups
     }
 
     /// The task being written: what it says and to whom, where, when, and
     /// where each run goes; then cancelled or kept.
-    fn task_form(&self, w: &WeakEntity<Desk>) -> Option<SettingGroup> {
+    fn task_form(&self, w: &WeakEntity<Desk>) -> Option<Group> {
         let draft = self.tasks.draft.as_ref()?;
         let task = &draft.task;
         let mut items = Vec::new();
@@ -271,14 +330,14 @@ impl Desk {
                     |draft| Input::new(&draft.title).small().into_any_element(),
                 )
             })
-            .layout(Axis::Vertical),
+            .stacked(),
             item(w, crate::tr("Prompt"), "", |d, _, _| {
                 d.tasks.draft.as_ref().map_or_else(
                     || div().into_any_element(),
                     |draft| Textarea::new(&draft.prompt).into_any_element(),
                 )
             })
-            .layout(Axis::Vertical),
+            .stacked(),
             item(
                 w,
                 crate::tr("Agent"),
@@ -302,7 +361,7 @@ impl Desk {
             item(w, crate::tr("Schedule"), "", |d, faces, cx| {
                 d.task_schedule(faces, cx).into_any_element()
             })
-            .layout(Axis::Vertical),
+            .stacked(),
             item(
                 w,
                 crate::tr("Thread"),
@@ -334,17 +393,19 @@ impl Desk {
                 crate::tr("In a worktree of its own"),
                 crate::tr("Each run's thread works on a new branch, away from your checkout."),
                 |d, _, cx| {
-                    Switch::new("task-worktree")
-                        .accessibility_label(crate::tr("In a worktree of its own"))
-                        .small()
-                        .checked(d.tasks.draft.as_ref().is_some_and(|d| d.task.worktree))
-                        .on_click(cx.listener(|this, _, _, cx| {
+                    super::srow::flip(
+                        "task-worktree",
+                        crate::tr("In a worktree of its own"),
+                        d.tasks.draft.as_ref().is_some_and(|d| d.task.worktree),
+                        cx,
+                        |this, _, cx| {
                             if let Some(d) = &mut this.tasks.draft {
                                 d.task.worktree = !d.task.worktree;
                             }
                             cx.notify();
-                        }))
-                        .into_any_element()
+                        },
+                    )
+                    .into_any_element()
                 },
             ));
         }
@@ -352,42 +413,40 @@ impl Desk {
             crate::tr(if task.id == 0 { "Add task" } else { "Save" }),
             w.clone(),
         );
-        Some(
-            group(
-                if task.id == 0 {
-                    "New task"
-                } else {
-                    "Edit task"
-                },
-                items,
-            )
-            .footer(move |_, _| {
-                let (cancel, keep) = (buttons.clone(), buttons.clone());
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_end()
-                    .gap(px(8.))
-                    .w_full()
-                    .child(
-                        ui::button("task-cancel", crate::tr("Cancel"), Weight::Quiet).on_click(
-                            move |_, _, cx| {
-                                let _ = cancel.update(cx, |this, cx| {
-                                    this.tasks.draft = None;
-                                    cx.notify();
-                                });
-                            },
-                        ),
-                    )
-                    .child(
-                        ui::button("task-save", save.clone(), Weight::Primary).on_click(
-                            move |_, _, cx| {
-                                let _ = keep.update(cx, Desk::save_task);
-                            },
-                        ),
-                    )
-            }),
-        )
+        items.push(whole(w, &[], move |_, _, _| {
+            let (cancel, keep) = (buttons.clone(), buttons.clone());
+            div()
+                .flex()
+                .items_center()
+                .justify_end()
+                .gap(px(8.))
+                .w_full()
+                .child(
+                    super::srow::button("task-cancel", crate::tr("Cancel"), Weight::Quiet)
+                        .on_click(move |_, _, cx| {
+                            let _ = cancel.update(cx, |this, cx| {
+                                this.tasks.draft = None;
+                                cx.notify();
+                            });
+                        }),
+                )
+                .child(
+                    super::srow::button("task-save", save.clone(), Weight::Primary).on_click(
+                        move |_, _, cx| {
+                            let _ = keep.update(cx, Desk::save_task);
+                        },
+                    ),
+                )
+                .into_any_element()
+        }));
+        Some(group(
+            if task.id == 0 {
+                "New task"
+            } else {
+                "Edit task"
+            },
+            items,
+        ))
     }
 
     /// When the task being written runs: every while, each day at a time
@@ -519,18 +578,21 @@ impl Desk {
                         ],
                     ))
                     .child(
-                        gpui::component::switch::Switch::new("task-here")
-                            .label(crate::tr("In this task's project alone"))
-                            .small()
-                            .checked(here)
-                            .on_click(cx.listener(move |this, _, _, cx| {
+                        super::srow::flip(
+                            "task-here",
+                            crate::tr("In this task's project alone"),
+                            here,
+                            cx,
+                            move |this, _, cx| {
                                 if let Some(Schedule::On { here: h, .. }) =
                                     this.tasks.draft.as_mut().map(|d| &mut d.task.schedule)
                                 {
                                     *h = !here;
                                 }
                                 cx.notify();
-                            })),
+                            },
+                        )
+                        .hide_label(false),
                     )
                     .child(ui::fine(
                         faces,
@@ -720,18 +782,21 @@ impl Desk {
                 }
                 cx.notify();
             }));
-        let sign = gpui::component::switch::Switch::new("hook-signed")
-            .label(crate::tr("Signed"))
-            .small()
-            .checked(signed)
-            .on_click(cx.listener(move |this, _, _, cx| {
+        let sign = super::srow::flip(
+            "hook-signed",
+            crate::tr("Signed"),
+            signed,
+            cx,
+            move |this, _, cx| {
                 if let Some(Schedule::Hook(h)) =
                     this.tasks.draft.as_mut().map(|d| &mut d.task.schedule)
                 {
                     h.signed = !signed;
                 }
                 cx.notify();
-            }));
+            },
+        )
+        .hide_label(false);
         out = out.child(
             div()
                 .flex()

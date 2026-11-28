@@ -7,17 +7,12 @@
 //! for each and how each stands, and pairing with a link. And the sheet
 //! that asks before pairing, which can pair both ways.
 
-use gpui::component::{
-    Disableable as _, Sizable as _,
-    input::Input,
-    setting::{SettingGroup, SettingPage},
-    switch::Switch,
-};
+use gpui::component::{Sizable as _, input::Input};
 use gpui::{
     AnyElement, ClipboardItem, Context, SharedString, WeakEntity, Window, div, prelude::*, px,
 };
 
-use super::prefs::{group, item, whole};
+use super::srow::{Group, Page, group, item, whole};
 use crate::{
     access::{Grant, Named, Scope},
     desk::Desk,
@@ -97,11 +92,7 @@ fn standing(d: &crate::access::Device) -> String {
 
 impl Desk {
     /// Devices: this Mac controlled from others, and others from it.
-    pub(super) fn devices_tab(
-        &self,
-        w: &WeakEntity<Desk>,
-        banners: Option<SettingGroup>,
-    ) -> SettingPage {
+    pub(super) fn devices_tab(&self, w: &WeakEntity<Desk>) -> Page {
         let on = (self.machine(self.pages.on))
             .filter(|_| self.pages.on != Host::HERE)
             .map_or_else(|| crate::tr("this Mac").to_string(), |m| m.name.clone());
@@ -130,18 +121,20 @@ impl Desk {
             crate::tr_with("Let other devices control %{on}", &[("on", &on)]),
             about,
             move |_, _, cx| {
-                Switch::new("serve")
-                    .accessibility_label(crate::tr("Let other devices control this Mac"))
-                    .small()
-                    .checked(listening)
-                    .disabled(!known)
-                    .on_click(cx.listener(move |this, _, _, _| {
+                super::srow::flip(
+                    "serve",
+                    crate::tr("Let other devices control this Mac"),
+                    listening,
+                    cx,
+                    move |this, _, _| {
                         this.share(Share::Serve(!asked));
                         if !asked {
                             this.new_link();
                         }
-                    }))
-                    .into_any_element()
+                    },
+                )
+                .disabled(!known)
+                .into_any_element()
             },
         );
         let control = self.controls();
@@ -154,29 +147,28 @@ impl Desk {
                 "Off: this Mac controls only itself."
             },
             move |_, _, cx| {
-                Switch::new("control")
-                    .accessibility_label(crate::tr("Control other Macs"))
-                    .small()
-                    .checked(control)
-                    .on_click(cx.listener(move |this, _, window, cx| {
+                super::srow::flip(
+                    "control",
+                    crate::tr("Control other Macs"),
+                    control,
+                    cx,
+                    move |this, window, cx| {
                         this.set_control(!control, window, cx);
-                    }))
-                    .into_any_element()
+                    },
+                )
+                .into_any_element()
             },
         );
-        let mut page = SettingPage::new(crate::tr("Devices")).description(crate::tr(
+        let mut page = Page::new(crate::tr("Devices")).description(crate::tr(
             "Use u0 from another Mac. Each pairs with its own key, kept on it.",
         ));
-        if let Some(b) = banners {
-            page = page.group(b);
-        }
         let devices_err = self
             .pages
             .shared
             .as_ref()
             .and_then(|s| s.devices.as_ref().err().cloned());
         page = page.group(
-            SettingGroup::new().items(
+            Group::new().items(
                 std::iter::once(serve)
                     .chain(devices_err.map(|why| {
                         whole(w, &[], move |d, _, _| {
@@ -226,18 +218,7 @@ impl Desk {
                 ));
             }
         }
-        page.group(group(
-            crate::tr("Add u0 to an agent"),
-            vec![
-                whole(w, &[], |_, _, _| {
-                    super::pairing::add_u0_to_agent_card("devices-mcp").into_any_element()
-                }),
-                whole(w, &[], |_, faces, cx| {
-                    super::pairing::install_u0_elsewhere_card("devices-install", faces, cx)
-                        .into_any_element()
-                }),
-            ],
-        ))
+        page
     }
 
     /// Whether this Mac controls others, as kept.
@@ -247,7 +228,7 @@ impl Desk {
 
     /// The pairing link offered, its QR code under it; or the way to make
     /// another.
-    fn pairing_link(&self, w: &WeakEntity<Desk>) -> Vec<gpui::component::setting::SettingItem> {
+    fn pairing_link(&self, w: &WeakEntity<Desk>) -> Vec<super::srow::Item> {
         let grant = self.pages.grant;
         // What the next link lets in: each choice set, and a link made
         // for it at once.
@@ -319,16 +300,18 @@ impl Desk {
             crate::tr("Ask me before letting it in"),
             crate::tr("It waits under Devices until you let it in."),
             move |_, _, cx| {
-                Switch::new("grant-ask")
-                    .accessibility_label(crate::tr("Ask me before letting it in"))
-                    .small()
-                    .checked(grant.ask)
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                super::srow::flip(
+                    "grant-ask",
+                    crate::tr("Ask me before letting it in"),
+                    grant.ask,
+                    cx,
+                    move |this, _, cx| {
                         this.pages.grant.ask = !grant.ask;
                         this.new_link();
                         cx.notify();
-                    }))
-                    .into_any_element()
+                    },
+                )
+                .into_any_element()
             },
         );
         // Whether this Mac pairs back: asked of a link for everything alone.
@@ -337,17 +320,19 @@ impl Desk {
             crate::tr("Pair both ways"),
             crate::tr("Pair back when asked and control the other Mac too. For your own Macs."),
             move |_, _, cx| {
-                Switch::new("grant-both")
-                    .accessibility_label(crate::tr("Pair both ways"))
-                    .small()
-                    .checked(grant.both && grant.scope == Scope::Full)
-                    .disabled(grant.scope != Scope::Full)
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                super::srow::flip(
+                    "grant-both",
+                    crate::tr("Pair both ways"),
+                    grant.both && grant.scope == Scope::Full,
+                    cx,
+                    move |this, _, cx| {
                         this.pages.grant.both = !grant.both;
                         this.new_link();
                         cx.notify();
-                    }))
-                    .into_any_element()
+                    },
+                )
+                .disabled(grant.scope != Scope::Full)
+                .into_any_element()
             },
         );
         // Which way the link names: each this Mac is reached by now.
@@ -382,7 +367,7 @@ impl Desk {
                 crate::tr("Pairing link"),
                 about.to_owned(),
                 |_, _, cx| {
-                    ui::button("pair", crate::tr("New link"), Weight::Primary)
+                    super::srow::button("pair", crate::tr("New link"), Weight::Primary)
                         .on_click(cx.listener(|this, _, _, _| this.new_link()))
                         .into_any_element()
                 },
@@ -427,14 +412,13 @@ impl Desk {
                         .flex()
                         .gap(px(6.))
                         .child(
-                            ui::button("copy-link", crate::tr("Copy"), Weight::Secondary).on_click(
-                                move |_, _, cx| {
+                            super::srow::button("copy-link", crate::tr("Copy"), Weight::Secondary)
+                                .on_click(move |_, _, cx| {
                                     cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()));
-                                },
-                            ),
+                                }),
                         )
                         .child(
-                            ui::button("pair", crate::tr("New link"), Weight::Quiet)
+                            super::srow::button("pair", crate::tr("New link"), Weight::Quiet)
                                 .on_click(cx.listener(|this, _, _, _| this.new_link())),
                         )
                         .into_any_element()
@@ -454,7 +438,7 @@ impl Desk {
     }
 
     /// How this Mac is reached: the tunnel, its address, staying awake.
-    fn reached(&self, w: &WeakEntity<Desk>) -> Vec<gpui::component::setting::SettingItem> {
+    fn reached(&self, w: &WeakEntity<Desk>) -> Vec<super::srow::Item> {
         let Some(shared) = &self.pages.shared else {
             return Vec::new();
         };
@@ -477,7 +461,7 @@ impl Desk {
             crate::tr("Tunnel (cloudflared)"),
             status,
             move |_, _, cx| {
-                ui::button(
+                super::srow::button(
                     "tunnel",
                     crate::tr(if running { "Stop" } else { "Start" }),
                     Weight::Secondary,
@@ -493,9 +477,13 @@ impl Desk {
         };
         let mode = item(w, crate::tr("Address"), address, move |d, _, cx| {
             if named {
-                return ui::button("unname", crate::tr("Use a quick tunnel"), Weight::Quiet)
-                    .on_click(cx.listener(|this, _, _, _| this.share(Share::Named(None))))
-                    .into_any_element();
+                return super::srow::button(
+                    "unname",
+                    crate::tr("Use a quick tunnel"),
+                    Weight::Quiet,
+                )
+                .on_click(cx.listener(|this, _, _, _| this.share(Share::Named(None))))
+                .into_any_element();
             }
             div()
                 .flex()
@@ -511,15 +499,15 @@ impl Desk {
                         .child(Input::new(&d.pages.named_token).small()),
                 )
                 .child(
-                    ui::button("name", crate::tr("Use"), Weight::Secondary).on_click(cx.listener(
-                        |this, _, _, cx| {
+                    super::srow::button("name", crate::tr("Use"), Weight::Secondary).on_click(
+                        cx.listener(|this, _, _, cx| {
                             let host = this.pages.named_host.read(cx).value().trim().to_owned();
                             let token = this.pages.named_token.read(cx).value().trim().to_owned();
                             if !host.is_empty() && !token.is_empty() {
                                 this.share(Share::Named(Some(Named { token, host })));
                             }
-                        },
-                    )),
+                        }),
+                    ),
                 )
                 .into_any_element()
         });
@@ -529,12 +517,14 @@ impl Desk {
             crate::tr("Keep the Mac awake while serving"),
             crate::tr("So that it can be reached with its lid open and no one at it."),
             move |_, _, cx| {
-                Switch::new("serve-awake")
-                    .accessibility_label(crate::tr("Keep the Mac awake while serving"))
-                    .small()
-                    .checked(awake)
-                    .on_click(cx.listener(move |this, _, _, _| this.share(Share::Awake(!awake))))
-                    .into_any_element()
+                super::srow::flip(
+                    "serve-awake",
+                    crate::tr("Keep the Mac awake while serving"),
+                    awake,
+                    cx,
+                    move |this, _, _| this.share(Share::Awake(!awake)),
+                )
+                .into_any_element()
             },
         );
         let bind = shared.bind;
@@ -605,7 +595,7 @@ impl Desk {
     }
 
     /// The devices paired with this Mac, each by its key's fingerprint.
-    fn devices(&self, w: &WeakEntity<Desk>) -> Vec<gpui::component::setting::SettingItem> {
+    fn devices(&self, w: &WeakEntity<Desk>) -> Vec<super::srow::Item> {
         let none = |_: &mut Desk, _: &Faces, _: &mut Context<Desk>| div().into_any_element();
         match self.pages.shared.as_ref().map(|s| &s.devices) {
             None => Vec::new(),
@@ -664,7 +654,7 @@ impl Desk {
                             .gap(px(6.))
                             .when(waiting, |d| {
                                 d.child(
-                                    ui::button(
+                                    super::srow::button(
                                         SharedString::from(format!("approve-{print}")),
                                         crate::tr("Let in"),
                                         Weight::Primary,
@@ -677,7 +667,7 @@ impl Desk {
                                 )
                             })
                             .child(
-                                ui::button(
+                                super::srow::button(
                                     SharedString::from(format!("revoke-{print}")),
                                     if waiting {
                                         crate::tr("Turn away")
@@ -699,11 +689,11 @@ impl Desk {
 
     /// The Macs paired with, each in this window: how it stands, the way
     /// to reach it again and to forget it.
-    fn machines(&self, w: &WeakEntity<Desk>) -> Vec<gpui::component::setting::SettingItem> {
+    fn machines(&self, w: &WeakEntity<Desk>) -> Vec<super::srow::Item> {
         let port = crate::access::Access::new(&self.home)
             .kept()
             .map_or(0, |k| k.port);
-        let mut rows: Vec<gpui::component::setting::SettingItem> = Vec::new();
+        let mut rows: Vec<super::srow::Item> = Vec::new();
         if let Some(why) = self.pages.servers_refused.clone() {
             rows.push(whole(w, &[], move |d, _, _| {
                 crate::desk::banners::banner(
@@ -776,7 +766,7 @@ impl Desk {
     }
 
     /// Where a link from another Mac is pasted to pair with it.
-    fn pair_field(w: &WeakEntity<Desk>) -> gpui::component::setting::SettingItem {
+    fn pair_field(w: &WeakEntity<Desk>) -> super::srow::Item {
         item(
             w,
             crate::tr("Pair with a link"),
@@ -791,7 +781,7 @@ impl Desk {
                             .child(Input::new(&d.pages.pair_link).small()),
                     )
                     .child(
-                        ui::button("add-server", crate::tr("Pair"), Weight::Primary)
+                        super::srow::button("add-server", crate::tr("Pair"), Weight::Primary)
                             .loading(d.pages.pairing)
                             .on_click(cx.listener(|this, _, window, cx| this.pair(window, cx))),
                     )
@@ -813,7 +803,7 @@ impl Desk {
         };
         let again = held.filter(|m| m.up != Up::On).map(|m| {
             let host = m.host;
-            ui::button(
+            super::srow::button(
                 SharedString::from(format!("reach-{name}")),
                 crate::tr("Reach again"),
                 Weight::Secondary,
@@ -822,7 +812,7 @@ impl Desk {
         });
         let forget = {
             let name = name.to_owned();
-            ui::button(
+            super::srow::button(
                 SharedString::from(format!("forget-{name}")),
                 crate::tr("Forget"),
                 Weight::Quiet,

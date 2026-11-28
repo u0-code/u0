@@ -28,13 +28,9 @@ mod voice;
 mod writing;
 
 pub(crate) use diagnostics::process_tree;
-pub(crate) use prefs::whole;
-pub use settings::{Folder, Tab, height as settings_height};
+pub use settings::{Tab, height as settings_height};
 
-use gpui::component::{
-    input::{InputEvent, InputState, TextareaState},
-    setting::SettingsState,
-};
+use gpui::component::input::{InputEvent, InputState, TextareaState};
 use gpui::{Context, Entity, SharedString, Window, prelude::*};
 
 use crate::{desk::Desk, settings::Settings};
@@ -52,8 +48,6 @@ use crate::{desk::Desk, settings::Settings};
 pub struct Pages {
     pub open: bool,
     pub tab: Tab,
-    /// The settings' page shown and their search: gpui-kit's.
-    pub settings: Entity<SettingsState>,
     /// The Carbon settings sidebar's search field, synced into `settings`.
     pub settings_search: Entity<InputState>,
     pub agent_search: Entity<InputState>,
@@ -99,8 +93,6 @@ pub struct Pages {
     pub usage_project: Option<std::path::PathBuf>,
     /// Machine filter on the Usage workspace page (`None` = all machines).
     pub usage_host: Option<crate::hub::Host>,
-    /// The settings sidebar's Agents folder.
-    pub agents: Folder,
     /// The project the settings a project may hold are set for, as
     /// t3code's "Applying settings for"; none, everywhere.
     pub scope: Option<std::path::PathBuf>,
@@ -166,7 +158,6 @@ impl Pages {
         let field = |placeholder: &'static str, window: &mut Window, cx: &mut Context<Desk>| {
             cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr(placeholder)))
         };
-        let shown = cx.new(|cx| SettingsState::new(window, cx));
         let settings_search = field("Search settings", window, cx);
         // What is looked for is found among the pages, not behind an agent's.
         cx.subscribe(&settings_search, |this, input, _: &InputEvent, cx| {
@@ -226,7 +217,6 @@ impl Pages {
         Self {
             open: false,
             tab: Tab::General,
-            settings: shown,
             settings_search,
             agent_search,
             prefix,
@@ -252,7 +242,6 @@ impl Pages {
             period: Some(7),
             usage_project: None,
             usage_host: None,
-            agents: Folder::default(),
             scope: None,
             forges: Vec::new(),
             themes_refused: Vec::new(),

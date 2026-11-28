@@ -9,9 +9,9 @@ use gpui::component::{
     Sizable as _, input::Input, input::InputState, scroll::ScrollableElement as _,
 };
 use gpui::{
-    AnyElement, App, BoxShadow, ElementId, Entity, InteractiveElement as _, IntoElement,
+    AnyElement, App, BoxShadow, Context, ElementId, Entity, InteractiveElement as _, IntoElement,
     ParentElement as _, RenderOnce, SharedString, StatefulInteractiveElement as _, Styled as _,
-    Window, div, point, prelude::FluentBuilder as _, px,
+    WeakEntity, Window, div, point, prelude::FluentBuilder as _, px,
 };
 use u0ui::{
     components::{
@@ -31,6 +31,7 @@ use u0ui::{
 };
 
 use crate::{
+    desk::Desk,
     fonts::{Faces, Weighted as _},
     theme, ui,
 };
@@ -181,14 +182,13 @@ impl SRow {
             self.managed_state = Some(crate::tr(if checked { "On" } else { "Off" }));
         }
         let locked = self.is_locked();
-        let sw = Switch::new((self.id.clone(), "sw"))
-            .label(self.title.clone())
-            .hide_label(true)
-            .size(SwitchSize::Sm)
-            .checked(checked)
-            .disabled(locked)
-            .on_checked_change(on_change);
-        self.control = Some(sw.into_any_element());
+        self.control = Some(switch(
+            (self.id.clone(), "sw"),
+            self.title.clone(),
+            checked,
+            locked,
+            on_change,
+        ));
         self
     }
 
@@ -201,28 +201,13 @@ impl SRow {
         on_pick: impl Fn(T, &mut Window, &mut App) + 'static,
     ) -> Self {
         let locked = self.is_locked();
-        let list: Vec<(SharedString, T)> = choices.into_iter().collect();
-        let active_ix = list.iter().position(|(_, v)| *v == current).unwrap_or(0);
-        let values: Vec<T> = list.iter().map(|(_, v)| *v).collect();
-        let mut group = ToggleGroup::new((self.id.clone(), "seg"))
-            .fit_content(true)
-            .size(ToggleSize::Sm)
-            .value([active_ix.to_string()]);
-        for (ix, (label, _)) in list.into_iter().enumerate() {
-            group = group.item(
-                ToggleGroupItem::new(ix.to_string())
-                    .disabled(locked)
-                    .child(label),
-            );
-        }
-        group = group.on_value_change(move |vals, window, cx| {
-            if let Some(ix) = vals.first().and_then(|s| s.parse::<usize>().ok())
-                && let Some(&picked) = values.get(ix)
-            {
-                on_pick(picked, window, cx);
-            }
-        });
-        self.control = Some(group.into_any_element());
+        self.control = Some(segmented(
+            (self.id.clone(), "seg"),
+            choices,
+            current,
+            locked,
+            on_pick,
+        ));
         self
     }
 
@@ -234,34 +219,13 @@ impl SRow {
         on_pick: impl Fn(T, &mut Window, &mut App) + 'static,
     ) -> Self {
         let locked = self.is_locked();
-        let list: Vec<(SharedString, T)> = choices.into_iter().collect();
-        let active_ix = list.iter().position(|(_, v)| v == current);
-        let items: Vec<ListItem> = list
-            .iter()
-            .enumerate()
-            .map(|(ix, (label, _))| ListItem::labeled(ix.to_string(), label.clone()))
-            .collect();
-        let values: Vec<T> = list.into_iter().map(|(_, v)| v).collect();
-        let sel = Select::new((self.id.clone(), "sel"))
-            .size(FieldSize::Sm)
-            .layer(LayerLevel::Two)
-            .disabled(locked)
-            .items(items)
-            .value(active_ix.map(|ix| ix.to_string()))
-            .on_value_change(move |val, window, cx| {
-                if let Some(ix) = val.and_then(|s| s.parse::<usize>().ok())
-                    && let Some(picked) = values.get(ix).cloned()
-                {
-                    on_pick(picked, window, cx);
-                }
-            });
-        self.control = Some(
-            div()
-                .min_w(px(240.))
-                .max_w(px(320.))
-                .child(sel)
-                .into_any_element(),
-        );
+        self.control = Some(select(
+            (self.id.clone(), "sel"),
+            choices,
+            current,
+            locked,
+            on_pick,
+        ));
         self
     }
 
@@ -288,15 +252,6 @@ impl SRow {
             .on_click(move |_, w, cx| on_click(w, cx));
         self.control = Some(btn.into_any_element());
         self
-    }
-
-    /// Case-insensitive search match across title and description.
-    pub fn matches(&self, query: &str) -> bool {
-        if query.is_empty() {
-            return true;
-        }
-        let q = query.to_lowercase();
-        self.title.to_lowercase().contains(&q) || self.desc.to_lowercase().contains(&q)
     }
 }
 
@@ -501,6 +456,130 @@ impl RenderOnce for SRow {
     }
 }
 
+/// Carbon's `Switch` (`sm` 32×16), named `label` for a screen reader.
+pub fn switch(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    checked: bool,
+    locked: bool,
+    on_change: impl Fn(bool, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    Switch::new(id)
+        .label(label)
+        .hide_label(true)
+        .size(SwitchSize::Sm)
+        .checked(checked)
+        .disabled(locked)
+        .on_checked_change(on_change)
+        .into_any_element()
+}
+
+/// Carbon's `sm` button on a settings page: `Secondary` is its tertiary,
+/// `Quiet` its ghost.
+pub fn button(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    weight: ui::Weight,
+) -> Button {
+    Button::new(id, label)
+        .size(ButtonSize::Sm)
+        .variant(match weight {
+            ui::Weight::Primary => ButtonVariant::Primary,
+            ui::Weight::Secondary => ButtonVariant::Tertiary,
+            ui::Weight::Quiet => ButtonVariant::Ghost,
+        })
+}
+
+/// Carbon's `Switch` (`sm`), named `label` for a screen reader, that
+/// calls `flipped` on the desk as it is flipped.
+pub fn flip(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    checked: bool,
+    cx: &Context<Desk>,
+    flipped: impl Fn(&mut Desk, &mut Window, &mut Context<Desk>) + 'static,
+) -> Switch {
+    let desk = cx.entity().downgrade();
+    Switch::new(id)
+        .label(label)
+        .hide_label(true)
+        .size(SwitchSize::Sm)
+        .checked(checked)
+        .on_checked_change(move |_, window, cx| {
+            let _ = desk.update(cx, |d, cx| flipped(d, window, cx));
+        })
+}
+
+/// Carbon's `ContentSwitcher` (`ToggleGroup`, `sm` 32px) for a few
+/// choices, each as wide as its label is in the language shown.
+pub fn segmented<T: Copy + PartialEq + 'static>(
+    id: impl Into<ElementId>,
+    choices: impl IntoIterator<Item = (SharedString, T)>,
+    current: T,
+    locked: bool,
+    on_pick: impl Fn(T, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let list: Vec<(SharedString, T)> = choices.into_iter().collect();
+    let active_ix = list.iter().position(|(_, v)| *v == current).unwrap_or(0);
+    let values: Vec<T> = list.iter().map(|(_, v)| *v).collect();
+    let mut group = ToggleGroup::new(id)
+        .fit_content(true)
+        .size(ToggleSize::Sm)
+        .value([active_ix.to_string()]);
+    for (ix, (label, _)) in list.into_iter().enumerate() {
+        group = group.item(
+            ToggleGroupItem::new(ix.to_string())
+                .disabled(locked)
+                .child(label),
+        );
+    }
+    group
+        .on_value_change(move |vals, window, cx| {
+            if let Some(ix) = vals.first().and_then(|s| s.parse::<usize>().ok())
+                && let Some(&picked) = values.get(ix)
+            {
+                on_pick(picked, window, cx);
+            }
+        })
+        .into_any_element()
+}
+
+/// Carbon's `Select` (`sm` 32px on `field-02`, `240px..320px`).
+pub fn select<T: Clone + PartialEq + 'static>(
+    id: impl Into<ElementId>,
+    choices: impl IntoIterator<Item = (SharedString, T)>,
+    current: &T,
+    locked: bool,
+    on_pick: impl Fn(T, &mut Window, &mut App) + 'static,
+) -> AnyElement {
+    let list: Vec<(SharedString, T)> = choices.into_iter().collect();
+    let active_ix = list.iter().position(|(_, v)| v == current);
+    let items: Vec<ListItem> = list
+        .iter()
+        .enumerate()
+        .map(|(ix, (label, _))| ListItem::labeled(ix.to_string(), label.clone()))
+        .collect();
+    let values: Vec<T> = list.into_iter().map(|(_, v)| v).collect();
+    let sel = Select::new(id)
+        .size(FieldSize::Sm)
+        .layer(LayerLevel::Two)
+        .disabled(locked)
+        .items(items)
+        .value(active_ix.map(|ix| ix.to_string()))
+        .on_value_change(move |val, window, cx| {
+            if let Some(ix) = val.and_then(|s| s.parse::<usize>().ok())
+                && let Some(picked) = values.get(ix).cloned()
+            {
+                on_pick(picked, window, cx);
+            }
+        });
+    div()
+        .min_w(px(240.))
+        .max_w(px(320.))
+        .child(sel)
+        .into_any_element()
+}
+
 /// A Carbon `sm` text field on `field-02` (32px, a `border-strong-01` rule
 /// under it): gpui-kit's `input` drawn bare inside it, as wide as its
 /// caller sets; `mono` for paths, commands and names.
@@ -526,15 +605,30 @@ pub fn field(input: Input, faces: &Faces, mono: bool, locked: bool) -> gpui::Div
         )
 }
 
-/// A titled Carbon settings section holding `SRow`s on `layer-01`.
+/// A titled Carbon settings section holding rows on `layer-01`: `SRow`s, or
+/// what a page draws whole, each with the words a search finds it by.
 pub struct SGroup {
     title: SharedString,
     desc: Option<SharedString>,
-    rows: Vec<SRow>,
+    rows: Vec<(SharedString, AnyElement)>,
 }
 
 impl SGroup {
     pub fn new(title: impl Into<SharedString>, rows: Vec<SRow>) -> Self {
+        let rows = rows
+            .into_iter()
+            .map(|r| {
+                (
+                    format!("{} {}", r.title, r.desc).into(),
+                    r.into_any_element(),
+                )
+            })
+            .collect();
+        Self::of(title, rows)
+    }
+
+    /// A section of rows already drawn, each with the words it is found by.
+    pub fn of(title: impl Into<SharedString>, rows: Vec<(SharedString, AnyElement)>) -> Self {
         Self {
             title: title.into(),
             desc: None,
@@ -547,27 +641,41 @@ impl SGroup {
         self
     }
 
-    fn into_section(self, query: &str) -> Option<SettingsSection> {
-        let group_hit = !query.is_empty()
-            && (self.title.to_lowercase().contains(&query.to_lowercase())
+    fn into_section(self, query: &str) -> Option<AnyElement> {
+        let q = query.to_lowercase();
+        let group_hit = !q.is_empty()
+            && (self.title.to_lowercase().contains(&q)
                 || self
                     .desc
                     .as_ref()
-                    .is_some_and(|d| d.to_lowercase().contains(&query.to_lowercase())));
-        let rows: Vec<SRow> = if group_hit || query.is_empty() {
-            self.rows
-        } else {
-            self.rows.into_iter().filter(|r| r.matches(query)).collect()
-        };
+                    .is_some_and(|d| d.to_lowercase().contains(&q)));
+        let rows: Vec<AnyElement> = self
+            .rows
+            .into_iter()
+            .filter(|(words, _)| group_hit || q.is_empty() || words.to_lowercase().contains(&q))
+            .map(|(_, row)| row)
+            .collect();
         if rows.is_empty() {
             return None;
+        }
+        if self.title.is_empty() {
+            // A section with no heading is its rows alone, on the same layer.
+            return Some(
+                div()
+                    .flex()
+                    .flex_col()
+                    .w_full()
+                    .bg(theme::role(ColorRole::Layer01))
+                    .children(rows)
+                    .into_any_element(),
+            );
         }
         let mut sec = SettingsSection::new(self.title);
         if let Some(d) = self.desc {
             sec = sec.description(d);
         }
-        sec.extend(rows.into_iter().map(IntoElement::into_any_element));
-        Some(sec)
+        sec.extend(rows);
+        Some(sec.into_any_element())
     }
 }
 
@@ -575,7 +683,7 @@ impl SGroup {
 /// layout): `WorkspacePageHeader`, optional top banner, and `SettingsSection`s
 /// 32px apart.
 pub fn carbon_page(
-    id: &'static str,
+    id: impl Into<SharedString>,
     title: SharedString,
     lede: SharedString,
     banner: Option<AnyElement>,
@@ -593,7 +701,7 @@ pub fn carbon_page(
     reason = "a Carbon settings page takes its id, header copy, optional banner, groups, optional tail, query and faces"
 )]
 pub fn carbon_page_with_tail(
-    id: &'static str,
+    id: impl Into<SharedString>,
     title: SharedString,
     lede: SharedString,
     banner: Option<AnyElement>,
@@ -602,13 +710,14 @@ pub fn carbon_page_with_tail(
     query: &str,
     faces: &Faces,
 ) -> AnyElement {
-    let sections: Vec<SettingsSection> = groups
+    let sections: Vec<AnyElement> = groups
         .into_iter()
         .filter_map(|g| g.into_section(query))
         .collect();
     let empty = sections.is_empty() && tail.is_none() && !query.is_empty();
+    let id: SharedString = id.into();
     div()
-        .id(id)
+        .id(id.clone())
         .flex_1()
         .min_h(px(0.))
         .pt(px(24.))
@@ -655,4 +764,248 @@ pub fn carbon_page_with_tail(
         // gpui-kit's scroll area, as the settings' page list (see there).
         .overflow_y_scrollbar()
         .into_any_element()
+}
+
+/// How the desk draws a control or a row, as the page is drawn.
+type Draw = dyn Fn(&mut Desk, &Faces, &mut Context<Desk>) -> AnyElement;
+
+/// A control the desk, `w`, draws once its page is laid out: the desk is
+/// not borrowed then, as it is while it builds the page.
+#[derive(IntoElement)]
+struct Drawn {
+    w: WeakEntity<Desk>,
+    draw: Rc<Draw>,
+}
+
+impl RenderOnce for Drawn {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        self.w
+            .update(cx, |d, cx| {
+                let faces = crate::fonts::faces(cx).clone();
+                (self.draw)(d, &faces, cx)
+            })
+            .unwrap_or_else(|_| div().into_any_element())
+    }
+}
+
+/// A setting on a page: an `SRow` of its name, what it does and its
+/// control, or something the page draws whole.
+pub struct Item {
+    name: SharedString,
+    about: SharedString,
+    words: Vec<SharedString>,
+    drawn: Drawn,
+    whole: bool,
+    stacked: bool,
+    disabled: bool,
+}
+
+impl Item {
+    /// The words it is found by besides its name and what it does.
+    pub fn keywords(mut self, words: impl IntoIterator<Item = impl Into<SharedString>>) -> Self {
+        self.words.extend(words.into_iter().map(Into::into));
+        self
+    }
+
+    /// Its control under its name, as wide as the row: a field to write in.
+    pub fn stacked(mut self) -> Self {
+        self.stacked = true;
+        self
+    }
+
+    /// Its control shown, but not to be changed.
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
+    fn into_row(self, id: SharedString, faces: &Faces) -> (SharedString, AnyElement) {
+        let words = format!("{} {} {}", self.name, self.about, self.words.join(" ")).into();
+        let row = if self.stacked {
+            div()
+                .id(id)
+                .flex()
+                .flex_col()
+                .gap(px(8.))
+                .w_full()
+                .px(px(20.))
+                .py(px(16.))
+                .child(
+                    ui::text(faces, self.name)
+                        .text_size(px(crate::style::BODY))
+                        .line_height(px(20.))
+                        .text_color(theme::text()),
+                )
+                .when(!self.about.is_empty(), |d| {
+                    d.child(
+                        ui::text(faces, self.about)
+                            .text_size(px(crate::style::CAPTION))
+                            .line_height(px(16.))
+                            .text_color(theme::text2()),
+                    )
+                })
+                .child(self.drawn)
+                .into_any_element()
+        } else if self.whole {
+            div()
+                .id(id)
+                .w_full()
+                .px(px(20.))
+                .py(px(12.))
+                .child(self.drawn)
+                .into_any_element()
+        } else {
+            SRow::new(id, self.name)
+                .description(self.about)
+                .disabled(self.disabled)
+                .control(self.drawn)
+                .into_any_element()
+        };
+        (words, row)
+    }
+}
+
+/// A setting: what it is, said plainly (and found by the search), and its
+/// control, which the desk, `w`, draws.
+pub(crate) fn item(
+    w: &WeakEntity<Desk>,
+    name: impl Into<SharedString>,
+    about: impl Into<SharedString>,
+    control: impl Fn(&mut Desk, &Faces, &mut Context<Desk>) -> AnyElement + 'static,
+) -> Item {
+    Item {
+        name: crate::tr(&name.into()),
+        about: crate::tr(&about.into()),
+        words: Vec::new(),
+        drawn: Drawn {
+            w: w.clone(),
+            draw: Rc::new(control),
+        },
+        whole: false,
+        stacked: false,
+        disabled: false,
+    }
+}
+
+/// What the desk, `w`, draws whole as one setting, found by `words`.
+pub(crate) fn whole(
+    w: &WeakEntity<Desk>,
+    words: &[&'static str],
+    draw: impl Fn(&mut Desk, &Faces, &mut Context<Desk>) -> AnyElement + 'static,
+) -> Item {
+    Item {
+        name: SharedString::default(),
+        about: SharedString::default(),
+        words: words.iter().copied().map(SharedString::from).collect(),
+        drawn: Drawn {
+            w: w.clone(),
+            draw: Rc::new(draw),
+        },
+        whole: true,
+        stacked: false,
+        disabled: false,
+    }
+}
+
+/// Settings under a heading, or under none.
+#[derive(Default)]
+pub struct Group {
+    title: SharedString,
+    about: Option<SharedString>,
+    items: Vec<Item>,
+}
+
+impl Group {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn title(mut self, title: impl Into<SharedString>) -> Self {
+        self.title = title.into();
+        self
+    }
+
+    pub fn description(mut self, about: impl Into<SharedString>) -> Self {
+        self.about = Some(about.into());
+        self
+    }
+
+    pub fn item(mut self, item: Item) -> Self {
+        self.items.push(item);
+        self
+    }
+
+    pub fn items(mut self, items: impl IntoIterator<Item = Item>) -> Self {
+        self.items.extend(items);
+        self
+    }
+}
+
+/// Settings under `caption`.
+pub(crate) fn group(caption: impl Into<SharedString>, items: Vec<Item>) -> Group {
+    Group::new().title(crate::tr(&caption.into())).items(items)
+}
+
+/// A settings page: its title, what it is for, and its groups, drawn as
+/// every page is (`carbon_page`).
+pub struct Page {
+    title: SharedString,
+    lede: SharedString,
+    groups: Vec<Group>,
+}
+
+impl Page {
+    pub fn new(title: impl Into<SharedString>) -> Self {
+        Self {
+            title: title.into(),
+            lede: SharedString::default(),
+            groups: Vec::new(),
+        }
+    }
+
+    pub fn description(mut self, lede: impl Into<SharedString>) -> Self {
+        self.lede = lede.into();
+        self
+    }
+
+    pub fn group(mut self, group: Group) -> Self {
+        self.groups.push(group);
+        self
+    }
+
+    pub fn groups(mut self, groups: impl IntoIterator<Item = Group>) -> Self {
+        self.groups.extend(groups);
+        self
+    }
+
+    /// The page drawn, `banner` over its groups, showing what `query` finds.
+    pub fn draw(
+        self,
+        id: &str,
+        banner: Option<AnyElement>,
+        query: &str,
+        faces: &Faces,
+    ) -> AnyElement {
+        let groups = (self.groups.into_iter().enumerate())
+            .map(|(g, group)| {
+                let rows = (group.items.into_iter().enumerate())
+                    .map(|(i, item)| item.into_row(format!("{id}-{g}-{i}").into(), faces))
+                    .collect();
+                let section = SGroup::of(group.title, rows);
+                match group.about {
+                    Some(about) => section.description(about),
+                    None => section,
+                }
+            })
+            .collect();
+        carbon_page(
+            SharedString::from(id.to_owned()),
+            self.title,
+            self.lede,
+            banner,
+            groups,
+            query,
+            faces,
+        )
+    }
 }

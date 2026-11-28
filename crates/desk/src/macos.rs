@@ -284,22 +284,33 @@ pub struct Browser {
     pub app: std::path::PathBuf,
     /// Whether macOS opens web addresses with it.
     pub default: bool,
+    /// Its bundle identifier.
+    pub id: String,
+    /// Its version, as it says.
+    pub version: Option<String>,
 }
 
 /// The browsers on this Mac, as `LaunchServices` says, not from a list of
 /// ours: the one macOS opens web addresses with first, then each other app
-/// that opens both `http` and `https` addresses, each once by its bundle
+/// that opens `http` and `https` addresses and HTML files (an app that only
+/// takes links, as a chat app does, is no browser), each once by its bundle
 /// identifier (Safari is found both in `/Applications` and in the
-/// system's own volume).
+/// system's own volume): installed in an Applications folder (a test
+/// runner's Chrome is kept in a cache), and not an Electron app (an editor
+/// that also takes links).
 #[cfg(target_os = "macos")]
 pub fn browsers() -> Vec<Browser> {
     use std::collections::HashSet;
 
     use objc2_app_kit::NSWorkspace;
     use objc2_foundation::{NSBundle, NSString, NSURL};
+    use objc2_uniform_type_identifiers::UTType;
     let workspace = NSWorkspace::sharedWorkspace();
     let web = |at: &str| NSURL::URLWithString(&NSString::from_str(at));
     let (Some(https), Some(http)) = (web("https://example.com"), web("http://example.com")) else {
+        return Vec::new();
+    };
+    let Some(html) = UTType::typeWithFilenameExtension(&NSString::from_str("html")) else {
         return Vec::new();
     };
     let id = |app: &NSURL| {
@@ -307,11 +318,18 @@ pub fn browsers() -> Vec<Browser> {
             .and_then(|b| b.bundleIdentifier())
             .map(|id| id.to_string())
     };
-    let plain: HashSet<String> = workspace
-        .URLsForApplicationsToOpenURL(&http)
-        .iter()
-        .filter_map(|app| id(&app))
-        .collect();
+    let ids = |apps: objc2::rc::Retained<objc2_foundation::NSArray<NSURL>>| -> HashSet<String> {
+        apps.iter().filter_map(|app| id(&app)).collect()
+    };
+    let plain = ids(workspace.URLsForApplicationsToOpenURL(&http));
+    let files = ids(workspace.URLsForApplicationsToOpenContentType(&html));
+    let version = |app: &NSURL| {
+        NSBundle::bundleWithURL(app)?
+            .objectForInfoDictionaryKey(&NSString::from_str("CFBundleShortVersionString"))?
+            .downcast::<NSString>()
+            .ok()
+            .map(|v| v.to_string())
+    };
     let default = workspace.URLForApplicationToOpenURL(&https);
     let mut seen = HashSet::new();
     default
@@ -326,9 +344,19 @@ pub fn browsers() -> Vec<Browser> {
         .filter_map(|(app, default)| {
             let id = id(&app)?;
             let at = app.path()?.to_string();
-            ((default || plain.contains(&id)) && seen.insert(id)).then(|| Browser {
+            let electron = std::path::Path::new(&at)
+                .join("Contents/Frameworks/Electron Framework.framework")
+                .exists();
+            let browser = default
+                || (plain.contains(&id)
+                    && files.contains(&id)
+                    && at.contains("/Applications/")
+                    && !electron);
+            (browser && seen.insert(id.clone())).then(|| Browser {
+                version: version(&app),
                 app: at.into(),
                 default,
+                id,
             })
         })
         .collect()

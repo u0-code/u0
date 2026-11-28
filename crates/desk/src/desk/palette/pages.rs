@@ -147,6 +147,14 @@ impl Desk {
         self.palette_page(Sub::Add, window, cx);
     }
 
+    /// Clone a repository from the palette, opened at its page.
+    pub fn clone_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.palette.open {
+            self.toggle_palette(window, cx);
+        }
+        self.palette_page(Sub::Clone, window, cx);
+    }
+
     /// Open the Tag subpage in the command palette (`Tags…` in thread menu).
     pub fn open_tag_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.palette.open {

@@ -7,7 +7,7 @@ description: Diagnostics, logs, and what to do when something does not start or 
 
 ## Where to look
 
-- **Settings › Diagnostics** shows **Processes**: every process u0
+- **Settings › Maintenance & diagnostics** shows **Processes**: every process u0
   runs (agents, terminals, tunnels) as a tree with its CPU and memory. An
   agent can be let go (**Let it go**), and another process stopped
   (**Stop**). Below it, **Warnings and errors in the log** lists what

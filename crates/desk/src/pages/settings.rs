@@ -6,14 +6,7 @@
 
 use std::time::SystemTime;
 
-use gpui::component::{
-    Sizable as _,
-    input::Input,
-    kbd::Kbd,
-    scroll::ScrollableElement as _,
-    setting::{SelectIndex, SettingGroup, SettingItem, SettingPage, Settings},
-    switch::Switch,
-};
+use gpui::component::{Sizable as _, input::Input, kbd::Kbd, scroll::ScrollableElement as _};
 use gpui::{
     AnyElement, App, Context, Div, Pixels, SharedString, WeakEntity, Window, div, prelude::*, px,
     rgb,
@@ -33,7 +26,7 @@ use u0ui::{
     tokens::ColorRole,
 };
 
-use super::prefs::{group, item, whole};
+use super::srow::{Group, Item, Page, group, item, whole};
 use crate::fonts::Weighted as _;
 use crate::{
     desk::Desk,
@@ -48,31 +41,6 @@ use crate::{
 /// How tall the settings dialog stands in `window`.
 pub fn height(window: &Window) -> Pixels {
     (window.viewport_size().height - px(80.)).min(px(crate::style::SETTINGS_DIALOG_MAX_HEIGHT))
-}
-
-/// The settings sidebar's Agents folder: the agents under the Agents row.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct Folder {
-    open: bool,
-}
-
-impl Folder {
-    /// The settings show `tab`, by whatever route: the Agents page opens
-    /// the folder on the agents it is the page of.
-    pub fn shown(&mut self, tab: Tab) {
-        self.open |= tab == Tab::Agents;
-    }
-
-    /// Opened or closed by its chevron.
-    pub fn toggle(&mut self) {
-        self.open = !self.open;
-    }
-
-    /// Whether the agents show: the folder open, or a search typed, which
-    /// shows the agents it matches.
-    pub fn shows(self, searching: bool) -> bool {
-        self.open || searching
-    }
 }
 
 /// A tab of the settings.
@@ -168,22 +136,13 @@ impl Tab {
             Self::Projects => "Projects",
             Self::Usage => "Usage",
             Self::About => "About",
-            Self::SourceControl => "Source control",
-            Self::Diagnostics => "Diagnostics",
+            Self::SourceControl => "Source control & issues",
+            Self::Diagnostics => "Maintenance & diagnostics",
             Self::Devices => "Devices",
             Self::Tasks => "Scheduled tasks",
             Self::Workflows => "Workflows",
             Self::Telemetry => "Telemetry",
         })
-    }
-
-    /// Its label in the settings sidebar (`SettingsSidebar.dc.html`).
-    fn nav_label(self) -> SharedString {
-        match self {
-            Self::SourceControl => crate::tr("Source control & issues"),
-            Self::Diagnostics => crate::tr("Maintenance & diagnostics"),
-            _ => self.title(),
-        }
     }
 
     /// Material Symbols Sharp (`CarbonIcon`) glyph for the sidebar list.
@@ -256,43 +215,37 @@ impl Tab {
 }
 
 impl Desk {
-    /// Legacy `SettingPage` builder for tabs not yet migrated to `carbon_tab`.
-    fn tab_page(&self, tab: Tab, w: &WeakEntity<Desk>, cx: &App) -> SettingPage {
-        let banners = self.settings_banner_group(tab, w);
-        let paged = |lede: &str, mut groups: Vec<SettingGroup>| {
-            if let Some(b) = banners.clone() {
-                groups.insert(0, b);
-            }
-            SettingPage::new(tab.title())
+    /// The page of `tab` that is not drawn row by row (`carbon_tab`).
+    fn tab_page(&self, tab: Tab, w: &WeakEntity<Desk>, cx: &App) -> Page {
+        let paged = |lede: &str, groups: Vec<Group>| {
+            Page::new(tab.title())
                 .description(crate::tr(lede))
                 .groups(groups)
         };
-        let page = match tab {
+        match tab {
             Tab::Agents => paged("Turn on the agents you use.", self.agents(w, cx)),
             Tab::Archive => paged(
-                "Threads put away, and what u0 keeps on this Mac.",
+                "Threads and projects put away. Restore one to put it back in the sidebar.",
                 self.sessions_tab(w),
             ),
-            Tab::Usage | Tab::Workflows => SettingPage::new(tab.title()),
             Tab::Diagnostics => paged(
                 "What u0 runs on this Mac, and what went wrong.",
                 self.diagnostics(w),
             ),
             Tab::Tasks => paged(
-                "Prompts sent to an agent on a schedule, even with the window closed.",
+                "Prompts said to an agent on a schedule, a webhook or an event, even with the window closed.",
                 self.tasks(w),
             ),
             Tab::Telemetry => paged(
-                "What this machine may tell u0's makers.",
+                "How much this machine tells the people who make u0.",
                 self.telemetry_tab(w),
             ),
-            Tab::Projects => self.projects_tab(w, banners),
-            Tab::Devices => self.devices_tab(w, banners),
+            Tab::Projects => self.projects_tab(w),
+            Tab::Devices => self.devices_tab(w),
             _ => self
-                .own_tab(tab, w, banners, cx)
-                .unwrap_or_else(|| SettingPage::new(tab.title())),
-        };
-        page.icon(ui::glyph(tab.icon()))
+                .own_tab(tab, w, cx)
+                .unwrap_or_else(|| Page::new(tab.title())),
+        }
     }
 
     /// Select `tab` inside the open settings dialog.
@@ -311,16 +264,6 @@ impl Desk {
         if self.pages.tab != tab || self.pages.agent.is_some() {
             self.pages.tab = tab;
             self.pages.agent = None;
-            let page_ix = tab.index();
-            self.pages.settings.update(cx, |s, cx| {
-                s.set_selected_index(
-                    SelectIndex {
-                        page_ix,
-                        group_ix: None,
-                    },
-                    cx,
-                );
-            });
             self.tab_shown(tab, window, cx);
             cx.notify();
         }
@@ -374,11 +317,7 @@ impl Desk {
     }
 
     /// Carbon `1080×820` settings dialog shell (`SettingsSidebar` + right pane).
-    pub(crate) fn settings_dialog(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    pub(crate) fn settings_dialog(&mut self, _: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let query = self
             .pages
             .settings_search
@@ -386,23 +325,12 @@ impl Desk {
             .value()
             .trim()
             .to_owned();
-        let state_ix = self.pages.tab.index();
-        self.pages.settings.update(cx, |s, cx| {
-            if s.selected_index().page_ix != state_ix {
-                s.set_selected_index(
-                    SelectIndex {
-                        page_ix: state_ix,
-                        group_ix: None,
-                    },
-                    cx,
-                );
-            }
-            s.set_query(query.clone(), window, cx);
-        });
 
         let faces = crate::fonts::faces(cx).clone();
         let nav = self.settings_sidebar(&faces, &query, cx);
-        let scope_hint = if self.pages.tab.is_per_machine() {
+        // Telemetry is the server's, though listed under u0; About is the
+        // same wherever it is read.
+        let scope_hint = if self.pages.tab.is_per_machine() || self.pages.tab == Tab::Telemetry {
             let mname = self
                 .machine(self.pages.on)
                 .map_or_else(|| crate::tr("This Mac").to_string(), |m| m.name.clone());
@@ -410,6 +338,8 @@ impl Desk {
                 "Machine: %{name} · ⌘, opens settings, Esc closes them",
                 &[("name", &mname)],
             )
+        } else if self.pages.tab == Tab::About {
+            crate::tr("u0 · the same on every machine")
         } else {
             crate::tr("This app · ⌘, opens settings, Esc closes them")
         };
@@ -494,19 +424,14 @@ impl Desk {
             carbon
         } else {
             let w = cx.entity().downgrade();
-            let mut settings = Settings::new("settings")
-                .state(&self.pages.settings)
-                .sidebar_width(px(100.))
-                .sidebar_size_range(px(100.)..px(100.));
-            for tab in Tab::ALL {
-                settings = settings.page(self.tab_page(tab, &w, cx));
-            }
-            div()
-                .flex_1()
-                .min_h(px(0.))
-                .overflow_hidden()
-                .child(div().h_full().ml(px(-101.)).child(settings))
-                .into_any_element()
+            let tab = self.pages.tab;
+            let banner = self.carbon_settings_banner(tab, cx);
+            self.tab_page(tab, &w, cx).draw(
+                &format!("settings-{}", tab.index()),
+                banner,
+                &query,
+                &faces,
+            )
         };
 
         div()
@@ -547,9 +472,9 @@ impl Desk {
             .collect();
         let tab_matches = |tab: Tab| {
             q.is_empty()
-                || tab.nav_label().to_lowercase().contains(&q)
+                || tab.title().to_lowercase().contains(&q)
                 || tab == self.pages.tab
-                // The folder's head stands over the agents a search finds.
+                // Agents stands over the agents a search finds.
                 || (tab == Tab::Agents && !agent_names.is_empty())
         };
 
@@ -608,14 +533,12 @@ impl Desk {
             let mut rows: Vec<AnyElement> = Vec::new();
             for &tab in tabs {
                 if tab_matches(tab) {
-                    let row = self.settings_nav_row(faces, tab, true, cx);
-                    rows.push(if tab == Tab::Agents {
-                        self.agents_folder(row, !q.is_empty(), cx)
-                    } else {
-                        row.into_any_element()
-                    });
+                    rows.push(
+                        self.settings_nav_row(faces, tab, true, cx)
+                            .into_any_element(),
+                    );
                 }
-                if tab == Tab::Agents && self.pages.agents.shows(!q.is_empty()) {
+                if tab == Tab::Agents {
                     for (id, name) in agent_names.iter().cloned() {
                         rows.push(self.settings_agent_nav_row(faces, self.pages.on, id, name, cx));
                     }
@@ -777,18 +700,14 @@ impl Desk {
                     theme::role(ColorRole::SupportWarning),
                     rgb(0x0016_1616).into(),
                 ),
-                _ => (
-                    theme::role(ColorRole::SupportError),
-                    if theme::is_light() {
-                        gpui::white()
-                    } else {
-                        rgb(0x0016_1616).into()
-                    },
-                ),
+                // On dark, the lighter red of error text, as the board's
+                // badges: the support red is hard to read there.
+                _ if theme::is_light() => (theme::role(ColorRole::SupportError), gpui::white()),
+                _ => (theme::role(ColorRole::TextError), rgb(0x0016_1616).into()),
             };
             Badge::new(n.to_string()).size(BadgeSize::Sm).colors(bg, fg)
         });
-        let label = tab.nav_label();
+        let label = tab.title();
         div()
             .id(SharedString::from(format!("snav-{tab:?}")))
             .relative()
@@ -844,46 +763,6 @@ impl Desk {
             }))
     }
 
-    /// The Agents row as a folder: a chevron that opens it on its agents,
-    /// and closes it again. It says what is shown: while a search shows
-    /// the agents it finds, it is open, and waits for the search to end.
-    fn agents_folder(
-        &self,
-        row: gpui::Stateful<Div>,
-        searching: bool,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let open = self.pages.agents.shows(searching);
-        let desk = cx.entity();
-        row.child(
-            CarbonButton::new(
-                "snav-agents-folder",
-                crate::tr(if open {
-                    "Hide the agents"
-                } else {
-                    "Show the agents"
-                }),
-            )
-            .variant(ButtonVariant::Ghost)
-            .size(ButtonSize::Sm)
-            .icon(if open {
-                CarbonIcon::ChevronDown
-            } else {
-                CarbonIcon::ChevronRight
-            })
-            .icon_only(true)
-            .disabled(searching)
-            .on_click(move |_, _, cx| {
-                cx.stop_propagation();
-                desk.update(cx, |this, cx| {
-                    this.pages.agents.toggle();
-                    cx.notify();
-                });
-            }),
-        )
-        .into_any_element()
-    }
-
     fn settings_agent_nav_row(
         &self,
         faces: &Faces,
@@ -907,9 +786,7 @@ impl Desk {
             .gap(px(12.))
             .w_full()
             .h(px(32.))
-            // Inside the folder: its mark under the folder's label.
-            .pl(px(44.))
-            .pr(px(16.))
+            .px(px(16.))
             .cursor_pointer()
             .when(active, |d| {
                 d.bg(theme::role(ColorRole::LayerSelected02)).child(
@@ -923,7 +800,12 @@ impl Desk {
                 )
             })
             .when(!active, |d| d.hover(move |s| s.bg(hover_bg)))
-            .child(ui::mark(faces, &self.mark_of(&id), 16.))
+            .child(
+                CarbonGlyph::carbon(CarbonIcon::Chip)
+                    .size_length(px(16.))
+                    .color(ink)
+                    .flex_none(),
+            )
             .child(
                 ui::text(faces, name)
                     .flex_1()
@@ -944,7 +826,7 @@ impl Desk {
     }
 
     /// The agents of the registry: switched on and off, installed.
-    fn agents(&self, w: &WeakEntity<Desk>, cx: &App) -> Vec<SettingGroup> {
+    fn agents(&self, w: &WeakEntity<Desk>, cx: &App) -> Vec<Group> {
         let query = self
             .pages
             .agent_search
@@ -978,7 +860,7 @@ impl Desk {
                 e.name.to_lowercase(),
             )
         });
-        let mut head: Vec<SettingItem> = Vec::new();
+        let mut head: Vec<Item> = Vec::new();
         if let Some(first) = self.slots_on(host).next() {
             let id = first.entry.id.clone();
             head.push(item(
@@ -1089,16 +971,18 @@ impl Desk {
             crate::tr("Agents outside u0 may act"),
             crate::tr("Off, they only read. On, they may write or stop a turn, asking you first."),
             move |_, _, cx| {
-                Switch::new("outside-acts")
-                    .accessibility_label(crate::tr("Agents outside u0 may act"))
-                    .small()
-                    .checked(acts)
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                super::srow::flip(
+                    "outside-acts",
+                    crate::tr("Agents outside u0 may act"),
+                    acts,
+                    cx,
+                    move |this, _, cx| {
                         this.settings_on_mut(host).outside_acts = !acts;
                         this.save_settings_on(host);
                         cx.notify();
-                    }))
-                    .into_any_element()
+                    },
+                )
+                .into_any_element()
             },
         ));
         head.push(item(
@@ -1140,13 +1024,13 @@ impl Desk {
             },
         );
         vec![
-            SettingGroup::new().items(head),
+            Group::new().items(head),
             group(crate::tr("Agents"), rows).description(crate::tr_with(
                 "u0 keeps its settings and the agents it installs in %{home}.",
                 &[("home", &Desk::shown(self.home_on(self.pages.on)))],
             )),
-            SettingGroup::new().item(item(w, read, "", |_, _, cx| {
-                ui::button(
+            Group::new().item(item(w, read, "", |_, _, cx| {
+                super::srow::button(
                     "refresh",
                     crate::tr("Read the registry again"),
                     Weight::Secondary,
@@ -1154,6 +1038,12 @@ impl Desk {
                 .on_click(cx.listener(|this, _, _, cx| this.refresh_registry(cx)))
                 .into_any_element()
             })),
+            group(
+                crate::tr("Add u0 to an agent"),
+                vec![whole(w, &["mcp", "tools"], |_, _, _| {
+                    super::pairing::add_u0_to_agent_card("agents-mcp").into_any_element()
+                })],
+            ),
         ]
     }
 
@@ -1195,14 +1085,16 @@ impl Desk {
         };
         let (id, page_id) = (e.id.clone(), e.id.clone());
         let control = if installed || on {
-            Switch::new(SharedString::from(format!("toggle-{id}")))
-                .accessibility_label(e.name.clone())
-                .small()
-                .checked(on)
-                .on_click(cx.listener(move |this, _, _, cx| this.toggle_agent(host, &id, cx)))
-                .into_any_element()
+            super::srow::flip(
+                SharedString::from(format!("toggle-{id}")),
+                e.name.clone(),
+                on,
+                cx,
+                move |this, _, cx| this.toggle_agent(host, &id, cx),
+            )
+            .into_any_element()
         } else {
-            ui::button(
+            super::srow::button(
                 SharedString::from(format!("get-{id}")),
                 crate::tr("Install"),
                 Weight::Secondary,
@@ -1239,23 +1131,28 @@ impl Desk {
             .child(control)
     }
 
-    fn storage(&self, w: &WeakEntity<Desk>) -> SettingGroup {
+    pub(super) fn storage(&self, w: &WeakEntity<Desk>) -> Group {
         use crate::tidy::Tidy;
         let free = self.pages.sizes.free_bytes;
-        let mut items: Vec<SettingItem> = (self.pages.sizes.buckets.iter())
+        let mut items: Vec<Item> = (self.pages.sizes.buckets.iter())
             .map(|b| {
                 let size = match b.cleanable {
-                    Some(c) if c > 0 => {
-                        format!(
-                            "{} ({})",
-                            crate::tidy::shown(b.bytes),
-                            crate::tidy::shown(c)
-                        )
-                    }
+                    Some(c) if c > 0 => crate::tr_with(
+                        "%{size} · %{freed} can be freed",
+                        &[
+                            ("size", &crate::tidy::shown(b.bytes)),
+                            ("freed", &crate::tidy::shown(c)),
+                        ],
+                    )
+                    .to_string(),
                     _ => crate::tidy::shown(b.bytes),
                 };
                 let detail = if free > 0 && b.label == "Worktrees" {
-                    format!("{} · {}", b.detail, crate::tidy::shown(free))
+                    crate::tr_with(
+                        "%{detail} · %{free} free",
+                        &[("detail", &b.detail), ("free", &crate::tidy::shown(free))],
+                    )
+                    .to_string()
                 } else {
                     b.detail.clone()
                 };
@@ -1265,38 +1162,40 @@ impl Desk {
             })
             .collect();
         if self.store_refused(self.pages.on).is_none() {
-            items.push(item(
-                w,
-                crate::tr("Tidy"),
-                self.pages.tidied.clone().unwrap_or_default(),
-                |_, _, cx| {
-                    let button = |id: &'static str, label: &'static str, what: Tidy| {
-                        ui::button(id, crate::tr(label), Weight::Secondary)
-                            .on_click(cx.listener(move |this, _, _, cx| this.tidy(what, cx)))
-                    };
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .justify_end()
-                        .gap(px(8.))
-                        .child(button(
-                            "tidy-records",
-                            "Remove records no thread keeps",
-                            Tidy::Records,
-                        ))
-                        .child(button(
-                            "tidy-worktrees",
-                            "Remove worktrees no thread works in",
-                            Tidy::Worktrees,
-                        ))
-                        .child(button(
-                            "tidy-checkpoints",
-                            "Remove checkpoints of earlier runs",
-                            Tidy::Checkpoints,
-                        ))
-                        .into_any_element()
-                },
-            ));
+            items.push(
+                item(
+                    w,
+                    crate::tr("Tidy"),
+                    self.pages.tidied.clone().unwrap_or_default(),
+                    |_, _, cx| {
+                        let button = |id: &'static str, label: &'static str, what: Tidy| {
+                            super::srow::button(id, crate::tr(label), Weight::Secondary)
+                                .on_click(cx.listener(move |this, _, _, cx| this.tidy(what, cx)))
+                        };
+                        div()
+                            .flex()
+                            .flex_wrap()
+                            .gap(px(8.))
+                            .child(button(
+                                "tidy-records",
+                                "Remove records no thread keeps",
+                                Tidy::Records,
+                            ))
+                            .child(button(
+                                "tidy-worktrees",
+                                "Remove worktrees no thread works in",
+                                Tidy::Worktrees,
+                            ))
+                            .child(button(
+                                "tidy-checkpoints",
+                                "Remove checkpoints of earlier runs",
+                                Tidy::Checkpoints,
+                            ))
+                            .into_any_element()
+                    },
+                )
+                .stacked(),
+            );
         }
         if let Some(refused) = self.store_refused(self.pages.on).cloned() {
             items.push(whole(w, &[], move |_, _, _| {
@@ -1309,8 +1208,8 @@ impl Desk {
         ))
     }
 
-    fn archived_projects(&self, w: &WeakEntity<Desk>) -> Option<SettingGroup> {
-        let items: Vec<SettingItem> = (self.edited().prefs.iter())
+    fn archived_projects(&self, w: &WeakEntity<Desk>) -> Option<Group> {
+        let items: Vec<Item> = (self.edited().prefs.iter())
             .filter(|(_, p)| p.archived)
             .enumerate()
             .map(|(n, (folder, _))| {
@@ -1321,7 +1220,7 @@ impl Desk {
                     Desk::shown(folder),
                     move |_, _, cx| {
                         let f = f.clone();
-                        ui::button(
+                        super::srow::button(
                             SharedString::from(format!("restore-p-{n}")),
                             crate::tr("Restore"),
                             Weight::Secondary,
@@ -1335,8 +1234,8 @@ impl Desk {
         (!items.is_empty()).then(|| group(crate::tr("Archived projects"), items))
     }
 
-    fn sessions_tab(&self, w: &WeakEntity<Desk>) -> Vec<SettingGroup> {
-        let mut list: Vec<SettingItem> = (self.sessions.all.iter())
+    fn sessions_tab(&self, w: &WeakEntity<Desk>) -> Vec<Group> {
+        let mut list: Vec<Item> = (self.sessions.all.iter())
             .filter(|s| s.meta.flags.archived && !self.deleting(s.key))
             .map(|s| {
                 let key = s.key;
@@ -1356,7 +1255,6 @@ impl Desk {
         }
         let mut groups = vec![group(crate::tr("Archived threads"), list)];
         groups.extend(self.archived_projects(w));
-        groups.push(self.storage(w));
         groups
     }
 
@@ -1394,7 +1292,7 @@ impl Desk {
                     )),
             )
             .child(
-                ui::button(
+                super::srow::button(
                     SharedString::from(format!("restore-{key}")),
                     crate::tr("Restore"),
                     Weight::Secondary,
@@ -1402,7 +1300,7 @@ impl Desk {
                 .on_click(cx.listener(move |this, _, _, cx| this.restore(key, cx))),
             )
             .child(
-                ui::button(
+                super::srow::button(
                     SharedString::from(format!("delete-{key}")),
                     crate::tr("Delete"),
                     Weight::Quiet,
@@ -1416,25 +1314,6 @@ impl Desk {
 
 #[cfg(test)]
 mod tests {
-    use super::{Folder, Tab};
-
-    #[test]
-    fn the_agents_folder_opens_as_the_agents_page_shows_and_as_a_search_finds() {
-        let mut folder = Folder::default();
-        assert!(!folder.shows(false), "it starts closed");
-        folder.shown(Tab::General);
-        assert!(!folder.shows(false), "another page leaves it closed");
-        assert!(folder.shows(true), "a search shows the agents it finds");
-        folder.shown(Tab::Agents);
-        assert!(folder.shows(false), "the Agents page opens it");
-        folder.toggle();
-        assert!(!folder.shows(false), "its chevron closes it");
-        folder.shown(Tab::Devices);
-        assert!(!folder.shows(false), "and it stays closed on another page");
-        folder.shown(Tab::Agents);
-        assert!(folder.shows(false), "until the Agents page shows again");
-    }
-
     /// Under GPUI Fast a bare `overflow_y_scroll` column in the dialog's row
     /// is laid out as tall as what it holds, so it never scrolls: the dialog
     /// clipped the page list below Source control, and Devices, where a

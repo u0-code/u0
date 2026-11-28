@@ -56,7 +56,7 @@ patterns, and scripts to run in each new worktree (see
   the only one using it.
 - The Details tab's **Worktree** row has **Remove**. A thread whose
   worktree is gone says so; start a new thread to go on.
-- **Settings › Archive › What u0 keeps** shows what u0 keeps and
+- **Settings › Maintenance & diagnostics › What u0 keeps** shows what u0 keeps and
   has **Remove worktrees no thread works in**.
 
 Git refuses to remove a worktree with uncommitted changes, and u0
@@ -82,6 +82,6 @@ Under each turn (see [The thread](thread.md#turns-undo-restore-branch-off)):
 In a folder of several repositories, each repository is checkpointed and
 restored.
 
-**Settings › Archive › What u0 keeps › Remove checkpoints of earlier
+**Settings › Maintenance & diagnostics › What u0 keeps › Remove checkpoints of earlier
 runs** removes checkpoints from before u0 last started; undo reaches
 only the turns of this run after that.

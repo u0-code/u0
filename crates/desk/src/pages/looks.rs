@@ -18,7 +18,7 @@ use super::{
 use crate::{
     desk::Desk,
     fonts::Faces,
-    settings::{CodeFont, Look, Motion, SCALES, Settings, Shell, Sort, TermSize, Width},
+    settings::{CodeFont, Look, Motion, SCALES, Settings, Shell, TermSize, Width},
     theme,
     themes::Themes,
 };
@@ -43,13 +43,10 @@ impl Desk {
             "shell",
             "diff_wrap",
             "width",
-            "sort",
             "blue_orange",
             "side_by_side",
             "diff_folded",
             "no_spacing",
-            "twelve",
-            "math",
             "glass",
             "backdrop",
         ]
@@ -61,6 +58,7 @@ impl Desk {
             self.mode_sgroup(&defaults, cx),
             self.fonts_sgroup(&defaults, cx),
             self.layout_sgroup(&defaults, cx),
+            self.diffs_sgroup(&defaults, cx),
             self.motion_sgroup(&defaults, cx),
         ];
         let tail = self.themes_library_section(query, faces, cx);
@@ -333,33 +331,6 @@ impl Desk {
                 },
             );
 
-        let current_math = self.settings.math;
-        let math_def = defaults.math;
-        let desk_math = cx.entity();
-        let desk_math_reset = cx.entity();
-        let math_row = self
-            .srow(
-                "math",
-                crate::tr("Render math"),
-                crate::tr("Show LaTeX in replies as formulas."),
-            )
-            .modified(current_math != math_def, move |_, cx| {
-                desk_math_reset.update(cx, |this, cx| {
-                    this.settings.math = math_def;
-                    this.save_settings();
-                    this.settings_took(cx);
-                    cx.notify();
-                });
-            })
-            .switch(current_math, move |on, _, cx| {
-                desk_math.update(cx, |this, cx| {
-                    this.settings.math = on;
-                    this.save_settings();
-                    this.settings_took(cx);
-                    cx.notify();
-                });
-            });
-
         SGroup::new(
             crate::tr("Layout"),
             vec![
@@ -379,22 +350,15 @@ impl Desk {
                     false,
                     cx,
                 ),
-                self.global_select_srow(
-                    "sort",
-                    "The sidebar sorts by",
-                    "For threads and projects alike; pinned ones stay on top.",
-                    [
-                        ("Your message", Sort::Used),
-                        ("Activity", Sort::Updated),
-                        ("Begun", Sort::Begun),
-                        ("Name", Sort::Name),
-                    ],
-                    self.settings.sort,
-                    defaults.sort,
-                    |s, v| s.sort = v,
-                    false,
-                    cx,
-                ),
+            ],
+        )
+        .description(crate::tr("Density and how wide a thread is."))
+    }
+
+    fn diffs_sgroup(&self, defaults: &Settings, cx: &mut Context<Self>) -> SGroup {
+        SGroup::new(
+            crate::tr("Diffs"),
+            vec![
                 self.global_segmented_srow(
                     "blue_orange",
                     "What a change added and took away",
@@ -439,21 +403,9 @@ impl Desk {
                     false,
                     cx,
                 ),
-                self.global_segmented_srow(
-                    "twelve",
-                    "Times",
-                    "When a message was said, and what u0 says of times.",
-                    [("24-hour", false), ("12-hour", true)],
-                    self.settings.twelve,
-                    defaults.twelve,
-                    |s, v| s.twelve = v,
-                    false,
-                    cx,
-                ),
-                math_row,
             ],
         )
-        .description(crate::tr("Density and where panels sit."))
+        .description(crate::tr("How a change is shown."))
     }
 
     fn motion_sgroup(&self, defaults: &Settings, cx: &mut Context<Self>) -> SGroup {

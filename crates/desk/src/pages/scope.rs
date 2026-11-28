@@ -5,36 +5,31 @@
 
 use std::path::PathBuf;
 
-use gpui::component::{Disableable as _, Selectable as _, menu::PopupMenu, setting::SettingGroup};
+use gpui::component::{Selectable as _, menu::PopupMenu};
 use gpui::{Context, Div, SharedString, WeakEntity, div, prelude::*, px};
 use u0ui::tokens::ColorRole;
 
-use super::prefs::{group, whole};
 use super::srow::SRow;
+use super::srow::{Group, whole};
 use crate::{
     desk::{Desk, Place, Popup},
     fonts::Faces,
     settings::Settings,
     theme,
-    ui::{self, Pick, Weight},
+    ui::{self, Weight},
 };
 
 impl Desk {
-    /// Legacy `SettingGroup` scope picker for unmigrated `SettingPage` tabs
-    /// (`hosts.rs`).
-    pub(super) fn scope_group(w: &WeakEntity<Desk>) -> SettingGroup {
-        group(
-            crate::tr("Applying to"),
-            vec![whole(
-                w,
-                &["project", "override", "scope"],
-                |d, faces, cx| d.scope_banner(faces, cx).into_any_element(),
-            )],
-        )
+    /// The scope bar, for a page of items (`hosts.rs`).
+    pub(super) fn scope_group(w: &WeakEntity<Desk>) -> Group {
+        Group::new().item(whole(
+            w,
+            &["project", "override", "scope", "applying"],
+            |d, faces, cx| d.scope_banner(faces, cx).into_any_element(),
+        ))
     }
 
-    /// Legacy project-scoped control for unmigrated `SettingPage` tabs
-    /// (`hosts.rs`).
+    /// A project-scoped control on a page of items (`hosts.rs`).
     pub(super) fn own<T: Copy + PartialEq + 'static, const N: usize>(
         &self,
         id: &str,
@@ -47,11 +42,12 @@ impl Desk {
         let shown = (scope.as_ref()).map_or_else(|| self.edited().clone(), |p| self.edited().of(p));
         let now = get(&shown);
         let held = scope.is_some() && now != get(self.edited());
-        let choices = choices
-            .into_iter()
-            .map(|(label, value)| {
-                let scope = scope.clone();
-                let pick: Pick = Box::new(cx.listener(move |this, _, _, cx| {
+        let choices = (choices.into_iter()).map(|(label, value)| (crate::tr(&label.into()), value));
+        let desk = cx.entity();
+        let picked = {
+            let scope = scope.clone();
+            move |value, _: &mut gpui::Window, cx: &mut gpui::App| {
+                desk.update(cx, |this, cx| {
                     match &scope {
                         Some(p) => this.edited_mut().hold(p, |s| set(s, value)),
                         None => set(this.edited_mut(), value),
@@ -59,13 +55,12 @@ impl Desk {
                     this.save_edited();
                     this.settings_took(cx);
                     cx.notify();
-                }));
-                (crate::tr(&label.into()), value == now, pick)
-            })
-            .collect();
+                });
+            }
+        };
         let everywhere = get(self.edited());
         let marker = if held {
-            ui::button(
+            super::srow::button(
                 SharedString::from(format!("{id}-inherit")),
                 crate::tr("This project's own · Reset"),
                 Weight::Quiet,
@@ -92,7 +87,13 @@ impl Desk {
             .flex_col()
             .items_end()
             .gap(px(2.))
-            .child(ui::segmented(id, choices).disabled(readonly))
+            .child(super::srow::segmented(
+                SharedString::from(id.to_owned()),
+                choices,
+                now,
+                readonly,
+                picked,
+            ))
             .when(scope.is_some(), |d| d.child(marker))
     }
     /// Carbon `layer-01` scope bar atop pages with project-overridable settings

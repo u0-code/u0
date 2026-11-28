@@ -3,15 +3,13 @@
 //! memory and this Mac's load, each stopped from here; and the warnings
 //! and errors in u0's log.
 
-use gpui::component::button::ButtonVariants as _;
 use gpui::component::{
     list::ListItem,
-    setting::{SettingGroup, SettingItem},
     tree::{TreeItem, tree},
 };
 use gpui::{App, Context, IntoElement, SharedString, WeakEntity, div, prelude::*, px};
 
-use super::prefs::{group, item, whole};
+use super::srow::{Group, Item, group, item, whole};
 use crate::{
     desk::Desk,
     diagnostics::Proc,
@@ -43,9 +41,25 @@ pub(crate) fn process_tree(procs: &[Proc]) -> Vec<TreeItem> {
     under(procs, &mut 0, first)
 }
 
+/// `said` with each path in it shortened as paths are shown, so a line of
+/// the log reads on one line.
+fn shortened(said: &str) -> String {
+    let home = Desk::home_path();
+    said.split(' ')
+        .map(|word| {
+            if word.starts_with('/') {
+                crate::ui::short_path(std::path::Path::new(word), home.as_deref())
+            } else {
+                word.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 impl Desk {
     /// The Diagnostics tab: this Mac, u0's processes, the log's troubles.
-    pub(super) fn diagnostics(&self, w: &WeakEntity<Desk>) -> Vec<SettingGroup> {
+    pub(super) fn diagnostics(&self, w: &WeakEntity<Desk>) -> Vec<Group> {
         let processes = &self.pages.processes.1;
         let memory = crate::tidy::shown(processes.memory);
         let held = crate::tidy::shown(processes.procs.iter().map(|p| p.kb * 1024).sum());
@@ -71,7 +85,7 @@ impl Desk {
                 d.processes(faces, cx).into_any_element()
             })
         };
-        let log: Vec<SettingItem> = if self.pages.troubles.is_empty() {
+        let log: Vec<Item> = if self.pages.troubles.is_empty() {
             vec![item(
                 w,
                 crate::tr("Nothing went wrong lately."),
@@ -93,7 +107,7 @@ impl Desk {
                             entry.time,
                             entry.level.to_uppercase(),
                             entry.source,
-                            entry.message,
+                            shortened(&entry.message),
                             if entry.count > 1 {
                                 format!(" (×{})", entry.count)
                             } else {
@@ -116,13 +130,17 @@ impl Desk {
                         crate::tr("This build"),
                         crate::update::this_build(),
                         |_, _, _| {
-                            ui::button("diagnostics-version", crate::tr("Copy"), Weight::Secondary)
-                                .on_click(|_, _, cx| Desk::copy_version(cx))
-                                .into_any_element()
+                            super::srow::button(
+                                "diagnostics-version",
+                                crate::tr("Copy"),
+                                Weight::Secondary,
+                            )
+                            .on_click(|_, _, cx| Desk::copy_version(cx))
+                            .into_any_element()
                         },
                     ),
-                    item(w, crate::tr("u0"), mac, |_, _, cx| {
-                        ui::button(
+                    item(w, crate::tr("This Mac"), mac, |_, _, cx| {
+                        super::srow::button(
                             "diagnostics-read",
                             crate::tr("Read again"),
                             Weight::Secondary,
@@ -133,6 +151,7 @@ impl Desk {
                 ],
             ),
             group(crate::tr("Processes"), vec![shown]),
+            self.storage(w),
             group(crate::tr("Warnings and errors in the log"), log),
         ]
     }
@@ -167,29 +186,36 @@ impl Desk {
                     )
                 });
                 let stop = desk.clone();
+                // u0 is not stopped from its own page.
+                let ours = pid == std::process::id();
                 let control = match agent {
-                    Some(id) => ui::button(
-                        SharedString::from(format!("let-go-{ix}")),
-                        crate::tr("Let it go"),
-                        Weight::Secondary,
-                    )
-                    .on_click(move |_, _, cx| {
-                        stop.update(cx, |this, cx| {
-                            this.let_go(this.pages.on, &id);
-                            this.weigh_agents(this.pages.on);
-                            cx.notify();
-                        });
-                    }),
-                    None => ui::button(
-                        SharedString::from(format!("stop-{ix}")),
-                        crate::tr("Stop"),
-                        Weight::Secondary,
-                    )
-                    .danger()
-                    .on_click(move |_, _, cx| {
-                        let d = stop.read(cx);
-                        d.stop_process(d.pages.on, pid);
-                    }),
+                    _ if ours => None,
+                    Some(id) => Some(
+                        super::srow::button(
+                            SharedString::from(format!("let-go-{ix}")),
+                            crate::tr("Let it go"),
+                            Weight::Secondary,
+                        )
+                        .on_click(move |_, _, cx| {
+                            stop.update(cx, |this, cx| {
+                                this.let_go(this.pages.on, &id);
+                                this.weigh_agents(this.pages.on);
+                                cx.notify();
+                            });
+                        }),
+                    ),
+                    None => Some(
+                        super::srow::button(
+                            SharedString::from(format!("stop-{ix}")),
+                            crate::tr("Stop"),
+                            Weight::Secondary,
+                        )
+                        .variant(u0ui::components::button::ButtonVariant::DangerGhost)
+                        .on_click(move |_, _, cx| {
+                            let d = stop.read(cx);
+                            d.stop_process(d.pages.on, pid);
+                        }),
+                    ),
                 };
                 ListItem::new(ix)
                     .h(px(ROW))
@@ -200,7 +226,7 @@ impl Desk {
                             .items_center()
                             .gap(px(12.))
                             .child(ui::described(&faces, name, Some(about)).flex_1())
-                            .child(control),
+                            .children(control),
                     )
             },
         ))

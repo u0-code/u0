@@ -101,7 +101,7 @@ behind or conflicts with its base, and the review decision.
 - **Update branch** / **Update with rebase** bring a branch behind its
   base up to date (`gh pr update-branch`).
 
-With **Source control › Merging › Agents' credits in a squash** set to
+With **Source control & issues › Merging › Agents' credits in a squash** set to
 **Taken out** (`uncredit`), a squash merge through `gh` takes agents'
 `Co-authored-by` lines and "Generated with" footers out of the commit
 message; people's credits stay.

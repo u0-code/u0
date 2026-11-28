@@ -4,30 +4,21 @@
 
 use std::path::PathBuf;
 
-use gpui::component::{
-    Disableable as _, Sizable as _,
-    setting::{SettingGroup, SettingItem, SettingPage},
-    switch::Switch,
-};
 use gpui::{WeakEntity, prelude::*};
 use u0ui::components::{Button, ButtonSize, ButtonVariant};
 
-use super::prefs::{group, item, managed};
+use super::{
+    prefs::managed,
+    srow::{Item, Page, group, item},
+};
 use crate::{desk::Desk, servers::Host, settings::PagesIn, ui};
 
 impl Desk {
     /// The Browser tab.
-    pub(super) fn browser_tab(
-        &self,
-        w: &WeakEntity<Desk>,
-        banners: Option<SettingGroup>,
-    ) -> SettingPage {
-        let mut page = SettingPage::new(super::Tab::Browser.title()).description(crate::tr(
+    pub(super) fn browser_tab(&self, w: &WeakEntity<Desk>) -> Page {
+        let mut page = Page::new(super::Tab::Browser.title()).description(crate::tr(
             "Dev servers, links and HTML files open in u0's web view or your browser.",
         ));
-        if let Some(b) = banners {
-            page = page.group(b);
-        }
         page = page
             .group(group(crate::tr("Pages"), Self::pages_items(w)))
             .group(group(crate::tr("Your browser"), self.browsers(w)));
@@ -41,7 +32,7 @@ impl Desk {
         page
     }
 
-    fn pages_items(w: &WeakEntity<Desk>) -> Vec<SettingItem> {
+    fn pages_items(w: &WeakEntity<Desk>) -> Vec<Item> {
         vec![
             item(
                 w,
@@ -65,15 +56,19 @@ impl Desk {
                 w,
                 crate::tr("Web engine"),
                 crate::tr("The system's own engine; without one, pages open in your browser."),
-                |_, faces, _| {
+                |d, faces, _| {
+                    let safari = (d.browsers.iter())
+                        .find(|b| b.id == "com.apple.Safari")
+                        .and_then(|b| b.version.clone());
                     ui::text(
                         faces,
-                        if cfg!(target_os = "macos") {
-                            crate::tr("WebKit, macOS's own")
-                        } else {
-                            crate::tr("None yet on this system")
+                        match safari {
+                            Some(v) => crate::tr_with("WebKit · Safari %{v}", &[("v", &v)]),
+                            None if cfg!(target_os = "macos") => crate::tr("WebKit, macOS's own"),
+                            None => crate::tr("None yet on this system"),
                         },
                     )
+                    .text_color(crate::theme::text2())
                     .into_any_element()
                 },
             ),
@@ -82,16 +77,18 @@ impl Desk {
                 crate::tr("⌘-click a printed address"),
                 crate::tr("Opens where pages open; ⌥⌘-click opens it in your browser."),
                 |d, _, cx| {
-                    let switch = Switch::new("cmd-click-urls")
-                        .accessibility_label(crate::tr("⌘-click a printed address"))
-                        .small()
-                        .checked(d.settings.cmd_click_urls)
-                        .disabled(d.held_here("cmd_click_urls"))
-                        .on_click(cx.listener(|this, _, _, cx| {
+                    let switch = super::srow::flip(
+                        "cmd-click-urls",
+                        crate::tr("⌘-click a printed address"),
+                        d.settings.cmd_click_urls,
+                        cx,
+                        |this, _, cx| {
                             this.settings.cmd_click_urls = !this.settings.cmd_click_urls;
                             this.save_settings();
                             cx.notify();
-                        }));
+                        },
+                    )
+                    .disabled(d.held_here("cmd_click_urls"));
                     Self::as_held("cmd_click_urls", switch)
                 },
             ),
@@ -115,7 +112,7 @@ impl Desk {
 
     /// The browsers on this Mac, as the settings dialog opened: the
     /// system's default first, then each other, the one in use said so.
-    fn browsers(&self, w: &WeakEntity<Desk>) -> Vec<SettingItem> {
+    fn browsers(&self, w: &WeakEntity<Desk>) -> Vec<Item> {
         let name = |app: &PathBuf| {
             app.file_stem()
                 .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
@@ -136,7 +133,7 @@ impl Desk {
                 w,
                 n + 1,
                 name(&b.app).into(),
-                b.app.display().to_string().into(),
+                Desk::shown(&b.app).into(),
                 Some(b.app.clone()),
             ));
         }
@@ -151,7 +148,7 @@ impl Desk {
         title: gpui::SharedString,
         about: gpui::SharedString,
         app: Option<PathBuf>,
-    ) -> SettingItem {
+    ) -> Item {
         let id = gpui::SharedString::from(format!("browser-{n}"));
         item(w, title, about, move |d, faces, cx| {
             if d.settings.browser == app {
@@ -173,7 +170,7 @@ impl Desk {
 
     /// The website data the pages kept, and Clear…, asked first.
     #[cfg(target_os = "macos")]
-    fn website_data(w: &WeakEntity<Desk>) -> SettingItem {
+    fn website_data(w: &WeakEntity<Desk>) -> Item {
         item(
             w,
             crate::tr("Website data"),

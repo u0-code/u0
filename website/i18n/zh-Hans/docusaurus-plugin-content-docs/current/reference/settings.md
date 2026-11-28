@@ -70,7 +70,7 @@ u0 把设置保存在其主目录（`~/.u0`，或 `U0_HOME`）中的 `settings.j
 | `keep_with_pr` | bool | `false` | 拥有未关闭拉取请求的线程永远不会被标为完成，无论闲置多久。 |
 | `snoozes` | 字符串列表 | `["1h", "tomorrow", "next week"]` | 优先提供的稍后提醒选项，每项的写法与你在 **自定义…** 中输入的一样。 |
 | `resume_at_reset` | bool | `true` | 因智能体用量限制而中止的一轮，会在限制重置时自动继续（前提是智能体说明了重置时间）。**通用 › 在后台**。 |
-| `sort` | `"used"`、`"updated"`、`"begun"`、`"name"` | `"used"` | 侧边栏如何排列线程和项目：按你的最后一条消息、按任何活动、按开始时间，或按名称。 |
+| `sort` | `"used"`、`"updated"`、`"begun"`、`"name"` | `"used"` | 侧边栏如何排列线程和项目：按你的最后一条消息、按任何活动、按开始时间，或按名称。**通用 › 侧边栏 › 线程顺序**。 |
 | `project_grouping` | `"by_project"`、`"by_machine"`、`"flat"` | `"by_project"` | 侧边栏如何对线程分组。 |
 | `project_order` | `"manual"`、`"activity"`、`"name"` | `"manual"` | 侧边栏如何排列项目。 |
 | `working_section` | bool | `true` | 将运行中或等待你的线程置顶显示。 |
@@ -95,8 +95,8 @@ u0 把设置保存在其主目录（`~/.u0`，或 `U0_HOME`）中的 `settings.j
 | `worktrees` | 路径或 `null` | `null`（`<home>/worktrees`） | 新工作树创建在哪里。之前创建的工作树留在原处。 |
 | `submodules` | `"recursive"`、`"top"`、`"skip"` | `"recursive"` | 新工作树的子模块检出到什么程度。 |
 | `tidy_after` | 天数或 `null` | `null` | 已归档线程的工作树保留多少天后被移除。有未提交改动的工作树会保留，其分支始终保留。`null`：一直保留。 |
-| `merge` | `"squash"`、`"merge"`、`"rebase"` | `"squash"` | 从右侧栏合并拉取请求时使用的方式。**源代码管理与议题**。 |
-| `uncredit` | bool | `false` | 从压缩（squash）后的提交信息中去掉智能体的 `Co-authored-by` 行和署名脚注。**源代码管理与议题**。 |
+| `merge` | `"squash"`、`"merge"`、`"rebase"` | `"squash"` | 从右侧栏合并拉取请求时使用的方式。**源代码管理与问题**。 |
+| `uncredit` | bool | `false` | 从压缩（squash）后的提交信息中去掉智能体的 `Co-authored-by` 行和署名脚注。**源代码管理与问题**。 |
 | `worktree_from` | `"origin_default"`、`"local_main"`、`"current_branch"` | `"origin_default"` | 新工作树默认从何处检出。 |
 | `branch_template` | 字符串 | `"{type}/{thread}"` | 新工作树的分支命名模板。 |
 | `copy_untracked` | 字符串 | `".env, .env.local"` | 复制到新工作树中的未跟踪文件列表。 |
@@ -114,7 +114,7 @@ u0 把设置保存在其主目录（`~/.u0`，或 `U0_HOME`）中的 `settings.j
 
 | 键 | 类型 | 默认值 | 含义 |
 |---|---|---|---|
-| `send` | `"return"`、`"multiline"`、`"command"` | `"return"` | 用什么发送：Return；消息只有一行时用 Return，之后用 ⌘Return；或始终用 ⌘Return。Return 不发送时，它会换行。**对话 › 发送**。 |
+| `send` | `"return"`、`"multiline"`、`"command"` | `"return"` | 用什么发送：Return；消息只有一行时用 Return，之后用 ⌘Return；或始终用 ⌘Return。Return 不发送时，它会换行。**对话 › 输入框 › 发送快捷键**。 |
 | `steer` | bool | `false` | 在一轮进行中发送的内容会引导这一轮，而不是等这一轮结束。 |
 | `spell_check` | bool | `true` | 在输入框中给拼写错误的单词加下划线，其菜单中提供系统给出的建议。 |
 | `view` | `"zen"`、`"quiet"`、`"normal"`、`"thinking"`、`"verbose"` | `"normal"` | 智能体的工作在对话中如何显示。⌃O 依次切换。 |
@@ -141,8 +141,8 @@ u0 把设置保存在其主目录（`~/.u0`，或 `U0_HOME`）中的 `settings.j
 | `mono` | `"plex_mono"`、`"jet_brains"`、`"sf_mono"`、`"menlo"` | `"plex_mono"` | 代码和数字使用的字体。 |
 | `width` | `"comfortable"`、`"wide"`、`"full"` | `"comfortable"` | 对话和输入框的显示宽度（720 pt、880 pt，或整个面板）。 |
 | `blue_orange` | bool | `false` | 新增和删除的行用蓝色和橙色显示，而不是绿色和红色。 |
-| `twelve` | bool | `false` | 时间使用十二小时制。 |
-| `language` | `"en"`、`"zh-CN"`、`"de"`、`"es"`、`"fr"`、`"ja"`、`"ko"`、`"pt-BR"`、`"ru"`、`"sv"` 或 `null` | `null` | 窗口的语言。`null`：如果 u0 支持系统语言则使用系统语言，否则使用英语。 |
+| `twelve` | bool | `false` | 时间使用十二小时制。**通用 › 语言和时间 › 时间格式**。 |
+| `language` | `"en"`、`"zh-CN"`、`"de"`、`"es"`、`"fr"`、`"ja"`、`"ko"`、`"pt-BR"`、`"ru"`、`"sv"` 或 `null` | `null` | 窗口的语言。`null`：如果 u0 支持系统语言则使用系统语言，否则使用英语。**通用 › 语言和时间**。 |
 | `terminal_size` | `"small"`、`"medium"`、`"large"` | `"medium"` | 终端中的文字大小。 |
 | `shell` | `"login"`、`"zsh"`、`"bash"`、`"fish"` | `"login"` | 终端运行的 shell。`"login"`：你的 `$SHELL`。 |
 | `diff_wrap` | bool | `true` | diff 中的长行自动换行，而不是在边缘截断。 |
@@ -175,7 +175,7 @@ u0 把设置保存在其主目录（`~/.u0`，或 `U0_HOME`）中的 `settings.j
 
 | 键 | 类型 | 默认值 | 含义 |
 |---|---|---|---|
-| `notify` | `"off"`、`"banner"`、`"banner_and_sound"` | `"banner"` | 当 u0 不在前台时，某个线程结束一轮或需要你时，macOS 显示什么。**通用 › 你离开时**。 |
+| `notify` | `"off"`、`"banner"`、`"banner_and_sound"` | `"banner"` | 当 u0 不在前台时，某个线程结束一轮或需要你时，macOS 显示什么。**通用 › 通知 › 线程通知**。 |
 | `notify_on` | `{finished, failed, asks}`，每项为 bool | 全部为 `true` | 哪些事件发出通知：一轮结束、一轮失败、提出了问题。 |
 | `in_app_notify` | bool | `true` | 对未聚焦线程显示应用内通知提示。 |
 | `awake` | bool | `true` | 智能体工作时阻止 Mac 进入睡眠。 |

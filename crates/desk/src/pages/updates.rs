@@ -1,10 +1,10 @@
 //! Updates, on the About page: where an update of u0 stands and what
 //! to do about it, the channel, and whether u0 looks by itself.
 
-use gpui::component::{Disableable as _, Sizable as _, setting::SettingGroup, switch::Switch};
+use gpui::component::Sizable as _;
 use gpui::{AnyElement, Context, WeakEntity, div, prelude::*, px};
 
-use super::prefs::{group, item, whole};
+use super::srow::{Group, group, item, whole};
 use crate::{
     desk::{Desk, updates::Updating},
     theme,
@@ -21,7 +21,7 @@ impl Desk {
 
     /// The updates group: where an update stands and what to do, the
     /// channel, and whether u0 looks by itself.
-    pub(super) fn updates_group(&self, w: &WeakEntity<Desk>) -> SettingGroup {
+    pub(super) fn updates_group(&self, w: &WeakEntity<Desk>) -> Group {
         let build = update::this_build();
         let said = match &self.updates.now {
             Updating::Idle => crate::tr_with("This is %{build}.", &[("build", &build)]),
@@ -77,15 +77,17 @@ impl Desk {
                 crate::tr("Look for updates"),
                 crate::tr("At launch and every four hours. Installs only when you say."),
                 |d, _, cx| {
-                    let switch = Switch::new("check-updates")
-                        .accessibility_label(crate::tr("Look for updates"))
-                        .small()
-                        .checked(d.settings.check_updates)
-                        .on_click(cx.listener(|this, _, _, cx| {
+                    let switch = super::srow::flip(
+                        "check-updates",
+                        crate::tr("Look for updates"),
+                        d.settings.check_updates,
+                        cx,
+                        |this, _, cx| {
                             this.settings.check_updates = !this.settings.check_updates;
                             this.save_settings();
                             cx.notify();
-                        }));
+                        },
+                    );
                     match crate::policy::locked("check_updates") {
                         None => switch.into_any_element(),
                         Some(by) => super::prefs::managed(switch.disabled(true), by),
@@ -114,7 +116,7 @@ impl Desk {
                     .on_click(|_, _, cx| Self::copy_version(cx)),
             )
             .children(button.map(|(label, weight)| {
-                ui::button("update", crate::tr(label), weight).on_click(cx.listener(
+                super::srow::button("update", crate::tr(label), weight).on_click(cx.listener(
                     |this, _, window, cx| match this.updates.now {
                         Updating::Found(_) => this.install_update(cx),
                         Updating::Ready => this.reopen(window, cx),

@@ -3,15 +3,13 @@
 
 use agent_client_protocol::v1::schema::SessionConfigOptionCategory as Category;
 use gpui::component::{
-    Selectable as _, Sizable as _,
+    Selectable as _,
     input::{Textarea, TextareaState},
     menu::PopupMenu,
-    setting::{SettingItem, SettingPage},
-    switch::Switch,
 };
-use gpui::{Axis, Context, Entity, WeakEntity, prelude::*, px};
+use gpui::{Context, Entity, WeakEntity, prelude::*, px};
 
-use super::prefs::{group, item};
+use super::srow::{Item, Page, group, item};
 use crate::{
     desk::{Desk, Popup},
     fonts::Faces,
@@ -21,10 +19,7 @@ use crate::{
 
 impl Desk {
     /// The writer's tab.
-    pub(super) fn writing_tab(
-        w: &WeakEntity<Desk>,
-        banners: Option<gpui::component::setting::SettingGroup>,
-    ) -> SettingPage {
+    pub(super) fn writing_tab(w: &WeakEntity<Desk>) -> Page {
         let writer = vec![
             item(
                 w,
@@ -38,16 +33,18 @@ impl Desk {
                 crate::tr("Suggest what to say next"),
                 crate::tr("After each turn, in the empty composer: Tab takes it, Esc lets it go."),
                 |d, _, cx| {
-                    Switch::new("suggest")
-                        .accessibility_label(crate::tr("Suggest what to say next"))
-                        .small()
-                        .checked(d.settings.writer.suggest)
-                        .on_click(cx.listener(|this, _, _, cx| {
+                    super::srow::flip(
+                        "suggest",
+                        crate::tr("Suggest what to say next"),
+                        d.settings.writer.suggest,
+                        cx,
+                        |this, _, cx| {
                             this.settings.writer.suggest = !this.settings.writer.suggest;
                             this.save_settings();
                             cx.notify();
-                        }))
-                        .into_any_element()
+                        },
+                    )
+                    .into_any_element()
                 },
             )
             .keywords(["Tab"]),
@@ -78,13 +75,11 @@ impl Desk {
                 |d| &d.pages.transcripts,
             ),
         ];
-        let mut page = SettingPage::new(super::Tab::Writing.title()).description(crate::tr(
-            "u0 has no model; one of your agents writes for it.",
-        ));
-        if let Some(b) = banners {
-            page = page.group(b);
-        }
-        page.group(group(crate::tr("The writer"), writer))
+        Page::new(super::Tab::Writing.title())
+            .description(crate::tr(
+                "u0 has no model; one of your agents writes for it.",
+            ))
+            .group(group(crate::tr("The writer"), writer))
             .group(group(crate::tr("Your instructions"), yours))
     }
 
@@ -203,10 +198,10 @@ pub(super) fn instructions(
     name: &str,
     about: &str,
     of: fn(&Desk) -> &Entity<TextareaState>,
-) -> SettingItem {
+) -> Item {
     item(w, name.to_owned(), about.to_owned(), move |d, _, _| {
         Textarea::new(of(d)).into_any_element()
     })
-    .layout(Axis::Vertical)
+    .stacked()
     .keywords(["instructions"])
 }

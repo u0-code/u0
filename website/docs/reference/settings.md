@@ -80,7 +80,7 @@ Each entry of `prefs`:
 | `keep_with_pr` | bool | `false` | A thread with an open pull request is never done, however long it is left. |
 | `snoozes` | list of strings | `["1h", "tomorrow", "next week"]` | The snooze choices offered first, each as you would type it in **Custom…**. |
 | `resume_at_reset` | bool | `true` | A turn an agent's usage limit stopped goes on by itself when the limit resets, where the agent says when. **General › In the background**. |
-| `sort` | `"used"`, `"updated"`, `"begun"`, `"name"` | `"used"` | How the sidebar orders threads and projects: by your last message, by any activity, by when it began, or by name. |
+| `sort` | `"used"`, `"updated"`, `"begun"`, `"name"` | `"used"` | How the sidebar orders threads and projects: by your last message, by any activity, by when it began, or by name. **General › Sidebar › Thread order**. |
 | `project_grouping` | `"by_project"`, `"by_machine"`, `"flat"` | `"by_project"` | How threads are grouped in the sidebar. |
 | `project_order` | `"manual"`, `"activity"`, `"name"` | `"manual"` | How projects are ordered in the sidebar. |
 | `working_section` | bool | `true` | Keep threads that are running or need you at the top of the sidebar. |
@@ -124,7 +124,7 @@ Each entry of `prefs`:
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `send` | `"return"`, `"multiline"`, `"command"` | `"return"` | What sends: Return; Return while the message is one line and ⌘Return after; or ⌘Return always. Where Return does not send, it breaks the line. **Chat › Sending**. |
+| `send` | `"return"`, `"multiline"`, `"command"` | `"return"` | What sends: Return; Return while the message is one line and ⌘Return after; or ⌘Return always. Where Return does not send, it breaks the line. **Chat › Composer › Send shortcut**. |
 | `steer` | bool | `false` | What you send while a turn goes on steers it, instead of waiting for the turn to end. |
 | `spell_check` | bool | `true` | Underline misspelled words in the composer, with the system's guesses on their menu. |
 | `view` | `"zen"`, `"quiet"`, `"normal"`, `"thinking"`, `"verbose"` | `"normal"` | How an agent's work shows in the thread. ⌃O goes round them. |
@@ -151,8 +151,8 @@ Each entry of `prefs`:
 | `mono` | `"plex_mono"`, `"jet_brains"`, `"sf_mono"`, `"menlo"` | `"plex_mono"` | The font for code and numbers. |
 | `width` | `"comfortable"`, `"wide"`, `"full"` | `"comfortable"` | How wide the thread and composer read (720 pt, 880 pt, or the whole pane). |
 | `blue_orange` | bool | `false` | Lines added and removed in blue and orange, not green and red. |
-| `twelve` | bool | `false` | Times on a twelve-hour clock. |
-| `language` | `"en"`, `"zh-CN"`, `"de"`, `"es"`, `"fr"`, `"ja"`, `"ko"`, `"pt-BR"`, `"ru"`, `"sv"` or `null` | `null` | The window's language. `null`: the system's where u0 has it, else English. |
+| `twelve` | bool | `false` | Times on a twelve-hour clock. **General › Language and time › Time format**. |
+| `language` | `"en"`, `"zh-CN"`, `"de"`, `"es"`, `"fr"`, `"ja"`, `"ko"`, `"pt-BR"`, `"ru"`, `"sv"` or `null` | `null` | The window's language. `null`: the system's where u0 has it, else English. **General › Language and time**. |
 | `terminal_size` | `"small"`, `"medium"`, `"large"` | `"medium"` | Text size in terminals. |
 | `shell` | `"login"`, `"zsh"`, `"bash"`, `"fish"` | `"login"` | The shell a terminal runs. `"login"`: your `$SHELL`. |
 | `diff_wrap` | bool | `true` | Wrap a diff's long lines instead of cutting them at the edge. |
@@ -200,7 +200,7 @@ Choosing a card draws its look (dark or light) in it; **Light theme** and
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `notify` | `"off"`, `"banner"`, `"banner_and_sound"` | `"banner"` | What macOS shows when a thread ends a turn or needs you while u0 is not in front. **General › While you are away**. |
+| `notify` | `"off"`, `"banner"`, `"banner_and_sound"` | `"banner"` | What macOS shows when a thread ends a turn or needs you while u0 is not in front. **General › Notifications › Thread notifications**. |
 | `notify_on` | `{finished, failed, asks}`, each bool | all `true` | Which events notify: a turn finished, one that failed, a question asked. |
 | `in_app_notify` | bool | `true` | Show in-app toast notifications for unfocused threads. |
 | `awake` | bool | `true` | Keep the Mac from sleeping while an agent works. |

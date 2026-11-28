@@ -57,7 +57,7 @@ Everything is in u0's home, `~/.u0` (or `U0_HOME`):
 | `themes/` | Your themes. |
 | `logs/` | u0's log, a file a day, `log_days` kept. |
 
-**Settings › Archive › What u0 keeps** shows how much each takes and
+**Settings › Maintenance & diagnostics › What u0 keeps** shows how much each takes and
 tidies what no thread uses. In repositories, u0 also keeps
 [checkpoints](worktrees-and-checkpoints.md#checkpoints) under
 `refs/u0/checkpoints/`.

@@ -7,12 +7,10 @@ use gpui::component::{
     button::{Button, ButtonVariants as _},
     input::Input,
     menu::{DropdownMenu as _, PopupMenuItem},
-    setting::{SettingGroup, SettingItem, SettingPage},
-    switch::Switch,
 };
 use gpui::{AnyElement, Context, Div, SharedString, WeakEntity, Window, div, prelude::*, px};
 
-use super::prefs::{group, item, whole};
+use super::srow::{Group, Item, Page, group, item, whole};
 use crate::{
     desk::{Desk, Place, Renaming},
     fonts::Faces,
@@ -22,11 +20,7 @@ use crate::{
 impl Desk {
     /// The projects, each a row that opens its page; archived ones too.
     /// With a project chosen, its page.
-    pub(super) fn projects_tab(
-        &self,
-        w: &WeakEntity<Desk>,
-        banners: Option<SettingGroup>,
-    ) -> SettingPage {
+    pub(super) fn projects_tab(&self, w: &WeakEntity<Desk>) -> Page {
         if let Some(folder) = self.pages.project.clone() {
             return self.project_page(w, &folder);
         }
@@ -45,7 +39,7 @@ impl Desk {
                 ),
                 |_, _, cx| {
                     // macOS's folder picker shows this Mac's folders.
-                    ui::button("projects-in", crate::tr("Choose…"), ui::Weight::Secondary)
+                    super::srow::button("projects-in", crate::tr("Choose…"), ui::Weight::Secondary)
                         .on_click(cx.listener(|_, _, _, cx| Desk::choose_parent(cx)))
                         .into_any_element()
                 },
@@ -55,27 +49,55 @@ impl Desk {
                 crate::tr("Clone into host folders"),
                 crate::tr("A clone goes in <host>/<owner>/<repo> there, as ghq lays them out."),
                 |d, _, cx| {
-                    Switch::new("host-folders")
-                        .small()
-                        .checked(d.edited().host_folders)
-                        .on_click(cx.listener(|this, _, _, cx| {
+                    super::srow::flip(
+                        "host-folders",
+                        crate::tr("Clone into host folders"),
+                        d.edited().host_folders,
+                        cx,
+                        |this, _, cx| {
                             let on = &mut this.edited_mut().host_folders;
                             *on = !*on;
                             this.save_edited();
                             cx.notify();
-                        }))
-                        .into_any_element()
+                        },
+                    )
+                    .into_any_element()
                 },
             ),
         ];
-        let mut page = SettingPage::new(crate::tr("Projects")).description(crate::tr(
-            "The folders you work in, and how each one's threads begin.",
+        let page = Page::new(crate::tr("Projects")).description(crate::tr(
+            "Each project is a folder: one repository, several, or none.",
         ));
-        if let Some(b) = banners {
-            page = page.group(b);
-        }
-        page.group(SettingGroup::new().item(list))
-            .group(SettingGroup::new().items(adding))
+        let add = whole(w, &["add", "clone"], |_, _, cx| {
+            div()
+                .flex()
+                .gap(px(8.))
+                .child(
+                    super::srow::button(
+                        "projects-add",
+                        crate::tr("Add project"),
+                        ui::Weight::Secondary,
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.close_settings(window, cx);
+                        this.add_project_page(window, cx);
+                    })),
+                )
+                .child(
+                    super::srow::button(
+                        "projects-clone",
+                        crate::tr("Clone a repository…"),
+                        ui::Weight::Secondary,
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.close_settings(window, cx);
+                        this.clone_page(window, cx);
+                    })),
+                )
+                .into_any_element()
+        });
+        page.group(Group::new().item(list).item(add))
+            .group(group(crate::tr("New projects"), adding))
     }
 
     /// The projects, each a row that opens its page.
@@ -130,7 +152,7 @@ impl Desk {
     }
 
     /// One project's page.
-    fn project_page(&self, w: &WeakEntity<Desk>, folder: &Place) -> SettingPage {
+    fn project_page(&self, w: &WeakEntity<Desk>, folder: &Place) -> Page {
         let dir = folder.clone();
         let mut rows = vec![
             item(
@@ -202,11 +224,11 @@ impl Desk {
              flip: fn(&mut Desk, &Place, &mut Window, &mut Context<Desk>)| {
                 let dir = dir.clone();
                 move |d: &mut Desk, _: &Faces, cx: &mut Context<Desk>| {
-                    Switch::new(id)
-                        .small()
-                        .checked(on(&d.prefs(&dir)))
-                        .on_click(Self::on_project(cx, &dir, flip))
-                        .into_any_element()
+                    let dir = dir.clone();
+                    super::srow::flip(id, id, on(&d.prefs(&dir)), cx, move |d, window, cx| {
+                        flip(d, &dir, window, cx);
+                    })
+                    .into_any_element()
                 }
             };
         rows.push(item(
@@ -279,9 +301,9 @@ impl Desk {
                 )
                 .into_any_element()
         });
-        SettingPage::new(self.project_name(folder))
+        Page::new(self.project_name(folder))
             .description(Desk::shown(&folder.folder))
-            .group(SettingGroup::new().item(back).items(rows))
+            .group(Group::new().item(back).items(rows))
             .group(group(crate::tr("Checkouts"), self.checkouts(w, folder)))
             .group(group(crate::tr("Danger zone"), vec![danger]))
     }
@@ -356,7 +378,7 @@ impl Desk {
 
     /// Where the project is checked out: its folder, and each of u0's
     /// worktrees of it, with the sessions in it, each one removable.
-    fn checkouts(&self, w: &WeakEntity<Desk>, folder: &Place) -> Vec<SettingItem> {
+    fn checkouts(&self, w: &WeakEntity<Desk>, folder: &Place) -> Vec<Item> {
         let mut worktrees: Vec<(crate::git::Worktree, u64, usize)> = Vec::new();
         for s in self
             .sessions

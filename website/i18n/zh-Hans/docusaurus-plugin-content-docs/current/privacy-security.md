@@ -41,7 +41,7 @@ description: u0 存储什么、存在哪里、发送什么，以及如何把智�
 | `themes/` | 你的主题。 |
 | `logs/` | u0 的日志，每天一个文件，保留 `log_days` 天。 |
 
-**设置 › 归档 › u0 保存的内容** 显示每项占用多少空间，并清理没有线程在用的内容。在仓库中，u0 还会在 `refs/u0/checkpoints/` 下保存[检查点](worktrees-and-checkpoints.md#checkpoints)。
+**设置 › 维护与诊断 › u0 保存的内容** 显示每项占用多少空间，并清理没有线程在用的内容。在仓库中，u0 还会在 `refs/u0/checkpoints/` 下保存[检查点](worktrees-and-checkpoints.md#checkpoints)。
 
 u0 的主目录及其 `logs/` 只有你可访问（0700）。u0 整体写入的每个文件（它的设置、索引、任务、设备和机器、`mcp.json`）都只有你可读写（0600），无论之前是什么权限。u0 每次都整体写入文件：崩溃之后，文件要么是旧的，要么是新的，绝不会是写了一半的。
 

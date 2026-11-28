@@ -3,7 +3,6 @@
 
 use std::time::SystemTime;
 
-use gpui::component::setting::SettingGroup;
 use gpui::{AnyElement, Context, Div, SharedString, WeakEntity, div, prelude::*, px};
 use u0ui::components::alert::{Alert, AlertAction, AlertVariant};
 use u0ui::prelude::*;
@@ -252,26 +251,6 @@ impl Desk {
         }
     }
 
-    /// Whether `tab` currently has a top-of-page Settings banner.
-    fn has_settings_banner(&self, tab: Tab) -> bool {
-        let on = Self::banner_host(self.pages.on, tab);
-        if on == Host::HERE
-            && (crate::policy::current().is_err()
-                || self.settings_refused.is_some()
-                || crate::policy::organization().is_some())
-        {
-            return true;
-        }
-        if on != Host::HERE
-            && self
-                .machine(on)
-                .is_some_and(|m| m.refused.is_some() || m.up != Up::On)
-        {
-            return true;
-        }
-        tab == Tab::Keybindings && self.keys_refused.is_some()
-    }
-
     /// Carbon `Alert` stack at the top of a `carbon_page` Settings tab
     /// (`General`, `NewThreads`, …).
     pub(crate) fn carbon_settings_banner(
@@ -380,22 +359,6 @@ impl Desk {
                 .gap(px(12.))
                 .children(out)
                 .into_any_element()
-        })
-    }
-
-    /// Banner group at the top of a `SettingPage` `tab` when settings/policy
-    /// did not read, the chosen server is offline, `keybindings.json` did not
-    /// read, or an organisation's policy governs this Mac.
-    pub(crate) fn settings_banner_group(
-        &self,
-        tab: Tab,
-        w: &WeakEntity<Self>,
-    ) -> Option<SettingGroup> {
-        self.has_settings_banner(tab).then(|| {
-            SettingGroup::new().item(crate::pages::whole(w, &[], move |d, _, cx| {
-                d.carbon_settings_banner(tab, cx)
-                    .unwrap_or_else(|| div().into_any_element())
-            }))
         })
     }
 

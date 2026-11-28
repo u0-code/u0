@@ -1146,8 +1146,8 @@ impl Desk {
             Act::FindSetting(words) => {
                 self.open_tab(self.pages.tab, window, cx);
                 self.pages
-                    .settings
-                    .update(cx, |s, cx| s.set_query(words, window, cx));
+                    .settings_search
+                    .update(cx, |i, cx| i.set_value(words, window, cx));
             }
             Act::File(name) => self.open_file(&name, cx),
             Act::Go(key) => self.show(key, window, cx),
