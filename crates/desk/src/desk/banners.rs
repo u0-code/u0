@@ -213,7 +213,7 @@ impl Desk {
                     )
                     .child(
                         div()
-                            .type_style(TypeStyle::Label01)
+                            .type_style(TypeStyle::Body01)
                             .text_color(color(ColorRole::TextSecondary))
                             .child(format!("· {detail}")),
                     ),
