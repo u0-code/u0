@@ -778,8 +778,9 @@ async fn serve(
     // A device that may only read is told once, on its link alone, that
     // what it asked to change was not done.
     let mut told = false;
-    // The pictures this desk asked for, said on its link alone: a picture
-    // of one project is not another device's to see.
+    // The pictures and searches this desk asked for, said on its link
+    // alone: a picture of one project, or the lines a search found, are
+    // not another device's to see.
     let (to_asker, mut for_asker) = mpsc::unbounded_channel::<Event>();
     loop {
         if let Some(message) = next.take() {
@@ -795,6 +796,13 @@ async fn serve(
                                 let _ = to_asker.send(event);
                             });
                             server.pictures((folder, kind, number), &urls, &tell);
+                        }
+                        Call::Search { query, records } => {
+                            let to_asker = to_asker.clone();
+                            let tell = Arc::new(move |event| {
+                                let _ = to_asker.send(event);
+                            });
+                            server.search(query, records, tell);
                         }
                         call => {
                             let offers = matches!(call, Call::Share(crate::share::Share::Link(..)));
@@ -835,8 +843,8 @@ async fn serve(
                 }
                 ws.flush().await.map_err(|e| e.to_string())?;
             }
-            Some(picture) = for_asker.recv() => {
-                let frame = serde_json::to_string(&(at, picture)).expect("an event serializes");
+            Some(asked) = for_asker.recv() => {
+                let frame = serde_json::to_string(&(at, asked)).expect("an event serializes");
                 next = Some(Message::text(frame));
             }
             why = &mut ends => return refuse(ws, &why).await,
@@ -2376,6 +2384,43 @@ esac; done"#;
             assert!(
                 !matches!(e, Event::Picture { .. }),
                 "another device was told the picture"
+            );
+        }
+    }
+
+    #[test]
+    fn what_a_search_found_is_told_to_the_desk_that_asked_and_to_no_other_device() {
+        let home = tempfile::tempdir().unwrap();
+        let (server, shared) = sharing(home.path());
+        server.share(crate::share::Share::Serve(true));
+        let Some(Ok(port)) = told(&shared).serving else {
+            panic!("listening")
+        };
+        let record = crate::store::record_path(home.path(), "a", "s1");
+        std::fs::create_dir_all(record.parent().unwrap()).unwrap();
+        std::fs::write(&record, "{\"you\":\"keep the sessions in Redis\"}\n").unwrap();
+        let other = kept();
+        pair_as(&server, port, &other, crate::access::Grant::default());
+        let (_other, _, heard, _) = desk(port, key(&other), None).unwrap();
+        let (link, _, mine, _) = desk(port, Key::generate(), Some(&server)).unwrap();
+        link.send(Call::Search {
+            query: "redis".into(),
+            records: vec![(
+                7,
+                "a".into(),
+                agent_client_protocol::v1::schema::SessionId::new("s1"),
+            )],
+        });
+        let found = loop {
+            if let Event::Found { said, .. } = told(&mine) {
+                break said;
+            }
+        };
+        assert_eq!(found, vec![(7, 0, "keep the sessions in Redis".to_owned())]);
+        while let Ok(e) = heard.recv_timeout(Duration::from_millis(500)) {
+            assert!(
+                !matches!(e, Event::Found { .. }),
+                "another device was told what was found"
             );
         }
     }

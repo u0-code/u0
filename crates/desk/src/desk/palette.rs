@@ -513,6 +513,8 @@ impl Desk {
             return;
         }
         self.palette.open = false;
+        // A search not yet made is not made, and what was found goes.
+        self.palette.heard.ask("");
         let back = self
             .palette
             .back_to

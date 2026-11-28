@@ -3,7 +3,10 @@
 //! moment; what a search for older words finds is dropped. A row is the
 //! line it was found in, under its thread, and opens the thread there.
 
-use std::{ops::Range, time::Duration, time::SystemTime};
+use std::{
+    ops::Range,
+    time::{Duration, Instant, SystemTime},
+};
 
 use gpui::{Context, Task, Window};
 
@@ -16,6 +19,9 @@ const QUIET: Duration = Duration::from_millis(250);
 const LEAST: usize = 3;
 /// The rows it shows at most.
 const MOST: usize = 10;
+/// How long a thread opened at a message waits for its record to bring
+/// the message into view.
+const REVEAL_FOR: Duration = Duration::from_secs(10);
 
 /// What was said that answers what is typed, as the servers found it.
 #[derive(Default)]
@@ -28,9 +34,9 @@ pub struct Heard {
     /// The search waiting for typing to stop; dropped, and so never made,
     /// when typing goes on.
     waiting: Option<Task<()>>,
-    /// A thread opened at a message before its record was read: the
-    /// message is brought into view once it is.
-    reveal: Option<(u64, usize)>,
+    /// A thread opened at a message before its record was read, and
+    /// when: the message is brought into view once it is.
+    reveal: Option<(u64, usize, Instant)>,
 }
 
 impl Heard {
@@ -59,6 +65,22 @@ impl Heard {
             .into_iter()
             .map(|(key, at, line)| (host, key, at, line));
         self.said.extend(found);
+    }
+
+    /// The message to bring into view as the record of `key` is read,
+    /// with `current` on screen: one waiting for that record, opened a
+    /// moment ago at most, whose thread is still on screen. One no longer
+    /// so is dropped.
+    fn take_reveal(&mut self, key: u64, current: Option<u64>, now: Instant) -> Option<usize> {
+        let (waits, at, since) = self.reveal?;
+        if current != Some(waits) || now.duration_since(since) >= REVEAL_FOR {
+            self.reveal = None;
+            return None;
+        }
+        (waits == key).then(|| {
+            self.reveal = None;
+            at
+        })
     }
 }
 
@@ -134,8 +156,10 @@ impl Desk {
         let heard = &self.palette.heard;
         let mut found: Vec<_> = (heard.said.iter())
             .filter(|(_, key, ..)| !listed.contains(key))
-            .filter_map(|(_, key, at, line)| Some((self.sessions.at(*key)?, *at, line)))
-            .filter(|(s, ..)| self.said_in(s))
+            .filter_map(|(host, key, at, line)| Some((*host, self.sessions.at(*key)?, *at, line)))
+            // What a server found of a thread on it alone.
+            .filter(|(host, s, ..)| s.host == *host && self.said_in(s))
+            .map(|(_, s, at, line)| (s, at, line))
             .collect();
         found.sort_by_key(|(s, ..)| std::cmp::Reverse(lists::used(s)));
         (found.into_iter().take(MOST))
@@ -162,29 +186,28 @@ impl Desk {
         cx: &mut Context<Self>,
     ) {
         self.show(key, window, cx);
+        self.palette.heard.reveal = None;
         if self.sessions.at(key).is_some_and(|s| s.items.len() > at) {
             self.reveal_item(at, cx);
         } else {
-            self.palette.heard.reveal = Some((key, at));
+            self.palette.heard.reveal = Some((key, at, Instant::now()));
         }
     }
 
     /// The record of `key` was read: the message it was opened at comes
     /// into view.
     pub(crate) fn read_to_reveal(&mut self, key: u64, cx: &mut Context<Self>) {
-        if let Some((k, at)) = self.palette.heard.reveal
-            && k == key
-        {
-            self.palette.heard.reveal = None;
-            if self.current == Some(key) {
-                self.reveal_item(at, cx);
-            }
+        let current = self.current;
+        if let Some(at) = self.palette.heard.take_reveal(key, current, Instant::now()) {
+            self.reveal_item(at, cx);
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use super::{Heard, marked, place};
     use crate::hub::Host;
 
@@ -221,6 +244,36 @@ mod tests {
         heard.found(Host(1), "redis", vec![(2, 6, "d".into())]);
         let keys: Vec<(u64, usize)> = heard.said.iter().map(|s| (s.1, s.2)).collect();
         assert_eq!(keys, vec![(3, 1), (2, 6)]);
+    }
+
+    #[test]
+    fn a_message_waits_for_its_record_only_while_its_thread_is_on_screen_and_not_long() {
+        let now = Instant::now();
+        let mut heard = Heard {
+            reveal: Some((1, 4, now)),
+            ..Heard::default()
+        };
+        assert_eq!(heard.take_reveal(2, Some(1), now), None, "another record");
+        assert_eq!(heard.take_reveal(1, Some(1), now), Some(4));
+        assert_eq!(
+            heard.take_reveal(1, Some(1), now),
+            None,
+            "brought into view once"
+        );
+        heard.reveal = Some((1, 4, now));
+        assert_eq!(
+            heard.take_reveal(2, Some(2), now),
+            None,
+            "another thread opened"
+        );
+        assert_eq!(heard.reveal, None, "and the wait is dropped");
+        heard.reveal = Some((1, 4, now));
+        let late = now + super::REVEAL_FOR;
+        assert_eq!(
+            heard.take_reveal(1, Some(1), late),
+            None,
+            "a record that never came"
+        );
     }
 
     #[test]

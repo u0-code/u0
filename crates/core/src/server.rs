@@ -342,6 +342,24 @@ impl Server {
         });
     }
 
+    /// Look for `query` in what was said in the sessions `records`,
+    /// telling what is found to `tell`: the desk that asked alone, as the
+    /// lines found are what was said there.
+    pub(crate) fn search(&self, query: String, records: Vec<(u64, String, SessionId)>, tell: Send) {
+        let home = self.shared.home.clone();
+        acp::runtime().spawn_blocking(move || {
+            tell(Event::Found {
+                said: (records.into_iter())
+                    .filter_map(|(key, agent, id)| {
+                        let (at, line) = store::finds(&home, &agent, &id.0, &query)?;
+                        Some((key, at, line))
+                    })
+                    .collect(),
+                query,
+            });
+        });
+    }
+
     /// Keep that `item` shows the pictures at `urls`, as reading it would.
     #[cfg(test)]
     pub(crate) fn shows(&self, item: (PathBuf, crate::github::Kind, u64), urls: Vec<String>) {
@@ -594,18 +612,7 @@ impl Server {
                     )
                 });
             }
-            Call::Search { query, records } => {
-                let home = self.shared.home.clone();
-                self.off(move || Event::Found {
-                    said: (records.into_iter())
-                        .filter_map(|(key, agent, id)| {
-                            let (at, line) = store::finds(&home, &agent, &id.0, &query)?;
-                            Some((key, at, line))
-                        })
-                        .collect(),
-                    query,
-                });
-            }
+            Call::Search { query, records } => self.search(query, records, self.here.clone()),
             Call::Look { key, folder } => self.off(move || repo::look(key, folder)),
             Call::SaveScript {
                 dir,
