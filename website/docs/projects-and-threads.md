@@ -93,9 +93,15 @@ copy** to go on apart.
 Each row ends with the thread's state: Working, Approval, Sign in,
 Failed, Limited, Plan, Done, or Woke.
 
-The search box matches titles, #tags, pull request numbers, branches and
-projects; from two characters on, it also searches what was said in
-every thread.
+The sidebar has no search of its own; the palette (⌘K, or the top bar's
+**Search threads, projects, commands and settings** box) is where threads
+are found. It matches titles, #tags, pull request numbers, branches and
+projects, and from three characters on it also looks through what was
+said in every thread, on every server the window holds, a moment after
+you stop typing. Those come under **What was said**, after the strong
+matches by name, and leave out threads already listed above: each row
+is the line it was said in, over its thread, and opens the thread at
+that message.
 
 Keys in the list: ↑ ↓ → ← move and fold; Return or Space opens; F2
 renames; ⇧F10 or a right-click opens the menu. ⌘-click and ⇧-click choose

@@ -877,10 +877,11 @@ pub enum Event {
         key: u64,
         events: Option<Vec<store::Event>>,
     },
-    /// The sessions whose records hold `query`.
+    /// The sessions whose records hold `query`: each by its key, the item
+    /// of its thread where it was said last, and that line.
     Found {
         query: String,
-        keys: Vec<u64>,
+        said: Vec<(u64, usize, String)>,
     },
     /// What sessions used, by key, as their agents said (`usage::used`).
     Used(Vec<(u64, Vec<crate::usage::Used>)>),
@@ -2168,7 +2169,7 @@ mod tests {
             Event::AxeInstalled(Err("brew failed".into())),
             Event::Found {
                 query: "go".into(),
-                keys: vec![1],
+                said: vec![(1, 0, "go on".into())],
             },
             Event::Used(vec![(
                 1,

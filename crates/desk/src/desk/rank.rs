@@ -2,8 +2,7 @@
 //! it (`packages/shared/src/paletteSearch.ts`): every word typed must start
 //! a word somewhere, whole words above prefixes above words typed together
 //! above one typo above the middle of a word; groups ordered by their best.
-//! The palette and the sidebar's search both rank here. A file's path is
-//! found by `repo::paths`.
+//! The palette ranks here; a file's path is found by `repo::paths`.
 
 use std::{ops::Range, time::SystemTime};
 

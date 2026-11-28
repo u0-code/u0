@@ -597,9 +597,11 @@ impl Server {
             Call::Search { query, records } => {
                 let home = self.shared.home.clone();
                 self.off(move || Event::Found {
-                    keys: (records.into_iter())
-                        .filter(|(_, agent, id)| store::holds(&home, agent, &id.0, &query))
-                        .map(|(key, ..)| key)
+                    said: (records.into_iter())
+                        .filter_map(|(key, agent, id)| {
+                            let (at, line) = store::finds(&home, &agent, &id.0, &query)?;
+                            Some((key, at, line))
+                        })
                         .collect(),
                     query,
                 });

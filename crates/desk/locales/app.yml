@@ -6272,16 +6272,6 @@ _version: 2
   pt-BR: "Em cada novo worktree"
   ru: "В каждом новом рабочем дереве"
   sv: "I varje nytt arbetsträd"
-"In messages":
-  zh-CN: "消息中"
-  de: "In Nachrichten"
-  es: "En los mensajes"
-  fr: "Dans les messages"
-  ja: "メッセージ内"
-  ko: "메시지에서"
-  pt-BR: "Nas mensagens"
-  ru: "В сообщениях"
-  sv: "I meddelanden"
 "In the background":
   zh-CN: "在后台"
   de: "Im Hintergrund"
@@ -15792,16 +15782,6 @@ _version: 2
   pt-BR: "Arquivar selecionados"
   ru: "Архивировать выбранные"
   sv: "Arkivera valda"
-"Branches and PRs":
-  zh-CN: "分支与拉取请求"
-  de: "Branches und PRs"
-  es: "Ramas y PR"
-  fr: "Branches et PR"
-  ja: "ブランチと PR"
-  ko: "브랜치 및 PR"
-  pt-BR: "Branches e PRs"
-  ru: "Ветки и PR"
-  sv: "Grenar och PR"
 "Clear selection":
   zh-CN: "清除选择"
   de: "Auswahl aufheben"

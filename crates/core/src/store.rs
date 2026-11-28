@@ -190,12 +190,12 @@ pub fn record_path(home: &Path, agent: &str, id: &str) -> PathBuf {
         .join(format!("{}.jsonl", safe(id)))
 }
 
-/// Whether what was said in the session `id` of `agent`, as its record
-/// has it (`session::said`), holds `query` (in lower case): the words, not
-/// the record's JSON, whose field names every record holds.
-pub fn holds(home: &Path, agent: &str, id: &str, query: &str) -> bool {
-    read(&record_path(home, agent, id))
-        .is_some_and(|events| (crate::session::said(events, false).to_lowercase()).contains(query))
+/// Where what was said in the session `id` of `agent`, as its record has
+/// it, last holds `query` (in lower case): its item and line
+/// (`session::found`). The words, not the record's JSON, whose field names
+/// every record holds.
+pub fn finds(home: &Path, agent: &str, id: &str, query: &str) -> Option<(usize, String)> {
+    crate::session::found(read(&record_path(home, agent, id))?, query)
 }
 
 /// An id as a file name: what is not a letter, a digit, `-` or `_` is `_`.

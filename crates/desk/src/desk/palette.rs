@@ -24,6 +24,7 @@ use super::{Desk, lists, rank};
 use crate::{fonts::Faces, session::State, theme, ui, when};
 
 mod pages;
+mod said;
 use pages::Sub;
 
 /// What the palette looks through with nothing else open, as its line and
@@ -87,6 +88,8 @@ enum Act {
     SwitchAgent(String),
     /// The thread's item `n` (a waiting request) brought into view.
     Reveal(usize),
+    /// A thread opened at its item where what was found was said.
+    Said(u64, usize),
     /// Approve a waiting permission request right from the palette.
     Approve(
         u64,
@@ -116,6 +119,8 @@ pub struct Palette {
     pub state: Entity<CommandState>,
     pub through: Through,
     pub grep: Vec<(String, String)>,
+    /// What was said in the threads that answers what is typed.
+    heard: said::Heard,
     /// The pages open over its root, each with what was typed under it.
     pub pages: Vec<(Sub, String)>,
     /// The folders in each folder a path typed to add a project is in.
@@ -146,6 +151,7 @@ impl Palette {
             state: cx.new(|cx| CommandState::new(window, cx)),
             through: Through::Everything,
             grep: Vec::new(),
+            heard: said::Heard::default(),
             pages: Vec::new(),
             folders: HashMap::new(),
             repos: HashMap::new(),
@@ -361,7 +367,6 @@ impl Row {
 const SESSIONS: usize = 20;
 const BESIDE_SESSIONS: usize = 3;
 const RECENT: usize = 12;
-const SAID: usize = 10;
 const SUGGESTED: usize = 3;
 const FILES: usize = 200;
 /// How tall the palette's list stands at most: t3code's 420, less its
@@ -439,6 +444,7 @@ impl Desk {
         self.palette.from = self.palette.open.then_some(self.palette.through);
         self.palette.through = through;
         self.palette.grep.clear();
+        self.palette.heard.ask("");
         self.palette.pages.clear();
         self.palette.folders.clear();
         self.palette
@@ -884,7 +890,7 @@ impl Desk {
             let s = self.sessions.at(key)?;
             rank::session(
                 &query,
-                &s.meta.title,
+                &tagged(&s.meta.title, &s.meta.tags),
                 s.git.pr.as_ref().map(|p| p.number),
                 s.branch.as_deref(),
                 &self.project_on(&super::Place::project_of(s)),
@@ -894,6 +900,13 @@ impl Desk {
             )
         });
         let any_session = ranked.iter().any(|(g, _)| *g == "Threads");
+        // The settings' own search answers whatever is typed: it is no
+        // strong match.
+        let strong: Vec<bool> = (ranked.iter())
+            .map(|(_, rows)| {
+                (rows.iter()).any(|(r, f)| f.strong && !matches!(r.act, Act::FindSetting(_)))
+            })
+            .collect();
         let mut listed: Vec<u64> = Vec::new();
         let mut out: Vec<(String, Vec<Row>)> = ranked
             .into_iter()
@@ -911,30 +924,12 @@ impl Desk {
                 (crate::tr(group).to_string(), rows)
             })
             .collect();
-        // What was said in a session here, last, for those not listed.
-        let words = typed.to_lowercase();
-        if !only_actions && words.chars().count() >= 3 {
-            let said: Vec<Row> = self
-                .sessions
-                .all
-                .iter()
-                .filter(|s| !listed.contains(&s.key) && s.parent.is_none())
-                .filter_map(|s| {
-                    let line = s.items.iter().find_map(|i| match i {
-                        crate::session::Item::You(t) | crate::session::Item::Agent(t) => {
-                            t.lines().find(|l| l.to_lowercase().contains(&words))
-                        }
-                        _ => None,
-                    })?;
-                    let mut row = self.found_row(s, now);
-                    row.sub = Some(ui::fit(line.trim(), 80));
-                    Some(row)
-                })
-                .take(SAID)
-                .collect();
-            if !said.is_empty() {
-                out.push((crate::tr("In messages").to_string(), said));
-            }
+        // What was said in the threads not listed, after what was found
+        // for sure.
+        let said = self.said_rows(&listed, now);
+        if !only_actions && !said.is_empty() {
+            let at = said::place(&strong);
+            out.insert(at, (crate::tr("What was said").to_string(), said));
         }
         out
     }
@@ -1184,6 +1179,7 @@ impl Desk {
                 }
             }
             Act::Reveal(n) => self.reveal_item(n, cx),
+            Act::Said(key, at) => self.show_at(key, at, window, cx),
             Act::Approve(key, req_id, option) => {
                 self.choose(key, req_id, &option, cx);
             }
@@ -1225,7 +1221,7 @@ impl Desk {
                 let desk = desk.clone();
                 move |query, _, cx| {
                     desk.update(cx, |d, cx| {
-                        d.palette_typed(query);
+                        d.palette_typed(query, cx);
                         cx.notify();
                     });
                 }
@@ -1369,6 +1365,13 @@ fn needs_session(name: &str) -> bool {
         name,
         "model" | "mode" | "effort" | "stop" | "review" | "copy_id" | "open_folder"
     )
+}
+
+/// A thread's title with its tags, `#` before each, for it to be found by
+/// either.
+fn tagged(title: &str, tags: &[String]) -> String {
+    tags.iter()
+        .fold(title.to_owned(), |t, tag| format!("{t} #{tag}"))
 }
 
 /// "just now", "5m ago", "3h ago", as t3code dates a row.
@@ -1591,5 +1594,18 @@ mod tests {
         assert!(once(&standing).is_none());
         let both = [opt("always", K::AllowAlways), opt("yes", K::AllowOnce)];
         assert_eq!(once(&both).map(|o| o.kind), Some(K::AllowOnce));
+    }
+
+    #[test]
+    fn a_thread_is_found_by_its_tags() {
+        let now = SystemTime::now();
+        let title = tagged("Fix the build", &["ci".into(), "urgent".into()]);
+        assert_eq!(title, "Fix the build #ci #urgent");
+        let found = |typed: &str| {
+            let query = rank::Query::new(typed);
+            rank::session(&query, &title, None, None, "p", now, now, false).is_some()
+        };
+        assert!(found("#urgent"));
+        assert!(!found("#later"));
     }
 }

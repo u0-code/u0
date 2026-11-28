@@ -767,14 +767,13 @@ impl Desk {
                 // A server here may have paired back with a Mac.
                 self.read_servers();
             }
-            Event::Record { key, events } => self.record_read(key, events),
+            Event::Record { key, events } => {
+                self.record_read(key, events);
+                self.read_to_reveal(key, cx);
+            }
             Event::Used(used) => self.used.extend(used),
             // Each server finds in its own sessions.
-            Event::Found { query, keys } => {
-                if self.search.input.read(cx).value().trim().to_lowercase() == query {
-                    self.search.found.extend(keys);
-                }
-            }
+            Event::Found { query, said } => self.said_found(host, &query, said),
             Event::Refused { key, why } => {
                 let name = self
                     .sessions

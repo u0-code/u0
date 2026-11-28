@@ -7,7 +7,6 @@
 
 pub(crate) mod list;
 mod menus;
-mod search;
 
 pub(crate) use list::side_tree;
 
@@ -16,10 +15,9 @@ use std::rc::Rc;
 use gpui::component::{
     InteractiveElementExt as _, Selectable as _, Sizable as _,
     button::{Button as KitButton, ButtonVariants},
-    input::Input,
     resizable::{HandleEdge, resize_handle},
 };
-use gpui::{Context, Div, Focusable as _, SharedString, div, prelude::*, px};
+use gpui::{Context, Div, SharedString, div, prelude::*, px};
 use u0ui::{
     components::{
         MarkGroup,
@@ -49,17 +47,11 @@ impl Desk {
         window: &gpui::Window,
         cx: &mut Context<Self>,
     ) -> Div {
-        let typed = self.search.input.read(cx).value().trim().to_owned();
-        let searching = !typed.is_empty();
-        let search_shown = self.search_open || searching;
-
         let head = self.sidebar_head(faces, lights, cx);
-        let search_bar = search_shown.then(|| self.sidebar_search_bar());
         let nav = self.sidebar_nav(cx);
         let projects = self.projects();
-        let filter_bar =
-            (!projects.is_empty() && !searching).then(|| self.sidebar_filter_bar(&projects, cx));
-        let tag_bar = (!self.tag_filter.is_empty() && !searching).then(|| self.sidebar_tag_bar(cx));
+        let filter_bar = (!projects.is_empty()).then(|| self.sidebar_filter_bar(&projects, cx));
+        let tag_bar = (!self.tag_filter.is_empty()).then(|| self.sidebar_tag_bar(cx));
         let store_banner = self.sidebar_banner(faces);
 
         let body = if projects.is_empty() {
@@ -116,7 +108,6 @@ impl Desk {
                 cx.notify();
             }))
             .child(head)
-            .children(search_bar)
             .child(nav)
             .children(filter_bar)
             .children(tag_bar)
@@ -138,11 +129,11 @@ impl Desk {
 
     /// Unified 38px sidebar brand header (`sb-top`): clears the 76px macOS
     /// traffic lights, shows `"u0"` without a square mark, and hosts `Back`,
-    /// `Ahead`, `Search`, and `New thread`.
+    /// `Ahead` and `New thread`. Searching is the palette's: the top bar's
+    /// command box.
     fn sidebar_head(&self, faces: &Faces, lights: f32, cx: &mut Context<Self>) -> Div {
         let desk_back = cx.entity();
         let desk_fwd = cx.entity();
-        let desk_search = cx.entity();
         let desk_new = cx.entity();
         draggable()
             .flex()
@@ -192,28 +183,6 @@ impl Desk {
                     )
                     .child(
                         CarbonButton::new(
-                            "sb-search",
-                            crate::keys::hint(cx, "Search", "search_words"),
-                        )
-                        .variant(ButtonVariant::Ghost)
-                        .size(ButtonSize::Sm)
-                        .icon(CarbonIcon::Search)
-                        .icon_only(true)
-                        .on_click(move |_, window, cx| {
-                            desk_search.update(cx, |d, cx| {
-                                if d.search_open && d.search.input.read(cx).value().is_empty() {
-                                    d.search_open = false;
-                                } else {
-                                    d.search_open = true;
-                                    let fh = d.search.input.focus_handle(cx);
-                                    window.focus(&fh, cx);
-                                }
-                                cx.notify();
-                            });
-                        }),
-                    )
-                    .child(
-                        CarbonButton::new(
                             "sb-new",
                             crate::keys::hint(cx, "New thread", "new_session"),
                         )
@@ -232,33 +201,6 @@ impl Desk {
                         }),
                     ),
             )
-    }
-
-    /// Carbon `field-01` inline search input (`ss-search` in `SidebarStates`).
-    fn sidebar_search_bar(&self) -> Div {
-        div().flex_none().px(px(12.)).pt(px(8.)).pb(px(4.)).child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(8.))
-                .h(px(32.))
-                .px(px(10.))
-                .bg(theme::role(ColorRole::Field01))
-                .border_b_1()
-                .border_color(theme::role(ColorRole::BorderStrong01))
-                .child(
-                    CarbonGlyph::carbon(CarbonIcon::Search)
-                        .size_length(px(16.))
-                        .color(theme::muted()),
-                )
-                .child(
-                    div().flex_1().min_w(px(0.)).child(
-                        Input::new(&self.search.input)
-                            .appearance(false)
-                            .cleanable(true),
-                    ),
-                ),
-        )
     }
 
     /// Five-item section navigation bar (`sb-nav`): `Threads`, `Pull requests`,

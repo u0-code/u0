@@ -247,8 +247,6 @@ pub struct Desk {
     pub filter: Vec<Place>,
     /// The `#tag`s the sidebar shows; none chosen, all.
     pub tag_filter: Vec<String>,
-    /// Whether the sidebar's inline search bar is open.
-    pub search_open: bool,
     /// Sessions deleted whose worktree you kept.
     pub keep_worktree: HashSet<u64>,
     /// The image looked at large: the session's key and its item.
@@ -372,7 +370,6 @@ pub struct Desk {
     pub output_scroll: gpui::UniformListScrollHandle,
     /// gpui-kit's view of each edit opened in the thread, by its card.
     pub edits: std::cell::RefCell<HashMap<String, Entity<gpui::component::diff::DiffState>>>,
-    pub search: lists::Search,
     /// When the registry was last read.
     pub registry_read: Option<std::time::SystemTime>,
     pub(crate) tx: hub::Sender,
@@ -625,7 +622,6 @@ impl Desk {
             zoom: None,
             filter: Vec::new(),
             tag_filter: Vec::new(),
-            search_open: false,
             keep_worktree: HashSet::new(),
             chosen: std::collections::BTreeSet::new(),
             sweep: Vec::new(),
@@ -718,7 +714,6 @@ impl Desk {
             tab_scroll: gpui::ScrollHandle::new(),
             output_scroll: gpui::UniformListScrollHandle::new(),
             edits: std::cell::RefCell::default(),
-            search: lists::Search::new(window, cx),
             registry_read: None,
             tx,
             last_host: machines.iter().map(|m| m.host.0).max().unwrap_or(0),
@@ -1836,7 +1831,7 @@ impl Desk {
     }
 
     /// Escape closes the menu open, else the palette, the name being
-    /// written, find or the search typed in, else the settings, else leaves
+    /// written or find, else the settings, else leaves
     /// the page open for the thread, wherever the keys go: true when it did.
     fn escape_closes(
         &mut self,
@@ -1860,13 +1855,6 @@ impl Desk {
             self.cancel_tell(window, cx);
         } else if self.find.open && typing_in(&self.find.input, cx) {
             self.toggle_find(window, cx);
-        } else if typing_in(&self.search.input, cx) || self.search_open {
-            self.search
-                .input
-                .update(cx, |i, cx| i.set_value("", window, cx));
-            self.search_open = false;
-            window.focus(&self.composer.input.focus_handle(cx), cx);
-            cx.notify();
         } else if self.chosen.len() > 1 {
             self.chosen.clear();
             cx.notify();

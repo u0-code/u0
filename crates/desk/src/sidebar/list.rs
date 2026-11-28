@@ -15,8 +15,8 @@ use gpui::component::{
     tree::{TreeItem, TreeState},
 };
 use gpui::{
-    AnyElement, App, BoxShadow, Context, Div, ElementId, Entity, Focusable as _, SharedString,
-    Stateful, Window, div, point, prelude::*, px, radians, rgb,
+    AnyElement, BoxShadow, Context, Div, ElementId, Entity, Focusable as _, SharedString, Stateful,
+    Window, div, point, prelude::*, px, radians, rgb,
 };
 use u0ui::{
     icons::{CarbonIcon, Icon as CarbonGlyph},
@@ -34,18 +34,13 @@ use u0ui::{
 
 use super::{Dragged, gist, menus::snooze_items};
 use crate::{
-    desk::{Desk, Place, Renaming, lists, rank},
+    desk::{Desk, Place, Renaming, lists},
     fonts::{Faces, Weighted as _},
     hub::{Host, Up},
     session::{Item, Session},
     settings::{Icon as ProjectIcon, Sort},
     store, theme, ui, when,
 };
-
-pub(super) fn tagged(title: &str, tags: &[String]) -> String {
-    tags.iter()
-        .fold(title.to_owned(), |t, tag| format!("{t} #{tag}"))
-}
 
 const SETTLED: usize = 10;
 const SETTLED_MORE: usize = 25;
@@ -145,7 +140,7 @@ pub fn compact(t: SystemTime, now: SystemTime) -> String {
 
 impl Desk {
     pub(crate) fn sync_side(&mut self, window: &Window, cx: &mut Context<Self>) {
-        let (items, order) = self.side_items(cx);
+        let (items, order) = self.side_items();
         let mut drawn = String::new();
         shape(&items, &mut drawn);
         let current = self.current;
@@ -212,28 +207,12 @@ impl Desk {
         self.side_folded(&Row::Server(host).id(), !now_open, cx);
     }
 
-    pub(super) fn matches_tags(&self, s: &Session) -> bool {
+    fn matches_tags(&self, s: &Session) -> bool {
         self.tag_filter.is_empty()
             || self
                 .tag_filter
                 .iter()
                 .all(|wanted| s.meta.tags.iter().any(|t| t == wanted))
-    }
-
-    pub(super) fn answers(&self, s: &Session, query: &rank::Query, now: SystemTime) -> bool {
-        query.is_empty()
-            || self.search.found.contains(&s.key)
-            || rank::session(
-                query,
-                &tagged(&s.meta.title, &s.meta.tags),
-                s.git.pr.as_ref().map(|p| p.number),
-                s.branch.as_deref(),
-                &self.project_on(&Place::project_of(s)),
-                lists::used(s),
-                now,
-                true,
-            )
-            .is_some()
     }
 
     pub(crate) fn in_project(&self, folder: &Place) -> Vec<&Session> {
@@ -313,16 +292,11 @@ impl Desk {
         projects.into_iter().map(|(p, _)| p).collect()
     }
 
-    fn side_items(&self, cx: &App) -> (Vec<TreeItem>, Vec<u64>) {
-        let typed = self.search.input.read(cx).value().trim().to_owned();
-        let query = rank::Query::new(&typed);
-        let searching = !query.is_empty();
-        let now = SystemTime::now();
-        let secs = store::secs(now);
+    fn side_items(&self) -> (Vec<TreeItem>, Vec<u64>) {
+        let secs = store::secs(SystemTime::now());
         let shown = |s: &&Session| {
             (self.filter.is_empty() || self.filter.contains(&Place::project_of(s)))
                 && self.matches_tags(s)
-                && self.answers(s, &query, now)
         };
         let leaf = |s: &Session| TreeItem::new(Row::Session(s.key).id(), s.meta.title.clone());
         let mut order = Vec::new();
@@ -338,7 +312,7 @@ impl Desk {
             .collect();
         pinned.sort_by_key(|s| s.meta.flags.pinned);
         if !pinned.is_empty() {
-            let open = searching || shelf_is_open(&self.expanded, Shelf::Pinned);
+            let open = shelf_is_open(&self.expanded, Shelf::Pinned);
             if open {
                 order.extend(pinned.iter().map(|s| s.key));
             }
@@ -363,7 +337,7 @@ impl Desk {
             .collect();
         needs.sort_by_key(|s| lists::used(s));
         if !needs.is_empty() {
-            let open = searching || shelf_is_open(&self.expanded, Shelf::NeedsYou);
+            let open = shelf_is_open(&self.expanded, Shelf::NeedsYou);
             if open {
                 order.extend(needs.iter().map(|s| s.key));
             }
@@ -377,7 +351,7 @@ impl Desk {
         let projects = self.ordered_projects();
         let grouped = self.machines.len() > 1;
         for m in &self.machines {
-            let server_open = searching || !self.expanded.contains(&folded_key(m.host));
+            let server_open = !self.expanded.contains(&folded_key(m.host));
             let mut under = Vec::new();
             for folder in projects.iter().filter(|p| p.host == m.host) {
                 let sessions: Vec<&Session> = self
@@ -386,10 +360,7 @@ impl Desk {
                     .filter(|s| lists::needs_you_why(s).is_none())
                     .filter(shown)
                     .collect();
-                if searching && sessions.is_empty() {
-                    continue;
-                }
-                let open = searching || !self.closed.contains(folder);
+                let open = !self.closed.contains(folder);
                 if open && (server_open || !grouped) {
                     order.extend(sessions.iter().map(|s| s.key));
                 }
@@ -399,14 +370,14 @@ impl Desk {
                         .children(sessions.into_iter().map(leaf)),
                 );
             }
-            if !grouped {
-                items.extend(under);
-            } else if !(searching && under.is_empty()) {
+            if grouped {
                 items.push(
                     TreeItem::new(Row::Server(m.host).id(), m.name.clone())
                         .expanded(server_open)
                         .children(under),
                 );
+            } else {
+                items.extend(under);
             }
         }
 
@@ -431,7 +402,7 @@ impl Desk {
             if list.is_empty() {
                 continue;
             }
-            let open = searching || shelf_is_open(&self.expanded, shelf);
+            let open = shelf_is_open(&self.expanded, shelf);
             let most = match shelf {
                 Shelf::Settled => self.settled_shown.max(SETTLED),
                 _ => usize::MAX,
@@ -468,14 +439,7 @@ impl Desk {
                     .map(|e| e.item().id.clone())
             })
             .flatten();
-        let typed = self.search.input.read(cx).value().trim().to_owned();
-        let query = rank::Query::new(&typed);
-
-        let content: Vec<AnyElement> = if query.is_empty() {
-            self.render_grouped_list(faces, selected_id.as_deref(), cx)
-        } else {
-            self.render_search_results(faces, &typed, &query, cx)
-        };
+        let content = self.render_grouped_list(faces, selected_id.as_deref(), cx);
 
         div()
             .id("sb-list")
@@ -1831,28 +1795,6 @@ mod tests {
         assert_eq!(Glyph::of(&s), Glyph::Unread);
         s.meta.flags.unread = false;
         assert_eq!(Glyph::of(&s), Glyph::Done);
-    }
-
-    #[test]
-    fn a_session_is_found_by_its_tags() {
-        let now = SystemTime::now();
-        let title = tagged("Fix the build", &["ci".into(), "urgent".into()]);
-        assert_eq!(title, "Fix the build #ci #urgent");
-        let found = |typed: &str| {
-            rank::session(
-                &rank::Query::new(typed),
-                &title,
-                None,
-                None,
-                "p",
-                now,
-                now,
-                false,
-            )
-            .is_some()
-        };
-        assert!(found("#urgent"));
-        assert!(!found("#later"));
     }
 
     #[test]

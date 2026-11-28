@@ -2,16 +2,11 @@
 //! give one, pinned on top, unread, done for now (settled), out of the way
 //! until later (snoozed), archived, deleted after a moment to take it back.
 
-use std::{
-    collections::HashSet,
-    time::{Duration, Instant, SystemTime},
-};
+use std::time::{Duration, Instant, SystemTime};
 
-use gpui::{AppContext as _, Context, Entity, Focusable as _, Window};
+use gpui::{Context, Focusable as _, Window};
 
 use agent_client_protocol::v1::schema::MessageId;
-
-use gpui::component::input::{InputEvent, InputState};
 
 use super::{Desk, mention};
 use crate::{
@@ -31,30 +26,6 @@ pub enum Renaming {
     Project(super::Place),
     /// A project's mark: its letters, or an emoji.
     Mark(super::Place),
-}
-
-/// The search over sessions: what is typed, and the sessions whose
-/// records hold it.
-pub struct Search {
-    pub input: Entity<InputState>,
-    pub found: HashSet<u64>,
-}
-
-impl Search {
-    pub(super) fn new(window: &mut Window, cx: &mut Context<Desk>) -> Self {
-        let input = cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Search")));
-        cx.subscribe(&input, |this, _, e: &InputEvent, cx| {
-            if let InputEvent::Change = e {
-                this.search_records(cx);
-                cx.notify();
-            }
-        })
-        .detach();
-        Self {
-            input,
-            found: HashSet::new(),
-        }
-    }
 }
 
 /// How long what was done to sessions can be taken back.
@@ -1100,52 +1071,6 @@ impl Desk {
                 .filter(|s| self.listed_now(s))
                 .map(|s| s.meta.tags.as_slice()),
         )
-    }
-
-    /// Search what was said in each session for what is typed in the
-    /// search, a moment after typing stops.
-    pub(crate) fn search_records(&mut self, cx: &mut Context<Self>) {
-        let query = self.search.input.read(cx).value().trim().to_lowercase();
-        self.search.found.clear();
-        if query.chars().count() < 2 {
-            return;
-        }
-        // What is open now is searched where it is.
-        for s in &self.sessions.all {
-            let said = s.items.iter().any(|i| match i {
-                crate::session::Item::You(t) | crate::session::Item::Agent(t) => {
-                    t.to_lowercase().contains(&query)
-                }
-                _ => false,
-            });
-            if said {
-                self.search.found.insert(s.key);
-            }
-        }
-        // Each server searches the records it keeps.
-        let records: Vec<(crate::hub::Host, Vec<_>)> = (self.machines.iter())
-            .map(|m| {
-                let there = (self.sessions.all.iter()).filter(|s| s.host == m.host);
-                let records = there
-                    .filter_map(|s| Some((s.key, s.meta.agent.clone(), s.meta.id.clone()?)))
-                    .collect();
-                (m.host, records)
-            })
-            .collect();
-        cx.spawn(async move |this, cx| {
-            cx.background_executor()
-                .timer(Duration::from_millis(250))
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                if this.search.input.read(cx).value().trim().to_lowercase() == query {
-                    for (host, records) in records {
-                        let query = query.clone();
-                        this.call(host, Call::Search { query, records });
-                    }
-                }
-            });
-        })
-        .detach();
     }
 
     /// Settle what has been left as many days as its server's settings

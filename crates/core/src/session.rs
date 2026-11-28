@@ -1869,8 +1869,84 @@ pub fn said(events: Vec<store::Event>, last: bool) -> String {
         .join("\n\n")
 }
 
+/// Where `query` (in lower case) was said last in a session, as its
+/// record `events` has it: the thread's item, and its line, cut to show
+/// where in it.
+pub fn found(events: Vec<store::Event>, query: &str) -> Option<(usize, String)> {
+    if query.is_empty() {
+        return None;
+    }
+    let mut thread = Session::new(0, "", std::path::PathBuf::new());
+    thread.replay(events);
+    thread
+        .items
+        .iter()
+        .enumerate()
+        .rev()
+        .find_map(|(at, item)| {
+            let (Item::You(text) | Item::Agent(text)) = item else {
+                return None;
+            };
+            text.lines().rev().find_map(|line| {
+                let line = line.trim();
+                Some((at, around(line, lowered(line).find(query)?)))
+            })
+        })
+}
+
+/// `line` in lower case, each character kept as long as it was, so that
+/// where something is found in it is where it is in `line`.
+fn lowered(line: &str) -> String {
+    line.chars()
+        .map(|c| {
+            let mut lower = c.to_lowercase();
+            match (lower.next(), lower.next()) {
+                (Some(l), None) if l.len_utf8() == c.len_utf8() => l,
+                _ => c,
+            }
+        })
+        .collect()
+}
+
+/// What of `line` shows around the byte `at`: a long line begins a little
+/// before it, and ends a sentence or two after.
+fn around(line: &str, at: usize) -> String {
+    const BEFORE: usize = 30;
+    const MOST: usize = 160;
+    let skip = line[..at].chars().count().saturating_sub(BEFORE);
+    let mut shown: String = line.chars().skip(skip).take(MOST).collect();
+    if skip > 0 {
+        shown.insert(0, '…');
+    }
+    if line.chars().count() > skip + MOST {
+        shown.push('…');
+    }
+    shown
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn what_was_said_is_found_at_its_item_and_line_the_latest_first() {
+        use crate::store::Event;
+        let said = r#"{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Done.\nRedis holds them now."}}"#;
+        let long = format!("{} the Redis pool {}", "x".repeat(80), "y".repeat(300));
+        let events = vec![
+            Event::You("move sessions to redis".into()),
+            Event::Update(Box::new(update(said))),
+            Event::You(long),
+        ];
+        let (at, line) = super::found(events.clone(), "redis").expect("found");
+        assert_eq!(at, 2, "the latest place it was said");
+        assert!(line.starts_with('…') && line.ends_with('…'), "{line}");
+        assert!(line.contains("the Redis pool"), "{line}");
+        assert_eq!(
+            super::found(events[..2].to_vec(), "holds"),
+            Some((1, "Redis holds them now.".into()))
+        );
+        assert_eq!(super::found(events, "kafka"), None);
+    }
+
     #[test]
     fn a_mark_of_what_changed_is_made_again_once_it_changes() {
         let file = |patch: &str| crate::git::FileDiff {

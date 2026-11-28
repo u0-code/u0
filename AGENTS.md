@@ -215,7 +215,8 @@ crates/desk/src/
   desk/         by subject: kept, lists, projects, mention, gitview, runs,
                 banners (unreadable files, policy and offline servers),
                 palette (its pages: a new session in, the look, adding a
-                project), rank (what is typed, found), agents, send, turns,
+                project; said: what was said, found by each server's
+                records), rank (what is typed, found), agents, send, turns,
                 replies, notices, writing, dictation, updates, forge (the
                 PRs and Issues pages), pr (a pull request reviewed: files
                 viewed, ~/.u0/viewed.json; lines commented; its guide), links (the u0:// links and folders

@@ -127,7 +127,7 @@ impl Tools {
             let holds = |m: &&store::Meta| {
                 m.title.to_lowercase().contains(&query)
                     || (m.id.as_ref())
-                        .is_some_and(|id| store::holds(&home, &m.agent, &id.0, &query))
+                        .is_some_and(|id| store::finds(&home, &m.agent, &id.0, &query).is_some())
             };
             Listed::latest(index.sessions.iter().filter(holds))
         })

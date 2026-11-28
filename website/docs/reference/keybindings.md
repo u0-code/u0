@@ -44,7 +44,7 @@ home, which you can also edit by hand.
 
 | Keys | Action |
 |---|---|
-| ⌘K | Go to anything (the palette) |
+| ⌘K | Go to anything (the palette): threads and what was said in them, projects, commands, settings |
 | ⌘P | Go to a file |
 | ⇧⌘F | Search the project's files |
 | ⌥⌘[ / ⌥⌘] | Back to the thread before / ahead again |

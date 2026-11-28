@@ -233,11 +233,17 @@ impl Desk {
     }
 
     /// What is typed changed: look in a folder typed for the folders in
-    /// it, and through the project's files for words.
-    pub(super) fn palette_typed(&mut self, typed: &str) {
+    /// it, through the project's files for words, and through what was
+    /// said in the threads.
+    pub(super) fn palette_typed(&mut self, typed: &str, cx: &mut Context<Self>) {
         if self.palette.through == super::Through::Words {
             self.search_words(typed);
         }
+        // Not on a page, nor after ">", which lists only actions.
+        let root = self.palette.through == super::Through::Everything
+            && self.palette.pages.is_empty()
+            && !typed.trim_start().starts_with('>');
+        self.look_for_said(if root { typed } else { "" }, cx);
         if self.palette.pages.last().is_some_and(|p| p.0 == Sub::Add) && is_path(typed) {
             let (dir, _) = split_path(typed, &self.palette_home());
             let at = super::super::Place::new(self.palette.on, dir);
