@@ -366,7 +366,7 @@ impl Desk {
     fn mention_chips(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Option<Div> {
         use crate::desk::mention::Offer;
         let typed = self.composer.input.read(cx).value().to_string();
-        let draft = s.state == State::Draft && s.items.is_empty();
+        let draft = s.is_draft();
         let key = s.key;
         let mut pills: Vec<AnyElement> = Vec::new();
 
@@ -772,12 +772,7 @@ impl Desk {
         // A new thread run on several agents: one button says how many.
         let special = if self.composer.editing_queued.is_some() && !empty {
             Some(("save-queued", crate::tr("Save to queue")))
-        } else if s.state == State::Draft
-            && s.items.is_empty()
-            && !self.composer.draft.also_run.is_empty()
-            && !empty
-            && !over
-        {
+        } else if s.is_draft() && !self.composer.draft.also_run.is_empty() && !empty && !over {
             let total = self.composer.draft.also_run.len() + 1;
             Some((
                 "run-many",
@@ -861,7 +856,7 @@ impl Desk {
         column: f32,
         cx: &mut Context<Self>,
     ) -> Div {
-        let draft = s.state == State::Draft && s.items.is_empty();
+        let draft = s.is_draft();
         let mut row = div()
             .flex()
             .items_center()
@@ -1127,9 +1122,7 @@ impl Desk {
         column: f32,
         cx: &mut Context<Self>,
     ) -> Option<Div> {
-        if !(s.state == State::Draft && s.items.is_empty())
-            || self.composer.draft.also_run.is_empty()
-        {
+        if !s.is_draft() || self.composer.draft.also_run.is_empty() {
             return None;
         }
         let mut row = div()

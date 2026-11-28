@@ -1185,12 +1185,13 @@ impl Desk {
         settled
     }
 
-    /// Whether the session shows in the lists now: not archived, not
-    /// deleted, not snoozed until later.
+    /// Whether the session shows in the lists now: sent, not archived,
+    /// not deleted, not snoozed until later.
     pub fn listed_now(&self, s: &Session) -> bool {
         let now = store::secs(SystemTime::now());
         s.parent.is_none()
             && s.beside.is_none()
+            && !s.is_draft()
             && !s.meta.flags.archived
             && !self.deleting(s.key)
             && s.meta.flags.snoozed.is_none_or(|t| t <= now)

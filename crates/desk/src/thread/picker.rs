@@ -26,7 +26,7 @@ use crate::{
     desk::{Desk, Popup},
     fonts::Faces,
     hub::{Auth, Stage},
-    session::{Session, State},
+    session::Session,
     settings::Favourite,
     theme, ui,
 };
@@ -68,7 +68,7 @@ impl Desk {
     pub(crate) fn model_chip(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Popover {
         let base =
             Self::option_name(s, &Category::Model).unwrap_or_else(|| self.name_of(&s.meta.agent));
-        let model = if !self.composer.draft.also_run.is_empty() && Self::is_draft(s) {
+        let model = if !self.composer.draft.also_run.is_empty() && s.is_draft() {
             format!("{base} +{}", self.composer.draft.also_run.len())
         } else {
             base
@@ -104,7 +104,7 @@ impl Desk {
         s: &Session,
         cx: &mut Context<Self>,
     ) -> Option<gpui::AnyElement> {
-        if !self.composer.draft.also_run.is_empty() && Self::is_draft(s) {
+        if !self.composer.draft.also_run.is_empty() && s.is_draft() {
             return None;
         }
         let (effort, levels) = (s.options.iter())
@@ -146,7 +146,7 @@ impl Desk {
     /// now, else on the session's agent, the only one once it has begun.
     pub fn open_model(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
-        let draft = Self::is_draft(s);
+        let draft = s.is_draft();
         let any = self.settings.favourites.iter().any(|f| {
             self.slot(s.host, &f.agent)
                 .is_some_and(|x| x.usable() && !matches!(x.auth, Auth::Needed(_)))
@@ -163,11 +163,6 @@ impl Desk {
         });
         self.popup = Popup::Model;
         cx.notify();
-    }
-
-    /// Whether the session has not begun: its agent can still be changed.
-    fn is_draft(s: &Session) -> bool {
-        s.state == State::Draft && s.items.is_empty()
     }
 
     /// The models of `agent`, from its model option: the session's own for
@@ -225,7 +220,7 @@ impl Desk {
     /// The models the list shows: those matching what is typed, across
     /// every agent the session can take; else the rail's.
     fn shown_models(&self, s: &Session, query: &str) -> Vec<Model> {
-        let agents: Vec<&str> = if Self::is_draft(s) {
+        let agents: Vec<&str> = if s.is_draft() {
             self.slots_on(s.host).map(|x| x.entry.id.as_str()).collect()
         } else {
             vec![s.meta.agent.as_str()]
@@ -277,7 +272,7 @@ impl Desk {
     /// chosen selected, with u0ui's 3px `border-interactive` rail at its
     /// start edge: inside its button, never over the list beside it.
     fn rail(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Stateful<Div> {
-        let draft = Self::is_draft(s);
+        let draft = s.is_draft();
         let pill = || {
             div()
                 .absolute()
@@ -374,7 +369,7 @@ impl Desk {
         models: Vec<Model>,
         cx: &mut Context<Self>,
     ) -> Div {
-        let draft = Self::is_draft(s);
+        let draft = s.is_draft();
         let at = self.picker.at.min(models.len().saturating_sub(1));
         let mut list = div()
             .id("picker-models")
@@ -815,7 +810,7 @@ impl Desk {
             .border_t_1()
             .border_color(theme::border2())
             .bg(theme::rail())
-            .when(Self::is_draft(s) && usable > 1, |d| {
+            .when(s.is_draft() && usable > 1, |d| {
                 d.child(
                     ui::opener("fanout")
                         .selected(all_on)
@@ -911,7 +906,7 @@ impl Desk {
     fn pick_model(&mut self, m: &Model, window: &mut Window, cx: &mut Context<Self>) {
         let Some(s) = self.session() else { return };
         if m.agent != s.meta.agent {
-            if !Self::is_draft(s) {
+            if !s.is_draft() {
                 return;
             }
             self.switch_agent(&m.agent, cx);

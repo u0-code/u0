@@ -105,7 +105,7 @@ impl Desk {
         let Some(s) = self.session() else {
             return Vec::new();
         };
-        if s.items.is_empty() && s.state == State::Draft {
+        if s.is_draft() {
             return Vec::new();
         }
         let rows = fold::rows(

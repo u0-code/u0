@@ -10,7 +10,7 @@ use super::{Desk, Later, Place, Popup};
 use crate::{
     hub::{Host, Slot, Stage},
     proto::Call,
-    session::{Item, State},
+    session::{Item, Session, State},
     tasks::{Schedule, Task},
 };
 
@@ -24,9 +24,7 @@ impl Desk {
     /// models/agents starts a session of its own for each.
     pub(crate) fn send(&mut self, text: &str, cx: &mut Context<Self>) {
         let Some(key) = self.current else { return };
-        let draft = self
-            .session()
-            .is_some_and(|s| s.state == State::Draft && s.items.is_empty());
+        let draft = self.session().is_some_and(Session::is_draft);
         self.send_in(key, text, cx);
         if draft && !self.composer.draft.also_run.is_empty() {
             let targets = std::mem::take(&mut self.composer.draft.also_run);

@@ -78,9 +78,19 @@ copy** to go on apart.
   `sort` in settings: by your last message (default), by any activity, by
   when it began, or by name.
 - **Snoozed** and **Settled** shelves sit folded at the foot.
+- A new thread is not a row until you send it. Each project keeps one
+  draft: + on the project, ⌘N, ⇧⌘N, ⌥⌘N (for Scratch) and the
+  palette's **New thread in…** bring it back as you left it (what you
+  typed, attached and chose), and begin one where there is none. Begun
+  for another agent, it keeps all that but the model and options. A
+  thread begun about an issue, a pull request, a failed workflow step
+  or a link's prompt asks before it takes the place of a draft that
+  holds something. With no thread open, the start page's composer is
+  the project's draft, with what it holds; there is never a second one
+  beside it.
 
 Each row ends with the thread's state: Working, Approval, Sign in,
-Failed, Limited, Plan, Done, Woke, or Draft.
+Failed, Limited, Plan, Done, or Woke.
 
 The search box matches titles, #tags, pull request numbers, branches and
 projects; from two characters on, it also searches what was said in

@@ -54,6 +54,15 @@ impl Sessions {
             == Some(crate::desk::lists::Status::Approval)
     }
 
+    /// The draft `here` takes, the newest: a new thread not yet sent, of
+    /// any agent, not a subagent's nor a side chat's.
+    pub fn draft(&self, here: impl Fn(&Session) -> bool) -> Option<u64> {
+        (self.all.iter())
+            .filter(|s| s.is_draft() && s.parent.is_none() && s.beside.is_none() && here(s))
+            .map(|s| s.key)
+            .max()
+    }
+
     pub fn at_mut(&mut self, key: u64) -> Option<&mut Session> {
         self.all.iter_mut().find(|s| s.key == key)
     }
@@ -363,6 +372,27 @@ mod tests {
             sessions.all.push(s);
         }
         sessions
+    }
+
+    #[test]
+    fn a_project_finds_its_one_draft_whatever_its_agent_and_not_a_thread_sent() {
+        let mut sessions = two();
+        let here = |s: &Session| s.meta.project == std::path::Path::new("/p");
+        assert_eq!(sessions.draft(here), None);
+        let key = sessions.take_key();
+        sessions.all.push(Session::new(key, "b", "/p".into()));
+        let elsewhere = sessions.take_key();
+        sessions.all.push(Session::new(elsewhere, "a", "/q".into()));
+        let mut side = Session::new(sessions.take_key(), "a", "/p".into());
+        side.beside = Some(1);
+        sessions.all.push(side);
+        assert_eq!(sessions.draft(here), Some(key));
+        sessions
+            .at_mut(key)
+            .unwrap()
+            .items
+            .push(Item::You("hi".into()));
+        assert_eq!(sessions.draft(here), None);
     }
 
     fn said(session: &str, update: &str) -> SessionNotification {

@@ -494,9 +494,12 @@ impl Desk {
         self.new_scratch_on(host, window, cx);
     }
 
-    /// Begin a session on `host` in a scratch folder of its own there.
+    /// Begin a session on `host` in a scratch folder of its own there:
+    /// Scratch's draft, where it keeps one, is brought back instead.
     pub fn new_scratch_on(&mut self, host: Host, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(p) = self.scratch(host) {
+        if let Some(key) = self.draft_in(&Place::new(host, self.scratch_dir(host))) {
+            self.show(key, window, cx);
+        } else if let Some(p) = self.scratch(host) {
             self.new_in(p, window, cx);
         }
     }

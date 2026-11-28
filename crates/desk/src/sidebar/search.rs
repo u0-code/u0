@@ -34,7 +34,7 @@ impl Desk {
         let mut branch_hits = Vec::new();
 
         for s in &self.sessions.all {
-            if s.parent.is_some() || s.beside.is_some() || s.meta.flags.archived {
+            if s.parent.is_some() || s.beside.is_some() || s.is_draft() || s.meta.flags.archived {
                 continue;
             }
             if !self.filter.is_empty() && !self.filter.contains(&Place::project_of(s)) {

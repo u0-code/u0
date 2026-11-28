@@ -773,6 +773,7 @@ impl Desk {
         let sessions = self.sessions.all.iter().filter(|s| {
             s.parent.is_none()
                 && s.beside.is_none()
+                && !s.is_draft()
                 && !s.meta.flags.archived
                 && !self.deleting(s.key)
         });
@@ -787,9 +788,8 @@ impl Desk {
                 groups.push(this_thread);
             }
             if !only_actions {
-                let mut recent: Vec<&crate::session::Session> = sessions
-                    .filter(|s| Some(s.key) != self.current && s.state != State::Draft)
-                    .collect();
+                let mut recent: Vec<&crate::session::Session> =
+                    sessions.filter(|s| Some(s.key) != self.current).collect();
                 recent.sort_by_key(|s| std::cmp::Reverse(lists::used(s)));
                 let rows: Vec<Row> = recent
                     .into_iter()
@@ -941,7 +941,7 @@ impl Desk {
     /// thread is open and nothing is typed yet.
     fn this_thread_group(&self, cx: &gpui::App) -> Option<(String, Vec<Row>)> {
         let s = self.session()?;
-        if s.state == State::Draft && s.items.is_empty() {
+        if s.is_draft() {
             return None;
         }
         let mut rows = Vec::new();
@@ -1173,7 +1173,7 @@ impl Desk {
             }
             Act::SwitchAgent(agent) => {
                 if let Some(s) = self.session() {
-                    let (key, draft) = (s.key, s.state == State::Draft && s.items.is_empty());
+                    let (key, draft) = (s.key, s.is_draft());
                     if draft {
                         self.switch_agent(&agent, cx);
                     } else {

@@ -4,6 +4,8 @@
 //! one read whole beside the list; and what is done to one, as `gh` does
 //! it (`core::github`).
 
+use std::rc::Rc;
+
 use gpui::component::{
     IndexPath,
     diff::{DiffFile, DiffState},
@@ -741,14 +743,24 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if here {
-            self.forge.folder = Some(folder.clone());
-            self.forge.chosen = Some(n);
-            self.act_forge(Act::Checkout, cx);
-        }
-        self.new_in(folder, window, cx);
-        if let Some(key) = self.current
-            && let Some(s) = self.sessions.at_mut(key)
+        let at = folder.clone();
+        let fill = Rc::new(
+            move |d: &mut Self, _: &mut Window, cx: &mut Context<Self>| {
+                if here {
+                    d.forge.folder = Some(at.clone());
+                    d.forge.chosen = Some(n);
+                    d.act_forge(Act::Checkout, cx);
+                }
+                d.about_pr(n, title.clone(), here);
+            },
+        );
+        self.begin_about(folder, None, fill, window, cx);
+    }
+
+    /// The draft on screen made about the pull request `n`, as
+    /// `start_from_pr` says.
+    pub(crate) fn about_pr(&mut self, n: u64, title: String, here: bool) {
+        if let Some(s) = self.current.and_then(|key| self.sessions.at_mut(key))
             && s.state == State::Draft
         {
             s.meta.links = vec![Link {
@@ -774,7 +786,25 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.new_in(folder, window, cx);
+        let title = title.to_owned();
+        let fill = Rc::new(
+            move |d: &mut Self, window: &mut Window, cx: &mut Context<Self>| {
+                d.about_issue(n, &title, triage, window, cx);
+            },
+        );
+        self.begin_about(folder, None, fill, window, cx);
+    }
+
+    /// The draft on screen made about the issue `n`, as `start_from_issue`
+    /// says.
+    pub(crate) fn about_issue(
+        &mut self,
+        n: u64,
+        title: &str,
+        triage: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(s) = self.current.and_then(|key| self.sessions.at_mut(key)) {
             s.meta.links = vec![Link {
                 kind: Kind::Issue,

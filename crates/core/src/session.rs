@@ -1625,10 +1625,41 @@ impl Session {
         }
     }
 
+    /// Whether it is a draft: a new thread nothing is said in yet, its
+    /// agent and where it works still to be changed. A draft is not a row
+    /// of the lists; its project's + brings it back.
+    pub fn is_draft(&self) -> bool {
+        self.state == State::Draft && self.items.is_empty()
+    }
+
+    /// The draft begun again with `agent`. Where it works stays (its
+    /// folders, branch and repositories), and what it is about (its links,
+    /// worktree, what it begins from, what was typed and attached, its
+    /// tags). What was the other agent's goes: the options, mode and model
+    /// chosen, which `agent` names otherwise.
+    pub fn switch_to(&mut self, agent: &str) {
+        use std::mem::take;
+        let mut new = Self::new(self.key, agent, self.meta.folder.clone());
+        new.host = self.host;
+        let (was, now) = (&mut self.meta, &mut new.meta);
+        now.project = take(&mut was.project);
+        now.also = take(&mut was.also);
+        now.links = take(&mut was.links);
+        now.unsent = take(&mut was.unsent);
+        now.tags = take(&mut was.tags);
+        (new.branch, new.repo) = (self.branch.take(), self.repo);
+        new.git = take(&mut self.git);
+        new.scripts = take(&mut self.scripts);
+        new.wants_worktree = self.wants_worktree;
+        new.begin = self.begin.take();
+        new.attached = take(&mut self.attached);
+        *self = new;
+    }
+
     /// Its title as it is shown and said: "New session" for one not begun,
     /// whose title is only its folder's name till you write in it.
     pub fn shown_title(&self) -> &str {
-        if self.state == State::Draft && self.items.is_empty() {
+        if self.is_draft() {
             "New thread"
         } else {
             &self.meta.title
@@ -2207,6 +2238,38 @@ mod tests {
         assert_eq!(s.meta.folder, PathBuf::from("/w/r-1"));
         assert_eq!(s.ran_on, s.branch, "no branch changed under it");
         assert_eq!(s.ran_on.as_deref(), Some("u0/flow"));
+    }
+
+    #[test]
+    fn a_draft_switched_to_another_agent_keeps_what_it_is_about_and_drops_the_old_choices() {
+        let mut s = Session::new(7, "a", "/p/wt".into());
+        s.meta.project = "/p".into();
+        s.meta.also = vec!["/q".into()];
+        s.meta.links = vec![store::Link {
+            kind: crate::github::Kind::Issue,
+            number: 3,
+            title: "t".into(),
+        }];
+        s.meta.unsent = "half written".into();
+        s.begin = Some(Begin::Pr(9, "p".into()));
+        s.wants_worktree = true;
+        s.attached = vec![ContentBlock::from("pasted")];
+        s.holds(false, vec!["/p/wt/x".into()]);
+        s.chosen = vec![("model".into(), "a-big".into())];
+        s.chosen_mode = Some("plan".into());
+        s.switch_to("b");
+        assert_eq!((s.key, s.meta.agent.as_str()), (7, "b"));
+        assert_eq!(s.meta.project, PathBuf::from("/p"));
+        assert_eq!(s.meta.folder, PathBuf::from("/p/wt"));
+        assert_eq!(s.meta.also, vec![PathBuf::from("/q")]);
+        assert_eq!(s.meta.links.len(), 1);
+        assert_eq!(s.meta.unsent, "half written");
+        assert_eq!(s.begin, Some(Begin::Pr(9, "p".into())));
+        assert!(s.wants_worktree);
+        assert_eq!(s.attached.len(), 1);
+        assert_eq!(s.git.repos, vec![PathBuf::from("/p/wt/x")]);
+        assert!(s.chosen.is_empty() && s.chosen_mode.is_none());
+        assert!(s.is_draft());
     }
 
     #[test]
