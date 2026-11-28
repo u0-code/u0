@@ -81,19 +81,18 @@ fn outside_key(anew: bool) -> String {
 }
 
 /// A listener on 127.0.0.1 at `port`, where there is one and it is free;
-/// else at a port of the system's choosing. Where it could not take
-/// `port`, a word saying so.
-async fn bind(port: Option<u16>) -> std::io::Result<(tokio::net::TcpListener, Option<String>)> {
-    let at = |port| tokio::net::TcpListener::bind(("127.0.0.1", port));
-    if let Some(port) = port.filter(|p| *p != 0)
-        && let Ok(listener) = at(port).await
-    {
-        return Ok((listener, None));
-    }
-    let listener = at(0).await?;
-    let now = listener.local_addr()?.port();
-    let moved = port.map(|was| format!("{was} was taken: they are at {now} now"));
-    Ok((listener, moved))
+/// else, where another program holds it, at a port of the system's
+/// choosing (`link::take`): nothing outside this Mac dials them. Where it
+/// could not take `port`, a word saying so; any other error leaves the
+/// tools unserved, said in the log.
+fn bind(port: Option<u16>) -> Result<(tokio::net::TcpListener, Option<String>), String> {
+    let (listener, moved) = crate::link::take(port.unwrap_or(0), |_| None, [0])?;
+    let listener = tokio::net::TcpListener::from_std(listener).map_err(|e| e.to_string())?;
+    let now = listener.local_addr().map_err(|e| e.to_string())?.port();
+    Ok((
+        listener,
+        moved.map(|was| format!("{was} was taken: they are at {now} now")),
+    ))
 }
 
 /// The token of an `Authorization` header of the Bearer scheme, the
@@ -145,7 +144,7 @@ impl Shared {
         acp::runtime().spawn(async move {
             let was = mcp::door(&this.home).ok();
             let ports = (was.as_ref().map(|d| d.port), was.as_ref().map(|d| d.http));
-            let ((pipe, moved), (http, moved_too)) = match (bind(ports.0).await, bind(ports.1).await) {
+            let ((pipe, moved), (http, moved_too)) = match (bind(ports.0), bind(ports.1)) {
                 (Ok(pipe), Ok(http)) => (pipe, http),
                 (Err(e), _) | (_, Err(e)) => {
                     tracing::warn!("u0's tools are not served: {e}");

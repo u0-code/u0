@@ -34,7 +34,9 @@ from one start to the next, so an app you set up with them keeps working:
   program has taken one meanwhile, u0 listens at another, writes it in
   `mcp.json`, and says so: an app set up with the old address needs the
   new one. Where that was the HTTP port, the key is made anew too, since
-  the program holding the port may have heard it from an app (below).
+  the program holding the port may have heard it from an app (below). Any
+  other trouble taking a port (not one held by another program) leaves
+  the tools unserved, said in u0's log.
 - The key is kept in the Keychain until you press **New key** under
   **Settings › Agents › Key for agents outside u0**. The old key then
   lets no one in, not even an agent already connected with it (its
