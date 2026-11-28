@@ -382,9 +382,7 @@ impl Desk {
         rows = rows.child(
             ui::text(
                 faces,
-                crate::tr(
-                    "Before and after each turn, out of your index and branch. Undo is under each turn in the thread.",
-                ),
+                crate::tr("Saved each turn, apart from your branch. Undo is under each turn."),
             )
             .pt(px(4.))
             .type_style(TypeStyle::Label01)

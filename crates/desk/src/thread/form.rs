@@ -312,7 +312,7 @@ impl Desk {
                     ui::text(
                         faces,
                         crate::tr_with(
-                            "The thread waits on the agent. Going on without it tells %{name} to carry on without it for this thread.",
+                            "The thread waits. Go on without it to let %{name} continue.",
                             &[("name", &name)],
                         ),
                     )

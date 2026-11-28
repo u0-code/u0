@@ -30,13 +30,9 @@ impl Desk {
             .map(|s| LocalServer::new(s.port().unwrap_or_default(), s.title.clone()))
             .collect();
         let body = if cfg!(target_os = "macos") {
-            crate::tr(
-                "Open a dev server your terminals printed, or type an address above: a URL, or an HTML file of yours. A page shows here only when you open it.",
-            )
+            crate::tr("Open a dev server from your terminals, or type a URL or HTML file above.")
         } else {
-            crate::tr(
-                "Dev servers your terminals print show here and open in your browser: u0 shows pages here on macOS only.",
-            )
+            crate::tr("Dev servers your terminals print open in your browser.")
         };
         PreviewEmptyState::new("preview-empty")
             .servers(cards)

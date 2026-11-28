@@ -184,7 +184,7 @@ impl Desk {
             let other_name = self.active_theme_title(!now_dark);
             let other_mode = crate::tr(if now_dark { "light" } else { "dark" });
             crate::tr_with(
-                "Built-in, imported from VS Code or Open VSX, or your own. %{active} is in use now; %{other} takes over when the system turns %{mode}.",
+                "%{active} in use now; %{other} when the system turns %{mode}.",
                 &[
                     ("active", &active_name),
                     ("other", &other_name),
@@ -193,7 +193,7 @@ impl Desk {
             )
         } else {
             crate::tr_with(
-                "Built-in, imported from VS Code or Open VSX, or your own. %{active} is in use now.",
+                "Built-in, from VS Code or Open VSX, or yours. %{active} is in use.",
                 &[("active", &active_name)],
             )
         };

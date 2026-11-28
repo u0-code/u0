@@ -991,9 +991,7 @@ impl Desk {
                 crate::tr("Its pull request merged"),
                 line,
                 None,
-                crate::tr(
-                    "The thread settles on its own (Threads \u{203a} Auto-settle merged threads). Its worktree stays until you archive it.",
-                ),
+                crate::tr("Settles on its own; the worktree stays until you archive it."),
             ));
         } else if has_repo
             && !origin
@@ -1057,12 +1055,13 @@ impl Desk {
             cards.push(
                 ft_card(
                     faces,
-                    crate::tr_with("No remote yet \u{00b7} %{project}", &[("project", &project)]),
+                    crate::tr_with(
+                        "No remote yet \u{00b7} %{project}",
+                        &[("project", &project)],
+                    ),
                     line,
                     Some(acts),
-                    crate::tr(
-                        "A new GitHub repository under your gh login, pushed. Offered where gh is installed.",
-                    ),
+                    crate::tr("Creates a GitHub repository under your gh login and pushes."),
                 )
                 .relative()
                 .child(div().absolute().top(px(4.)).right(px(4.)).child(close)),
@@ -1125,7 +1124,7 @@ impl Desk {
                 Some(acts),
                 if origin {
                     crate::tr(
-                        "Create PR has the writer write the title and description, then commits, pushes and opens it with gh pr create.",
+                        "The writer drafts its title and description, then commits, pushes and opens it.",
                     )
                 } else {
                     crate::tr("It has no remote: a commit stays here, and a pull request waits for one.")

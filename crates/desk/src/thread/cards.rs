@@ -422,13 +422,19 @@ impl Desk {
                     .items_center()
                     .gap(px(8.))
                     .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.))
-                    .child(ui::text(faces, crate::tr_with("Sign in to %{name}", &[("name", &name)])).text_size(px(crate::style::BODY))),
+                    .child(
+                        ui::text(
+                            faces,
+                            crate::tr_with("Sign in to %{name}", &[("name", &name)]),
+                        )
+                        .text_size(px(crate::style::BODY)),
+                    ),
             )
             .child(
                 ui::text(
                     faces,
                     crate::tr_with(
-                        "%{name} signs in with its own account; u0 never sees it. What you said is sent once you are in.",
+                        "%{name} signs you in; u0 never sees it. Then your message is sent.",
                         &[("name", &name)],
                     ),
                 )
@@ -443,9 +449,10 @@ impl Desk {
                     .child(buttons)
                     .child(div().flex_1())
                     .child(
-                        ui::button("auth-retry", crate::tr("I have signed in"), Weight::Quiet).on_click(
-                            cx.listener(move |this, _, _, cx| this.retry_open(host, &agent, cx)),
-                        ),
+                        ui::button("auth-retry", crate::tr("I have signed in"), Weight::Quiet)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.retry_open(host, &agent, cx);
+                            })),
                     ),
             )
     }

@@ -535,9 +535,12 @@ impl Desk {
             gpui::PromptLevel::Warning,
             &crate::tr_with("Uninstall %{name}?", &[("name", &name)]),
             Some(&crate::tr_with(
-                "Its download in %{folder} is removed. Its threads and sign-in stay with %{name}, and it can be installed again.",
+                "Removes %{folder}. Threads and sign-in stay with %{name}.",
                 &[
-                    ("folder", &Desk::shown(&self.home_on(host).join("agents").join(id))),
+                    (
+                        "folder",
+                        &Desk::shown(&self.home_on(host).join("agents").join(id)),
+                    ),
                     ("name", &name),
                 ],
             )),

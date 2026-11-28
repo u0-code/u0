@@ -165,7 +165,7 @@ impl Desk {
                 let secs = m.retry_in().map(|d| d.as_secs().max(1));
                 let detail = match (since, secs) {
                     (Some(since), Some(secs)) => crate::tr_with(
-                        "since %{since} · what this window had stays readable · next try in %{secs} s",
+                        "since %{since} · still readable · next try in %{secs} s",
                         &[("since", &since), ("secs", &secs)],
                     ),
                     (Some(since), None) => crate::tr_with(
@@ -287,9 +287,7 @@ impl Desk {
                 })
             });
             let body = if on == Host::HERE {
-                crate::tr(
-                    "settings.json did not read, so these are the defaults, and a change would not be kept. Each control is off until the file reads.",
-                )
+                crate::tr("settings.json didn't read; controls are off and show defaults.")
             } else {
                 SharedString::from(self.tidy_why(&why))
             };
@@ -313,7 +311,9 @@ impl Desk {
                 "settings-offline-server",
                 AlertVariant::Warning,
                 crate::tr_with("%{name} is offline: read only", &[("name", &name)]),
-                crate::tr("Its settings are shown as it last sent them, and can be changed again once it is back. u0 tries it on its own, waiting longer each time, up to 30 seconds."),
+                crate::tr(
+                    "Read only until it's back; u0 keeps retrying, every 30 seconds at most.",
+                ),
                 None,
                 Some(again),
             ));
@@ -332,7 +332,7 @@ impl Desk {
                 AlertVariant::Info,
                 crate::tr_with("Managed by %{by}", &[("by", &org)]),
                 crate::tr_with(
-                    "Some settings here are set by %{org}’s policy: each shows a lock, its value and who set it.",
+                    "Locked settings are set by %{org}’s policy.",
                     &[("org", &org)],
                 ),
                 link,
@@ -356,7 +356,7 @@ impl Desk {
                 AlertVariant::Warning,
                 crate::tr("keybindings.json did not read, so it is ignored"),
                 crate::tr_with(
-                    "%{why} u0 uses its own keys meanwhile and logs why; this page leaves the file untouched rather than writing over it.",
+                    "%{why} Default keys are used; the file is left untouched.",
                     &[("why", &tidy)],
                 ),
                 None,
@@ -411,7 +411,7 @@ impl Desk {
             AlertVariant::Error,
             title,
             crate::tr_with(
-                "%{why}. u0 starts on its defaults and saves nothing until the policy is fixed: nothing runs half governed. Ask whoever manages this Mac.",
+                "%{why}. u0 runs on defaults and saves nothing. Ask your administrator.",
                 &[("why", &bad.why)],
             ),
             link,

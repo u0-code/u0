@@ -90,7 +90,7 @@ impl Desk {
         if s.items.len() <= from {
             said = said.child(fine(
                 faces,
-                crate::tr("Ask what you would rather not ask in the thread: the agent knows all of it, and nothing said here goes in it."),
+                crate::tr("Ask on the side: the agent knows the thread; this stays out of it."),
             ));
         }
         let working = matches!(s.state, State::Working | State::Opening);

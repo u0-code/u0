@@ -261,10 +261,7 @@ impl Desk {
                 .groups(groups)
         };
         let page = match tab {
-            Tab::Agents => paged(
-                "Turn on the agents you use. Each runs its own CLI over ACP, with its own sign-in.",
-                self.agents(w, cx),
-            ),
+            Tab::Agents => paged("Turn on the agents you use.", self.agents(w, cx)),
             Tab::Archive => paged(
                 "Threads put away, and what u0 keeps on this Mac.",
                 self.sessions_tab(w),
@@ -275,11 +272,11 @@ impl Desk {
                 self.diagnostics(w),
             ),
             Tab::Tasks => paged(
-                "A prompt said to an agent on a schedule. u0's server runs them, so they run while the window is closed; each run's thread is in the sidebar.",
+                "Prompts sent to an agent on a schedule, even with the window closed.",
                 self.tasks(w),
             ),
             Tab::Telemetry => paged(
-                "What the machine these settings are of tells the people who make u0, as far as you let it.",
+                "What this machine may tell u0's makers.",
                 self.telemetry_tab(w),
             ),
             Tab::Projects => self.projects_tab(w, banners),
@@ -1076,7 +1073,7 @@ impl Desk {
         head.push(item(
             w,
             crate::tr("Agents outside u0 may act"),
-            crate::tr("An agent outside u0 reaches u0's tools by the key in mcp.json (u0 --mcp, or over HTTP on this Mac). Off, it only reads; on, it may say something in a thread or stop its turn, each asked of you there."),
+            crate::tr("Off, they only read. On, they may write or stop a turn, asking you first."),
             move |_, _, cx| {
                 Switch::new("outside-acts")
                     .accessibility_label(crate::tr("Agents outside u0 may act"))
@@ -1093,7 +1090,7 @@ impl Desk {
         head.push(item(
             w,
             crate::tr("Key for agents outside u0"),
-            crate::tr("An app set up with u0's tools (mcp.json's address and key) keeps working across restarts: the key stays until you make a new one, and the old one then lets no one in."),
+            crate::tr("The key survives restarts; a new key revokes the old one."),
             move |_, _, cx| {
                 gpui::component::button::Button::new("new-tools-key")
                     .small()
@@ -1293,7 +1290,7 @@ impl Desk {
             }));
         }
         group(crate::tr("What u0 keeps"), items).description(crate::tr_with(
-            "In %{home}. A worktree with changes not committed is left as it is; undo reaches only the turns of this run.",
+            "In %{home}. Uncommitted worktrees are kept; undo covers this run only.",
             &[("home", &Desk::shown(self.home_on(self.pages.on)))],
         ))
     }
@@ -1339,9 +1336,7 @@ impl Desk {
             list.push(item(
                 w,
                 crate::tr("Nothing archived"),
-                crate::tr(
-                    "A thread archived from its menu waits here, read only, until it is restored.",
-                ),
+                crate::tr("Threads you archive from their menu show here, read only."),
                 |_, _, _| div().into_any_element(),
             ));
         }

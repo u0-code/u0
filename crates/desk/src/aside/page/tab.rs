@@ -274,12 +274,14 @@ impl Desk {
                 .variant(AlertVariant::Info)
                 .full_width(true)
                 .description(crate::tr_with(
-                    "Port %{there} on %{machine}, forwarded to 127.0.0.1:%{here} on this Mac over its own signed link",
+                    "Port %{there} on %{machine}, forwarded to 127.0.0.1:%{here}",
                     &[("there", &there), ("machine", &s.machine), ("here", &here)],
                 ))
-                .action(AlertAction::new(crate::tr("Stop forwarding")).on_click(move |_, cx| {
-                    desk.update(cx, |d, cx| d.stop_forward(host, there, cx));
-                })),
+                .action(
+                    AlertAction::new(crate::tr("Stop forwarding")).on_click(move |_, cx| {
+                        desk.update(cx, |d, cx| d.stop_forward(host, there, cx));
+                    }),
+                ),
         )
     }
 
@@ -303,7 +305,7 @@ impl Desk {
             .and_then(|s| Some((s.forwarded?.0, s.machine)));
         let why = match brought {
             Some((there, machine)) => crate::tr_with(
-                "Nothing answered on port %{port} of %{machine}, forwarded to this Mac. Is its dev server running, and %{machine} in reach?",
+                "Nothing answered on port %{port} of %{machine}. Is its dev server running?",
                 &[("port", &there), ("machine", &machine)],
             ),
             None => crate::tr_with(

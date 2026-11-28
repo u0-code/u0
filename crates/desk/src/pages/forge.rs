@@ -253,7 +253,7 @@ impl Desk {
                                     &[("project", &project)],
                                 )))
                                 .child(EmptyDescription::new(crate::tr(
-                                    "A project’s host is read from its origin, and this repository has none. Add one with git remote add origin, then read again.",
+                                    "Add a remote with git remote add origin, then read again.",
                                 ))),
                         )
                         .child(
@@ -288,7 +288,7 @@ impl Desk {
                                 .variant(AlertVariant::Info)
                                 .title(crate::tr("Only what is public"))
                                 .description(crate::tr_with(
-                                    "%{host} is asked without a token, which reaches only what is public; %{project} is private. A token you give is kept in the macOS Keychain, never in a file, and may be a 1Password reference (op://).",
+                                    "%{project} is private; add a %{host} token (kept in the Keychain).",
                                     &[("host", &host_name), ("project", &project)],
                                 )),
                         )
@@ -317,7 +317,7 @@ impl Desk {
                                         &[("project", &project)],
                                     )))
                                     .child(EmptyDescription::new(crate::tr_with(
-                                        "Bitbucket and Azure DevOps projects list issues from a Linear team. Bind %{project} to one by its key, such as ENG, in its project settings.",
+                                        "Bind %{project} to a Linear team key, such as ENG, in its project settings.",
                                         &[("project", &project)],
                                     ))),
                             )
@@ -351,7 +351,7 @@ impl Desk {
                                     "GitHub is reached with gh, and gh is not on this Mac",
                                 ))
                                 .description(crate::tr(
-                                    "Install it with brew install gh and sign in with gh auth login, or give a token in Source control › Hosts. u0 looks for it on the PATH your login shell sets up.",
+                                    "brew install gh, then gh auth login, or add a token in Source control › Hosts.",
                                 )),
                         )
                         .child(

@@ -228,7 +228,7 @@ impl Desk {
         let desk_reg = cx.entity();
         let agents_card = card_shell(
             crate::tr("Agents"),
-            crate::tr("Found on this Mac. Turn on the ones u0 may start; sign in to the rest first."),
+            crate::tr("Turn on the ones u0 may start; sign in to the rest first."),
         )
         .child(agent_list)
         .child(
@@ -248,7 +248,7 @@ impl Desk {
                 .type_style(TypeStyle::Label01)
                 .text_color(theme::role(ColorRole::TextHelper))
                 .child(crate::tr(
-                    "Installs use each agent's own installer, and each agent signs in its own way. An agent starts in its own default mode, listed by the agent, and asks before it acts as that mode says.",
+                    "Each agent installs and signs in its own way, and asks before acting.",
                 )),
         );
 
@@ -283,7 +283,7 @@ impl Desk {
         let desk_pair = cx.entity();
         let devices_card = card_shell(
             crate::tr("Your other devices"),
-            crate::tr("Pair another Mac, or the u0 phone app, to follow threads and answer approvals."),
+            crate::tr("Follow threads and answer approvals from another Mac or phone."),
         )
         .child(
             div()
@@ -301,19 +301,19 @@ impl Desk {
                         .child(step_row(
                             "1",
                             crate::tr(
-                                "Show a pairing link here: u0://pair and its QR code. It works once, for 10 minutes.",
+                                "Show a pairing link and QR code here. Works once, for 10 minutes.",
                             ),
                         ))
                         .child(step_row(
                             "2",
                             crate::tr(
-                                "Open the link on the other Mac, or scan the QR with the phone. It makes a key of its own for this Mac.",
+                                "Open the link on the other Mac, or scan the QR on a phone.",
                             ),
                         ))
                         .child(step_row(
                             "3",
                             crate::tr(
-                                "Check that both show the same SHA256: fingerprint, and choose what it may do: Everything or Read only.",
+                                "Match the SHA256: fingerprint on both, then choose Everything or Read only.",
                             ),
                         )),
                 )
@@ -355,7 +355,7 @@ impl Desk {
                                 .type_style(TypeStyle::Label01)
                                 .text_color(theme::role(ColorRole::TextHelper))
                                 .child(crate::tr(
-                                    "This Mac alone at first. From elsewhere, through Tailscale, every network, or a cloudflared tunnel you start.",
+                                    "This Mac only at first; later Tailscale, any network or a tunnel.",
                                 )),
                         ),
                 ),
@@ -366,7 +366,7 @@ impl Desk {
                 .type_style(TypeStyle::Label01)
                 .text_color(theme::role(ColorRole::TextHelper))
                 .child(crate::tr(
-                    "A device comes in by its key, never by a password or an account. Nothing goes through a server of ours.",
+                    "Devices come in by key, not password. Nothing goes through our servers.",
                 )),
         );
 
@@ -510,9 +510,7 @@ impl Desk {
 
         let projects_card = card_shell(
             crate::tr("Projects and history"),
-            crate::tr(
-                "Add the folders you work in. Your agents worked in these; tick one to add it as a project.",
-            ),
+            crate::tr("Tick the folders your agents worked in to add them as projects."),
         )
         .child(dropzone)
         .child(agent_history)
@@ -522,7 +520,7 @@ impl Desk {
                 .type_style(TypeStyle::Label01)
                 .text_color(theme::role(ColorRole::TextHelper))
                 .child(crate::tr(
-                    "Nothing is copied. Each agent lists its own threads, by project; a thread is loaded from its agent when you open it, and goes on from there.",
+                    "Nothing is copied: a thread loads from its agent when you open it.",
                 )),
         );
 
@@ -577,7 +575,7 @@ impl Desk {
                                             .font_weight(FontWeight::NORMAL)
                                             .text_color(theme::role(ColorRole::TextSecondary))
                                             .child(crate::tr(
-                                                "u0 has no agent of its own. It runs yours, on your machine, with your own sign-ins.",
+                                                "u0 runs your agents, on your machine, with your sign-ins.",
                                             )),
                                     ),
                             )
@@ -683,54 +681,50 @@ impl Desk {
                 .gap(px(24.))
                 .child(machine_row())
                 .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(6.))
-                        .child(
-                            div()
-                                .type_style(TypeStyle::Label01)
-                                .text_color(theme::role(ColorRole::TextSecondary))
-                                .child(crate::tr("Folder")),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .items_end()
-                                .gap(px(1.))
-                                .child(
-                                    div().flex_1().min_w(px(0.)).child(fields::line_input(
-                                        &self.onboarding.folder,
-                                        false,
-                                        fields::field_fill(true),
-                                        Some(crate::tr(
-                                            "Choose a folder, or drop one on this window",
-                                        )),
-                                        window,
-                                        cx,
-                                    )),
-                                )
-                                .child(
-                                    Button::new("np-browse", crate::tr("Browse"))
-                                        .variant(ButtonVariant::Secondary)
-                                        .size(ButtonSize::Sm)
-                                        .icon(CarbonIcon::FolderOpen)
-                                        .on_click(move |_, window, cx| {
-                                            desk_browse.update(cx, |_, cx| {
-                                                Desk::add_project(window, cx);
-                                            });
-                                        }),
-                                ),
-                        )
-                        .child(
-                            div()
-                                .type_style(TypeStyle::Label01)
-                                .text_color(theme::role(ColorRole::TextHelper))
-                                .child(crate::tr(
-                                    "Any folder works. If it is a Git repository, u0 also finds its branches and pull requests.",
-                                )),
-                        ),
-                )
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.))
+                    .child(
+                        div()
+                            .type_style(TypeStyle::Label01)
+                            .text_color(theme::role(ColorRole::TextSecondary))
+                            .child(crate::tr("Folder")),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_end()
+                            .gap(px(1.))
+                            .child(div().flex_1().min_w(px(0.)).child(fields::line_input(
+                                &self.onboarding.folder,
+                                false,
+                                fields::field_fill(true),
+                                Some(crate::tr("Choose a folder, or drop one on this window")),
+                                window,
+                                cx,
+                            )))
+                            .child(
+                                Button::new("np-browse", crate::tr("Browse"))
+                                    .variant(ButtonVariant::Secondary)
+                                    .size(ButtonSize::Sm)
+                                    .icon(CarbonIcon::FolderOpen)
+                                    .on_click(move |_, window, cx| {
+                                        desk_browse.update(cx, |_, cx| {
+                                            Desk::add_project(window, cx);
+                                        });
+                                    }),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .type_style(TypeStyle::Label01)
+                            .text_color(theme::role(ColorRole::TextHelper))
+                            .child(crate::tr(
+                                "Any folder works; Git repositories also show branches and PRs.",
+                            )),
+                    ),
+            )
         };
 
         let clone_panel = {
@@ -764,7 +758,7 @@ impl Desk {
                                 .type_style(TypeStyle::Label01)
                                 .text_color(theme::role(ColorRole::TextHelper))
                                 .child(crate::tr(
-                                    "From GitHub, GitLab, Bitbucket or Azure DevOps with the token in Settings › Source control · or paste any Git URL",
+                                    "Any Git URL; hosts use the token in Settings › Source control",
                                 )),
                         ),
                 )
@@ -784,19 +778,17 @@ impl Desk {
                                 .flex()
                                 .items_end()
                                 .gap(px(1.))
-                                .child(
-                                    div().flex_1().min_w(px(0.)).child(fields::line_input(
-                                        &self.onboarding.clone_into,
-                                        false,
-                                        fields::field_fill(true),
-                                        Some(SharedString::from(format!(
-                                            "{}/<name>",
-                                            Desk::shown(&self.projects_in(host))
-                                        ))),
-                                        window,
-                                        cx,
-                                    )),
-                                )
+                                .child(div().flex_1().min_w(px(0.)).child(fields::line_input(
+                                    &self.onboarding.clone_into,
+                                    false,
+                                    fields::field_fill(true),
+                                    Some(SharedString::from(format!(
+                                        "{}/<name>",
+                                        Desk::shown(&self.projects_in(host))
+                                    ))),
+                                    window,
+                                    cx,
+                                )))
                                 .child(
                                     Button::new("np-clone-browse", crate::tr("Browse"))
                                         .variant(ButtonVariant::Secondary)
@@ -1109,7 +1101,7 @@ impl Desk {
                             .type_style(TypeStyle::Body01)
                             .text_color(theme::role(ColorRole::TextSecondary))
                             .child(crate::tr(
-                                "A project is a folder on one of your machines. Its threads, worktrees and pull requests live under it.",
+                                "A folder holding its threads, worktrees and pull requests.",
                             )),
                     )
                     .child(card)

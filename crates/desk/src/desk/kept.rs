@@ -188,7 +188,7 @@ impl Desk {
         for s in &mut self.sessions.all {
             if matches!(s.state, crate::session::State::Working) {
                 s.note(&crate::tr(
-                    "u0 closed while this turn was going on; the agent may have gone on with it.",
+                    "u0 closed mid-turn; the agent may have finished it.",
                 ));
             }
         }

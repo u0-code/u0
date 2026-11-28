@@ -41,9 +41,7 @@ impl Desk {
             contrast_secondary: crate::tr("Secondary text on layer"),
             contrast_button: crate::tr("Button text on interactive"),
             tokens_title: crate::tr("Tokens"),
-            tokens_description: crate::tr(
-                "Each colour of the theme, as gpui-kit’s theme file names it. Pick a swatch or type a hex.",
-            ),
+            tokens_description: crate::tr("Pick a swatch or type a hex for each colour."),
             picker: [
                 crate::tr("Saturation and brightness"),
                 crate::tr("Hue"),

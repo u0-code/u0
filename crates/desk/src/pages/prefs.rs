@@ -103,7 +103,7 @@ impl Desk {
                             self.global_select_srow(
                                 "notify",
                                 "When a thread ends a turn or needs you",
-                                "From macOS while u0 is behind, clicked to go to the thread; in u0 while another is on screen.",
+                                "From macOS when u0 is behind; in u0 when another thread is shown.",
                                 [
                                     ("Off", Notify::Off),
                                     ("Notify", Notify::Banner),
@@ -147,7 +147,7 @@ impl Desk {
                                 self.srow(
                                     "awake",
                                     crate::tr("Keep the Mac awake while an agent works"),
-                                    crate::tr("The display may sleep; a turn going on is not cut short by the Mac sleeping."),
+                                    crate::tr("The display may still sleep."),
                                 )
                                 .disabled(scoped)
                                 .modified(now != def, move |_, cx| {
@@ -179,7 +179,7 @@ impl Desk {
                         vec![self.own_srow(
                             "merge",
                             "Merged as",
-                            "How Merge beside a thread, and merging once its checks pass, merge a pull request; the PRs page offers each.",
+                            "Used by Merge and by merging once checks pass.",
                             [
                                 ("Squash", crate::git::Method::Squash),
                                 ("Merge commit", crate::git::Method::Merge),
@@ -228,7 +228,7 @@ impl Desk {
                                 self.srow(
                                     "snoozes",
                                     crate::tr("Snooze for"),
-                                    crate::tr("The ways to snooze offered first, each as you would type it in Custom…: 1h, 5pm, tomorrow, next week. Commas between."),
+                                    crate::tr("Comma-separated, as typed in Custom…: 1h, 5pm, tomorrow."),
                                 )
                                 .disabled(scoped)
                                 .modified(changed, move |window, cx| {
@@ -263,7 +263,7 @@ impl Desk {
                             self.own_srow(
                                 "resume_at_reset",
                                 "Go on when a limit resets",
-                                "A turn an agent's usage limit stopped is said to go on, as a scheduled task, at the time the agent gives.",
+                                "A turn stopped by a usage limit resumes when the limit resets.",
                                 [("Go on", true), ("Wait for me", false)],
                                 |s| s.resume_at_reset,
                                 |s, v| s.resume_at_reset = v,
@@ -272,7 +272,7 @@ impl Desk {
                             self.global_select_srow(
                                 "fetch_every",
                                 "Fetch each project's remote every",
-                                "So branches and pull requests are up to date; projects set to pull are moved on too.",
+                                "Keeps branches and pull requests current; pulls projects set to pull.",
                                 [
                                     ("Minute", Some(1)),
                                     ("5 minutes", Some(5)),
@@ -288,7 +288,7 @@ impl Desk {
                             self.global_segmented_srow(
                                 "check_agents",
                                 "Look for agents' new versions",
-                                "The ACP registry is read again each hour; an agent that stops working is updated to the newest.",
+                                "An agent that stops working is updated from the ACP registry.",
                                 [("Each hour", true), ("Never", false)],
                                 self.settings.check_agents,
                                 defaults.check_agents,
@@ -414,7 +414,7 @@ impl Desk {
                         self.own_srow(
                             "submodules",
                             "Submodules",
-                            "How far a new worktree's submodules are checked out. Where there are many, the top level alone, or none for a setup script to do.",
+                            "How far a new worktree's submodules are checked out.",
                             [
                                 ("Recursive", Submodules::Recursive),
                                 ("Top level", Submodules::Top),
@@ -427,7 +427,7 @@ impl Desk {
                         self.own_srow(
                             "tidy_after",
                             "An archived thread's worktree is taken away after",
-                            "Its branch stays, and so does a worktree with changes not committed; opened again, the thread checks it out again.",
+                            "Its branch and any uncommitted worktree stay; reopening restores it.",
                             [
                                 ("A day", Some(1)),
                                 ("7 days", Some(7)),
@@ -659,7 +659,7 @@ impl Desk {
                 "worktrees",
                 crate::tr("Worktree location"),
                 crate::tr_with(
-                    "New worktrees are made in %{folder}. Those made before stay where they are.",
+                    "New worktrees go in %{folder}. Existing ones stay put.",
                     &[("folder", &Desk::shown(folder))],
                 ),
             )
@@ -742,9 +742,7 @@ impl Desk {
                         vec![item(
                             w,
                             crate::tr("What you send waits, or steers"),
-                            crate::tr(
-                                "Steer stops the turn and says it now; waiting says it once the turn ends.",
-                            ),
+                            crate::tr("Steer interrupts the turn; waiting sends once it ends."),
                             |d, _, cx| {
                                 d.pick(
                                     "steer",
@@ -764,9 +762,7 @@ impl Desk {
                         vec![item(
                             w,
                             crate::tr("Check spelling as you type"),
-                            crate::tr(
-                                "Words the system's spell checker does not know are underlined; right-click one for its guesses.",
-                            ),
+                            crate::tr("Unknown words are underlined; right-click for suggestions."),
                             |d, _, cx| {
                                 Switch::new("spell-check")
                                     .accessibility_label(crate::tr("Check spelling as you type"))
@@ -788,7 +784,7 @@ impl Desk {
                             w,
                             crate::tr("What sends what you write"),
                             crate::tr(
-                                "Where Return does not send, it breaks the line. The other key (⌘Return, or ⇧⌘Return) begins another thread beside it, or while a turn goes on does the opposite of the setting above.",
+                                "If Return doesn't send, it breaks the line; the other key starts a thread beside it.",
                             ),
                             |d, _, cx| {
                                 d.pick(
@@ -816,7 +812,7 @@ impl Desk {
                                 w,
                                 crate::tr("Transcript view (⌃O)"),
                                 crate::tr(
-                                    "Answers shows what you said and its answers; quiet leaves out the calls that went well; normal folds each run of calls into a line; thinking shows its reasoning too; verbose shows every call and step.",
+                                    "From least to most shown: Answers, Quiet, Normal, Thinking, Verbose.",
                                 ),
                                 |d, _, cx| {
                                     d.pick(
@@ -968,9 +964,7 @@ impl Desk {
             item(
                 w,
                 crate::tr("The u0 command"),
-                crate::tr(
-                    "u0 <folder> in a terminal opens the folder here as a project. It goes in ~/.local/bin.",
-                ),
+                crate::tr("u0 <folder> opens a folder as a project. Installed in ~/.local/bin."),
                 |_, _, cx| {
                     ui::button("install-command", crate::tr("Add"), Weight::Quiet)
                         .on_click(cx.listener(|this, _, _, _| this.install_command()))
@@ -991,9 +985,7 @@ impl Desk {
             item(
                 w,
                 crate::tr("u0's log"),
-                crate::tr(
-                    "A file a day in logs/, kept as long as Keep logs says: what to send with a bug.",
-                ),
+                crate::tr("A file a day in logs/: send it with a bug report."),
                 |d, _, _| {
                     let logs = d.home.join("logs");
                     ui::button("show-logs", crate::tr("Show"), Weight::Quiet)
@@ -1133,7 +1125,7 @@ pub(super) fn managed_info_banner(faces: &Faces) -> Div {
                 .child(
                     ui::text(
                         faces,
-                        crate::tr("Managed by your organization: locked controls show a lock and their value."),
+                        crate::tr("Locked controls are set by your organization."),
                     )
                     .text_size(px(crate::style::BODY))
                     .line_height(px(20.))
@@ -1174,7 +1166,7 @@ fn keyboard(w: &WeakEntity<Desk>, banners: Option<SettingGroup>) -> SettingPage 
                 .gap(px(10.))
                 .child(ui::fine(
                     &faces,
-                    crate::tr("A rule is { \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }, with \"when\": \"Terminal\" (or \"Composer\", with !, && and ||) for where it holds, \"action\": \"none\" to take a key away, and \"-new_session\" to take it from that action alone; \"script:dev\" runs the script dev. The last rule that holds wins. u0 reads the file as it starts."),
+                    crate::tr("{ \"key\": \"cmd-shift-n\", \"action\": \"new_session\" }; the last match wins."),
                 ))
                 .child(div().flex().child(
                     ui::button("open-keys", crate::tr("Open keybindings.json"), Weight::Secondary).on_click(

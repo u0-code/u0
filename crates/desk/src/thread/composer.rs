@@ -551,7 +551,7 @@ impl Desk {
             .filter(|m| m.host != crate::hub::Host::HERE && m.scope == crate::access::Scope::Read)
         {
             let placeholder = crate::tr_with(
-                "One suggestion at a time. You can write the next one after %{host} answers.",
+                "One at a time: write the next after %{host} answers.",
                 &[("host", &m.name)],
             );
             let note = crate::tr_with(
@@ -1308,7 +1308,9 @@ impl Desk {
                     "%{name} has this thread open elsewhere too",
                     &[("name", &agent_name)],
                 ))
-                .body(crate::tr("Another process, such as a terminal, runs it as well. What you send here goes on in u0, and that process does not see it: write in one place at a time, or branch off a copy to go on apart."));
+                .body(crate::tr(
+                    "The other process won't see what you send here: use one, or branch off.",
+                ));
             if self.can_fork(s) {
                 let (desk, key) = (cx.entity(), s.key);
                 banner = banner.action(
@@ -1434,7 +1436,7 @@ impl Desk {
                 ComposerBanner::new("banner-over-limit", BannerKind::Error)
                     .title(crate::tr("This message is too long"))
                     .body(crate::tr_with(
-                        "%{count} characters: %{over} over the %{limit} a message may hold. Cut it, or send it in parts.",
+                        "%{count} characters, %{over} over the %{limit} limit. Shorten or split it.",
                         &[
                             ("count", &count),
                             ("over", &(count - mention::LIMIT)),

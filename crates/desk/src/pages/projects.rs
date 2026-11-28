@@ -146,7 +146,7 @@ impl Desk {
                 w,
                 crate::tr("Icon"),
                 crate::tr(
-                    "A picture, or letters or an emoji on a colour; Automatic, its own icon file (favicon, app icon) where it has one.",
+                    "An image, or letters or an emoji on a colour. Automatic uses its own icon.",
                 ),
                 {
                     let dir = dir.clone();
@@ -171,9 +171,7 @@ impl Desk {
             rows.push(item(
                 w,
                 crate::tr("New threads"),
-                crate::tr(
-                    "Where they work: in the folder, or a worktree of their own on a new branch.",
-                ),
+                crate::tr("In the folder, or a worktree on a new branch."),
                 move |d, _, cx| {
                     let worktree = d
                         .prefs(&dir)
@@ -224,15 +222,19 @@ impl Desk {
         rows.push(item(
             w,
             crate::tr("Pull its default branch"),
-            crate::tr("As u0 starts and each time it fetches, while it is checked out with nothing changed, and only where it moves straight on."),
-            switch("project-pull", |p| p.pull, |d, f, _, cx| {
-                d.set_prefs(f, cx, |p| p.pull = !p.pull);
-            }),
+            crate::tr("On start and each fetch, when clean and it can fast-forward."),
+            switch(
+                "project-pull",
+                |p| p.pull,
+                |d, f, _, cx| {
+                    d.set_prefs(f, cx, |p| p.pull = !p.pull);
+                },
+            ),
         ));
         rows.push(item(
             w,
             crate::tr("Archived"),
-            crate::tr("Hides the project from the sidebar and project pickers. Threads and files are kept."),
+            crate::tr("Hidden from the sidebar and pickers. Threads and files are kept."),
             switch(
                 "project-archived",
                 |p| p.archived,
@@ -508,7 +510,7 @@ impl Desk {
             &[("name", &self.project_name(folder)), ("n", &n)],
         );
         let said = crate::tr_with(
-            "Path: %{path}\nu0 forgets these threads and their records. Each agent keeps its own threads.\nFiles on disk are not touched.\nThis cannot be undone.",
+            "Path: %{path}\nFiles on disk and the agents' own threads are kept.\nThis cannot be undone.",
             &[("path", &Desk::shown(&folder.folder))],
         );
         let (desk, folder) = (cx.entity(), folder.clone());

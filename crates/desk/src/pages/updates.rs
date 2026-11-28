@@ -57,10 +57,14 @@ impl Desk {
             item(
                 w,
                 crate::tr("Updates from"),
-                crate::tr("Stable is each release, as the u0 cask installs it; Nightly is what main is now, rebuilt with each change, as u0@nightly installs it."),
+                crate::tr("Stable: each release. Nightly: main, rebuilt on each change."),
                 |d, _, cx| {
-                    d.pick("channel",
-                        [(crate::tr("Stable"), Channel::Stable), (crate::tr("Nightly"), Channel::Nightly)],
+                    d.pick(
+                        "channel",
+                        [
+                            (crate::tr("Stable"), Channel::Stable),
+                            (crate::tr("Nightly"), Channel::Nightly),
+                        ],
                         d.settings.channel,
                         |s, v| s.channel = v,
                         cx,
@@ -71,7 +75,7 @@ impl Desk {
             item(
                 w,
                 crate::tr("Look for updates"),
-                crate::tr("As u0 starts and every four hours; an update is installed only when you say."),
+                crate::tr("At launch and every four hours. Installs only when you say."),
                 |d, _, cx| {
                     let switch = Switch::new("check-updates")
                         .accessibility_label(crate::tr("Look for updates"))

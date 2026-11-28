@@ -408,7 +408,7 @@ impl Desk {
             .clone()
             .map_or_else(|| crate::tr("its branch"), Into::into);
         let what = crate::tr_with(
-            "Everything in %{folder} on %{branch}, as you, with this message or the thread's title",
+            "All of %{folder} on %{branch}, committed as you",
             &[
                 ("folder", &Desk::shown(&s.meta.folder)),
                 ("branch", &branch),
@@ -785,7 +785,7 @@ impl Desk {
                             ui::text(
                                 faces,
                                 crate::tr_with(
-                                    "Checked every two minutes; when its checks finish or a review arrives, %{name} is told in this thread.",
+                                    "Checked every two minutes; %{name} is told of checks and reviews.",
                                     &[("name", &agent_name)],
                                 ),
                             )

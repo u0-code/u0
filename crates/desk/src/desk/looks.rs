@@ -92,7 +92,7 @@ impl Desk {
                 &[("name", &yours)],
             ),
             Some(&crate::tr_with(
-                "Replace it with the one imported, or keep both: the one imported as “%{other}”.",
+                "Replace yours, or keep both and name this one “%{other}”.",
                 &[("other", &other)],
             )),
             &[replace.as_ref(), both.as_ref(), cancel.as_ref()],

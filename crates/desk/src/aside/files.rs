@@ -805,7 +805,7 @@ impl Desk {
                             &[("project", &project_name)],
                         ))
                         .description(crate::tr_with(
-                            "%{path} is read only here, and the agent can read it. To let the agent edit it, copy it into the project.",
+                            "%{path} is read only. Copy it into the project to let the agent edit it.",
                             &[("path", &rel_display)],
                         ))
                         .action(
@@ -1510,7 +1510,7 @@ impl Desk {
                     FileSurfaceState::new("file-deleted", FileSurfaceKind::Binary)
                         .title(crate::tr_with("Deleted in turn %{n}", &[("n", &turn_num)]))
                         .body(crate::tr_with(
-                            "%{agent} removed %{path}. Restore this turn or see the change in the turn’s diff.",
+                            "%{agent} removed %{path}. Restore the turn or view its diff.",
                             &[("agent", &agent_name), ("path", &rel_display)],
                         ))
                         .action(

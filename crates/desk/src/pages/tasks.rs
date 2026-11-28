@@ -221,7 +221,7 @@ impl Desk {
                             EmptyHeader::new()
                                 .child(EmptyTitle::new(crate::tr("No tasks yet")))
                                 .child(EmptyDescription::new(crate::tr(
-                                    "A task says its prompt to an agent on a schedule, as a thread of its own.",
+                                    "Run a prompt with an agent on a schedule.",
                                 ))),
                         )
                         .when(!writing, |e| {
@@ -537,7 +537,7 @@ impl Desk {
                     )
                     .child(ui::fine(
                         faces,
-                        crate::tr("In a thread of yours, not one u0 turns on its own (a task's, a workflow's), so that no task runs on its own runs. {{event}} in what it says is what happened, marked as data from outside."),
+                        crate::tr("Only on your own threads. {{event}} is what happened, as outside data."),
                     ))
             }
         };
@@ -748,17 +748,19 @@ impl Desk {
                 .child(div().w(px(320.)).child(Input::new(&draft.secret).small()))
                 .child(ui::fine(
                     faces,
-                    crate::tr("Only a call whose body is signed by this secret runs it: HMAC-SHA256, hex, in X-Hub-Signature-256 (sha256=…, as GitHub signs) or X-Signature-256. The secret is kept in the Keychain of the Mac it runs on."),
+                    crate::tr(
+                        "HMAC-SHA256 of the body, in X-Hub-Signature-256 or X-Signature-256.",
+                    ),
                 ));
         }
         out.child(div().w(px(420.)).child(Input::new(&draft.only).small()))
             .child(ui::fine(
                 faces,
-                crate::tr("Only when (none: every call): body.<field> or header.<name> = one of these, each such rule after a ; . A delivery sent again (X-GitHub-Delivery) runs it once."),
+                crate::tr("Only when body.<field> or header.<name> = a, b; separate rules with ;"),
             ))
             .child(ui::fine(
                 faces,
-                crate::tr("A POST to it runs the task; {{body}}, {{body.<field>}} or {{header.<name>}} in what it says is what was sent, marked as data from outside; it can still try to steer the agent, so read it as you would anything pasted in. A call made while u0 is not running is not held: the sender has to send it again."),
+                crate::tr("A POST runs it; {{body}} and {{header.<name>}} are untrusted. Lost if u0 is off."),
             ))
     }
 }

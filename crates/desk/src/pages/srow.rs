@@ -415,7 +415,9 @@ impl RenderOnce for SRow {
 
         let err_msg = if self.unreadable {
             Some(self.error.clone().unwrap_or_else(|| {
-                crate::tr("settings.json does not read, so this is not saved. Fix the file, or move it aside, then open Settings again.")
+                crate::tr(
+                    "settings.json does not read; not saved. Fix or move it, then reopen Settings.",
+                )
             }))
         } else {
             self.error.clone()

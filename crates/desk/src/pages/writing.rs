@@ -29,7 +29,7 @@ impl Desk {
             item(
                 w,
                 crate::tr("Who writes"),
-                crate::tr("In a thread of its own, deleted once it answers; it spends what a turn spends."),
+                crate::tr("Runs in its own thread, deleted after; it costs a turn."),
                 |d, faces, cx| d.writer_pick(faces, cx).into_any_element(),
             )
             .keywords(["Writer", "model", "agent", "titles", "commit"]),
@@ -79,7 +79,7 @@ impl Desk {
             ),
         ];
         let mut page = SettingPage::new(super::Tab::Writing.title()).description(crate::tr(
-            "u0 has no model of its own: an agent of yours writes what u0 writes for you.",
+            "u0 has no model; one of your agents writes for it.",
         ));
         if let Some(b) = banners {
             page = page.group(b);
