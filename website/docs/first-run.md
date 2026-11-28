@@ -72,7 +72,7 @@ u0 starts with three agents switched on: **Claude Code**
 (`antigravity-acp`). Every other agent the
 [ACP registry](https://agentclientprotocol.com) lists (Gemini CLI,
 GitHub Copilot, OpenCode and more) can be switched on in
-**Settings › Agents**.
+**Settings › Agents**, which lists the agents installed first, on or off.
 
 An agent that needs something shows at the foot of the sidebar with its
 logo and what it needs: **Sign in**, **Install**, **Installing** or
