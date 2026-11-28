@@ -623,6 +623,8 @@ impl Desk {
             }
             Some(Ok(devices)) => (devices.iter())
                 .map(|d| {
+                    let here = (self.pages.shared.as_ref())
+                        .is_some_and(|s| s.linked.contains(&d.key));
                     let print = key::fingerprint(&d.key);
                     let public = d.key.clone();
                     let waiting = d.waiting;
@@ -631,6 +633,15 @@ impl Desk {
                             "Waiting (%{standing}). Check key %{print} matches the device. Paired %{paired}",
                             &[
                                 ("standing", &standing(d).to_lowercase()),
+                                ("print", &print),
+                                ("paired", &ago(d.paired)),
+                            ],
+                        )
+                    } else if here {
+                        crate::tr_with(
+                            "%{standing}. Its key: %{print}. Paired %{paired}; here now",
+                            &[
+                                ("standing", &standing(d)),
                                 ("print", &print),
                                 ("paired", &ago(d.paired)),
                             ],

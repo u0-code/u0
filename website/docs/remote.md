@@ -111,8 +111,9 @@ code, or paste it there.
 ### Devices that control this Mac
 
 Each paired device is listed with the name it gave, what it may do and
-until when, its key's fingerprint, when it paired and when it was last
-here. **Revoke** cuts it off at once.
+until when, its key's fingerprint, when it paired, and that it is here now
+while it has a link open, else when it was last here. **Revoke** cuts it
+off at once.
 
 A device that waits shows **Let in** and **Turn away**. Check that its
 fingerprint is the one the device shows before you let it in.

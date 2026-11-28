@@ -802,6 +802,16 @@ _version: 2
   pt-BR: "%{standing}. Sua chave: %{print}. Pareado %{paired}; visto aqui por último %{seen}"
   ru: "%{standing}. Его ключ: %{print}. Связано %{paired}; последний раз здесь %{seen}"
   sv: "%{standing}. Dess nyckel: %{print}. Parkopplad %{paired}; senast här %{seen}"
+"%{standing}. Its key: %{print}. Paired %{paired}; here now":
+  zh-CN: "%{standing}。它的密钥：%{print}。配对于 %{paired}；此刻已连接"
+  de: "%{standing}. Sein Schlüssel: %{print}. Gekoppelt %{paired}; jetzt hier"
+  es: "%{standing}. Su clave: %{print}. Emparejado %{paired}; aquí ahora"
+  fr: "%{standing}. Sa clé : %{print}. Associé %{paired} ; ici maintenant"
+  ja: "%{standing}。鍵：%{print}。ペアリング %{paired}、現在接続中"
+  ko: "%{standing}. 키: %{print}. 페어링 %{paired}, 지금 접속 중"
+  pt-BR: "%{standing}. Sua chave: %{print}. Pareado %{paired}; aqui agora"
+  ru: "%{standing}. Его ключ: %{print}. Связано %{paired}; сейчас здесь"
+  sv: "%{standing}. Dess nyckel: %{print}. Parkopplad %{paired}; här nu"
 "%{title} (fork)":
   zh-CN: "%{title}（分支）"
   de: "%{title} (Fork)"
