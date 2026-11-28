@@ -22,11 +22,15 @@ impl Desk {
     pub(crate) fn topbar(&self, faces: &Faces, left_shown: bool, cx: &mut Context<Self>) -> Div {
         let bar = ui::title_bar(!left_shown);
         // The title side and the buttons' side, each as wide as the other,
-        // the command box between them (`CommandBox`).
+        // the command box between them (`CommandBox`). The title side
+        // narrows, its title cut short, before the box leaves the middle;
+        // the buttons' side keeps its buttons.
         let mut left = div()
             .flex()
             .flex_1()
             .flex_basis(px(0.))
+            .min_w(px(0.))
+            .overflow_hidden()
             .items_center()
             .gap(px(8.));
         let mut right = div()
@@ -280,26 +284,15 @@ impl Desk {
     }
 
     /// The command box: what the palette (⌘K) looks through, and its key;
-    /// a press opens the palette under it (⌘K). Its middle is kept, for the
-    /// palette to be centred on.
+    /// a press opens the palette (⌘K).
     fn command_box(&self, cx: &mut Context<Self>) -> gpui::Div {
         let desk = cx.entity();
-        let at = self.palette.under.clone();
         div()
-            .relative()
             .flex()
             .w_full()
             // Not the bar's: a press here opens the palette, it does not
             // move the window.
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation())
-            .child(
-                gpui::canvas(
-                    move |bounds, _, _| at.set(Some(bounds.center().x)),
-                    |_, (), _, _| {},
-                )
-                .absolute()
-                .size_full(),
-            )
             .child(
                 u0ui::u0::shell::CommandBox::new(
                     "command-box",

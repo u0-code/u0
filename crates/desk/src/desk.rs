@@ -2297,9 +2297,6 @@ impl Render for Desk {
             gpui::point(px(if left_beside { left } else { 0. }), px(0.)),
             gpui::size(px(pane), window.viewport_size().height),
         );
-        // Where the command box is, once its bar is drawn; nowhere in a
-        // frame without it (a split, a page with none).
-        self.palette.under.set(None);
         let cell = crate::thread::drawer::grid(window, &faces, self.settings.terminal_size);
         let split_middle = (self.page == Page::Thread)
             .then(|| {

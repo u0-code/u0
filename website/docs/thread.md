@@ -75,8 +75,10 @@ a pull request…**, **Tags…**, the transcript views, **Continue with** anothe
 agent, **Open in your editor**, **Archive** and **Delete…**.
 
 In the middle of the bar, the box that reads **Search threads, projects,
-commands and settings** opens the palette under it, as ⌘K does; when the
-bar is short of room, only its magnifier is left. At the right, while
+commands and settings** opens the palette, as ⌘K does: at the top of
+the window, in its middle. A long title is cut short before the box
+leaves the middle of the bar; when the bar is short of room, only its
+magnifier is left. At the right, while
 the folder has uncommitted changes, **Commit N files** opens the commit
 form in the Diff tab; for a thread on this Mac, **Share this Mac
 read-only…** makes a pairing link with which a device reads every project
