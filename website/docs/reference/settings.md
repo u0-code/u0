@@ -248,9 +248,10 @@ writes for you (titles, branch names, commit messages, pull requests):
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `browser` | path or `null` | `null` | External browser `.app` u0 opens links and dev servers in (`null`: system default). |
+| `open_pages` | `"preview"`, `"browser"` | `"preview"` | Where a page you open shows: the Preview tab (macOS) or your browser (**Settings › Browser › Open pages in**). |
+| `browser` | path or `null` | `null` | The browser `.app` **Open in your browser** uses (`null`: system default). |
 | `ask_browser` | bool | `false` | Ask which browser to open each link in. |
-| `cmd_click_urls` | bool | `true` | `⌘`-clicking a terminal URL opens it in your browser. |
+| `cmd_click_urls` | bool | `true` | `⌘`-clicking a terminal URL opens it where pages open; `⌥⌘`-click, in your browser. |
 | `dev_server` | `"show"`, `"open"`, `"ignore"` | `"show"` | What happens when a dev server starts. |
 | `forward_port` | number | `41873` | First local port used when forwarding a remote dev server. |
 | `snapshots` | `{shortcut, include_text, never_capture, sound, flash, animations}` | see defaults | Desktop window snapshot capture and feedback settings. |

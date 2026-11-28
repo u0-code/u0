@@ -277,3 +277,57 @@ pub fn app_for_extension(extension: &str) -> Option<std::path::PathBuf> {
     let app = NSWorkspace::sharedWorkspace().URLForApplicationToOpenContentType(&kind)?;
     app.path().map(|p| std::path::PathBuf::from(p.to_string()))
 }
+
+/// The browser macOS opens web addresses with, and every app that opens
+/// them, by path: as `LaunchServices` says, not from a list of ours.
+#[cfg(target_os = "macos")]
+pub fn browsers() -> (Option<std::path::PathBuf>, Vec<std::path::PathBuf>) {
+    use objc2_app_kit::NSWorkspace;
+    use objc2_foundation::{NSString, NSURL};
+    let workspace = NSWorkspace::sharedWorkspace();
+    let Some(web) = NSURL::URLWithString(&NSString::from_str("https://example.com")) else {
+        return (None, Vec::new());
+    };
+    let path = |url: &NSURL| url.path().map(|p| std::path::PathBuf::from(p.to_string()));
+    let default = workspace
+        .URLForApplicationToOpenURL(&web)
+        .and_then(|u| path(&u));
+    let all = workspace
+        .URLsForApplicationsToOpenURL(&web)
+        .iter()
+        .filter_map(|u| path(&u))
+        .collect();
+    (default, all)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn browsers() -> (Option<std::path::PathBuf>, Vec<std::path::PathBuf>) {
+    (None, Vec::new())
+}
+
+/// Forget every cookie, store and cache the Preview tab's pages kept (the
+/// app's own `WebKit` data, apart from your browser's), and say so.
+#[cfg(target_os = "macos")]
+pub fn clear_website_data(tx: crate::hub::Sender) {
+    use objc2::MainThreadMarker;
+    use objc2_foundation::NSDate;
+    use objc2_web_kit::WKWebsiteDataStore;
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let done = block2::RcBlock::new(move || {
+        let _ = tx.send(crate::hub::Msg::Notice(Ok(crate::tr(
+            "Website data cleared",
+        )
+        .to_string())));
+    });
+    // SAFETY: on the main thread (`mtm`), as WebKit's data store asks.
+    unsafe {
+        let store = WKWebsiteDataStore::defaultDataStore(mtm);
+        store.removeDataOfTypes_modifiedSince_completionHandler(
+            &WKWebsiteDataStore::allWebsiteDataTypes(mtm),
+            &NSDate::distantPast(),
+            &done,
+        );
+    }
+}

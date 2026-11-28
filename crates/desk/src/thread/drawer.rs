@@ -576,13 +576,21 @@ impl Desk {
                 cx.listener(move |this, e: &MouseDownEvent, window, cx| {
                     this.drawer.on = Some(id);
                     window.focus(&this.drawer.focus, cx);
+                    // ⌥⌘-click: your browser, wherever pages open.
+                    let to = if e.modifiers.alt {
+                        To::Browser
+                    } else {
+                        this.pages_to()
+                    };
+                    let links = this.settings.cmd_click_urls;
                     if let Some(t) = this.drawer.terminals.iter_mut().find(|t| t.id == id) {
                         let at = Self::cell_at(t, e.position, grid);
                         if e.modifiers.platform
+                            && links
                             && let Some(url) = t.link_at(at)
                         {
                             let host = t.host;
-                            this.open_address(host, url, To::Browser, cx);
+                            this.open_address(host, url, to, cx);
                         } else if e.modifiers.platform
                             && crate::markdown::path_like(&t.word_text(at))
                         {

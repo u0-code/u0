@@ -152,6 +152,14 @@ hidden while another tab or thread is shown, and closed with its tab. On
 Windows and Linux, u0 shows no page yet: a dev server opens in your
 browser.
 
+**Settings › Browser** has **Open pages in** (**u0's Preview** or **Your
+browser**: where the drawer's Open preview and a ⌘-clicked address go),
+**Web engine**, **⌘-click a printed address** (⌥⌘-click opens your
+browser), **Your browser** (which browser **Open in your browser** uses:
+the system default, or one of those on this Mac, **Use this browser**)
+and **Website data**: **Clear…** forgets the cookies, storage and cache
+the pages you opened kept, apart from your browser's.
+
 ## Side chat
 
 The **Side chat** tab asks the agent a question beside the thread: it

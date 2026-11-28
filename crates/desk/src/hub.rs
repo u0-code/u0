@@ -307,6 +307,31 @@ pub fn knock(key: u64, address: String, tx: Sender) {
     });
 }
 
+/// Open `address` with the app at `app` (your browser): macOS's `open`, as
+/// the system opens one, off the window's thread; why not, if it does not.
+pub fn open_with(app: PathBuf, address: String, tx: Sender) {
+    acp::runtime().spawn_blocking(move || {
+        let opened = std::process::Command::new("open")
+            .arg("-a")
+            .arg(&app)
+            .arg(&address)
+            .output();
+        let why = match opened {
+            Ok(done) if done.status.success() => return,
+            Ok(done) => String::from_utf8_lossy(&done.stderr).trim().to_owned(),
+            Err(why) => why.to_string(),
+        };
+        let _ = tx.send(Msg::Notice(Err((
+            crate::tr_with(
+                "Couldn't open %{address} in your browser",
+                &[("address", &address)],
+            )
+            .to_string(),
+            why,
+        ))));
+    });
+}
+
 /// Do `work` off the window's thread, and send what it comes to back.
 fn off(tx: Sender, work: impl FnOnce() -> Msg + Send + 'static) {
     acp::runtime().spawn_blocking(move || {

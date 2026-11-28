@@ -275,6 +275,17 @@ impl Desk {
     /// (`aside::rules::to_browser`), on every system; anything else, a
     /// `preview` naming a file or another app's address, is refused and said.
     pub(crate) fn browse(&mut self, address: &str, cx: &mut gpui::App) {
+        // The browser Settings › Browser names (`browser`), else the
+        // system's, for a web address alone.
+        if let (Some(app), Some(url)) = (
+            self.settings
+                .browser
+                .clone()
+                .filter(|_| cfg!(target_os = "macos")),
+            crate::aside::rules::for_browser(address),
+        ) {
+            return crate::hub::open_with(app, url.into(), self.tx.clone());
+        }
         if !crate::aside::rules::to_browser(address, cx) {
             self.trouble(
                 crate::tr_with(
@@ -317,10 +328,13 @@ impl Desk {
     }
 
     /// Where a page you open from the session on screen goes: its Preview
-    /// tab, where u0 shows pages; else your browser.
+    /// tab, where u0 shows pages and Settings › Browser has them open
+    /// there (`open_pages`); else your browser.
     pub(crate) fn pages_to(&self) -> To {
         #[cfg(target_os = "macos")]
-        if let Some(key) = self.current {
+        if self.settings.open_pages == crate::settings::PagesIn::Preview
+            && let Some(key) = self.current
+        {
             return To::Preview(key);
         }
         To::Browser

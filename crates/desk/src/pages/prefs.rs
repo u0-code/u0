@@ -882,6 +882,7 @@ impl Desk {
             ),
             Tab::Keybindings => return Some(keyboard(w, banners)),
             Tab::Writing => return Some(Self::writing_tab(w, banners)),
+            Tab::Browser => return Some(Self::browser_tab(w, banners)),
             Tab::About => return Some(self.about_u0(w, banners)),
             Tab::SourceControl => return Some(self.source_control(w, banners)),
             _ => return None,

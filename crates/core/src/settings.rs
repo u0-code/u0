@@ -350,13 +350,19 @@ pub struct Settings {
     /// Open changes and pull request panels proactively when files change or a PR is linked.
     #[serde(default = "yes")]
     pub proactive_panels: bool,
-    /// The external browser `.app` u0 opens links and dev servers in; none, the system default.
+    /// Where a page you open shows: the Preview tab (where u0 shows pages,
+    /// on macOS), or your browser.
+    #[serde(default)]
+    pub open_pages: PagesIn,
+    /// The browser `.app` "Open in your browser" opens pages and links in;
+    /// none, the system default.
     #[serde(default)]
     pub browser: Option<PathBuf>,
     /// Ask which browser to open each link in rather than using `browser`.
     #[serde(default)]
     pub ask_browser: bool,
-    /// `⌘`-clicking a URL printed in a terminal opens it in the browser.
+    /// `⌘`-clicking a URL printed in a terminal opens it where pages open
+    /// (`⌥⌘`, in your browser).
     #[serde(default = "yes")]
     pub cmd_click_urls: bool,
     /// What u0 does when a terminal or agent starts a dev server.
@@ -724,6 +730,17 @@ pub enum Announcements {
     RepliesAndAlerts,
     AlertsOnly,
     Off,
+}
+
+/// Where a page you open shows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PagesIn {
+    /// The Preview tab of the thread on screen.
+    #[default]
+    Preview,
+    /// Your browser.
+    Browser,
 }
 
 /// What u0 does when a dev server starts.
@@ -1382,6 +1399,7 @@ impl Default for Settings {
             hide_test_files: false,
             open_prs_here: true,
             proactive_panels: true,
+            open_pages: PagesIn::default(),
             browser: None,
             ask_browser: false,
             cmd_click_urls: true,

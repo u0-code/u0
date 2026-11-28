@@ -3,6 +3,7 @@
 //! to and set up.
 
 mod agent;
+mod browser;
 mod devices;
 mod diagnostics;
 mod flows;

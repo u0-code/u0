@@ -62,6 +62,8 @@ gpui-webview.workspace = true
 wry.workspace = true
 objc2-app-kit.workspace = true
 objc2-uniform-type-identifiers.workspace = true
+objc2-web-kit.workspace = true
+block2.workspace = true
 
 [lints]
 workspace = true

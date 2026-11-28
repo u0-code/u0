@@ -218,9 +218,10 @@ u0 把设置保存在其主目录（`~/.u0`，或 `U0_HOME`）中的 `settings.j
 
 | 键 | 类型 | 默认值 | 含义 |
 |---|---|---|---|
-| `browser` | 路径或 `null` | `null` | u0 用于打开链接和开发服务器的外部浏览器 `.app`（`null`：系统默认）。 |
+| `open_pages` | `"preview"`、`"browser"` | `"preview"` | 你打开的网页在哪里显示：预览标签页（macOS）或你的浏览器（**设置 › 浏览器 › 网页打开位置**）。 |
+| `browser` | 路径或 `null` | `null` | **在浏览器中打开** 使用的浏览器 `.app`（`null`：系统默认）。 |
 | `ask_browser` | bool | `false` | 打开每个链接时询问使用哪个浏览器。 |
-| `cmd_click_urls` | bool | `true` | 按住 `⌘` 点击终端打印的地址时在浏览器中打开。 |
+| `cmd_click_urls` | bool | `true` | 按住 `⌘` 点击终端打印的地址时在网页打开的位置打开；按住 `⌥⌘` 点击则在你的浏览器中打开。 |
 | `dev_server` | `"show"`、`"open"`、`"ignore"` | `"show"` | 开发服务器启动时的处理方式。 |
 | `forward_port` | 数字 | `41873` | 转发远程开发服务器端口时的起始本地端口。 |
 | `snapshots` | `{shortcut, include_text, never_capture, sound, flash, animations}` | 见默认值 | 桌面窗口快照捕获与反馈设置。 |

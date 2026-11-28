@@ -81,6 +81,7 @@ pub enum Tab {
     General,
     Appearance,
     Chat,
+    Browser,
     NewThreads,
     Writing,
     Agents,
@@ -99,11 +100,12 @@ pub enum Tab {
 
 impl Tab {
     /// Each tab, in canonical index order.
-    pub const ALL: [Self; 17] = [
+    pub const ALL: [Self; 18] = [
         Self::General,
         Self::Devices,
         Self::Appearance,
         Self::Chat,
+        Self::Browser,
         Self::Keybindings,
         Self::Projects,
         Self::SourceControl,
@@ -119,10 +121,11 @@ impl Tab {
         Self::About,
     ];
 
-    const APP_TABS: [Self; 4] = [
+    const APP_TABS: [Self; 5] = [
         Self::General,
         Self::Appearance,
         Self::Chat,
+        Self::Browser,
         Self::Keybindings,
     ];
 
@@ -152,6 +155,7 @@ impl Tab {
             Self::General => "General",
             Self::Appearance => "Appearance",
             Self::Chat => "Chat",
+            Self::Browser => "Browser",
             Self::NewThreads => "New threads",
             Self::Writing => "Writing",
             Self::Agents => "Agents",
@@ -184,6 +188,7 @@ impl Tab {
             Self::General => CarbonIcon::Settings,
             Self::Appearance => CarbonIcon::ColorPalette,
             Self::Chat => CarbonIcon::Chat,
+            Self::Browser => CarbonIcon::Globe,
             Self::Keybindings => CarbonIcon::Keyboard,
             Self::Agents => CarbonIcon::Bot,
             Self::NewThreads => CarbonIcon::Add,
@@ -206,6 +211,7 @@ impl Tab {
             Self::General => "sliders",
             Self::Appearance => "sun",
             Self::Chat => "reply",
+            Self::Browser => "globe",
             Self::NewThreads => "plus",
             Self::Writing => "pencil",
             Self::Agents => "plug",
@@ -230,6 +236,7 @@ impl Tab {
             Self::General
                 | Self::Appearance
                 | Self::Chat
+                | Self::Browser
                 | Self::Keybindings
                 | Self::Telemetry
                 | Self::About
