@@ -70,26 +70,6 @@ fn modes_of(s: &Session) -> Option<(Option<String>, Vec<Mode>)> {
     Some((None, modes))
 }
 
-/// The icon a mode is drawn with, by what its id or name says it lets the
-/// agent do: plan only, edit without asking, decide for itself, anything
-/// at all, or ask first; agents name the same ways of working in their own
-/// words. Each has an icon of its own.
-fn mode_icon(id: &str, name: &str) -> &'static str {
-    let words = format!("{id} {name}").to_lowercase();
-    let has = |w: &[&str]| w.iter().any(|w| words.contains(w));
-    if has(&["plan", "read"]) {
-        "list"
-    } else if has(&["bypass", "full", "yolo", "danger", "never"]) {
-        "alert"
-    } else if has(&["edit", "accept"]) {
-        "pencil"
-    } else if has(&["auto"]) {
-        "play"
-    } else {
-        "user"
-    }
-}
-
 impl Desk {
     /// The mode chip in the composer's footer (u0ui's `ComposerControl`):
     /// the mode as its agent names it, its menu over it.
@@ -158,7 +138,6 @@ impl Desk {
             return menu;
         };
         for (n, m) in modes.into_iter().enumerate() {
-            let icon = mode_icon(&m.id, &m.name);
             let (config, id, on) = (config.clone(), m.id, m.on);
             let (faces, name, about) = (faces.clone(), m.name, m.about);
             let said = name.clone();
@@ -173,7 +152,6 @@ impl Desk {
                         .when(n < 9, |d| d.child(Kbd::new(crate::keys::numbered(n + 1))))
                 })
                 .accessibility_label(said)
-                .icon(ui::menu_glyph(icon))
                 .checked(on)
                 .on_click(Self::does(desk, move |this, window, cx| {
                     this.pick_mode(config.clone(), id.clone(), cx);

@@ -74,6 +74,8 @@ impl Desk {
             SharedString::default()
         } else if waiting_approval {
             crate::tr("Answer the card above, or reply with a note")
+        } else if !working && s.planning() {
+            crate::tr("Ask for changes to the plan")
         } else if working {
             crate::tr("Waits its turn, or ⇧⌘↵ steers")
         } else if s.items.is_empty() {
@@ -1025,7 +1027,7 @@ impl Desk {
                     .size_length(px(16.))
                     .color(theme::role(ColorRole::IconPrimary)),
             )
-            .tooltip(crate::tr("Add files, a window, a command"));
+            .tooltip(crate::tr("Add files, a window, a folder"));
         let able = s.state == State::Draft
             && self
                 .slot(s.host, &s.meta.agent)
@@ -1061,17 +1063,18 @@ impl Desk {
                                 Self::menu_item(&desk, crate::tr(says), f)
                                     .icon(ui::menu_glyph(icon))
                             };
-                        menu = menu.item(row("file", "Add files or photos", |_, window, cx| {
-                            Self::attach_files(window, cx);
-                        }));
+                        menu =
+                            menu.item(row("download", "Add files or photos", |_, window, cx| {
+                                Self::attach_files(window, cx);
+                            }));
                         if wins.is_empty() {
-                            menu = menu.item(row("camera", "Add a window", |this, _, cx| {
+                            menu = menu.item(row("visibility", "Add a window", |this, _, cx| {
                                 this.capture(None, cx);
                             }));
                         } else {
                             let sub_desk = desk.clone();
                             menu = menu.submenu_with_icon(
-                                Some(ui::menu_glyph("camera")),
+                                Some(ui::menu_glyph("visibility")),
                                 crate::tr("Add a window"),
                                 window,
                                 cx,
@@ -1097,12 +1100,7 @@ impl Desk {
                                 },
                             );
                         }
-                        menu.item(row("terminal", "Slash commands", |this, window, cx| {
-                            this.put_line("/", window, cx);
-                            let line = this.composer.input.clone();
-                            window.focus(&gpui::Focusable::focus_handle(line.read(cx), cx), cx);
-                        }))
-                        .when(able, |m| {
+                        menu.when(able, |m| {
                             m.item(row("folder", "Add folder", |this, _, cx| {
                                 this.add_folder(cx);
                             }))
