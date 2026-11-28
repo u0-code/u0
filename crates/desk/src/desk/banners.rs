@@ -243,9 +243,20 @@ impl Desk {
         )))
     }
 
+    /// The server whose files `tab`'s banners speak of: the one picked for
+    /// a server's own page, this Mac for the window's own (its look, its
+    /// keys), which are this Mac's whichever server is picked.
+    fn banner_host(picked: Host, tab: Tab) -> Host {
+        if tab.is_per_machine() {
+            picked
+        } else {
+            Host::HERE
+        }
+    }
+
     /// Whether `tab` currently has a top-of-page Settings banner.
     fn has_settings_banner(&self, tab: Tab) -> bool {
-        let on = self.pages.on;
+        let on = Self::banner_host(self.pages.on, tab);
         if on == Host::HERE
             && (crate::policy::current().is_err()
                 || self.settings_refused.is_some()
@@ -271,7 +282,7 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> Option<AnyElement> {
         let mut out: Vec<AnyElement> = Vec::new();
-        let on = self.pages.on;
+        let on = Self::banner_host(self.pages.on, tab);
         if on == Host::HERE
             && let Err(bad) = crate::policy::current()
         {
@@ -417,5 +428,19 @@ impl Desk {
             link,
             None,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Desk, Host, Tab};
+
+    #[test]
+    fn a_window_own_page_speaks_of_this_macs_files_whichever_server_is_picked() {
+        let other = Host(1);
+        assert_eq!(Desk::banner_host(other, Tab::Appearance), Host::HERE);
+        assert_eq!(Desk::banner_host(other, Tab::Keybindings), Host::HERE);
+        assert_eq!(Desk::banner_host(other, Tab::Projects), other);
+        assert_eq!(Desk::banner_host(Host::HERE, Tab::Projects), Host::HERE);
     }
 }
