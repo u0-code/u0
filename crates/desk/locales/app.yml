@@ -7662,6 +7662,16 @@ _version: 2
   pt-BR: "Ocultar as resolvidas e as de bots"
   ru: "Скрыть решённые и от ботов"
   sv: "Dölj lösta och botarnas"
+"Hide the sidebar":
+  zh-CN: "隐藏侧边栏"
+  de: "Seitenleiste ausblenden"
+  es: "Ocultar la barra lateral"
+  fr: "Masquer la barre latérale"
+  ja: "サイドバーを隠す"
+  ko: "사이드바 가리기"
+  pt-BR: "Ocultar a barra lateral"
+  ru: "Скрыть боковую панель"
+  sv: "Göm sidofältet"
 "Hide this tab; it goes on":
   zh-CN: "隐藏此标签页；它会继续运行"
   de: "Diesen Tab ausblenden; er läuft weiter"

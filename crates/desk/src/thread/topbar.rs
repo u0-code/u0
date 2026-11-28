@@ -40,15 +40,10 @@ impl Desk {
             .justify_end()
             .items_center()
             .gap(px(8.));
-        if !left_shown && !matches!(self.page, Page::Thread) {
-            left = left.child(
-                ui::icon_button(
-                    "show-sidebar",
-                    "sidebar",
-                    crate::keys::hint(cx, &crate::tr("Show the sidebar"), "toggle_sidebar"),
-                )
-                .on_click(cx.listener(|this, _, window, cx| this.toggle_sidebar(window, cx))),
-            );
+        // Folded away, the sidebar leaves its toggle and New thread at the
+        // bar's start, where its head stood.
+        if !left_shown {
+            left = left.child(Self::sidebar_folded(cx));
         }
         if !matches!(
             self.page,

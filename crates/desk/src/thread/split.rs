@@ -157,15 +157,8 @@ impl Desk {
                 BoxShadow::new(px(0.), px(-1.), theme::role(ColorRole::BorderInteractive)).inset(),
             ]);
         }
-        if left_inset > 20. && !self.panes.left {
-            bar = bar.child(
-                ui::icon_button(
-                    SharedString::from(format!("split-sb-{}", s.key)),
-                    "sidebar",
-                    crate::keys::hint(cx, &crate::tr("Show the sidebar"), "toggle_sidebar"),
-                )
-                .on_click(cx.listener(|this, _, window, cx| this.toggle_sidebar(window, cx))),
-            );
+        if left_inset > 20. && self.settings.sidebar_hidden {
+            bar = bar.child(Self::sidebar_folded(cx));
         }
         let title_color = if focused {
             theme::role(ColorRole::TextPrimary)

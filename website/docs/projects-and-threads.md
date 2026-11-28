@@ -72,6 +72,14 @@ copy** to go on apart.
 
 ### The sidebar
 
+**Hide the sidebar** (⌘B, or **View › Toggle Sidebar**), the button
+before Back in its head, folds it away; dragging its edge to the
+left does too. Hidden, **Show the sidebar** and **New thread** stand
+there at the start of the bar over the thread, the palette (⌘K) still
+finds every thread, and dragging from the window's left edge brings
+the sidebar back. u0 opens with it as you left it. In a window too
+narrow for it beside the thread, ⌘B opens it over the thread.
+
 - **Pinned** threads from every project come first, in the order you
   dragged them.
 - Each **project** lists its threads that are not done. The order is

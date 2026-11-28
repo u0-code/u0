@@ -157,14 +157,10 @@ pub enum Popup {
     Scope,
 }
 
-/// Which side columns show.
+/// Which side columns show; whether the sidebar does is a setting
+/// (`sidebar_hidden`), kept from one launch to the next.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "each is an independent column toggle (docked left, overlay left, right, whole)"
-)]
 pub struct Panes {
-    pub left: bool,
     /// Sidebar opened over the thread (⌘B) while the window has no room
     /// beside it (`WindowSizes`).
     pub left_over: bool,
@@ -684,7 +680,6 @@ impl Desk {
             popup: Popup::Closed,
             picker: crate::thread::Picker::default(),
             panes: Panes {
-                left: true,
                 left_over: false,
                 right: false,
                 whole: false,
@@ -1751,11 +1746,14 @@ impl Desk {
         cx.notify();
     }
 
+    /// Show or hide the sidebar (⌘B): beside the thread, kept so for the
+    /// next launch; over it, while the window has no room beside it.
     pub fn toggle_sidebar(&mut self, window: &Window, cx: &mut Context<Self>) {
         let width = f32::from(window.viewport_size().width);
         if width - self.left_width() >= THREAD_LEAST {
-            self.panes.left = !self.panes.left;
+            self.settings.sidebar_hidden = !self.settings.sidebar_hidden;
             self.panes.left_over = false;
+            self.save_settings();
         } else {
             self.panes.left_over = !self.panes.left_over;
         }
@@ -1773,6 +1771,7 @@ impl Desk {
             width,
             left,
             self.right_width() + rail,
+            !self.settings.sidebar_hidden,
             self.panes,
             thread_page,
         );
@@ -2145,11 +2144,11 @@ impl Desk {
     /// t3code's least; dragged to under a quarter of its least, hidden.
     fn drag_left(&mut self, x: f32, window: &Window, cx: &mut Context<Self>) {
         if x < LEFT_LEAST / 4. {
-            self.panes.left = false;
+            self.settings.sidebar_hidden = true;
         } else {
             let most = f32::from(window.viewport_size().width) - MIDDLE_LEAST;
             self.settings.left = x.clamp(LEFT_LEAST, most.max(LEFT_LEAST)) as u32;
-            self.panes.left = true;
+            self.settings.sidebar_hidden = false;
         }
         cx.notify();
     }
@@ -2518,16 +2517,18 @@ fn line_of(named: &str) -> Option<&str> {
 
 /// Pure layout rule (`WindowSizes`): the thread never gets narrower than
 /// `THREAD_LEAST` (`480`); side columns that do not fit beside it either fold
-/// away (`left`, until opened with ⌘B as `left_over`) or lie over it (`right`).
+/// away (`docked`, until opened with ⌘B as `left_over`) or lie over it
+/// (`right`).
 fn columns_for(
     width: f32,
     left: f32,
     right: f32,
+    docked: bool,
     panes: Panes,
     thread_page: bool,
 ) -> (bool, bool, bool, bool) {
     let fits_left = width - left >= THREAD_LEAST;
-    let left_beside = panes.left && fits_left;
+    let left_beside = docked && fits_left;
     let left_over = panes.left_over && !fits_left;
     let right_shown = panes.right && thread_page && !panes.whole;
     let right_beside =
@@ -2607,14 +2608,13 @@ mod tests {
     #[test]
     fn thread_keeps_its_480_minimum_at_800x520_and_200_percent_zoom() {
         let base = Panes {
-            left: true,
             left_over: false,
             right: false,
             whole: false,
         };
         // 800×520, right closed: 256 + 544 (>= 480) -> sidebar stays beside.
         assert_eq!(
-            columns_for(800., 256., 400., base, true),
+            columns_for(800., 256., 400., true, base, true),
             (true, false, false, false)
         );
         // 800×520, right open: 256 + 400 leaves 144 (< 480) -> right overlays.
@@ -2623,13 +2623,13 @@ mod tests {
             ..base
         };
         assert_eq!(
-            columns_for(800., 256., 400., with_right, true),
+            columns_for(800., 256., 400., true, with_right, true),
             (true, false, true, false)
         );
         // 1440×900 at 200% zoom -> 720 logical width (< 256 + 480 = 736):
         // sidebar folds away automatically; ⌘B opens `left_over` over thread.
         assert_eq!(
-            columns_for(720., 256., 400., base, true),
+            columns_for(720., 256., 400., true, base, true),
             (false, false, false, false)
         );
         let toggled = Panes {
@@ -2637,8 +2637,23 @@ mod tests {
             ..base
         };
         assert_eq!(
-            columns_for(720., 256., 400., toggled, true),
+            columns_for(720., 256., 400., true, toggled, true),
             (false, true, false, false)
+        );
+    }
+
+    #[test]
+    fn a_hidden_sidebar_stays_hidden_however_wide_the_window() {
+        let base = Panes {
+            left_over: false,
+            right: true,
+            whole: false,
+        };
+        // 1600 wide holds 256 + 480 + 400, yet the sidebar stays away, and
+        // the room it would take goes to the thread and the right column.
+        assert_eq!(
+            columns_for(1600., 256., 400., false, base, true),
+            (false, false, true, true)
         );
     }
 }
