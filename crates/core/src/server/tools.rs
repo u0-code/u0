@@ -1329,10 +1329,16 @@ esac; done"#;
         };
         // Closed by the server within the read's ten seconds.
         let ended = |mut s: std::net::TcpStream| s.read_to_end(&mut Vec::new()).is_ok();
+        // Each is seen to be taken: its nonce is said once it is held.
         let quiet: Vec<_> = (0..crate::server::door::KEYING)
-            .map(|_| connect(door.port))
+            .map(|_| {
+                let s = connect(door.port);
+                std::io::BufReader::new(&s)
+                    .read_line(&mut String::new())
+                    .unwrap();
+                s
+            })
             .collect();
-        std::thread::sleep(Duration::from_millis(300));
         let began = std::time::Instant::now();
         assert!(ended(connect(door.port)), "one more is closed");
         assert!(began.elapsed() < Duration::from_secs(2), "at once");

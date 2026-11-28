@@ -1462,11 +1462,18 @@ mod tests {
             .expect("told in time")
     }
 
+    /// All `link` was told before now, heard: what is told is told in
+    /// order, and the index it asks for now comes after it.
+    fn said_and_gone(link: &Link, heard: &std_mpsc::Receiver<Event>) {
+        link.send(Call::Watch);
+        while !matches!(told(heard), Event::Index(_)) {}
+    }
+
     #[test]
     fn a_stranger_turned_away_writes_nothing_and_is_told_to_no_desk() {
         let home = tempfile::tempdir().unwrap();
         let (server, port) = server(home.path());
-        let (_mine, _, heard, _) = desk(port, Key::generate(), Some(&server)).unwrap();
+        let (mine, _, heard, _) = desk(port, Key::generate(), Some(&server)).unwrap();
         let devices = home.path().join("devices.json");
         let written = || {
             std::fs::metadata(&devices)
@@ -1474,9 +1481,9 @@ mod tests {
                 .unwrap()
         };
         let before = written();
-        // What its coming in said, said and gone.
-        std::thread::sleep(Duration::from_millis(300));
-        while heard.try_recv().is_ok() {}
+        // What its coming in said, said and gone: told before what it asks
+        // after is answered.
+        said_and_gone(&mine, &heard);
         for _ in 0..3 {
             let why = desk(port, Key::generate(), None).map(|_| ()).unwrap_err();
             assert!(why.contains("not paired"), "{why}");
@@ -1493,7 +1500,7 @@ mod tests {
         use crate::access::Grant;
         let home = tempfile::tempdir().unwrap();
         let (server, port) = server(home.path());
-        let (_mine, _, heard, _) = desk(port, Key::generate(), Some(&server)).unwrap();
+        let (mine, _, heard, _) = desk(port, Key::generate(), Some(&server)).unwrap();
         let (waits, ended) = (kept(), kept());
         let ask = Grant {
             ask: true,
@@ -1509,10 +1516,10 @@ mod tests {
         assert!(paired.unwrap_err().contains("ended"));
         let devices = home.path().join("devices.json");
         let written = || std::fs::read_to_string(&devices).unwrap();
-        // What their pairing said, said and gone; and a second gone, so
-        // that a `seen` written now would differ.
+        // A second gone, so that a `seen` written now would differ; and
+        // what their pairing said, said and gone.
         std::thread::sleep(Duration::from_millis(1100));
-        while heard.try_recv().is_ok() {}
+        said_and_gone(&mine, &heard);
         let before = written();
         for _ in 0..3 {
             let why = desk(port, key(&waits), None).map(|_| ()).unwrap_err();
@@ -1739,8 +1746,8 @@ mod tests {
             c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
             c
         };
+        // Taken in the order they came: all of these before one more.
         let mut held: Vec<_> = (0..CARRIED).map(|_| connect()).collect();
-        std::thread::sleep(Duration::from_millis(500));
         let began = std::time::Instant::now();
         let mut said = Vec::new();
         assert!(connect().read_to_end(&mut said).is_ok() && said.is_empty());
@@ -1751,12 +1758,20 @@ mod tests {
         let mut answer = String::new();
         let _ = first.read_to_string(&mut answer);
         assert_eq!(answer, "hello from there");
-        std::thread::sleep(Duration::from_millis(300));
-        let mut next = connect();
-        next.write_all(b"hello").unwrap();
-        let mut answer = String::new();
-        let _ = next.read_to_string(&mut answer);
-        assert_eq!(answer, "hello from there");
+        // Its end, seen here, comes a moment before its place is free.
+        let carried = (0..250).any(|_| {
+            // One refused may be closed before it is written to.
+            let mut next = connect();
+            let _ = next.write_all(b"hello");
+            let mut answer = String::new();
+            let _ = next.read_to_string(&mut answer);
+            let carried = answer == "hello from there";
+            if !carried {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            carried
+        });
+        assert!(carried, "one more is carried");
     }
 
     #[test]
@@ -2009,10 +2024,10 @@ esac; done"#;
         });
         assert_eq!(huge, None, "nothing but a close or an error answers it");
         // So many connections waiting to be let in; one more is closed.
+        // Taken in the order they came: all of these before one more.
         let held: Vec<std::net::TcpStream> = (0..PENDING)
             .map(|_| std::net::TcpStream::connect(("127.0.0.1", port)).unwrap())
             .collect();
-        std::thread::sleep(Duration::from_millis(300));
         let mut more = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
         more.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         let mut said = Vec::new();
@@ -2021,9 +2036,17 @@ esac; done"#;
             "closed at once"
         );
         drop(held);
-        std::thread::sleep(Duration::from_millis(300));
-        // Once they go, a desk comes in as ever, and may send much.
-        let (link, _, heard, _) = desk(port, Key::generate(), Some(&server)).unwrap();
+        // Once the server sees them go, a desk comes in as ever, and may
+        // send much.
+        let (link, _, heard, _) = (0..250)
+            .find_map(|_| {
+                let came = desk(port, Key::generate(), Some(&server)).ok();
+                if came.is_none() {
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                came
+            })
+            .expect("a desk comes in once they go");
         link.send(Call::Stash(vec!["y".repeat(BEFORE * 4)]));
         link.send(Call::Watch);
         assert!(matches!(told(&heard), Event::Index(Ok(i)) if i.stashed[0].len() == BEFORE * 4));
@@ -2494,12 +2517,16 @@ esac; done"#;
         assert!(welcome.until.is_some());
         let live = told(&shared);
         assert_eq!(live.linked, [pubkey]);
+        // Its link ends, and the server, once it sees so, says so when asked.
         drop(link);
-        std::thread::sleep(Duration::from_millis(100));
-        server.share(Share::Look);
-        let after = std::iter::from_fn(|| shared.recv_timeout(Duration::from_millis(200)).ok())
-            .last()
-            .unwrap();
-        assert!(after.linked.is_empty());
+        let gone = (0..250).any(|_| {
+            server.share(Share::Look);
+            let gone = told(&shared).linked.is_empty();
+            if !gone {
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            gone
+        });
+        assert!(gone, "it is no longer linked");
     }
 }
