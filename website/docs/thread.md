@@ -186,8 +186,9 @@ composer, or else the agent's last answer.
 agents down its left, the tab's models in the middle (each with what its
 agent says of it, ⌘1–⌘9 beside the first nine), the agent's options at
 the right, and **Agent settings** under the tabs. An agent that is
-starting, not installed or signed out says so on its tab, and with a
-button above its models. In a narrow window the tabs show only the
+starting, installing, not installed, failed or signed out says so on its tab,
+and one that needs you has a button above its models (**Agent settings** or
+**Sign in**); choosing a tab clears the search. In a narrow window the tabs show only the
 agents' marks. Search with **Search models…** (across every agent), star a
 model to keep it among the favourites, and choose how hard it thinks under
 the agent's own name for it (Codex's **Reasoning effort**). A speed option

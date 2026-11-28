@@ -273,23 +273,29 @@ impl Desk {
             let name = self.name_of(id);
             let said = |english: &str| crate::tr_with(english, &[("name", &name)]);
             let mut tab = PickerProvider::new(id.to_owned(), name.clone()).mark(mark(id));
+            // The tab's note says what it is doing or what went wrong; the
+            // notice over its models, what it needs of you.
             tab = match &slot.stage {
                 Stage::Starting => tab.starting(true).notice_short(crate::tr("Starting")),
-                Stage::Failed(why) => tab
+                Stage::Installing(_) => tab.notice_short(crate::tr("Installing")),
+                Stage::Missing(_) => tab.notice_short(crate::tr("Not installed")),
+                Stage::Failed(why) => {
+                    tab.notice_short(crate::tr("Failed"))
+                        .tooltip(crate::tr_with(
+                            "%{name}: Failed to start. %{why}",
+                            &[("name", &name), ("why", why)],
+                        ))
+                }
+                _ => tab,
+            };
+            tab = match need_of(&slot.stage, &slot.auth) {
+                Some(Need::Settings) => tab
                     .notice(said("%{name} cannot start yet"))
-                    .notice_action(crate::tr("Agent settings"))
-                    .tooltip(crate::tr_with(
-                        "%{name}: Failed to start. %{why}",
-                        &[("name", &name), ("why", why)],
-                    )),
-                Stage::Missing(_) | Stage::Installing(_) => tab
-                    .notice(said("%{name} cannot start yet"))
-                    .notice_action(crate::tr("Agent settings"))
-                    .notice_short(crate::tr("Not installed")),
-                _ if matches!(slot.auth, Auth::Needed(_)) => tab
+                    .notice_action(crate::tr("Agent settings")),
+                Some(Need::SignIn) => tab
                     .notice(said("Sign in to %{name}"))
                     .notice_action(crate::tr("Sign in")),
-                _ => tab,
+                None => tab,
             };
             if !draft && id != s.meta.agent {
                 tab = tab.disabled(true).tooltip(said(
@@ -384,13 +390,16 @@ impl Desk {
             .open_option(open_option)
             .max_width(self.column.size.width - px(PICKER_MARGIN))
             .texts(texts)
-            .on_provider_change(Self::with(&desk, |d, id: SharedString, _, cx| {
+            .on_provider_change(Self::with(&desk, |d, id: SharedString, window, cx| {
                 d.picker.rail = if id == FAVOURITES {
                     Rail::Favourites
                 } else {
                     Rail::Agent(id.to_string())
                 };
                 d.picker.at = 0;
+                // A tab chosen shows its own models, not what was searched.
+                d.menu_search
+                    .update(cx, |i, cx| i.set_value("", window, cx));
                 cx.notify();
             }))
             .on_choose(of(|d, m, window, cx| {
@@ -445,11 +454,13 @@ impl Desk {
                 let Some(slot) = d.slot(host, &id) else {
                     return;
                 };
-                if matches!(slot.stage, Stage::Missing(_) | Stage::Failed(_)) {
-                    d.close_popup(window, cx);
-                    d.open_tab(crate::pages::Tab::Agents, window, cx);
-                } else {
-                    d.sign_in_agent(host, &id, cx);
+                match need_of(&slot.stage, &slot.auth) {
+                    Some(Need::Settings) => {
+                        d.close_popup(window, cx);
+                        d.open_tab(crate::pages::Tab::Agents, window, cx);
+                    }
+                    Some(Need::SignIn) => d.sign_in_agent(host, &id, cx),
+                    None => {}
                 }
             }))
             .on_settings({
@@ -684,6 +695,24 @@ fn speed(options: &[SessionConfigOption]) -> Option<Speed> {
     })
 }
 
+/// What an agent needs before its models can be picked: its page in the
+/// settings (it is not installed, installing, or failed to start), or you
+/// to sign in (also while it starts). The tab's notice and its button are
+/// both read from it, so they say and do the same.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Need {
+    Settings,
+    SignIn,
+}
+
+fn need_of(stage: &Stage, auth: &Auth) -> Option<Need> {
+    match stage {
+        Stage::Missing(_) | Stage::Installing(_) | Stage::Failed(_) => Some(Need::Settings),
+        _ if matches!(auth, Auth::Needed(_)) => Some(Need::SignIn),
+        _ => None,
+    }
+}
+
 /// An option of the agent's as the picker draws it: its choices in its
 /// order, the current one the one it reports.
 fn picker_option(o: &SessionConfigOption) -> Option<PickerOption> {
@@ -720,7 +749,8 @@ fn shown_by(query: &str, value: &str, label: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{about_of, picker_option, speed};
+    use super::{Need, about_of, need_of, picker_option, speed};
+    use crate::hub::{Auth, Install, Stage};
     use agent_client_protocol::v1::schema::NewSessionResponse;
 
     #[test]
@@ -787,5 +817,22 @@ mod tests {
             Some("Fast and affordable model for easier tasks.")
         );
         assert_eq!(about_of(&of("model").kind, "gpt-unknown"), None);
+    }
+
+    #[test]
+    fn an_agents_notice_asks_for_what_it_needs() {
+        let installing = Stage::Installing(Install {
+            what: "npm".into(),
+            share: None,
+        });
+        let signed_out = Auth::Needed("Sign in".into());
+        // Installing, failed: its page, never a sign-in, signed out or not.
+        assert_eq!(need_of(&installing, &signed_out), Some(Need::Settings));
+        let failed = Stage::Failed("exit 1".into());
+        assert_eq!(need_of(&failed, &Auth::Ready), Some(Need::Settings));
+        // Starting and signed out: it still asks you to sign in.
+        assert_eq!(need_of(&Stage::Starting, &signed_out), Some(Need::SignIn));
+        assert_eq!(need_of(&Stage::Starting, &Auth::Unknown), None);
+        assert_eq!(need_of(&Stage::Ready, &Auth::Ready), None);
     }
 }
