@@ -594,6 +594,56 @@ pub enum Told {
 }
 
 impl Call {
+    /// Whether it is answered to its asker alone (`Server::handle_for`):
+    /// such an answer goes on the link it was asked on and is kept for no
+    /// other, so a desk whose link drops asks again for each it has not
+    /// been answered (`link::connect`), as `answered` pairs them.
+    pub fn alone(&self) -> bool {
+        matches!(
+            self,
+            Self::Read { .. }
+                | Self::Search { .. }
+                | Self::Used { .. }
+                | Self::Look { .. }
+                | Self::Uncommitted { .. }
+                | Self::ScopeDiff { .. }
+                | Self::Commits { .. }
+                | Self::ReadPr { .. }
+                | Self::PrText { .. }
+                | Self::Pictures { .. }
+                | Self::Grep { .. }
+                | Self::Place { .. }
+        )
+    }
+
+    /// Whether `event` answers it, wholly: a picture of several asked
+    /// for answers that one, taken from what it asks.
+    pub fn answered(&mut self, event: &Event) -> bool {
+        match (self, event) {
+            (Self::Read { key, .. }, Event::Record { key: k, .. })
+            | (Self::Look { key, .. }, Event::Looked { key: k, .. })
+            | (Self::Uncommitted { key, .. }, Event::Uncommitted { key: k, .. })
+            | (Self::Commits { key, .. }, Event::Commits { key: k, .. })
+            | (Self::ReadPr { key, .. }, Event::Pr { key: k, .. })
+            | (Self::Place { key, .. }, Event::Placed { key: k, .. }) => key == k,
+            (
+                Self::ScopeDiff { key, scope, .. },
+                Event::Diffed {
+                    key: k, scope: s, ..
+                },
+            ) => key == k && scope == s,
+            (Self::PrText { number, .. }, Event::PrText { number: n, .. }) => number == n,
+            (Self::Search { query, .. }, Event::Found { query: q, .. }) => query == q,
+            (Self::Grep { words, .. }, Event::Grepped { words: w, .. }) => words == w,
+            (Self::Used { .. }, Event::Used(_)) => true,
+            (Self::Pictures { urls, .. }, Event::Picture { url, .. }) => {
+                urls.retain(|u| u != url);
+                urls.is_empty()
+            }
+            _ => false,
+        }
+    }
+
     /// Where it only reads, what it reads; `None` where it changes
     /// something, runs a program, acts as you anywhere, or reads what
     /// lies beyond your projects (the processes, the log, the disk's
@@ -1400,6 +1450,40 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
+
+    #[test]
+    fn a_call_answered_its_asker_alone_waits_until_each_of_its_answers_comes() {
+        let picture = |url: &str| Event::Picture {
+            url: url.into(),
+            picture: Err("not here".into()),
+        };
+        let mut pictures = Call::Pictures {
+            folder: "/p".into(),
+            kind: crate::github::Kind::Pr,
+            number: 1,
+            urls: vec!["https://a/1".into(), "https://a/2".into()],
+        };
+        assert!(pictures.alone());
+        assert!(!pictures.answered(&picture("https://a/1")));
+        assert!(!pictures.answered(&picture("https://elsewhere")));
+        assert!(pictures.answered(&picture("https://a/2")));
+        let mut read = Call::Read {
+            key: 3,
+            agent: "a".into(),
+            id: SessionId::new("s"),
+        };
+        let record = |key| Event::Record { key, events: None };
+        assert!(!read.answered(&record(4)));
+        assert!(read.answered(&record(3)));
+        // What every desk hears is said again to one that comes back.
+        assert!(
+            !Call::Watch.alone()
+                && !Call::ListPrs {
+                    folder: "/p".into()
+                }
+                .alone()
+        );
+    }
 
     /// `value` written as JSON reads back as what writes the same JSON; the
     /// name of the variant it is.

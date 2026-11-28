@@ -995,6 +995,9 @@ pub fn connect(
             Err(e) => return state(State::Refused(e.to_string())),
         };
         let (mut since, mut wait, mut lost) = (None, FIRST, false);
+        // What was asked that answers this desk alone, not yet answered:
+        // asked again each time the link is reached again.
+        let mut asked = Vec::new();
         while !calls.is_closed() {
             match dial(&way, hello(&key, None, since, Then::Desk)).await {
                 Ok((mut ws, welcome)) => {
@@ -1002,7 +1005,8 @@ pub fn connect(
                     wait = FIRST;
                     *next_try.lock().expect("retry_at") = None;
                     state(State::Up(Box::new(welcome)));
-                    let Some(why) = pump(&mut ws, &mut calls, &said, &mut since).await else {
+                    let pumped = pump(&mut ws, &mut calls, &said, &mut since, &mut asked);
+                    let Some(why) = pumped.await else {
                         return;
                     };
                     state(State::Lost(why));
@@ -1154,13 +1158,23 @@ async fn answer<T: serde::de::DeserializeOwned>(ws: &mut Client) -> Result<T, Di
 }
 
 /// Send what is asked and hand on what is said, until the link drops
-/// (why) or the desk lets go of it (none). `since` follows what was heard.
+/// (why) or the desk lets go of it (none). `since` follows what was heard;
+/// `waiting`, what was asked that answers this desk alone (`Call::alone`)
+/// and is not yet answered, asked again first, as an answer on a link
+/// that dropped is not said again on the next.
 async fn pump(
     ws: &mut Client,
     calls: &mut mpsc::UnboundedReceiver<Out>,
     said: &impl Fn(Event),
     since: &mut Option<(u64, u64)>,
+    waiting: &mut Vec<Call>,
 ) -> Option<String> {
+    for call in waiting.iter() {
+        let text = serde_json::to_string(call).expect("a call serializes");
+        if let Err(e) = ws.send(Message::text(text)).await {
+            return Some(e.to_string());
+        }
+    }
     loop {
         tokio::select! {
             call = calls.recv() => {
@@ -1176,6 +1190,9 @@ async fn pump(
                     }
                 };
                 let text = serde_json::to_string(&call).expect("a call serializes");
+                if call.alone() {
+                    waiting.push(call);
+                }
                 if let Err(e) = ws.send(Message::text(text)).await {
                     return Some(e.to_string());
                 }
@@ -1187,6 +1204,7 @@ async fn pump(
                         if let Some((_, at)) = since {
                             *at = n;
                         }
+                        waiting.retain_mut(|call| !call.answered(&event));
                         said(event);
                     }
                     Err(e) => tracing::warn!("an event that does not read: {e}"),
@@ -1609,24 +1627,91 @@ mod tests {
     /// A way to `port` that can be cut: each connection through it then
     /// drops.
     fn breakable(port: u16) -> (u16, watch::Sender<u32>) {
+        let (through, cut, _) = deafened(port);
+        (through, cut)
+    }
+
+    /// As `breakable`, and while the flag it gives is up, what the server
+    /// says is not carried to the desk: lost as it would be on a link
+    /// that drops as it is said.
+    fn deafened(port: u16) -> (u16, watch::Sender<u32>, Arc<std::sync::atomic::AtomicBool>) {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
         let rt = crate::acp::runtime();
         let front = rt.block_on(TcpListener::bind(("127.0.0.1", 0))).unwrap();
         let through = front.local_addr().unwrap().port();
         let cut = watch::Sender::new(0);
-        let cuts = cut.clone();
+        let deaf = Arc::new(AtomicBool::new(false));
+        let (cuts, deafs) = (cut.clone(), deaf.clone());
         rt.spawn(async move {
-            while let Ok((mut a, _)) = front.accept().await {
-                let mut cut = cuts.subscribe();
+            while let Ok((a, _)) = front.accept().await {
+                let (mut cut, deaf) = (cuts.subscribe(), deafs.clone());
                 tokio::spawn(async move {
-                    let mut b = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+                    let b = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+                    let ((mut a_in, mut a_out), (mut b_in, mut b_out)) =
+                        (a.into_split(), b.into_split());
+                    let back = async move {
+                        let mut buf = vec![0; 1 << 16];
+                        while let Ok(n @ 1..) = b_in.read(&mut buf).await {
+                            if !deaf.load(Ordering::SeqCst)
+                                && a_out.write_all(&buf[..n]).await.is_err()
+                            {
+                                break;
+                            }
+                        }
+                    };
                     tokio::select! {
-                        _ = tokio::io::copy_bidirectional(&mut a, &mut b) => {}
+                        _ = tokio::io::copy(&mut a_in, &mut b_out) => {}
+                        () = back => {}
                         _ = cut.changed() => {}
                     }
                 });
             }
         });
-        (through, cut)
+        (through, cut, deaf)
+    }
+
+    #[test]
+    fn a_desk_whose_link_drops_as_it_is_answered_asks_again_once_back() {
+        use std::sync::atomic::Ordering;
+        let home = tempfile::tempdir().unwrap();
+        let (server, port) = server(home.path());
+        let (through, cut, deaf) = deafened(port);
+        let (link, _, heard, stood) = desk(through, Key::generate(), Some(&server)).unwrap();
+        // Asked, and its answer lost as the link drops: whether it was
+        // said and not carried, or not yet said as the link went.
+        deaf.store(true, Ordering::SeqCst);
+        let id = agent_client_protocol::v1::schema::SessionId::new("s1");
+        let (agent, query) = ("a".to_owned(), "nothing".to_owned());
+        link.send(Call::Read {
+            key: 7,
+            agent: agent.clone(),
+            id: id.clone(),
+        });
+        link.send(Call::Search {
+            query: query.clone(),
+            records: vec![(7, agent, id)],
+        });
+        link.send(Call::Stash(vec!["after".into()]));
+        cut.send_modify(|n| *n += 1);
+        assert!(matches!(told(&stood), State::Lost(_)));
+        deaf.store(false, Ordering::SeqCst);
+        assert!(matches!(told(&stood), State::Up(_)));
+        // Back, it is answered what it waited for, once each.
+        let (mut record, mut found) = (0, 0);
+        while record == 0 || found == 0 {
+            match told(&heard) {
+                Event::Record { key: 7, .. } => record += 1,
+                Event::Found { query: q, .. } if q == query => found += 1,
+                _ => {}
+            }
+        }
+        while let Ok(e) = heard.recv_timeout(Duration::from_millis(300)) {
+            assert!(
+                !matches!(e, Event::Record { .. } | Event::Found { .. }),
+                "told twice"
+            );
+        }
     }
 
     #[test]
