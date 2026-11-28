@@ -2038,6 +2038,7 @@ impl Desk {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.pages.agents.shown(tab);
         let on = self.pages.on;
         let page = format!("settings/{tab:?}").to_lowercase();
         self.call(on, Call::Telemetry(crate::telemetry::Ask::Opened(page)));

@@ -28,7 +28,7 @@ mod voice;
 mod writing;
 
 pub(crate) use diagnostics::process_tree;
-pub use settings::{Tab, height as settings_height};
+pub use settings::{Folder, Tab, height as settings_height};
 
 use gpui::component::input::{InputEvent, InputState, TextareaState};
 use gpui::{Context, Entity, SharedString, Window, prelude::*};
@@ -93,6 +93,8 @@ pub struct Pages {
     pub usage_project: Option<std::path::PathBuf>,
     /// Machine filter on the Usage workspace page (`None` = all machines).
     pub usage_host: Option<crate::hub::Host>,
+    /// The settings sidebar's Agents folder.
+    pub agents: Folder,
     /// The project the settings a project may hold are set for, as
     /// t3code's "Applying settings for"; none, everywhere.
     pub scope: Option<std::path::PathBuf>,
@@ -242,6 +244,7 @@ impl Pages {
             period: Some(7),
             usage_project: None,
             usage_host: None,
+            agents: Folder::default(),
             scope: None,
             forges: Vec::new(),
             themes_refused: Vec::new(),

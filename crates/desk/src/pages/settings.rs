@@ -43,6 +43,31 @@ pub fn height(window: &Window) -> Pixels {
     (window.viewport_size().height - px(80.)).min(px(crate::style::SETTINGS_DIALOG_MAX_HEIGHT))
 }
 
+/// The settings sidebar's Agents folder: the agents under the Agents row.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Folder {
+    open: bool,
+}
+
+impl Folder {
+    /// The settings show `tab`, by whatever route: the Agents page opens
+    /// the folder on the agents it is the page of.
+    pub fn shown(&mut self, tab: Tab) {
+        self.open |= tab == Tab::Agents;
+    }
+
+    /// Opened or closed by its chevron.
+    pub fn toggle(&mut self) {
+        self.open = !self.open;
+    }
+
+    /// Whether the agents show: the folder open, or a search typed, which
+    /// shows the agents it matches.
+    pub fn shows(self, searching: bool) -> bool {
+        self.open || searching
+    }
+}
+
 /// A tab of the settings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -474,7 +499,7 @@ impl Desk {
             q.is_empty()
                 || tab.title().to_lowercase().contains(&q)
                 || tab == self.pages.tab
-                // Agents stands over the agents a search finds.
+                // The folder's head stands over the agents a search finds.
                 || (tab == Tab::Agents && !agent_names.is_empty())
         };
 
@@ -533,12 +558,14 @@ impl Desk {
             let mut rows: Vec<AnyElement> = Vec::new();
             for &tab in tabs {
                 if tab_matches(tab) {
-                    rows.push(
-                        self.settings_nav_row(faces, tab, true, cx)
-                            .into_any_element(),
-                    );
+                    let row = self.settings_nav_row(faces, tab, true, cx);
+                    rows.push(if tab == Tab::Agents {
+                        self.agents_folder(row, !q.is_empty(), cx)
+                    } else {
+                        row.into_any_element()
+                    });
                 }
-                if tab == Tab::Agents {
+                if tab == Tab::Agents && self.pages.agents.shows(!q.is_empty()) {
                     for (id, name) in agent_names.iter().cloned() {
                         rows.push(self.settings_agent_nav_row(faces, self.pages.on, id, name, cx));
                     }
@@ -766,6 +793,46 @@ impl Desk {
             }))
     }
 
+    /// The Agents row as a folder: a chevron that opens it on its agents,
+    /// and closes it again. It says what is shown: while a search shows
+    /// the agents it finds, it is open, and waits for the search to end.
+    fn agents_folder(
+        &self,
+        row: gpui::Stateful<Div>,
+        searching: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let open = self.pages.agents.shows(searching);
+        let desk = cx.entity();
+        row.child(
+            CarbonButton::new(
+                "snav-agents-folder",
+                crate::tr(if open {
+                    "Hide the agents"
+                } else {
+                    "Show the agents"
+                }),
+            )
+            .variant(ButtonVariant::Ghost)
+            .size(ButtonSize::Sm)
+            .icon(if open {
+                CarbonIcon::ChevronDown
+            } else {
+                CarbonIcon::ChevronRight
+            })
+            .icon_only(true)
+            .disabled(searching)
+            .on_click(move |_, _, cx| {
+                cx.stop_propagation();
+                desk.update(cx, |this, cx| {
+                    this.pages.agents.toggle();
+                    cx.notify();
+                });
+            }),
+        )
+        .into_any_element()
+    }
+
     fn settings_agent_nav_row(
         &self,
         faces: &Faces,
@@ -789,7 +856,9 @@ impl Desk {
             .gap(px(12.))
             .w_full()
             .h(px(32.))
-            .px(px(16.))
+            // Inside the folder: its glyph under the folder's label.
+            .pl(px(44.))
+            .pr(px(16.))
             .cursor_pointer()
             .when(active, |d| {
                 d.bg(theme::role(ColorRole::LayerSelected02)).child(
@@ -1317,6 +1386,25 @@ impl Desk {
 
 #[cfg(test)]
 mod tests {
+    use super::{Folder, Tab};
+
+    #[test]
+    fn the_agents_folder_opens_as_the_agents_page_shows_and_as_a_search_finds() {
+        let mut folder = Folder::default();
+        assert!(!folder.shows(false), "it starts closed");
+        folder.shown(Tab::General);
+        assert!(!folder.shows(false), "another page leaves it closed");
+        assert!(folder.shows(true), "a search shows the agents it finds");
+        folder.shown(Tab::Agents);
+        assert!(folder.shows(false), "the Agents page opens it");
+        folder.toggle();
+        assert!(!folder.shows(false), "its chevron closes it");
+        folder.shown(Tab::Devices);
+        assert!(!folder.shows(false), "and it stays closed on another page");
+        folder.shown(Tab::Agents);
+        assert!(folder.shows(false), "until the Agents page shows again");
+    }
+
     /// Under GPUI Fast a bare `overflow_y_scroll` column in the dialog's row
     /// is laid out as tall as what it holds, so it never scrolls: the dialog
     /// clipped the page list below Source control, and Devices, where a
