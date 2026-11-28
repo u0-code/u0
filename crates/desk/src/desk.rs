@@ -1311,14 +1311,13 @@ impl Desk {
         self.draft_in(&self.chosen_project()?)
     }
 
-    /// Put the draft `draft_due` names on screen, as the start page.
+    /// Put the draft `draft_due` names on screen, as the start page: shown
+    /// as any session is, to be written in at once, gone back to, its git
+    /// read again.
     fn onto_draft(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(key) = self.draft_due() else { return };
-        let unsent = (self.sessions.at(key)).map_or_else(String::new, |s| s.meta.unsent.clone());
-        self.put_line(&unsent, window, cx);
-        self.swap_drafts(None, key);
-        self.current = Some(key);
-        cx.notify();
+        if let Some(key) = self.draft_due() {
+            self.show(key, window, cx);
+        }
     }
 
     /// Begin the session the composer was drawn for with none on screen,
