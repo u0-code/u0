@@ -4,7 +4,9 @@
 //! A session that has begun is its agent's: ACP hands nothing over, so the
 //! other agents wait for a new session.
 
-use agent_client_protocol::v1::schema::SessionConfigOptionCategory as Category;
+use agent_client_protocol::v1::schema::{
+    SessionConfigOption, SessionConfigOptionCategory as Category,
+};
 use gpui::component::{
     Disableable as _, Selectable as _, Sizable as _,
     button::{Button, ButtonVariants as _},
@@ -16,6 +18,7 @@ use gpui::component::{
     separator::Separator,
 };
 use gpui::{Anchor, Context, Div, SharedString, Stateful, Window, div, prelude::*, px};
+use u0ui::components::switch::{Switch, SwitchSize};
 use u0ui::t3::composer::ComposerControl;
 
 use super::{composer::over_box, select_choices};
@@ -27,6 +30,9 @@ use crate::{
     settings::Favourite,
     theme, ui,
 };
+
+/// What the picker leaves of the thread's column, at its edges together.
+const PICKER_MARGIN: f32 = 16.;
 
 /// What the rail has chosen: your favourites, or one agent by id.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -111,7 +117,10 @@ impl Desk {
         Some(
             ComposerControl::new("chip-effort", SharedString::from(effort))
                 .active(open)
-                .child(u0ui::t3::composer::EffortGlyph::new(level))
+                .child(
+                    u0ui::t3::composer::EffortGlyph::new(level)
+                        .fast(speed(&s.options).is_some_and(|x| x.on)),
+                )
                 .on_click(move |window, cx| {
                     desk.update(cx, |this, cx| {
                         if this.picker_open() {
@@ -238,7 +247,8 @@ impl Desk {
         }
     }
 
-    /// The picker: its three columns over its foot.
+    /// The picker: its three columns over its foot, no wider than the
+    /// thread's column: in a narrow one the list narrows.
     fn picker(&self, faces: &Faces, cx: &mut Context<Self>) -> Div {
         let Some(s) = self.session() else {
             return div();
@@ -248,6 +258,7 @@ impl Desk {
         div()
             .flex()
             .flex_col()
+            .max_w(self.column.size.width - px(PICKER_MARGIN))
             .rounded(px(0.))
             .bg(theme::role(u0ui::tokens::ColorRole::Layer01))
             .overflow_hidden()
@@ -263,18 +274,18 @@ impl Desk {
     }
 
     /// The rail: your favourites, then each agent switched on, the one
-    /// chosen marked at its edge.
+    /// chosen selected, with u0ui's 3px `border-interactive` rail at its
+    /// start edge: inside its button, never over the list beside it.
     fn rail(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> Stateful<Div> {
         let draft = Self::is_draft(s);
         let pill = || {
             div()
                 .absolute()
-                .top(px(8.))
-                .right(px(-4.))
+                .top_0()
+                .bottom_0()
+                .left_0()
                 .w(px(3.))
-                .h(px(20.))
-                .rounded(px(2.))
-                .bg(theme::accent())
+                .bg(theme::role(u0ui::tokens::ColorRole::BorderInteractive))
         };
         let favourites = self.picker.rail == Rail::Favourites;
         let mut rail = div()
@@ -295,6 +306,7 @@ impl Desk {
                         Button::new("rail-favourites")
                             .ghost()
                             .size(px(36.))
+                            .selected(favourites)
                             .child(ui::icon("star-fill", 18.).text_color(theme::text2()))
                             .tooltip(crate::tr("Favourites"))
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -337,6 +349,7 @@ impl Desk {
                         Button::new(SharedString::from(format!("rail-{id}")))
                             .ghost()
                             .size(px(36.))
+                            .selected(chosen)
                             .disabled(bound)
                             .child(ui::mark(faces, &self.mark_of(&id), 20.))
                             .tooltip(tip)
@@ -510,7 +523,7 @@ impl Desk {
             .flex()
             .flex_col()
             .w(px(316.))
-            .flex_none()
+            .min_w(px(0.))
             .border_l_1()
             .border_r_1()
             .border_color(theme::border2())
@@ -589,6 +602,7 @@ impl Desk {
             .options
             .iter()
             .find(|o| o.category == Some(Category::ThoughtLevel));
+        let speed = speed(&s.options);
         let others: Vec<_> = s
             .options
             .iter()
@@ -598,9 +612,10 @@ impl Desk {
                     Some(Category::Model | Category::Mode | Category::ThoughtLevel)
                 )
             })
+            .filter(|o| speed.as_ref().is_none_or(|x| x.config != *o.id.0))
             .filter_map(|o| select_choices(&o.kind).map(|c| (o, c)))
             .collect();
-        let head = match (effort, others.is_empty()) {
+        let head = match (effort, others.is_empty() && speed.is_none()) {
             (Some(o), _) => o.name.clone(),
             (None, false) => crate::tr("Options").to_string(),
             (None, true) => crate::tr("Effort").to_string(),
@@ -658,7 +673,7 @@ impl Desk {
                     );
                 }
             }
-            _ if others.is_empty() => {
+            _ if others.is_empty() && speed.is_none() => {
                 rows = rows.child(
                     ui::text(faces, crate::tr("No effort levels"))
                         .p(px(8.))
@@ -669,8 +684,32 @@ impl Desk {
             _ => {}
         }
         column = column.child(rows);
-        if !others.is_empty() {
+        if !others.is_empty() || speed.is_some() {
             column = column.child(Separator::horizontal().mx(px(6.)));
+        }
+        if let Some(Speed {
+            config,
+            name,
+            on,
+            other,
+        }) = speed
+        {
+            let desk = cx.entity();
+            column = column.child(
+                div().px(px(14.)).py(px(10.)).child(
+                    Switch::new("option-speed")
+                        .size(SwitchSize::Sm)
+                        .checked(on)
+                        .label_off(name.clone())
+                        .label_on(name)
+                        .on_checked_change(move |_, _, cx| {
+                            desk.update(cx, |this, cx| {
+                                this.set_option(config.clone(), other.clone(), cx);
+                                this.popup = Popup::Model;
+                            });
+                        }),
+                ),
+            );
         }
         for (n, (o, (current, choices))) in others.into_iter().enumerate() {
             column = column.child(self.option_row(faces, n, o, current, choices, cx));
@@ -684,7 +723,7 @@ impl Desk {
         &self,
         faces: &Faces,
         n: usize,
-        o: &agent_client_protocol::v1::schema::SessionConfigOption,
+        o: &SessionConfigOption,
         current: String,
         choices: super::Choices,
         cx: &mut Context<Self>,
@@ -964,6 +1003,33 @@ impl Desk {
     }
 }
 
+/// An agent's speed option (ACP's `speed` category, as Codex's Fast mode)
+/// where it is a switch: two choices, the first the standard one.
+struct Speed {
+    config: String,
+    name: String,
+    /// Whether the second, faster choice is the current one.
+    on: bool,
+    /// The choice the switch turns it to.
+    other: String,
+}
+
+fn speed(options: &[SessionConfigOption]) -> Option<Speed> {
+    let o = options
+        .iter()
+        .find(|o| o.category == Some(Category::Speed))?;
+    let (_, choices) = select_choices(&o.kind)?;
+    let [(standard, _, _), (fast, _, on)] = choices.as_slice() else {
+        return None;
+    };
+    Some(Speed {
+        config: o.id.0.to_string(),
+        name: o.name.clone(),
+        on: *on,
+        other: if *on { standard } else { fast }.clone(),
+    })
+}
+
 /// How many of `EffortGlyph`'s five bars a thought level lights: by where
 /// it stands among the agent's own levels (`at` of `of`, lowest first),
 /// whatever it names them.
@@ -983,8 +1049,48 @@ fn shown_by(query: &str, value: &str, label: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::effort_level_of;
+    use super::{effort_level_of, speed};
+    use agent_client_protocol::v1::schema::NewSessionResponse;
     use u0ui::t3::composer::EffortLevel;
+
+    #[test]
+    fn codex_fast_mode_is_a_switch_that_turns_to_its_other_choice() {
+        // Recorded from @agentclientprotocol/codex-acp 2.10.0: Fast mode on.
+        let opened: NewSessionResponse = serde_json::from_str(include_str!(
+            "../../../core/src/fixtures/codex-session-new.json"
+        ))
+        .unwrap();
+        let mut options = opened.config_options.unwrap();
+        let fast = speed(&options).expect("Codex says it has a speed option");
+        assert_eq!(
+            (fast.config.as_str(), fast.name.as_str()),
+            ("fast-mode", "Fast mode")
+        );
+        assert!(fast.on);
+        assert_eq!(fast.other, "off");
+
+        let at = options.iter().position(|o| &*o.id.0 == "fast-mode");
+        let off = serde_json::json!({
+            "id": "fast-mode", "name": "Fast mode", "category": "speed",
+            "type": "select", "currentValue": "off",
+            "options": [{"value": "off", "name": "Off"}, {"value": "on", "name": "On"}],
+        });
+        options[at.unwrap()] = serde_json::from_value(off).unwrap();
+        let fast = speed(&options).unwrap();
+        assert!(!fast.on);
+        assert_eq!(fast.other, "on");
+    }
+
+    #[test]
+    fn a_speed_option_of_more_than_two_choices_is_no_switch() {
+        let three = serde_json::json!([{
+            "id": "speed", "name": "Speed", "category": "speed",
+            "type": "select", "currentValue": "a",
+            "options": [{"value": "a", "name": "A"}, {"value": "b", "name": "B"},
+                        {"value": "c", "name": "C"}],
+        }]);
+        assert!(speed(&serde_json::from_value::<Vec<_>>(three).unwrap()).is_none());
+    }
 
     #[test]
     fn effort_bars_follow_where_a_level_stands_among_the_agents_own() {

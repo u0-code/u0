@@ -41,6 +41,7 @@ pub fn icon_path(name: &str) -> SharedString {
     let glyph = match name {
         "dots" => CarbonGlyph::carbon(CarbonIcon::OverflowMenuHorizontal),
         "pin" => CarbonGlyph::carbon(CarbonIcon::Pin),
+        "star-fill" => CarbonGlyph::carbon(CarbonIcon::StarFilled),
         "archive" => CarbonGlyph::carbon(CarbonIcon::Archive),
         "clock" => CarbonGlyph::carbon(CarbonIcon::Time),
         "branch" => CarbonGlyph::carbon(CarbonIcon::Branch),
@@ -54,6 +55,7 @@ pub fn icon_path(name: &str) -> SharedString {
         "chevron-left" => CarbonGlyph::carbon(CarbonIcon::ChevronLeft),
         "chevron-right" => CarbonGlyph::carbon(CarbonIcon::ChevronRight),
         "chevron-down" => CarbonGlyph::carbon(CarbonIcon::ChevronDown),
+        "chevron-up" => CarbonGlyph::carbon(CarbonIcon::ChevronUp),
         "plus" => CarbonGlyph::carbon(CarbonIcon::Add),
         "search" => CarbonGlyph::carbon(CarbonIcon::Search),
         "laptop" => CarbonGlyph::carbon(CarbonIcon::Laptop),
@@ -518,6 +520,7 @@ mod tests {
             "chevron-left",
             "chevron-right",
             "chevron-down",
+            "chevron-up",
             "plus",
             "search",
             "laptop",
@@ -563,6 +566,8 @@ mod tests {
             "circle-dot",
             "gauge",
             "play",
+            "star",
+            "star-fill",
         ];
         for name in names {
             let path = icon_path(name);
