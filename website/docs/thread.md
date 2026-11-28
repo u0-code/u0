@@ -234,4 +234,6 @@ by itself when the limit resets (see
 When a thread ends a turn, fails, or needs you while u0 is not in
 front, macOS shows a notification (see `notify` and `notify_on` in
 [settings](reference/settings.md#notifications-and-background)). In
-front, u0 shows a notice at the top right instead.
+front, u0 shows a notice at the top right instead. It goes by itself
+after a few seconds (it waits while the pointer is on it); one that says
+a thread needs you stays until you answer.

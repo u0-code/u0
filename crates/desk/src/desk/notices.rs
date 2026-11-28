@@ -248,9 +248,11 @@ impl Desk {
             let way = n.way.clone();
             note = note.on_click(move |_, window, cx| clicked(&way, window, cx));
         }
-        // A way on keeps a notice up, but what went wrong still goes by
-        // itself: it waits while the pointer is on it, and its close button
-        // shows there.
+        // A way on keeps a notice up only while it waits on you (a session
+        // that asks, which takes it back once answered; an update): the
+        // rest go by themselves, waiting while the pointer is on them,
+        // their close button shown there.
+        let stays = stays(n.way.as_ref());
         note.action(move |_, _, cx| {
             let (way, go, keys) = (way.clone(), go.clone(), undo_keys.clone());
             Button::new("way")
@@ -263,6 +265,26 @@ impl Desk {
                     note.dismiss(window, cx);
                 }))
         })
-        .when(trouble, |note| note.autohide(true))
+        .when(!stays, |note| note.autohide(true))
+    }
+}
+
+/// Whether a notice with the way on `way` stays until it is answered or
+/// closed, rather than going by itself.
+fn stays(way: Option<&Way>) -> bool {
+    matches!(way, Some(Way::Asks(_) | Way::Update))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_finished_turn_notice_goes_by_itself_and_one_that_asks_stays() {
+        assert!(!stays(Some(&Way::Show(1))));
+        assert!(!stays(Some(&Way::Undo)));
+        assert!(!stays(None));
+        assert!(stays(Some(&Way::Asks(1))));
+        assert!(stays(Some(&Way::Update)));
     }
 }
