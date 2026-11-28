@@ -440,7 +440,7 @@ impl Desk {
                     )
                     .into_any_element(),
                 State::SignIn => self.sign_in_card(&faces, s, cx).into_any_element(),
-                State::Broken(why) => self.broken(&faces, s, why, cx).into_any_element(),
+                State::Broken(why) => self.broken(s, why, cx).into_any_element(),
                 _ => div().into_any_element(),
             },
         };

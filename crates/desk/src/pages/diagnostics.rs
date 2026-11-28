@@ -80,7 +80,8 @@ impl Desk {
             )]
         } else {
             (self.pages.troubles.iter().cloned())
-                .map(|entry| {
+                .enumerate()
+                .map(|(n, entry)| {
                     whole(w, &["log", "errors"], move |_, faces, _| {
                         let color = if entry.level == "error" {
                             theme::coral()
@@ -99,7 +100,7 @@ impl Desk {
                                 String::new()
                             }
                         );
-                        ui::fine_mono(faces, text)
+                        ui::fine_mono_said(faces, ("log-trouble", n), text)
                             .text_color(color)
                             .into_any_element()
                     })

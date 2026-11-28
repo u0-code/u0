@@ -5,13 +5,13 @@ use std::path::Path;
 
 use gpui::component::{
     Icon, Selectable as _, Sizable as _,
-    alert::Alert,
     button::{Button, ButtonGroup, ButtonVariants as _},
     tooltip::Tooltip,
 };
 use gpui::{
     AnyElement, AnyView, App, Div, Hsla, SharedString, Svg, Window, div, prelude::*, px, svg,
 };
+use u0ui::components::alert::{Alert, AlertVariant};
 use u0ui::icons::{CarbonIcon, Icon as CarbonGlyph};
 use unicode_segmentation::UnicodeSegmentation as _;
 use unicode_width::UnicodeWidthStr as _;
@@ -126,20 +126,26 @@ pub fn menu_glyph(name: &str) -> Icon {
 
 /// Mono text: times, counts, hashes, keys.
 pub fn mono(faces: &Faces, text: impl Into<SharedString>) -> Div {
+    mono_face(faces).child(text.into())
+}
+
+fn mono_face(faces: &Faces) -> Div {
     div()
         .font_family(faces.mono.clone())
         .text_size(px(CAPTION))
         .text_color(theme::muted())
-        .child(text.into())
 }
 
 /// Body text in the interface face (`IBM Plex Sans`).
 pub fn text(faces: &Faces, text: impl Into<SharedString>) -> Div {
+    text_face(faces).child(text.into())
+}
+
+fn text_face(faces: &Faces) -> Div {
     div()
         .font_family(faces.ui.clone())
         .text_size(px(BODY))
         .text_color(theme::text())
-        .child(text.into())
 }
 
 /// An agent's mark: its logo from the ACP registry, `u0ui`'s Simple Icons /
@@ -312,9 +318,20 @@ pub fn label(faces: &Faces, text: &str) -> Div {
         .text_color(theme::muted())
 }
 
-/// Inline error notification.
-pub fn trouble(words: impl Into<SharedString>) -> Alert {
-    Alert::error("trouble", words.into())
+/// A Carbon notification of what went wrong or warns (u0ui's `Alert`):
+/// its title and words selectable, a Copy button that copies them whole,
+/// and words past a few lines folded behind Show all.
+pub fn alert(id: impl Into<gpui::ElementId>, variant: AlertVariant) -> Alert {
+    Alert::new(id)
+        .full_width(true)
+        .variant(variant)
+        .copy(crate::tr("Copy"), crate::tr("Copied"))
+        .fold(crate::tr("Show all"), crate::tr("Show less"))
+}
+
+/// An error said in `words` alone, as [`alert`] draws it.
+pub fn trouble(id: impl Into<gpui::ElementId>, words: impl Into<SharedString>) -> Alert {
+    alert(id, AlertVariant::Error).words(words)
 }
 
 /// What a choice of a [`segmented`] control does when picked.
@@ -350,6 +367,25 @@ pub fn fine(faces: &Faces, words: impl Into<SharedString>) -> Div {
 /// Small print in mono (`code-01`, 12/16): a hash, a count.
 pub fn fine_mono(faces: &Faces, words: impl Into<SharedString>) -> Div {
     small(mono(faces, words))
+}
+
+/// [`fine`] whose words can be selected and copied, under `id`: what went
+/// wrong, said in a row.
+pub fn fine_said(
+    faces: &Faces,
+    id: impl Into<gpui::ElementId>,
+    words: impl Into<SharedString>,
+) -> Div {
+    small(text_face(faces)).child(gpui::base::SelectableText::new(id, words))
+}
+
+/// [`fine_mono`] whose words can be selected and copied, under `id`: a log.
+pub fn fine_mono_said(
+    faces: &Faces,
+    id: impl Into<gpui::ElementId>,
+    words: impl Into<SharedString>,
+) -> Div {
+    small(mono_face(faces)).child(gpui::base::SelectableText::new(id, words))
 }
 
 fn small(d: Div) -> Div {

@@ -278,13 +278,10 @@ impl Desk {
                     )),
             ),
             Some((_, _, Some(Err(e)))) => body
-                .child(
-                    ui::fine(
-                        faces,
-                        crate::tr_with("The writer couldn't write it: %{e}", &[("e", e)]),
-                    )
-                    .text_color(theme::coral()),
-                )
+                .child(ui::trouble(
+                    "guide-unwritten",
+                    crate::tr_with("The writer couldn't write it: %{e}", &[("e", e)]),
+                ))
                 .child(div().child(ask("Try again"))),
             Some((_, head, Some(Ok(text)))) => {
                 let stops = crate::desk::pr::parse_guide_stops(text);

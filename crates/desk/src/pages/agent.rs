@@ -8,7 +8,7 @@ use gpui::component::{Sizable as _, input::Input, progress::Progress};
 use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 use u0ui::{
     components::{
-        alert::{Alert, AlertAction, AlertVariant},
+        alert::{AlertAction, AlertVariant},
         badge::{Badge, BadgeSize, BadgeVariant},
         button::{Button, ButtonSize, ButtonVariant},
         checkbox::Checkbox,
@@ -438,15 +438,13 @@ impl Desk {
         let mut alerts = Vec::new();
         match self.stage_of(host, id) {
             Some(Stage::Failed(why)) => alerts.push(
-                Alert::new("agent-failed")
-                    .full_width(true)
-                    .variant(AlertVariant::Error)
+                ui::alert("agent-failed", AlertVariant::Error)
                     .title(crate::tr_with("%{name} stopped", &named))
-                    .description(why)
+                    .words(why)
                     .into_any_element(),
             ),
             Some(Stage::Missing(m)) if !matches!(m, Missing::Download) => {
-                alerts.push(ui::trouble(m.say(&name)).into_any_element());
+                alerts.push(ui::trouble("agent-missing", m.say(&name)).into_any_element());
             }
             _ => {}
         }
@@ -455,11 +453,9 @@ impl Desk {
             let desk = cx.entity();
             let a = id.to_owned();
             alerts.push(
-                Alert::new("agent-sign-in")
-                    .full_width(true)
-                    .variant(AlertVariant::Info)
+                ui::alert("agent-sign-in", AlertVariant::Info)
                     .title(crate::tr_with("Sign in to %{name}", &named))
-                    .description(crate::tr_with(
+                    .words(crate::tr_with(
                         "%{name} says: %{why}",
                         &[("name", &name), ("why", why)],
                     ))
@@ -476,9 +472,7 @@ impl Desk {
             && init.protocol_version != agent_client_protocol::schema::ProtocolVersion::V1
         {
             alerts.push(
-                Alert::new("agent-acp")
-                    .full_width(true)
-                    .variant(AlertVariant::Warning)
+                ui::alert("agent-acp", AlertVariant::Warning)
                     .title(crate::tr_with(
                         "It speaks ACP %{version}; u0 speaks 1. Some output may not show.",
                         &[("version", &format!("{:?}", init.protocol_version))],

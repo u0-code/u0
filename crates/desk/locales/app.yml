@@ -4012,16 +4012,6 @@ _version: 2
   pt-BR: "Copiar a conversa"
   ru: "Копировать беседу"
   sv: "Kopiera konversationen"
-"Copy the error":
-  zh-CN: "复制错误"
-  de: "Fehler kopieren"
-  es: "Copiar el error"
-  fr: "Copier l’erreur"
-  ja: "エラーをコピー"
-  ko: "오류 복사"
-  pt-BR: "Copiar o erro"
-  ru: "Копировать ошибку"
-  sv: "Kopiera felet"
 "Copy the full path":
   zh-CN: "复制完整路径"
   de: "Vollständigen Pfad kopieren"

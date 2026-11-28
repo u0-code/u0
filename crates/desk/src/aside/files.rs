@@ -34,7 +34,7 @@ use u0ui::{
     components::{
         Badge, BadgeSize, BadgeVariant, Button, ButtonSize, ButtonVariant, FieldSize, Select,
         SelectType, ToggleGroup, ToggleGroupItem,
-        alert::{Alert, AlertAction, AlertVariant},
+        alert::{AlertAction, AlertVariant},
         data_table::{DataTable, DataTableColumn, DataTableRow},
         list_box::ListItem as SelectItem,
         table::TableSize,
@@ -803,13 +803,12 @@ impl Desk {
                 .border_b_1()
                 .border_color(theme::role(ColorRole::BorderSubtle01))
                 .child(
-                    Alert::new("file-outside-alert")
-                        .variant(AlertVariant::Warning)
+                    crate::ui::alert("file-outside-alert", AlertVariant::Warning)
                         .title(crate::tr_with(
                             "Outside %{project}",
                             &[("project", &project_name)],
                         ))
-                        .description(crate::tr_with(
+                        .words(crate::tr_with(
                             "%{path} is read only here, and the agent can read it. To let the agent edit it, copy it into the project.",
                             &[("path", &rel_display)],
                         ))

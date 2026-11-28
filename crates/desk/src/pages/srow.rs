@@ -435,9 +435,7 @@ impl RenderOnce for SRow {
                         .flex_none(),
                 )
                 .child(
-                    ui::text(faces, msg)
-                        .text_size(px(crate::style::CAPTION))
-                        .line_height(px(16.))
+                    ui::fine_said(faces, (id.clone(), "error"), msg)
                         .text_color(theme::role(ColorRole::SupportError)),
                 )
         });

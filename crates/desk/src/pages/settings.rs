@@ -1286,7 +1286,7 @@ impl Desk {
         }
         if let Some(refused) = self.store_refused(self.pages.on).cloned() {
             items.push(whole(w, &[], move |_, _, _| {
-                ui::trouble(refused.clone()).into_any_element()
+                ui::trouble("store-refused", refused.clone()).into_any_element()
             }));
         }
         group(crate::tr("What u0 keeps"), items).description(crate::tr_with(
