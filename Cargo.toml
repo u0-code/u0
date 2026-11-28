@@ -100,7 +100,7 @@ mermaid-rs-renderer = { version = "0.3.1", default-features = false }
 # A PDF's pages, drawn in Rust: the Files tab's viewer.
 hayro = "0.9"
 # Markdown read by gpui-kit's own parser: the pictures a pull request or an
-# issue shows, fetched before they are drawn.
+# issue shows, found by the server that fetches them.
 markdown = "1.0"
 # The one HTTP client: the registry and its archives, the forges' APIs, the
 # updater. TLS is rustls with ring, as the rest of the build has it, and

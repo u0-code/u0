@@ -899,11 +899,15 @@ impl Desk {
                 // The pictures it shows, asked of its server as it is read.
                 if let Ok(d) = &detail {
                     let said = d.threads.iter().flat_map(|t| &t.said).chain(&d.said);
-                    let texts = std::iter::once(&d.body).chain(said.map(|s| &s.body));
-                    for url in texts.flat_map(|t| crate::markdown::wanted(t)) {
-                        let call = Call::Picture {
+                    let texts =
+                        std::iter::once(d.body.as_str()).chain(said.map(|s| s.body.as_str()));
+                    let urls = crate::markdown::wanted(texts, crate::pictures::of(d));
+                    if !urls.is_empty() {
+                        let call = Call::Pictures {
                             folder: folder.folder.clone(),
-                            url,
+                            kind,
+                            number: n,
+                            urls,
                         };
                         self.call(folder.host, call);
                     }

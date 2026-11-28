@@ -77,7 +77,16 @@ pub struct Server {
     outbox: Arc<Outbox>,
     access: Access,
     sharing: Mutex<Sharing>,
+    /// The pictures each pull request or issue lately read shows: all
+    /// `Call::Pictures` may fetch.
+    shown: Arc<Mutex<Shown>>,
 }
+
+/// The pictures of the last items read, by project, kind and number.
+type Shown = std::collections::VecDeque<((PathBuf, crate::github::Kind, u64), Vec<String>)>;
+
+/// How many items' pictures are kept known.
+const SHOWN: usize = 64;
 
 /// What the server holds that work it hands off holds too: a task's run,
 /// an agent starting.
@@ -254,6 +263,7 @@ impl Server {
         let counted = telemetry.clone();
         let server = Arc::new(Self {
             sharing: Mutex::default(),
+            shown: Arc::default(),
             access: Access::new(&home),
             outbox,
             shared: Shared {
@@ -613,16 +623,47 @@ impl Server {
                 kind,
                 ask,
                 linear,
-            } => self.off(move || Event::Forge {
-                answer: crate::forge::answer(&folder, kind, ask, linear.as_deref()),
-
+            } => {
+                let shown = self.shown.clone();
+                self.off(move || {
+                    let answer = crate::forge::answer(&folder, kind, ask, linear.as_deref());
+                    if let crate::github::Answer::Viewed(n, Ok(detail)) = &answer {
+                        let item = (folder.clone(), kind, *n);
+                        let mut shown = shown.lock().expect("shown");
+                        shown.retain(|(at, _)| *at != item);
+                        shown.push_back((item, crate::pictures::of(detail)));
+                        if shown.len() > SHOWN {
+                            shown.pop_front();
+                        }
+                    }
+                    Event::Forge {
+                        answer,
+                        folder,
+                        kind,
+                    }
+                });
+            }
+            Call::Pictures {
                 folder,
                 kind,
-            }),
-            Call::Picture { folder, url } => self.off(move || Event::Picture {
-                picture: crate::forge::picture(&folder, &url),
-                url,
-            }),
+                number,
+                urls,
+            } => {
+                let item = (folder, kind, number);
+                let shown = (self.shown.lock().expect("shown").iter())
+                    .find(|(at, _)| *at == item)
+                    .map(|(_, urls)| urls.clone())
+                    .unwrap_or_default();
+                let send = self.shared.send.clone();
+                acp::runtime().spawn_blocking(move || {
+                    crate::pictures::fetch(&item.0, &urls, &shown, |url, picture| {
+                        send(Event::Picture {
+                            url,
+                            picture: picture.map(crate::proto::Bytes),
+                        });
+                    });
+                });
+            }
             Call::Grep { folder, words, how } => self.off(move || Event::Grepped {
                 found: git::grep(&folder, &words, how),
                 words,

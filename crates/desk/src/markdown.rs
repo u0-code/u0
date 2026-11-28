@@ -93,150 +93,139 @@ pub fn render(faces: &Faces, key: &str, text: &str, cx: &mut Context<Desk>) -> i
         )
 }
 
-/// The pictures asked of a server for what Markdown shows, by their
-/// address: none while one has not come.
-static PICTURES: LazyLock<Mutex<HashMap<String, Option<Arc<Picture>>>>> =
-    LazyLock::new(Mutex::default);
+/// The pictures asked of a server for what Markdown shows, and the texts
+/// that show them.
+#[derive(Default)]
+struct Pictures {
+    /// By address: none while one has not come; and when it was last drawn.
+    kept: HashMap<String, (Option<Arc<Picture>>, u64)>,
+    /// The addresses each text shows, by a hash of the text.
+    texts: HashMap<u64, Vec<String>>,
+    /// The pictures drawn, counted: which was drawn longest ago.
+    drawn: u64,
+}
 
-fn kept() -> MutexGuard<'static, HashMap<String, Option<Arc<Picture>>>> {
+/// The most bytes of pictures kept: past it, those drawn longest ago go,
+/// to be asked for again when they are next shown.
+const KEPT_BYTES: usize = 128 << 20;
+
+/// The most texts whose pictures are known at once.
+const TEXTS: usize = 1024;
+
+static PICTURES: LazyLock<Mutex<Pictures>> = LazyLock::new(Mutex::default);
+
+fn pictures() -> MutexGuard<'static, Pictures> {
     PICTURES.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// The addresses of the pictures `text` shows over HTTPS that are not yet
-/// asked for, each taken as asked.
-pub fn wanted(text: &str) -> Vec<String> {
-    let mut kept = kept();
-    let mut urls = pictures(text);
-    urls.retain(|url| match kept.entry(url.clone()) {
-        Entry::Vacant(asked) => {
-            asked.insert(None);
-            true
+fn hash(text: &str) -> u64 {
+    let mut h = std::hash::DefaultHasher::new();
+    std::hash::Hash::hash(text, &mut h);
+    std::hash::Hasher::finish(&h)
+}
+
+impl Pictures {
+    /// The pictures of an item read, `urls` (`pictures::of`), shown in
+    /// `texts`: which each text shows is known, and those not yet asked
+    /// for are given back, taken as asked.
+    fn wanted<'a>(
+        &mut self,
+        texts: impl IntoIterator<Item = &'a str>,
+        urls: Vec<String>,
+    ) -> Vec<String> {
+        if self.texts.len() > TEXTS {
+            self.texts.clear();
         }
-        Entry::Occupied(_) => false,
-    });
-    urls
+        for text in texts {
+            let shows: Vec<_> = (crate::pictures::found(text).into_iter())
+                .filter(|url| urls.contains(url))
+                .collect();
+            if !shows.is_empty() {
+                self.texts.insert(hash(text), shows);
+            }
+        }
+        let mut asked = urls;
+        asked.retain(|url| match self.kept.entry(url.clone()) {
+            Entry::Vacant(e) => {
+                e.insert((None, 0));
+                true
+            }
+            Entry::Occupied(_) => false,
+        });
+        asked
+    }
+
+    /// The picture at `url` come, those drawn longest ago let go past
+    /// `most` bytes; one that did not come is asked for again the next time
+    /// it is shown.
+    fn came(&mut self, url: String, picture: Option<Arc<Picture>>, most: usize) {
+        let Some(picture) = picture else {
+            self.kept.remove(&url);
+            return;
+        };
+        self.drawn += 1;
+        self.kept.insert(url, (Some(picture), self.drawn));
+        let bytes = |kept: &HashMap<String, (Option<Arc<Picture>>, u64)>| -> usize {
+            kept.values()
+                .filter_map(|(p, _)| p.as_ref())
+                .map(|p| p.bytes.len())
+                .sum()
+        };
+        while bytes(&self.kept) > most {
+            let oldest = (self.kept.iter())
+                .filter(|(_, (p, _))| p.is_some())
+                .min_by_key(|(_, (_, at))| *at)
+                .map(|(url, _)| url.clone());
+            match oldest {
+                Some(url) => self.kept.remove(&url),
+                None => break,
+            };
+        }
+    }
+
+    /// How many of the pictures `text` shows have come; none, it is not a
+    /// text whose pictures were asked for.
+    fn shown(&self, text: &str) -> Option<usize> {
+        let urls = self.texts.get(&hash(text))?;
+        Some(
+            (urls.iter())
+                .filter(|url| matches!(self.kept.get(*url), Some((Some(_), _))))
+                .count(),
+        )
+    }
 }
 
-/// The picture at `url` come; one that did not is asked again the next
-/// time it is shown.
+/// The pictures of an item read, `urls`, shown in `texts`: those not yet
+/// asked for, taken as asked.
+pub fn wanted<'a>(texts: impl IntoIterator<Item = &'a str>, urls: Vec<String>) -> Vec<String> {
+    pictures().wanted(texts, urls)
+}
+
+/// The picture at `url` come, or not.
 pub fn fetched_at(url: String, picture: Option<Arc<Picture>>) {
-    let mut kept = kept();
-    match picture {
-        Some(picture) => kept.insert(url, Some(picture)),
-        None => kept.remove(&url),
-    };
+    pictures().came(url, picture, KEPT_BYTES);
 }
 
-/// How many of the pictures asked for that `text` shows have come; none,
-/// it shows none asked for. Only then are its pictures drawn from what
-/// came, so that the view's own reading of any other (a `data:` address)
-/// is kept; and its view is a new one each time another comes, as the
-/// view lays a picture out once, at the size it had then.
+/// How many of the pictures `text` shows have come; none, it shows none
+/// asked for. Only then are its pictures drawn from what came, so that the
+/// view's own reading of any other (a `data:` address) is kept; and its
+/// view is a new one each time another comes, as the view lays a picture
+/// out once, at the size it had then.
 fn came(text: &str) -> Option<usize> {
-    let shown: Vec<_> = (kept().iter())
-        .filter(|(url, _)| text.contains(url.as_str()))
-        .map(|(_, picture)| picture.is_some())
-        .collect();
-    (!shown.is_empty()).then(|| shown.into_iter().filter(|c| *c).count())
+    pictures().shown(text)
 }
 
 /// What the view draws for the picture at `url`: what came, or nothing yet.
 fn fetched(url: &gpui::SharedUri) -> gpui::ImageSource {
-    match kept().get(url.as_ref()) {
-        Some(Some(picture)) => crate::thread::picture(picture),
+    let mut pictures = pictures();
+    pictures.drawn += 1;
+    let drawn = pictures.drawn;
+    match pictures.kept.get_mut(url.as_ref()) {
+        Some((Some(picture), at)) => {
+            *at = drawn;
+            crate::thread::picture(picture)
+        }
         _ => gpui::ImageSource::Custom(Arc::new(|_, _| None)),
-    }
-}
-
-/// The addresses of the pictures `text` shows over HTTPS, as the view
-/// reads it: each image (`![alt](…)`, `![alt][ref]`) and each `<img>`'s
-/// `src`, once each.
-fn pictures(text: &str) -> Vec<String> {
-    use ::markdown::mdast::Node;
-    fn walk<'a>(node: &'a Node, found: &mut Vec<Cow<'a, str>>, refs: &mut Vec<&'a str>) {
-        match node {
-            Node::Image(image) => found.push(Cow::Borrowed(&image.url)),
-            Node::ImageReference(image) => refs.push(&image.identifier),
-            Node::Html(html) => found.extend(sources(&html.value).map(Cow::Owned)),
-            _ => {}
-        }
-        for child in node.children().into_iter().flatten() {
-            walk(child, found, refs);
-        }
-    }
-    fn defined<'a>(node: &'a Node, id: &str) -> Option<&'a str> {
-        match node {
-            Node::Definition(d) if d.identifier == id => Some(&d.url),
-            _ => node.children()?.iter().find_map(|c| defined(c, id)),
-        }
-    }
-    let Ok(tree) = ::markdown::to_mdast(text, &::markdown::ParseOptions::gfm()) else {
-        return Vec::new();
-    };
-    let (mut found, mut refs) = (Vec::new(), Vec::new());
-    walk(&tree, &mut found, &mut refs);
-    found.extend(
-        refs.into_iter()
-            .filter_map(|id| defined(&tree, id).map(Cow::Borrowed)),
-    );
-    let mut urls: Vec<String> = Vec::new();
-    for url in found {
-        if url.starts_with("https://") && !urls.iter().any(|u| *u == url) {
-            urls.push(url.into_owned());
-        }
-    }
-    urls
-}
-
-/// The `src` of each `<img>` in `html`: all of a tag that is read.
-fn sources(html: &str) -> impl Iterator<Item = String> + '_ {
-    html.match_indices('<').filter_map(|(at, _)| {
-        let tag = &html[at + 1..];
-        let rest = tag
-            .get(..3)
-            .filter(|name| name.eq_ignore_ascii_case("img"))
-            .map(|_| &tag[3..])?;
-        if !rest.starts_with(|c: char| c.is_whitespace() || c == '/') {
-            return None;
-        }
-        attribute(&rest[..rest.find('>').unwrap_or(rest.len())], "src")
-    })
-}
-
-/// The value of the attribute `name` among a tag's `attrs`, the entities
-/// for `&` and quotes read.
-fn attribute(attrs: &str, name: &str) -> Option<String> {
-    let mut rest = attrs;
-    loop {
-        rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == '/');
-        if rest.is_empty() {
-            return None;
-        }
-        let end = rest
-            .find(|c: char| c.is_whitespace() || c == '=' || c == '/')
-            .unwrap_or(rest.len());
-        let key = &rest[..end];
-        rest = rest[end..].trim_start();
-        let mut value = "";
-        if let Some(after) = rest.strip_prefix('=') {
-            let after = after.trim_start();
-            (value, rest) = match after.chars().next() {
-                Some(quote @ ('"' | '\'')) => {
-                    let inner = &after[1..];
-                    let close = inner.find(quote).unwrap_or(inner.len());
-                    (&inner[..close], inner.get(close + 1..).unwrap_or(""))
-                }
-                _ => after.split_at(after.find(char::is_whitespace).unwrap_or(after.len())),
-            };
-        }
-        if key.eq_ignore_ascii_case(name) {
-            return Some(
-                value
-                    .replace("&quot;", "\"")
-                    .replace("&#39;", "'")
-                    .replace("&amp;", "&"),
-            );
-        }
     }
 }
 
@@ -514,66 +503,60 @@ fn csv(table: &TableData) -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_pictures_a_body_shows_are_its_images_and_img_tags_over_https() {
-        let body = concat!(
-            "### What happened\n\n",
-            "<img width=\"1973\" height=\"1162\" alt=\"image\" ",
-            "src=\"https://github.com/user-attachments/assets/aad7\" />\n\n",
-            "![shot](https://example.com/a.png) and ![again](https://example.com/a.png)\n\n",
-            "<p align=center><IMG SRC='https://example.com/b.png?x=1&amp;y=2'></p>\n\n",
-            "![ref][r]\n\n[r]: https://example.com/c.png\n\n",
-            "![plain](http://example.com/d.png) ![here](a.png) ",
-            "![data](data:image/png;base64,AAAA) <imgx src=\"https://e.com/x\">\n\n",
-            "`![code](https://example.com/e.png)`\n\n",
-            "```\n<img src=\"https://example.com/f.png\">\n```\n",
-        );
-        assert_eq!(
-            pictures(body),
-            [
-                "https://github.com/user-attachments/assets/aad7",
-                "https://example.com/a.png",
-                "https://example.com/b.png?x=1&y=2",
-                "https://example.com/c.png",
-            ]
-        );
-    }
-
-    #[test]
-    fn an_img_tag_is_read_for_its_src_alone() {
-        assert_eq!(
-            attribute(r#" alt="a src=x" data-src="no" src = "yes" "#, "src").as_deref(),
-            Some("yes")
-        );
-        assert_eq!(attribute(" alt=a/", "src"), None);
-        assert_eq!(
-            attribute(" src=https://e.com/a.png width=3", "src").as_deref(),
-            Some("https://e.com/a.png")
-        );
+    fn png(side: u8, extra: usize) -> Option<Arc<Picture>> {
+        let mut b = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0".to_vec();
+        b.extend([side, 0, 0, 0, side, 8, 6, 0, 0, 0]);
+        b.resize(b.len() + extra, 0);
+        Picture::read(b)
     }
 
     #[test]
     fn a_picture_is_asked_for_once_and_again_only_after_it_failed() {
-        let body = "![a](https://example.com/once.png)";
-        assert_eq!(wanted(body), ["https://example.com/once.png"]);
-        assert!(wanted(body).is_empty());
-        assert_eq!(came(body), Some(0));
-        fetched_at("https://example.com/once.png".into(), None);
-        assert_eq!(came(body), None);
-        assert_eq!(wanted(body), ["https://example.com/once.png"]);
+        let mut p = Pictures::default();
+        let (body, url) = (
+            "![a](https://example.com/once.png)",
+            "https://example.com/once.png",
+        );
+        assert_eq!(p.wanted([body], vec![url.into()]), [url]);
+        assert!(p.wanted([body], vec![url.into()]).is_empty());
+        assert_eq!(p.shown(body), Some(0));
+        p.came(url.into(), None, KEPT_BYTES);
+        assert_eq!(p.wanted([body], vec![url.into()]), [url]);
     }
 
     #[test]
-    fn a_text_is_drawn_anew_as_each_of_its_pictures_comes() {
-        let body = "![a](https://example.com/one.png) ![b](https://example.com/two.png)";
-        wanted(body);
-        assert_eq!(came(body), Some(0));
-        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0".to_vec();
-        let picture = Picture::read(png);
-        assert!(picture.is_some());
-        fetched_at("https://example.com/one.png".into(), picture);
-        assert_eq!(came(body), Some(1));
-        assert_eq!(came("no pictures here"), None);
+    fn a_text_is_drawn_anew_as_each_of_its_pictures_comes_its_references_read() {
+        let mut p = Pictures::default();
+        let body =
+            "<img src=\"https://example.com/a.png?x=1&amp;y=2\"> ![b](https://example.com/b.png)";
+        let urls = vec![
+            "https://example.com/a.png?x=1&y=2".to_owned(),
+            "https://example.com/b.png".to_owned(),
+        ];
+        p.wanted([body], urls.clone());
+        assert_eq!(p.shown(body), Some(0));
+        p.came(urls[0].clone(), png(1, 0), KEPT_BYTES);
+        assert_eq!(p.shown(body), Some(1));
+        assert_eq!(p.shown("no pictures here"), None);
+    }
+
+    #[test]
+    fn the_pictures_drawn_longest_ago_go_past_the_most_kept() {
+        let mut p = Pictures::default();
+        let urls: Vec<String> = (0..3)
+            .map(|n| format!("https://example.com/{n}.png"))
+            .collect();
+        let body = urls.iter().fold(String::new(), |mut body, u| {
+            let _ = write!(body, "![]({u}) ");
+            body
+        });
+        p.wanted([body.as_str()], urls.clone());
+        for url in &urls {
+            p.came(url.clone(), png(1, 1000), 2500);
+        }
+        assert_eq!(p.shown(&body), Some(2));
+        assert!(!matches!(p.kept.get(&urls[0]), Some((Some(_), _))));
+        assert_eq!(p.wanted([body.as_str()], urls.clone()), [urls[0].clone()]);
     }
 
     #[test]

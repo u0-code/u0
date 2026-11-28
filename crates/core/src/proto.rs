@@ -25,6 +25,28 @@ use crate::{
     store, tasks, tidy, workflows, writer,
 };
 
+/// Bytes, as base64 on the wire: a third more than they are, where
+/// JSON's numbers take three or four times (a picture).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bytes(pub Vec<u8>);
+
+impl Serialize for Bytes {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use base64::Engine as _;
+        s.serialize_str(&base64::engine::general_purpose::STANDARD.encode(&self.0))
+    }
+}
+
+impl<'de> Deserialize<'de> for Bytes {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        use base64::Engine as _;
+        let text = String::deserialize(d)?;
+        (base64::engine::general_purpose::STANDARD.decode(text))
+            .map(Self)
+            .map_err(serde::de::Error::custom)
+    }
+}
+
 /// What the desk asks of the server. An agent is named by its registry id
 /// (`agent`), a session on the desk by its key, and in its agent by its id
 /// (`session`).
@@ -309,11 +331,15 @@ pub enum Call {
         ask: crate::github::Ask,
         linear: Option<String>,
     },
-    /// The picture at `url` that a pull request or issue of the project in
-    /// `folder` shows (`forge::picture`).
-    Picture {
+    /// The pictures at `urls` that the pull request or issue `number` of
+    /// the project in `folder` shows: only those the server found there
+    /// as it read it (`pictures::of`) are fetched, each answered as an
+    /// `Event::Picture`.
+    Pictures {
         folder: PathBuf,
-        url: String,
+        kind: crate::github::Kind,
+        number: u64,
+        urls: Vec<String>,
     },
     /// What the file at `path` holds, for the column's viewer (`full` loads
     /// past the minified-file preview cap).
@@ -558,7 +584,7 @@ impl Call {
             | Self::ListPrs { folder }
             | Self::ListFiles { folder }
             | Self::Grep { folder, .. }
-            | Self::Picture { folder, .. }
+            | Self::Pictures { folder, .. }
             | Self::Forge {
                 folder,
                 ask:
@@ -951,7 +977,7 @@ pub enum Event {
     /// The picture at `url`, as it came; or why it did not.
     Picture {
         url: String,
-        picture: Result<Vec<u8>, String>,
+        picture: Result<Bytes, String>,
     },
     /// What the file at `path` holds.
     FileRead {
@@ -1315,9 +1341,11 @@ mod tests {
                     regex: false,
                 },
             },
-            Call::Picture {
+            Call::Pictures {
                 folder: dir.clone(),
-                url: "https://github.com/user-attachments/assets/a".into(),
+                kind: crate::github::Kind::Issue,
+                number: 213,
+                urls: vec!["https://github.com/user-attachments/assets/a".into()],
             },
             Call::ReadFile {
                 path: dir.join("a.rs"),
@@ -1550,7 +1578,7 @@ mod tests {
             },
             Event::Picture {
                 url: "https://github.com/user-attachments/assets/a".into(),
-                picture: Ok(vec![0x89, b'P']),
+                picture: Ok(Bytes(vec![0x89, b'P', 0xff])),
             },
             Event::FileRead {
                 path: dir.join("a.pdf"),

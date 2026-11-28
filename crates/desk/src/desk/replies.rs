@@ -341,7 +341,7 @@ impl Desk {
             }
             Event::Picture { url, picture } => {
                 let picture = picture.and_then(|bytes| {
-                    crate::session::Picture::read(bytes).ok_or_else(|| "not a picture".to_owned())
+                    crate::session::Picture::read(bytes.0).ok_or_else(|| "not a picture".to_owned())
                 });
                 if let Err(why) = &picture {
                     tracing::warn!("a picture could not be read: {why}");

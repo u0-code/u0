@@ -1,11 +1,15 @@
 //! u0's one HTTP client (`ureq`), for all it reads from the web: the
 //! registry and the archives it names, the forges' APIs, and the releases
-//! the updater reads. Blocking: each caller is already off the window's
-//! thread. A proxy set in the environment (`https_proxy`, ...) is used, and
-//! certificates are checked as the system checks them.
+//! the updater reads; and, with an agent of its own, an address someone
+//! else wrote (`outward`). Blocking: each caller is already off the
+//! window's thread. A proxy set in the environment (`https_proxy`, ...) is
+//! used, and certificates are checked as the system checks them. A request
+//! made over HTTPS, a download among them, is followed only to HTTPS, and
+//! its `Authorization` is never carried to where it is redirected.
 
 use std::{
     io::{Read as _, Write as _},
+    net::{IpAddr, Ipv4Addr},
     path::Path,
     sync::{
         LazyLock,
@@ -16,8 +20,14 @@ use std::{
 
 use ureq::{
     Agent, Body,
-    http::{Request, Response},
+    config::{Config, ConfigBuilder, RedirectAuthHeaders},
+    http::{Request, Response, Uri},
     tls::{RootCerts, TlsConfig},
+    typestate::AgentScope,
+    unversioned::{
+        resolver::{DefaultResolver, ResolvedSocketAddrs, Resolver},
+        transport::{DefaultConnector, NextTimeout},
+    },
 };
 
 use crate::{
@@ -34,7 +44,8 @@ const LONG: Duration = Duration::from_mins(30);
 /// The most an answer read whole may hold.
 const MOST: u64 = 64 << 20;
 
-static AGENT: LazyLock<Agent> = LazyLock::new(|| {
+/// How each agent is set up.
+fn config() -> ConfigBuilder<AgentScope> {
     // rustls with ring, as the rest of the build has it; a provider already
     // chosen for the process is kept.
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -47,17 +58,120 @@ static AGENT: LazyLock<Agent> = LazyLock::new(|| {
         .user_agent(concat!("u0/", env!("CARGO_PKG_VERSION")))
         .timeout_global(Some(QUICK))
         // A token sent one host is never carried to another it redirects to.
-        .redirect_auth_headers(ureq::config::RedirectAuthHeaders::Never)
+        .redirect_auth_headers(RedirectAuthHeaders::Never)
         // What a host said went wrong is read from its answer.
         .http_status_as_error(false)
-        .build()
-        .into()
+}
+
+static AGENT: LazyLock<Agent> = LazyLock::new(|| config().build().into());
+
+/// The agent for an address someone else wrote: over HTTPS alone, never
+/// through a proxy (which would reach what it names for it), and only to
+/// a host on the public internet, each hop of its redirects too.
+static OUTWARD: LazyLock<Agent> = LazyLock::new(|| {
+    let config = config().https_only(true).proxy(None).build();
+    Agent::with_parts(config, DefaultConnector::default(), Public)
 });
+
+/// Resolves a name as the system does, and refuses it where any address
+/// it has is not on the public internet. What is connected to is what was
+/// checked, so a name that answers otherwise the next time changes nothing.
+#[derive(Debug)]
+struct Public;
+
+impl Resolver for Public {
+    fn resolve(
+        &self,
+        uri: &Uri,
+        config: &Config,
+        timeout: NextTimeout,
+    ) -> Result<ResolvedSocketAddrs, ureq::Error> {
+        let addresses = DefaultResolver::default().resolve(uri, config, timeout)?;
+        if addresses.iter().all(|a| public(a.ip())) {
+            Ok(addresses)
+        } else {
+            Err(ureq::Error::Io(std::io::Error::other(
+                "an address not on the public internet",
+            )))
+        }
+    }
+}
+
+/// Whether `ip` is on the public internet: not this machine, a private
+/// network (RFC 1918, a ULA), a link's own (the cloud's metadata address
+/// among them), a carrier's NAT, multicast, a broadcast, unspecified,
+/// documentation's or reserved. An IPv4 address carried in IPv6 is judged
+/// as the IPv4 address it is.
+fn public(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            let [a, b, c, _] = v4.octets();
+            !(v4.is_unspecified()
+                || v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_multicast()
+                || v4.is_broadcast()
+                || v4.is_documentation()
+                || a == 0
+                || (a == 100 && (64..128).contains(&b))
+                || (a == 192 && b == 0 && c == 0)
+                || (a == 198 && (18..20).contains(&b))
+                || a >= 240)
+        }
+        IpAddr::V6(v6) => {
+            let s = v6.segments();
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return public(IpAddr::V4(v4));
+            }
+            // NAT64's well-known prefix carries an IPv4 address in its last
+            // 32 bits.
+            if s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
+                let v4 = Ipv4Addr::from((u32::from(s[6]) << 16) | u32::from(s[7]));
+                return public(IpAddr::V4(v4));
+            }
+            !(v6.is_unspecified()
+                || v6.is_loopback()
+                || v6.is_multicast()
+                || (s[0] & 0xfe00) == 0xfc00
+                || (s[0] & 0xffc0) == 0xfe80
+                || (s[0] & 0xffc0) == 0xfec0
+                || (s[0] == 0x2001 && s[1] == 0x0db8)
+                || s[..6] == [0; 6])
+        }
+    }
+}
+
+/// What `url`, an address someone else wrote, answers over the `OUTWARD`
+/// agent, sent `headers`: at most `most` bytes, or an error. What went
+/// wrong on the way is not said: it would tell what lies where.
+pub fn outward(url: &str, headers: &[(&str, &str)], most: u64) -> Result<Vec<u8>, String> {
+    let failed = |e: ureq::Error| {
+        tracing::debug!("{url}: {e}");
+        "it could not be read".to_owned()
+    };
+    let mut request = OUTWARD.get(url);
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
+    let mut answer = request.call().map_err(failed)?;
+    if answer.status().as_u16() >= 400 {
+        return Err("it could not be read".into());
+    }
+    answer
+        .body_mut()
+        .with_config()
+        .limit(most)
+        .read_to_vec()
+        .map_err(|e| match e {
+            ureq::Error::BodyExceedsLimit(_) => "it is too large".to_owned(),
+            e => failed(e),
+        })
+}
 
 /// What `method` at `url` answers, sent `headers` and `body`: whether it
 /// succeeded (a status under 400), and what it said, or why nothing was
-/// heard. A request made over HTTPS is followed only to HTTPS, and its
-/// `Authorization` is never carried to where it is redirected.
+/// heard.
 pub fn call(
     method: &str,
     url: &str,
@@ -104,6 +218,7 @@ pub fn download(url: &str, to: &Path, say: Say, stop: &AtomicBool) -> Result<(),
         .get(url)
         .config()
         .timeout_global(Some(LONG))
+        .https_only(url.starts_with("https://"))
         .build()
         .call()
         .map_err(|e| format!("the download failed: {e}"))?;
@@ -137,6 +252,48 @@ pub fn download(url: &str, to: &Path, say: Say, stop: &AtomicBool) -> Result<(),
                 Some((got as f64 / total as f64).min(1.) as f32),
             ),
             None => say(&format!("Downloading · {}", shown(got)), None),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::net::IpAddr;
+
+    #[test]
+    fn only_an_address_on_the_public_internet_is_reached_for_someone_else() {
+        for near in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.1",
+            "192.168.1.5",
+            "169.254.169.254",
+            "100.64.0.1",
+            "0.0.0.0",
+            "224.0.0.1",
+            "255.255.255.255",
+            "240.0.0.1",
+            "::1",
+            "::",
+            "fc00::1",
+            "fd00:ec2::254",
+            "fe80::1",
+            "ff02::1",
+            "::ffff:127.0.0.1",
+            "::ffff:169.254.169.254",
+            "64:ff9b::a00:1",
+        ] {
+            let ip: IpAddr = near.parse().unwrap();
+            assert!(!super::public(ip), "{near}");
+        }
+        for far in [
+            "140.82.112.3",
+            "185.199.108.133",
+            "2606:50c0:8000::154",
+            "::ffff:8.8.8.8",
+        ] {
+            let ip: IpAddr = far.parse().unwrap();
+            assert!(super::public(ip), "{far}");
         }
     }
 }

@@ -53,6 +53,7 @@ rustls.workspace = true
 tokio-rustls.workspace = true
 rcgen.workspace = true
 ureq.workspace = true
+markdown.workspace = true
 sysinfo.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]

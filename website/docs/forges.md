@@ -59,9 +59,11 @@ issue** from the repository's issue templates (GitHub).
 
 The pictures in a description or a comment (a Markdown image, or an
 `<img>` tag, read for its address alone) show where they are written. The
-server the project is on fetches each, over HTTPS only. A file attached on
-GitHub (`github.com/user-attachments/…`) is asked with your GitHub token,
-so a private repository's shows too; no other address is sent it.
+server the project is on fetches each, over HTTPS only, from the public
+internet only: the first 50 an item shows, each up to 8 MiB and
+8192 pixels a side. A file attached on GitHub
+(`github.com/user-attachments/…`) is asked with your GitHub token, so a
+private repository's shows too; no other address is sent it.
 
 ## Reviewing a pull request
 

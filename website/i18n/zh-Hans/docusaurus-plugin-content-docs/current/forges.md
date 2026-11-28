@@ -35,7 +35,7 @@ description: 拉取请求和议题页面，支持 GitHub、GitLab、Bitbucket、
 
 在条目的视图中，你可以添加标签、审查者和指派人，重新运行失败的检查（**再次运行**）并查看其 **日志**，还可以从仓库的议题模板新建 **新议题**（GitHub）。
 
-描述或评论中的图片（Markdown 图片，或 `<img>` 标签，只读取其地址）显示在写下它们的位置。项目所在的服务器逐一获取，只通过 HTTPS。GitHub 上附加的文件（`github.com/user-attachments/…`）会带上你的 GitHub 令牌请求，因此私有仓库的图片也能显示；其他地址都不会收到该令牌。
+描述或评论中的图片（Markdown 图片，或 `<img>` 标签，只读取其地址）显示在写下它们的位置。项目所在的服务器逐一获取，只通过 HTTPS，且只从公共互联网获取：每个条目最多 50 张，每张最大 8 MiB、每边最多 8192 像素。GitHub 上附加的文件（`github.com/user-attachments/…`）会带上你的 GitHub 令牌请求，因此私有仓库的图片也能显示；其他地址都不会收到该令牌。
 
 ## 审查拉取请求 {#reviewing-a-pull-request}
 

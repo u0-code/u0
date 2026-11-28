@@ -137,55 +137,6 @@ fn not_here(host: &str, ask: Ask) -> Answer {
 
 /// What `method` at `url` of `host`'s API answers, sent `body`: JSON, or
 /// null where it said nothing.
-/// The picture at `url` that a pull request or issue of the project in
-/// `dir` shows: over HTTPS alone, and only a picture comes back. A
-/// GitHub attachment is asked with your GitHub token (the one you gave,
-/// else gh's), which a private repository's needs; no other address is
-/// sent it, nor where GitHub redirects (`http::call`).
-pub fn picture(dir: &Path, url: &str) -> Result<Vec<u8>, String> {
-    if !url.starts_with("https://") {
-        return Err(format!("{url} is not over HTTPS"));
-    }
-    let token = attachment(url)
-        .then(|| {
-            Host::GitHub
-                .token()
-                .or_else(|| crate::git::yours(dir, "gh", &["auth", "token"]).ok())
-        })
-        .flatten()
-        .map(|t| format!("Bearer {t}"));
-    let headers: Vec<_> = token
-        .iter()
-        .map(|t| ("Authorization", t.as_str()))
-        .collect();
-    let bytes = crate::http::get(url, &headers)?;
-    match crate::session::Format::sniff(&bytes) {
-        Some(_) => Ok(bytes),
-        None => Err(format!("{url} is not a picture")),
-    }
-}
-
-/// Whether `url` is a file attached to what was written on GitHub
-/// (`https://github.com/user-attachments/assets/<id>`, or a repository's
-/// `https://github.com/<owner>/<repo>/assets/…`): the one address your
-/// GitHub token is sent to for a picture.
-fn attachment(url: &str) -> bool {
-    let Ok(url) = url::Url::parse(url) else {
-        return false;
-    };
-    let path: Vec<_> = url
-        .path_segments()
-        .map(Iterator::collect)
-        .unwrap_or_default();
-    url.scheme() == "https"
-        && url.host_str() == Some("github.com")
-        && url.port().is_none()
-        && url.username().is_empty()
-        && url.password().is_none()
-        && (matches!(path.as_slice(), ["user-attachments", "assets", id] if !id.is_empty())
-            || matches!(path.as_slice(), [o, r, "assets", _, ..] if !o.is_empty() && !r.is_empty()))
-}
-
 fn api(host: Host, method: &str, url: &str, body: Option<&Value>) -> Result<Value, String> {
     call(host, method, url, body).map(|b| serde_json::from_slice(&b).unwrap_or(Value::Null))
 }
@@ -499,45 +450,6 @@ fn agents_line(line: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn a_token_goes_only_to_a_github_attachment() {
-        for sent in [
-            "https://github.com/user-attachments/assets/aad7d8b6-9546-4c02-8ec1-5645b4e1c29e",
-            "https://github.com/u0-code/u0/assets/252857002/aad7d8b6",
-        ] {
-            assert!(super::attachment(sent), "{sent}");
-        }
-        for kept in [
-            "http://github.com/user-attachments/assets/a",
-            "https://github.com.evil.example/user-attachments/assets/a",
-            "https://evil.example/?https://github.com/user-attachments/assets/a",
-            "https://user@github.com/user-attachments/assets/a",
-            "https://github.com:8443/user-attachments/assets/a",
-            "https://raw.githubusercontent.com/o/r/main/a.png",
-            "https://private-user-images.githubusercontent.com/1/a.png",
-            "https://github.com/o/r/blob/main/a.png",
-            "https://github.com/user-attachments/files/1/a.zip",
-            "https://github.com/settings/tokens",
-        ] {
-            assert!(!super::attachment(kept), "{kept}");
-        }
-    }
-
-    #[test]
-    fn a_picture_is_read_over_https_alone() {
-        let dir = std::env::temp_dir();
-        for plain in [
-            "http://example.com/a.png",
-            "file:///etc/hosts",
-            "data:image/png,x",
-        ] {
-            assert!(
-                super::picture(&dir, plain).unwrap_err().contains("HTTPS"),
-                "{plain}"
-            );
-        }
-    }
-
     #[test]
     fn what_a_caller_said_stays_one_segment_of_a_path() {
         for said in ["123#", "../../..#", "a/b", "x?y=1"] {
