@@ -650,6 +650,21 @@ pub struct Picture {
     id: u64,
 }
 
+impl Picture {
+    fn new(format: Format, bytes: Vec<u8>) -> std::sync::Arc<Self> {
+        let mut id = std::hash::DefaultHasher::new();
+        std::hash::Hash::hash(&bytes, &mut id);
+        let id = std::hash::Hasher::finish(&id);
+        std::sync::Arc::new(Self { format, bytes, id })
+    }
+
+    /// `bytes` as a picture, in the format they begin with; none, not one
+    /// the desk draws.
+    pub fn read(bytes: Vec<u8>) -> Option<std::sync::Arc<Self>> {
+        Some(Self::new(Format::sniff(&bytes)?, bytes))
+    }
+}
+
 impl std::hash::Hash for Picture {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         state.write_u64(self.id);
@@ -684,6 +699,23 @@ impl Format {
             _ => return None,
         })
     }
+
+    /// The format `bytes` begin with, read from their first bytes; none,
+    /// not a picture the desk draws (an SVG among them: it is text, and
+    /// not taken for a picture by what it begins with).
+    pub fn sniff(bytes: &[u8]) -> Option<Self> {
+        use imagesize::ImageType as T;
+        Some(match imagesize::image_type(bytes).ok()? {
+            T::Png => Self::Png,
+            T::Jpeg => Self::Jpeg,
+            T::Gif => Self::Gif,
+            T::Webp => Self::Webp,
+            T::Bmp => Self::Bmp,
+            T::Tiff => Self::Tiff,
+            T::Ico => Self::Ico,
+            _ => return None,
+        })
+    }
 }
 
 /// The picture in `block`, if it is one the desk draws.
@@ -702,10 +734,7 @@ pub fn image_of(block: &ContentBlock) -> Option<std::sync::Arc<Picture>> {
         .decode(&data)
         .or_else(|_| GeneralPurpose::new(&alphabet::URL_SAFE, loose).decode(&data))
         .ok()?;
-    let mut id = std::hash::DefaultHasher::new();
-    std::hash::Hash::hash(&bytes, &mut id);
-    let id = std::hash::Hasher::finish(&id);
-    Some(std::sync::Arc::new(Picture { format, bytes, id }))
+    Some(Picture::new(format, bytes))
 }
 
 impl Session {

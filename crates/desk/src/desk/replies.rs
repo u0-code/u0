@@ -339,6 +339,15 @@ impl Desk {
             Event::Files { folder, files } => {
                 self.files.insert(at(folder), files);
             }
+            Event::Picture { url, picture } => {
+                let picture = picture.and_then(|bytes| {
+                    crate::session::Picture::read(bytes.0).ok_or_else(|| "not a picture".to_owned())
+                });
+                if let Err(why) = &picture {
+                    tracing::warn!("a picture could not be read: {why}");
+                }
+                crate::markdown::fetched_at(url, picture.ok());
+            }
             Event::FileRead { path, body } => self.file_read(&path, body, window, cx),
             Event::Forge {
                 folder,

@@ -63,7 +63,7 @@ use crate::{
 
 /// A picture of the session's as GPUI draws it: decoded once, and known
 /// after that by its hash, as GPUI keeps an image of its own.
-fn picture(picture: &Arc<Picture>) -> gpui::ImageSource {
+pub(crate) fn picture(picture: &Arc<Picture>) -> gpui::ImageSource {
     let picture = picture.clone();
     gpui::ImageSource::Custom(Arc::new(move |window, cx| {
         window.use_asset::<Decoded>(&picture, cx)

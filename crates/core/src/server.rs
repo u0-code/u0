@@ -77,6 +77,28 @@ pub struct Server {
     outbox: Arc<Outbox>,
     access: Access,
     sharing: Mutex<Sharing>,
+    /// The pictures each pull request or issue lately read shows: all
+    /// `Call::Pictures` may fetch.
+    shown: Arc<Mutex<Shown>>,
+    /// The desk in this process alone: what is said to it here is said on
+    /// no link.
+    here: Send,
+}
+
+/// The pictures of the last items read, by project, kind and number.
+type Shown = std::collections::VecDeque<((PathBuf, crate::github::Kind, u64), Vec<String>)>;
+
+/// How many items' pictures are kept known.
+const SHOWN: usize = 64;
+
+/// Keep that `item` shows the pictures at `urls`, as the newest known.
+fn remember(shown: &Mutex<Shown>, item: (PathBuf, crate::github::Kind, u64), urls: Vec<String>) {
+    let mut shown = shown.lock().expect("shown");
+    shown.retain(|(at, _)| *at != item);
+    shown.push_back((item, urls));
+    if shown.len() > SHOWN {
+        shown.pop_front();
+    }
 }
 
 /// What the server holds that work it hands off holds too: a task's run,
@@ -248,12 +270,16 @@ impl Server {
         }
         let outbox = Arc::new(Outbox::default());
         let kept = outbox.clone();
+        let send: Send = Arc::new(send);
+        let here = send.clone();
         // The tests send nowhere, and nor does a build made by hand.
         let endpoint = crate::telemetry::endpoint(crate::update::BUILT_AS).filter(|_| !cfg!(test));
         let telemetry = crate::telemetry::Telemetry::new(&home, endpoint);
         let counted = telemetry.clone();
         let server = Arc::new(Self {
             sharing: Mutex::default(),
+            shown: Arc::default(),
+            here,
             access: Access::new(&home),
             outbox,
             shared: Shared {
@@ -284,6 +310,36 @@ impl Server {
         server.shared.serve_tools();
         server.shared.telemetry.start();
         server
+    }
+
+    /// Fetch the pictures at `urls` that `item` (a project's folder, pull
+    /// requests or issues, its number) was found to show as it was read,
+    /// telling each to `tell` as it comes: the desk that asked alone, as a
+    /// picture of one project is not another device's to see.
+    pub(crate) fn pictures(
+        &self,
+        item: (PathBuf, crate::github::Kind, u64),
+        urls: Vec<String>,
+        tell: Send,
+    ) {
+        let shown = (self.shown.lock().expect("shown").iter())
+            .find(|(at, _)| *at == item)
+            .map(|(_, urls)| urls.clone())
+            .unwrap_or_default();
+        acp::runtime().spawn_blocking(move || {
+            crate::pictures::fetch(&item.0, &urls, &shown, |url, picture| {
+                tell(Event::Picture {
+                    url,
+                    picture: picture.map(crate::proto::Bytes),
+                });
+            });
+        });
+    }
+
+    /// Keep that `item` shows the pictures at `urls`, as reading it would.
+    #[cfg(test)]
+    pub(crate) fn shows(&self, item: (PathBuf, crate::github::Kind, u64), urls: Vec<String>) {
+        remember(&self.shown, item, urls);
     }
 
     pub(crate) fn sharing(&self) -> std::sync::MutexGuard<'_, Sharing> {
@@ -613,12 +669,27 @@ impl Server {
                 kind,
                 ask,
                 linear,
-            } => self.off(move || Event::Forge {
-                answer: crate::forge::answer(&folder, kind, ask, linear.as_deref()),
-
+            } => {
+                let shown = self.shown.clone();
+                self.off(move || {
+                    let answer = crate::forge::answer(&folder, kind, ask, linear.as_deref());
+                    if let crate::github::Answer::Viewed(n, Ok(detail)) = &answer {
+                        let item = (folder.clone(), kind, *n);
+                        remember(&shown, item, crate::pictures::of(detail));
+                    }
+                    Event::Forge {
+                        answer,
+                        folder,
+                        kind,
+                    }
+                });
+            }
+            Call::Pictures {
                 folder,
                 kind,
-            }),
+                number,
+                urls,
+            } => self.pictures((folder, kind, number), urls, self.here.clone()),
             Call::Grep { folder, words, how } => self.off(move || Event::Grepped {
                 found: git::grep(&folder, &words, how),
                 words,

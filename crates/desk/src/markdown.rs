@@ -3,9 +3,15 @@
 //! and copied. u0 adds what only the desk can say: where a link may go,
 //! that a name in code which reads as a file opens it in your editor (its
 //! menu copies where it is), GitHub's alerts (`> [!NOTE]`) set apart, and
-//! what the buttons on a code block and a table do.
+//! what the buttons on a code block and a table do; and the pictures a
+//! pull request or an issue shows, fetched by its server.
 
-use std::{borrow::Cow, fmt::Write as _};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, hash_map::Entry},
+    fmt::Write as _,
+    sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError},
+};
 
 use gpui::{
     App, ClickEvent, Context, Div, IntoElement, Overflow, SharedString, StyleRefinement,
@@ -26,6 +32,7 @@ use crate::{
     desk::Desk,
     figures,
     fonts::Faces,
+    session::Picture,
     style::{H1, H2, H3, PROSE, prose_line},
     theme, ui,
 };
@@ -55,6 +62,11 @@ pub fn render(faces: &Faces, key: &str, text: &str, cx: &mut Context<Desk>) -> i
         })
         .code_block(code_block)
         .table(table);
+    let came = came(text);
+    let view = match came {
+        Some(n) => format!("{key}-words-{n}"),
+        None => format!("{key}-words"),
+    };
     div()
         .w_full()
         .min_w(px(0.))
@@ -63,10 +75,11 @@ pub fn render(faces: &Faces, key: &str, text: &str, cx: &mut Context<Desk>) -> i
         .line_height(px(prose_line()))
         .text_color(theme::text())
         .child(
-            TextView::markdown(SharedString::from(format!("{key}-words")), bulleted(text))
+            TextView::markdown(SharedString::from(view), bulleted(text))
                 .style(style)
                 .selectable(true)
                 .markdown_extensions(extensions())
+                .when(came.is_some(), |v| v.image_source(fetched))
                 .plugin(Paths(desk))
                 .plugin(figures::Figures(figures::math()))
                 .when(figures::math(), |v| v.plugin(figures::Formulas))
@@ -80,8 +93,145 @@ pub fn render(faces: &Faces, key: &str, text: &str, cx: &mut Context<Desk>) -> i
         )
 }
 
-/// What of Markdown is read: no HTML (a tag shows as the text it is), and
-/// GitHub's alerts, each a block set apart by a line down its left in its
+/// The pictures asked of a server for what Markdown shows, and the texts
+/// that show them.
+#[derive(Default)]
+struct Pictures {
+    /// By address: none while one has not come; and when it was last drawn.
+    kept: HashMap<String, (Option<Arc<Picture>>, u64)>,
+    /// The addresses each text shows, by a hash of the text.
+    texts: HashMap<u64, Vec<String>>,
+    /// The pictures drawn, counted: which was drawn longest ago.
+    drawn: u64,
+}
+
+/// The most bytes of pictures kept: past it, those drawn longest ago go,
+/// to be asked for again when they are next shown.
+const KEPT_BYTES: usize = 128 << 20;
+
+/// The most texts whose pictures are known at once.
+const TEXTS: usize = 1024;
+
+static PICTURES: LazyLock<Mutex<Pictures>> = LazyLock::new(Mutex::default);
+
+fn pictures() -> MutexGuard<'static, Pictures> {
+    PICTURES.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn hash(text: &str) -> u64 {
+    let mut h = std::hash::DefaultHasher::new();
+    std::hash::Hash::hash(text, &mut h);
+    std::hash::Hasher::finish(&h)
+}
+
+impl Pictures {
+    /// The pictures of an item read, `urls` (`pictures::of`), shown in
+    /// `texts`: which each text shows is known, and those not yet asked
+    /// for are given back, taken as asked.
+    fn wanted<'a>(
+        &mut self,
+        texts: impl IntoIterator<Item = &'a str>,
+        urls: Vec<String>,
+    ) -> Vec<String> {
+        if self.texts.len() > TEXTS {
+            self.texts.clear();
+        }
+        for text in texts {
+            let shows: Vec<_> = (crate::pictures::found(text).into_iter())
+                .filter(|url| urls.contains(url))
+                .collect();
+            if !shows.is_empty() {
+                self.texts.insert(hash(text), shows);
+            }
+        }
+        let mut asked = urls;
+        asked.retain(|url| match self.kept.entry(url.clone()) {
+            Entry::Vacant(e) => {
+                e.insert((None, 0));
+                true
+            }
+            Entry::Occupied(_) => false,
+        });
+        asked
+    }
+
+    /// The picture at `url` come, those drawn longest ago let go past
+    /// `most` bytes; one that did not come is asked for again the next time
+    /// it is shown.
+    fn came(&mut self, url: String, picture: Option<Arc<Picture>>, most: usize) {
+        let Some(picture) = picture else {
+            self.kept.remove(&url);
+            return;
+        };
+        self.drawn += 1;
+        self.kept.insert(url, (Some(picture), self.drawn));
+        let bytes = |kept: &HashMap<String, (Option<Arc<Picture>>, u64)>| -> usize {
+            kept.values()
+                .filter_map(|(p, _)| p.as_ref())
+                .map(|p| p.bytes.len())
+                .sum()
+        };
+        while bytes(&self.kept) > most {
+            let oldest = (self.kept.iter())
+                .filter(|(_, (p, _))| p.is_some())
+                .min_by_key(|(_, (_, at))| *at)
+                .map(|(url, _)| url.clone());
+            match oldest {
+                Some(url) => self.kept.remove(&url),
+                None => break,
+            };
+        }
+    }
+
+    /// How many of the pictures `text` shows have come; none, it is not a
+    /// text whose pictures were asked for.
+    fn shown(&self, text: &str) -> Option<usize> {
+        let urls = self.texts.get(&hash(text))?;
+        Some(
+            (urls.iter())
+                .filter(|url| matches!(self.kept.get(*url), Some((Some(_), _))))
+                .count(),
+        )
+    }
+}
+
+/// The pictures of an item read, `urls`, shown in `texts`: those not yet
+/// asked for, taken as asked.
+pub fn wanted<'a>(texts: impl IntoIterator<Item = &'a str>, urls: Vec<String>) -> Vec<String> {
+    pictures().wanted(texts, urls)
+}
+
+/// The picture at `url` come, or not.
+pub fn fetched_at(url: String, picture: Option<Arc<Picture>>) {
+    pictures().came(url, picture, KEPT_BYTES);
+}
+
+/// How many of the pictures `text` shows have come; none, it shows none
+/// asked for. Only then are its pictures drawn from what came, so that the
+/// view's own reading of any other (a `data:` address) is kept; and its
+/// view is a new one each time another comes, as the view lays a picture
+/// out once, at the size it had then.
+fn came(text: &str) -> Option<usize> {
+    pictures().shown(text)
+}
+
+/// What the view draws for the picture at `url`: what came, or nothing yet.
+fn fetched(url: &gpui::SharedUri) -> gpui::ImageSource {
+    let mut pictures = pictures();
+    pictures.drawn += 1;
+    let drawn = pictures.drawn;
+    match pictures.kept.get_mut(url.as_ref()) {
+        Some((Some(picture), at)) => {
+            *at = drawn;
+            crate::thread::picture(picture)
+        }
+        _ => gpui::ImageSource::Custom(Arc::new(|_, _| None)),
+    }
+}
+
+/// What of Markdown is read: HTML as gpui-kit reads it into its own nodes
+/// (an `<img>` a picture, by its `src`, `alt` and size; a `<br>` a break),
+/// never drawn as a page; and GitHub's alerts, each a block set apart by a line down its left in its
 /// colour, under its name: `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`,
 /// `[!WARNING]`, `[!CAUTION]`, and Claude's `[!INSIGHT]`.
 fn extensions() -> MarkdownExtensions {
@@ -352,6 +502,62 @@ fn csv(table: &TableData) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn png(side: u8, extra: usize) -> Option<Arc<Picture>> {
+        let mut b = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0".to_vec();
+        b.extend([side, 0, 0, 0, side, 8, 6, 0, 0, 0]);
+        b.resize(b.len() + extra, 0);
+        Picture::read(b)
+    }
+
+    #[test]
+    fn a_picture_is_asked_for_once_and_again_only_after_it_failed() {
+        let mut p = Pictures::default();
+        let (body, url) = (
+            "![a](https://example.com/once.png)",
+            "https://example.com/once.png",
+        );
+        assert_eq!(p.wanted([body], vec![url.into()]), [url]);
+        assert!(p.wanted([body], vec![url.into()]).is_empty());
+        assert_eq!(p.shown(body), Some(0));
+        p.came(url.into(), None, KEPT_BYTES);
+        assert_eq!(p.wanted([body], vec![url.into()]), [url]);
+    }
+
+    #[test]
+    fn a_text_is_drawn_anew_as_each_of_its_pictures_comes_its_references_read() {
+        let mut p = Pictures::default();
+        let body =
+            "<img src=\"https://example.com/a.png?x=1&amp;y=2\"> ![b](https://example.com/b.png)";
+        let urls = vec![
+            "https://example.com/a.png?x=1&y=2".to_owned(),
+            "https://example.com/b.png".to_owned(),
+        ];
+        p.wanted([body], urls.clone());
+        assert_eq!(p.shown(body), Some(0));
+        p.came(urls[0].clone(), png(1, 0), KEPT_BYTES);
+        assert_eq!(p.shown(body), Some(1));
+        assert_eq!(p.shown("no pictures here"), None);
+    }
+
+    #[test]
+    fn the_pictures_drawn_longest_ago_go_past_the_most_kept() {
+        let mut p = Pictures::default();
+        let urls: Vec<String> = (0..3)
+            .map(|n| format!("https://example.com/{n}.png"))
+            .collect();
+        let body = urls.iter().fold(String::new(), |mut body, u| {
+            let _ = write!(body, "![]({u}) ");
+            body
+        });
+        p.wanted([body.as_str()], urls.clone());
+        for url in &urls {
+            p.came(url.clone(), png(1, 1000), 2500);
+        }
+        assert_eq!(p.shown(&body), Some(2));
+        assert!(!matches!(p.kept.get(&urls[0]), Some((Some(_), _))));
+        assert_eq!(p.wanted([body.as_str()], urls.clone()), [urls[0].clone()]);
+    }
 
     #[test]
     fn a_host_commit_link_names_its_commit() {

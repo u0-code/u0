@@ -24,6 +24,13 @@ asks before it acts, and answers them only as you choose. u0's own
 - **Updates** are looked for on the repository's GitHub releases.
 - **Your hosts** (GitHub, GitLab, Bitbucket, Azure DevOps, Linear) are
   asked for your pull requests and issues, with your tokens.
+- **The pictures** a pull request or an issue shows are fetched by the
+  server the project is on, straight from where they are kept, over HTTPS
+  and not through a proxy. That host sees the server's IP address and when
+  the item was read, as with any picture fetched from it. Only GitHub's
+  attachments are asked with your GitHub token. No address on the
+  server's own machine or networks (loopback, private, link-local, a
+  carrier's NAT, multicast) is reached.
 
 What your agents send to their own services is between you and them.
 

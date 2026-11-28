@@ -164,7 +164,10 @@ crates/core/src/
   github.rs     a project's pull requests and issues as gh lists, reads and changes them
                 (their conversations on lines, reviews with comments on lines)
   review.rs     a pull request's files from its patch: what kind each is, a mark of its changes
-  http.rs       the one HTTP client (ureq): the registry, its archives, the forges, updates
+  http.rs       the one HTTP client (ureq): the registry, its archives, the forges, updates;
+                an address someone else wrote, on the public internet alone (`outward`)
+  pictures.rs   the pictures a pull request or issue shows: found in its text, fetched
+                (`Call::Pictures`), only so many and so large
   forge.rs      the hosts of code and issues: their CLIs, your tokens for them, credits on merge
   forge/        GitLab, Bitbucket and Azure DevOps over their APIs; Linear's issues
   settings.rs   ~/.u0/settings.json and the home
@@ -244,7 +247,8 @@ crates/desk/src/
                 a pull request reviewed, pr)
   i18n.rs       the desk's words in your language (rust-i18n, as gpui-kit): `tr`, the
                 language set; locales/app.yml holds each English string in every language
-  markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go
+  markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go;
+                the pictures a pull request or issue shows, as they come
   figures.rs    what Markdown shows as a picture: Mermaid (mermaid-rs-renderer) and
                 TeX (ratex), drawn natively as SVG
   ui.rs, theme.rs, style.rs   Carbon tokens, theme projection (White/G10/G90/G100), layout constants
@@ -373,7 +377,8 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   its real path, in a project or a worktree. What a link is told is
   told as its scope may hear it: a `read` device is never sent a
   webhook's token (`Event::for_reader`) nor a pairing link, which goes
-  only to the desk that asked for it (`Event::Offered`). Every link a device opens (a desk's,
+  only to the desk that asked for it (`Event::Offered`), as a picture an
+  issue or pull request shows does (`Event::Picture`, `Server::pictures`). Every link a device opens (a desk's,
   a port carried, the tools) lasts only while it may come in as it
   did (`link::lasts`): revoked, ended or narrowed, it is closed. Revoke
   removes the key and closes its links, as an access ended does; turning listening off
