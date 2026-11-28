@@ -103,7 +103,9 @@ impl gpui::Asset for Decoded {
 /// The parts of a tool call's row.
 struct Row {
     icon: &'static str,
-    verb: &'static str,
+    /// u0's word for what the call does, set before what it knows of it;
+    /// none where the row is the agent's own title.
+    verb: Option<&'static str>,
     object: String,
     kind: Object,
 }
@@ -121,18 +123,36 @@ enum Object {
     Plain,
 }
 
-/// `title` without the verb an agent may have begun it with, or the
-/// backticks around a command.
-fn bare(title: &str) -> String {
-    let t = title.trim().trim_matches('`');
-    for verb in [
-        "Read ", "Edit ", "Write ", "Search ", "Grep ", "Run ", "Fetch ", "Delete ", "Move ",
-    ] {
-        if let Some(rest) = t.strip_prefix(verb) {
-            return rest.trim().trim_matches('`').to_owned();
+/// What of a call's input its `title` names: the title itself when it is
+/// one of the strings the call was given (a command, a pattern, an
+/// address), or what follows the one word the agent put before such a
+/// string (`Fetch <url>`). `None` when the title is the agent's own words
+/// about the call, which are then shown as they are.
+fn given(title: &str, input: Option<&serde_json::Value>) -> Option<String> {
+    use serde_json::Value;
+    let clean = |s: &str| s.trim().trim_matches('`').trim().to_owned();
+    let mut inputs = Vec::new();
+    if let Some(Value::Object(fields)) = input {
+        for v in fields.values() {
+            match v {
+                Value::String(s) => inputs.push(clean(s)),
+                // A command as its words, or the script a shell was given.
+                Value::Array(w) => {
+                    let w: Vec<&str> = w.iter().filter_map(Value::as_str).collect();
+                    inputs.push(clean(&w.join(" ")));
+                    inputs.extend(w.last().map(|l| clean(l)));
+                }
+                _ => {}
+            }
         }
     }
-    t.to_owned()
+    let is = |s: &str| !s.is_empty() && inputs.iter().any(|i| i == s);
+    let t = clean(title);
+    if is(&t) {
+        return Some(t);
+    }
+    let rest = clean(t.split_once(' ')?.1);
+    is(&rest).then_some(rest)
 }
 
 /// A path shown relative to the session's folder when it is inside it.
@@ -168,11 +188,9 @@ fn row_of(tool: &Tool, folder: &Path) -> Row {
             ToolCallContent::Diff(d) => Some(d.path.clone()),
             _ => None,
         })
-        .or_else(|| call.locations.first().map(|l| l.path.clone()));
-    let path_or_title = || {
-        path.as_deref()
-            .map_or_else(|| bare(&call.title), |p| rel(p, folder))
-    };
+        .or_else(|| call.locations.first().map(|l| l.path.clone()))
+        .map(|p| rel(&p, folder));
+    let input = given(&call.title, call.raw_input.as_ref());
     let created = call
         .content
         .iter()
@@ -181,6 +199,9 @@ fn row_of(tool: &Tool, folder: &Path) -> Row {
         call.status,
         ToolCallStatus::Pending | ToolCallStatus::InProgress
     );
+    // Its status sets the tense: going on, or done (or failed, said at
+    // the end of the row).
+    let tense = |doing: &'static str, done: &'static str| if running { doing } else { done };
     // A change to the files is said in the past only once it is made: until
     // then it waits for you, or is being made.
     let changed = |wants: &'static str, doing: &'static str, done: &'static str| match call.status {
@@ -188,50 +209,77 @@ fn row_of(tool: &Tool, folder: &Path) -> Row {
         ToolCallStatus::InProgress => doing,
         _ => done,
     };
-    let (icon, verb, object, kind) = match call.kind {
-        ToolKind::Read => ("file", "Read", path_or_title(), Object::Mono),
-        ToolKind::Edit if created => (
+    // u0's word goes before only what it knows of the call (a path, a
+    // command it was given); else the agent's title is the row, as it
+    // wrote it, never under a word of u0's.
+    let (icon, verb, object, kind) = match (call.kind, path, input) {
+        (ToolKind::Read, Some(p), _) => ("file", Some(tense("Reading", "Read")), p, Object::Mono),
+        (ToolKind::Edit, Some(p), _) if created => (
             "file-plus",
-            changed("Wants to create", "Creating", "Created"),
-            path_or_title(),
+            Some(changed("Wants to create", "Creating", "Created")),
+            p,
             Object::Mono,
         ),
-        ToolKind::Edit => (
+        (ToolKind::Edit, Some(p), _) => (
             "pencil",
-            changed("Wants to edit", "Editing", "Edited"),
-            path_or_title(),
+            Some(changed("Wants to edit", "Editing", "Edited")),
+            p,
             Object::Mono,
         ),
-        ToolKind::Delete => (
+        (ToolKind::Delete, Some(p), _) => (
             "trash",
-            changed("Wants to delete", "Deleting", "Deleted"),
-            path_or_title(),
+            Some(changed("Wants to delete", "Deleting", "Deleted")),
+            p,
             Object::Mono,
         ),
-        ToolKind::Move => ("arrow-right", "Moved", bare(&call.title), Object::Mono),
-        ToolKind::Search => ("search", "Searched", bare(&call.title), Object::Mono),
-        ToolKind::Execute if running => ("terminal", "Running", bare(&call.title), Object::Command),
-        ToolKind::Execute => ("terminal", "Ran", bare(&call.title), Object::Command),
-        ToolKind::Fetch => (
+        (ToolKind::Move, _, Some(i)) => (
+            "arrow-right",
+            Some(tense("Moving", "Moved")),
+            i,
+            Object::Mono,
+        ),
+        (ToolKind::Search, _, Some(i)) => (
+            "search",
+            Some(tense("Searching", "Searched")),
+            i,
+            Object::Mono,
+        ),
+        (ToolKind::Execute, _, Some(i)) => (
+            "terminal",
+            Some(tense("Running", "Ran")),
+            i,
+            Object::Command,
+        ),
+        (ToolKind::Fetch, _, Some(i)) => (
             "globe",
-            "Fetched",
-            short_url(&bare(&call.title)),
+            Some(tense("Fetching", "Fetched")),
+            short_url(&i),
             Object::Link,
         ),
         // A call to think with a task given is a subagent sent off with it.
-        ToolKind::Think if !call.content.is_empty() => (
+        (ToolKind::Think, _, _) if !call.content.is_empty() => (
             "user",
-            if running {
-                "Running a subagent"
-            } else {
-                "Ran a subagent"
-            },
+            Some(tense("Running a subagent", "Ran a subagent")),
             call.title.clone(),
             Object::Plain,
         ),
-        ToolKind::Think => ("bulb", "Thought about", call.title.clone(), Object::Plain),
-        ToolKind::SwitchMode => ("list", "Switched mode", call.title.clone(), Object::Plain),
-        _ => ("plug", "Called", call.title.clone(), Object::Plain),
+        (kind, _, _) => (
+            match kind {
+                ToolKind::Read => "file",
+                ToolKind::Edit => "pencil",
+                ToolKind::Delete => "trash",
+                ToolKind::Move => "arrow-right",
+                ToolKind::Search => "search",
+                ToolKind::Execute => "terminal",
+                ToolKind::Fetch => "globe",
+                ToolKind::Think => "bulb",
+                ToolKind::SwitchMode => "list",
+                _ => "plug",
+            },
+            None,
+            call.title.trim().to_owned(),
+            Object::Plain,
+        ),
     };
     Row {
         icon,
@@ -1640,22 +1688,6 @@ impl Desk {
         } else if call.kind == ToolKind::Execute {
             tool.took_said()
                 .map(|t| right(faces, when::took(t)).into_any_element())
-        } else if call.kind == ToolKind::Search {
-            call.content.iter().find_map(|c| match c {
-                ToolCallContent::Content(x) => {
-                    let n = text_of(&x.content)
-                        .lines()
-                        .filter(|l| !l.trim().is_empty())
-                        .count();
-                    let said = if n == 1 {
-                        crate::tr("1 match")
-                    } else {
-                        crate::tr_with("%{n} matches", &[("n", &n)])
-                    };
-                    Some(right(faces, said).into_any_element())
-                }
-                _ => None,
-            })
         } else {
             None
         };
@@ -1724,9 +1756,9 @@ impl Desk {
             .id(SharedString::from(format!("{key}-row")))
             .group(group)
             .child(mark)
-            .child(
-                verb(faces, crate::tr(row.verb)).when(running, |d| d.text_color(theme::accent())),
-            )
+            .children(row.verb.map(|said| {
+                verb(faces, crate::tr(said)).when(running, |d| d.text_color(theme::accent()))
+            }))
             .child(object)
             .when(added + gone > 0 && call.kind != ToolKind::Execute, |d| {
                 d.child(ui::counts(faces, added, gone, crate::style::CAPTION).gap(px(8.)))
@@ -1767,7 +1799,14 @@ impl Desk {
                         continue;
                     }
                     let text = text_of(&x.content);
-                    if !text.trim().is_empty() {
+                    // What a command printed is its terminal's, in mono;
+                    // any other text a call holds is the agent's, written
+                    // as Markdown as what it says is.
+                    if call.kind != ToolKind::Execute && !text.trim().is_empty() {
+                        body = body.child(well(faces).font_family(faces.ui.clone()).child(
+                            crate::markdown::render(faces, &format!("{key}-{j}"), &text, cx),
+                        ));
+                    } else if !text.trim().is_empty() {
                         let call_id = call.tool_call_id.clone();
                         let show_all = Some(
                             u0ui::components::Button::new(
@@ -1908,19 +1947,117 @@ pub(crate) fn you_said(faces: &Faces, id: impl Into<SharedString>, text: String)
 mod tests {
     use super::*;
 
+    /// Each call an agent began in `sent` (a fixture of core's), as its
+    /// row reads in a project at `/work/project`: u0's word, what follows.
+    fn rows(sent: &str) -> Vec<(Option<&'static str>, String)> {
+        use agent_client_protocol::v1::schema::{SessionNotification, SessionUpdate};
+        let sent: Vec<SessionNotification> = serde_json::from_str(sent).unwrap();
+        (sent.into_iter())
+            .filter_map(|n| match n.update {
+                SessionUpdate::ToolCall(call) => Some(call),
+                _ => None,
+            })
+            .map(|call| {
+                let tool = Tool {
+                    call,
+                    started: None,
+                    took: None,
+                    starts: Vec::new(),
+                };
+                let row = row_of(&tool, Path::new("/work/project"));
+                (row.verb, row.object)
+            })
+            .collect()
+    }
+
+    fn row(verb: Option<&'static str>, object: &str) -> (Option<&'static str>, String) {
+        (verb, object.to_owned())
+    }
+
     #[test]
-    fn an_agents_own_verb_and_backticks_are_taken_off_a_title() {
-        assert_eq!(bare("Read src/lib.rs"), "src/lib.rs");
-        assert_eq!(bare("`cargo test`"), "cargo test");
-        assert_eq!(bare("Run `ls -la`"), "ls -la");
-        assert_eq!(bare("put_object"), "put_object");
+    fn an_agents_own_title_is_shown_as_it_is_never_under_a_word_of_u0s() {
+        // Antigravity's, as `agy acp` sends them.
+        assert_eq!(
+            rows(include_str!(
+                "../../core/src/fixtures/antigravity-load.json"
+            )),
+            [
+                row(None, "Run update_steps"),
+                row(Some("Read"), "src/parser.rs"),
+                row(Some("Ran"), "cargo test -p parser"),
+                row(None, "MCP Tool lookup"),
+                row(Some("Edited"), "src/parser.rs"),
+                row(None, "Run manage_task"),
+            ]
+        );
+        // Codex's: a command its title, a search in its own words.
+        assert_eq!(
+            rows(include_str!(
+                "../../core/src/fixtures/codex-tools-load.json"
+            )),
+            [
+                row(Some("Ran"), "git status --short"),
+                row(Some("Read"), "src/parser.rs"),
+                row(None, "Search for 'fn parse|struct Token' in src"),
+                row(Some("Edited"), "src/parser.rs"),
+                row(None, "wait"),
+            ]
+        );
+        // Claude Code's: a command waiting, an address after its verb.
+        let claude = rows(include_str!(
+            "../../core/src/fixtures/claude-subagents-load.json"
+        ));
+        assert!(claude.contains(&row(Some("Running"), "wc -l src/parser.rs")));
+        assert!(claude.contains(&row(Some("Fetching"), "example.com/grammar.md")));
+        assert!(claude.contains(&row(None, "grep \"parser\" docs")));
+    }
+
+    #[test]
+    fn a_search_going_on_is_said_by_the_agent_not_stacked_on_searched() {
+        // As Antigravity sends one while it runs.
+        let call = serde_json::from_str(
+            r#"{"toolCallId":"s","title":"Running search_web","kind":"search","status":"in_progress","rawInput":{"Query":"who keeps vLLM"}}"#,
+        )
+        .unwrap();
+        let tool = Tool {
+            call,
+            started: None,
+            took: None,
+            starts: Vec::new(),
+        };
+        let row = row_of(&tool, Path::new("/work/project"));
+        assert_eq!(
+            (row.verb, row.object.as_str()),
+            (None, "Running search_web")
+        );
+    }
+
+    #[test]
+    fn the_input_a_title_names_is_found_in_what_the_call_was_given() {
+        let input = serde_json::json!({"command": "cargo test", "url": "https://a.b/c"});
+        assert_eq!(
+            given("`cargo test`", Some(&input)).as_deref(),
+            Some("cargo test")
+        );
+        assert_eq!(
+            given("Run `cargo test`", Some(&input)).as_deref(),
+            Some("cargo test")
+        );
+        assert_eq!(
+            given("Fetch https://a.b/c", Some(&input)).as_deref(),
+            Some("https://a.b/c")
+        );
+        assert_eq!(given("MCP Tool cargo test", Some(&input)), None);
+        assert_eq!(given("cargo test", None), None);
+        let words = serde_json::json!({"command": ["bash", "-lc", "ls -la"]});
+        assert_eq!(given("ls -la", Some(&words)).as_deref(), Some("ls -la"));
     }
 
     #[test]
     fn an_edit_is_said_in_the_past_only_once_it_is_made() {
         let verb = |status: &str| {
             let call = serde_json::from_str(&format!(
-                r#"{{"toolCallId":"e","title":"Edit a.rs","kind":"edit","status":"{status}"}}"#
+                r#"{{"toolCallId":"e","title":"Edit a.rs","kind":"edit","status":"{status}","locations":[{{"path":"/r/a.rs"}}]}}"#
             ))
             .unwrap();
             let tool = Tool {
@@ -1931,9 +2068,9 @@ mod tests {
             };
             row_of(&tool, Path::new("/r")).verb
         };
-        assert_eq!(verb("pending"), "Wants to edit");
-        assert_eq!(verb("in_progress"), "Editing");
-        assert_eq!(verb("completed"), "Edited");
+        assert_eq!(verb("pending"), Some("Wants to edit"));
+        assert_eq!(verb("in_progress"), Some("Editing"));
+        assert_eq!(verb("completed"), Some("Edited"));
     }
 
     #[test]

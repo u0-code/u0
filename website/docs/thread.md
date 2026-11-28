@@ -17,9 +17,14 @@ The thread is the same for every agent:
   a file that went with a message; any other link (an app, a script, a
   share, another app's address) is not opened, and u0 says so. A file the
   viewer cannot show is offered in Finder, never opened.
-- **Tool calls**, each a row with what it did: Read, Created, Edited,
-  Deleted, Moved, Searched, Ran, Fetched, Ran a subagent, and so on. A row
-  opens to its diff or output. A finished turn's calls fold into one line
+- **Tool calls**, each a row with what it did. Where u0 knows what a
+  call is about (the file it reads or changes, the command it runs, the
+  pattern or address it was given), the row says it in u0's words, in
+  the tense of where the call stands: Reading or Read, Edited, Running or
+  Ran, Searched, Fetched, Ran a subagent, and so on. Otherwise the row is
+  the agent's own title for the call, as it wrote it. A row opens to its
+  diff, what a command printed, or the text the call returned, set as
+  Markdown. A finished turn's calls fold into one line
   ("Read 3 files, ran 2 commands…"); a turn still running never folds.
 - **The plan**, with how many steps are done, **Copy the plan**, and
   **Keep it as PLAN.md in the folder**.
