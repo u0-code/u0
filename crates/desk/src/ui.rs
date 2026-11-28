@@ -124,6 +124,19 @@ pub fn menu_glyph(name: &str) -> Icon {
     glyph(name).with_size(gpui::component::Size::Medium)
 }
 
+/// A menu item that destroys, such as Delete: its words and icon in the
+/// danger colour, as Carbon's danger menu item; what it does is the
+/// caller's `on_click`.
+pub fn danger_item(label: SharedString, icon: &str) -> gpui::component::menu::PopupMenuItem {
+    let red = theme::role(u0ui::tokens::ColorRole::TextError);
+    let said = label.clone();
+    gpui::component::menu::PopupMenuItem::element(move |_, _| {
+        div().text_color(red).child(said.clone())
+    })
+    .icon(menu_glyph(icon).text_color(red))
+    .accessibility_label(label)
+}
+
 /// Mono text: times, counts, hashes, keys.
 pub fn mono(faces: &Faces, text: impl Into<SharedString>) -> Div {
     mono_face(faces).child(text.into())

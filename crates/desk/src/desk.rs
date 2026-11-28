@@ -86,6 +86,8 @@ const RIGHT_LEAST: f32 = crate::style::RIGHT_COLUMN_MIN_WIDTH;
 pub const TOPBAR: f32 = crate::style::TITLEBAR_HEIGHT;
 /// Room the window's lights take at the left of the top row.
 const LIGHTS: f32 = crate::style::TRAFFIC_LIGHT_INSET;
+/// What a menu leaves of the window's height: the title bar, and a margin.
+const MENU_ROOM: f32 = TOPBAR + 16.;
 
 /// What the middle shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -722,10 +724,10 @@ impl Desk {
             machines,
         };
         desk.update_due();
-        // Where the window is, kept as u0 quits to open it there again.
-        cx.observe_window_bounds(window, |this, window, _| {
         // A servers.json that does not read is said on Devices from the start.
         desk.read_servers();
+        // Where the window is, kept as u0 quits to open it there again.
+        cx.observe_window_bounds(window, |this, window, _| {
             let b = window.bounds();
             this.settings.frame = Some(
                 [b.origin.x, b.origin.y, b.size.width, b.size.height]
@@ -1626,7 +1628,10 @@ impl Desk {
                     None => {
                         let before = window.focused(cx);
                         let menu = PopupMenu::build(window, cx, move |m, window, cx| {
-                            let m = build(m, window, cx).max_h(px(420.)).scrollable(true);
+                            // As tall as the window lets it, below the
+                            // title bar; it scrolls only past that.
+                            let most = window.viewport_size().height - px(MENU_ROOM);
+                            let m = build(m, window, cx).max_h(most).scrollable(true);
                             match before {
                                 Some(f) => m.action_context(f),
                                 None => m,

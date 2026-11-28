@@ -467,10 +467,12 @@ impl Desk {
             .icon(ui::menu_glyph("archive")),
         )
         .item(
-            Self::menu_item(desk, crate::tr("Delete…"), move |this, window, cx| {
-                this.ask_delete(vec![key], window, cx);
-            })
-            .icon(ui::menu_glyph("trash")),
+            ui::danger_item(crate::tr("Delete…"), "trash").on_click(Self::does(
+                desk,
+                move |this, window, cx| {
+                    this.ask_delete(vec![key], window, cx);
+                },
+            )),
         )
     }
 

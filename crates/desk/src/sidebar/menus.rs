@@ -297,11 +297,11 @@ fn session_menu(
                 "archive",
                 on(|d, key, _, cx| d.archive(key, cx)),
             ))
-            .item(item(
-                crate::tr("Delete"),
-                "trash",
-                on(|d, key, window, cx| d.ask_delete(vec![key], window, cx)),
-            ));
+            .item({
+                let f = on(|d, key, window, cx| d.ask_delete(vec![key], window, cx));
+                ui::danger_item(crate::tr("Delete"), "trash")
+                    .on_click(move |_, window, cx| f(window, cx))
+            });
     }
     menu
 }
