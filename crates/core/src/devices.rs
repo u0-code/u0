@@ -296,7 +296,11 @@ fn sim_os(runtime: &str, name: &str) -> String {
     } else {
         family
     };
-    let ver: Vec<&str> = parts.collect();
+    // A runtime made for one device names it after the version
+    // (`iOS-27-2-iPhone19-4`): the version is the numbers before it.
+    let ver: Vec<&str> = parts
+        .take_while(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+        .collect();
     if ver.is_empty() {
         family.to_owned()
     } else {
@@ -936,6 +940,15 @@ mod tests {
                 .collect::<Vec<_>>(),
             [("B", "iPadOS 27.2", true), ("A", "iOS 27.2", false)]
         );
+    }
+
+    #[test]
+    fn a_runtime_made_for_one_device_says_only_its_version() {
+        // As Xcode 27's simctl lists it.
+        let json = r#"{"devices": {
+            "com.apple.CoreSimulator.SimRuntime.iOS-27-2-iPhone19-4": [
+                {"udid": "A", "name": "iPhone 19 Pro", "state": "Shutdown", "isAvailable": true}]}}"#;
+        assert_eq!(simulators(json)[0].os, "iOS 27.2");
     }
 
     #[test]
