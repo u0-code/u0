@@ -48,7 +48,15 @@ Mac**. (The u0 menu's **Show Pairing Link…** does the same and opens
 the pairing dialog directly.)
 
 u0 then listens on `127.0.0.1` only, at port 4317 (the `port` in
-`<home>/devices.json`; give a second u0 on the same machine another).
+`<home>/devices.json`), the same port each time it starts. **Port**,
+under the switch, shows it: type another and press **Use** to listen
+there from then on (from 1024 to 65535, and free). Where another program
+holds the port as u0 starts, u0 listens at a free port the system gives
+instead, keeps it as its `port`, and says so in a notice: devices paired
+before reach it at the old port, so pair them again. Where another u0 on
+the same machine holds it (one with a home of its own, or its service),
+u0 leaves it to that one and says so under the switch: give this one
+another port, or stop that one.
 Nothing on the network reaches that port directly. A device reaches it
 one of two ways:
 

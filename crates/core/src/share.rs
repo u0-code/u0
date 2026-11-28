@@ -42,6 +42,9 @@ pub enum Share {
     /// Listen on a network too, or no longer, now and each time u0
     /// starts.
     Bind(Bind),
+    /// Listen at this port on 127.0.0.1 (and the next on a network), now
+    /// and each time u0 starts, where it is free.
+    Port(u16),
     /// Run the tunnel, or stop it, now and each time u0 starts.
     Tunnel(bool),
     /// The named tunnel to run; none, a quick one.
@@ -67,6 +70,9 @@ pub struct Shared {
     /// Listening on 127.0.0.1 at this port, or why it could not; none,
     /// not asked to.
     pub serving: Option<Result<u16, String>>,
+    /// The port kept, listened on or not.
+    #[serde(default)]
+    pub port: u16,
     pub tunnel: Tunnel,
     /// When the running tunnel came up (seconds since 1970).
     #[serde(default)]
@@ -236,6 +242,7 @@ impl Server {
                     ))));
                 }
             }
+            Share::Port(port) => self.set_port(port),
             Share::Link(grant, route) => {
                 self.offer(grant, route);
             }
@@ -381,12 +388,16 @@ impl Server {
         }
         let port = self.access().kept().map_or(4317, |k| k.port);
         let bound = crate::policy::allows(crate::policy::Limit::Remote).and_then(|()| {
-            std::net::TcpListener::bind(("127.0.0.1", port))
-                .and_then(|l| l.set_nonblocking(true).map(|()| l))
-                .map_err(|e| format!("u0 could not listen on 127.0.0.1:{port}: {e}"))
+            link::take(port, |port| {
+                link::speaks_u0(port).then(|| format!(
+                    "Another u0 on this Mac listens on 127.0.0.1:{port}: one with a home of its own, or its service. Give this one another port, or stop that one."
+                ))
+            })
         });
-        let listening = bound.and_then(|l| {
+        let mut moved = None;
+        let listening = bound.and_then(|(l, was)| {
             let port = l.local_addr().map_err(|e| e.to_string())?.port();
+            moved = was.map(|was| (was, port));
             let _in_runtime = crate::acp::runtime().enter();
             let l = tokio::net::TcpListener::from_std(l).map_err(|e| e.to_string())?;
             Ok((
@@ -400,11 +411,63 @@ impl Server {
             _ => Ok(()),
         };
         drop(sharing);
+        if let Some((was, now)) = moved {
+            self.moved(was, now);
+        }
         if result.is_ok() {
             self.network();
         }
         self.stay_awake();
         result
+    }
+
+    /// Listen at `now` from now on, as another program holds `was`: kept
+    /// in `devices.json`, this Mac's service found there (`Servers::service`),
+    /// and you told, as the devices paired at `was` no longer reach it.
+    fn moved(&self, was: u16, now: u16) {
+        self.access().change(|k| k.port = now);
+        let home = self.home();
+        if crate::servers::Servers::load(home).is_ok_and(|s| s.service(was).is_some()) {
+            let _ = crate::servers::Servers::change(home, |s| {
+                let service = format!("127.0.0.1:{was}");
+                for s in s.servers.iter_mut().filter(|s| s.host == service) {
+                    s.host = format!("127.0.0.1:{now}");
+                }
+                Ok(())
+            });
+        }
+        tracing::warn!("u0 moved from port {was}, taken, to {now}");
+        self.say(Event::Notice(Err((
+            format!("u0 listens on port {now} now"),
+            format!("Another program holds port {was}. Devices paired with this Mac before reach it there: pair them again. Settings › Devices sets the port."),
+        ))));
+    }
+
+    /// Listen at `port` from now on, where it is free: now, where u0
+    /// listens, its tunnel and network with it.
+    fn set_port(self: &Arc<Self>, port: u16) {
+        let free = (1024..=u16::MAX)
+            .contains(&port)
+            .then_some(())
+            .ok_or_else(|| "A port is a number from 1024 to 65535".to_owned())
+            .and_then(|()| match self.sharing().port() {
+                Some(now) if now == port => Ok(()),
+                _ => std::net::TcpListener::bind(("127.0.0.1", port))
+                    .map(drop)
+                    .map_err(|e| format!("127.0.0.1:{port}: {e}")),
+            });
+        if let Err(why) = free {
+            let what = format!("u0 cannot listen on port {port}");
+            return self.say(Event::Notice(Err((what, why))));
+        }
+        self.access().change(|k| k.port = port);
+        let mut sharing = self.sharing();
+        if sharing.listening.is_some() && sharing.port() != Some(port) {
+            sharing.stop_tunnel();
+            sharing.stop_listening();
+            drop(sharing);
+            self.share_as_kept(true);
+        }
     }
 
     /// Listen on the networks kept (`Bind`), with TLS, on the port after
@@ -424,8 +487,9 @@ impl Server {
             return;
         }
         let Some(port) = sharing.port() else { return };
-        let port = if port == 0 { 0 } else { port + 1 };
+        let next = (port == 0).then_some(0).or(port.checked_add(1));
         let listening = ip.and_then(|ip| {
+            let port = next.ok_or("No port follows 65535: give u0 another port")?;
             let (tls, pin) = reach::acceptor()?;
             let l = std::net::TcpListener::bind((ip, port))
                 .and_then(|l| l.set_nonblocking(true).map(|()| l))
@@ -556,6 +620,7 @@ impl Server {
             linked.dedup();
             Shared {
                 bind: kept.as_ref().map(|k| k.bind).unwrap_or_default(),
+                port: kept.as_ref().map_or(0, |k| k.port),
                 routes,
                 serving: (sharing.listening.as_ref())
                     .map(|l| l.as_ref().map(|(_, port)| *port).map_err(Clone::clone)),
@@ -606,5 +671,109 @@ mod tests {
         );
         let other = "INF Visit it at https://www.cloudflare.com/website-terms/";
         assert_eq!(quick_host(other), None);
+    }
+
+    /// A server of `home` kept at `port`, and what it says: how sharing
+    /// stands, and its notices.
+    fn at(home: &std::path::Path, port: u16) -> (Arc<Server>, std::sync::mpsc::Receiver<Event>) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let tx = Mutex::new(tx);
+        let server = Server::new(home.to_path_buf(), move |e| {
+            if matches!(e, Event::Shared(_) | Event::Notice(_)) {
+                let _ = tx.lock().expect("tx").send(e);
+            }
+        });
+        server.access().change(|k| k.port = port);
+        (server, rx)
+    }
+
+    /// The port it listens on, as it says next; or why not.
+    fn serving(heard: &std::sync::mpsc::Receiver<Event>) -> Result<u16, String> {
+        loop {
+            if let Event::Shared(s) = heard
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap()
+            {
+                return s.serving.expect("asked to listen");
+            }
+        }
+    }
+
+    /// A port free now.
+    fn free() -> u16 {
+        let l = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        l.local_addr().unwrap().port()
+    }
+
+    #[test]
+    fn a_port_another_program_holds_is_moved_from_kept_and_said_and_kept_next_start() {
+        let home = tempfile::tempdir().unwrap();
+        let held = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let was = held.local_addr().unwrap().port();
+        let (server, heard) = at(home.path(), was);
+        server.share(Share::Serve(true));
+        let mut said = Vec::new();
+        let now = loop {
+            match heard
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .unwrap()
+            {
+                Event::Notice(Err((what, why))) => said.push(format!("{what}: {why}")),
+                Event::Shared(s) => break s.serving.unwrap().unwrap(),
+                _ => {}
+            }
+        };
+        assert_ne!(now, was);
+        assert_eq!(server.access().kept().unwrap().port, now, "kept");
+        let said = said.join("\n");
+        assert!(
+            said.contains(&now.to_string()) && said.contains(&was.to_string()),
+            "{said}"
+        );
+        assert!(said.contains("pair them again"), "{said}");
+        server.share(Share::Serve(false));
+        drop(server);
+        // Free once its listener is let go of.
+        while std::net::TcpListener::bind(("127.0.0.1", now)).is_err() {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let (again, heard) = at(home.path(), now);
+        again.share(Share::Serve(true));
+        assert_eq!(serving(&heard), Ok(now), "the port kept, taken again");
+        again.share(Share::Serve(false));
+    }
+
+    #[test]
+    fn a_port_another_u0_holds_is_left_to_it() {
+        let (one, other) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (first, heard) = at(one.path(), 0);
+        first.share(Share::Serve(true));
+        let port = serving(&heard).unwrap();
+        let (second, heard) = at(other.path(), port);
+        second.share(Share::Serve(true));
+        let why = serving(&heard).unwrap_err();
+        assert!(why.contains("Another u0"), "{why}");
+        assert_eq!(second.access().kept().unwrap().port, port, "not moved");
+        first.share(Share::Serve(false));
+    }
+
+    #[test]
+    fn a_port_chosen_is_listened_on_at_once_and_one_taken_is_refused() {
+        let home = tempfile::tempdir().unwrap();
+        let (server, heard) = at(home.path(), 0);
+        server.share(Share::Serve(true));
+        serving(&heard).unwrap();
+        let chosen = free();
+        server.share(Share::Port(chosen));
+        assert_eq!(serving(&heard), Ok(chosen));
+        let held = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let taken = held.local_addr().unwrap().port();
+        server.share(Share::Port(taken));
+        assert!(matches!(heard.recv().unwrap(), Event::Notice(Err(_))));
+        assert_eq!(serving(&heard), Ok(chosen), "still where it was");
+        assert_eq!(server.access().kept().unwrap().port, chosen);
+        server.share(Share::Port(80));
+        assert!(matches!(heard.recv().unwrap(), Event::Notice(Err(_))));
+        server.share(Share::Serve(false));
     }
 }

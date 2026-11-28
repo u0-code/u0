@@ -129,6 +129,8 @@ pub struct Pages {
     pub install_id: Option<String>,
     /// How sharing this u0 stands, as its server last said.
     pub shared: Option<crate::share::Shared>,
+    /// The port to listen at, as you write it.
+    pub port: Entity<InputState>,
     /// The named tunnel's address and token as you write them.
     pub named_host: Entity<InputState>,
     pub named_token: Entity<InputState>,
@@ -269,6 +271,7 @@ impl Pages {
             }),
             on: crate::hub::Host::HERE,
             shared: None,
+            port: field("Port", window, cx),
             named_host: field("u0.example.com", window, cx),
             named_token: cx.new(|cx| {
                 InputState::new(window, cx)

@@ -353,7 +353,10 @@ telemetry/      the Cloudflare Worker the batches go to (D1), deployed with `cf 
   `settings.json` and `~/.u0/secrets.json` (project-scoped secret
   references, `deny_unknown_fields`) name them or `op://` pointers only.
 - `~/.u0/devices.json` (on the server) holds the devices paired and
-  how u0 is shared (listening, on which port, on which networks
+  how u0 is shared (listening, on which port: the same at each start,
+  where another program holds it moved from, kept and said with
+  `Event::Notice` (`link::take`, as the tools' ports are), and where
+  another u0 does left to it; on which networks
   (`bind`: on the port after it, with TLS), the tunnel, a named
   tunnel's token, `icon`).
   Each device is `{label, key, scope, until, grant_days, version, waiting, paired, seen}`:

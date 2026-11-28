@@ -148,6 +148,30 @@ impl Desk {
                 .into_any_element()
             },
         );
+        // The port kept, listened on or not: another where something else
+        // holds it.
+        let port = (self.pages.shared.as_ref()).map(|s| {
+            item(
+                w,
+                crate::tr("Port"),
+                crate::tr_with(
+                    "Now %{port}; a network takes the next. Devices paired before a change pair again.",
+                    &[("port", &s.port)],
+                ),
+                |d, _, cx| {
+                    div()
+                        .flex()
+                        .gap(px(6.))
+                        .child(div().w(px(90.)).child(Input::new(&d.pages.port).small()))
+                        .child(
+                            ui::button("set-port", crate::tr("Use"), Weight::Secondary).on_click(
+                                cx.listener(|this, _, window, cx| this.set_port(window, cx)),
+                            ),
+                        )
+                        .into_any_element()
+                },
+            )
+        });
         let control = self.controls();
         let controlling = item(
             w,
@@ -204,6 +228,7 @@ impl Desk {
                                 })
                             }),
                     )
+                    .chain(port)
                     .chain([controlling])
                     .collect::<Vec<_>>(),
             ),
@@ -850,6 +875,24 @@ impl Desk {
     /// Ask the server the settings are of something of sharing.
     pub(crate) fn share(&mut self, share: Share) {
         self.call(self.pages.on, crate::proto::Call::Share(share));
+    }
+
+    /// Listen at the port written, which the server checks is free; what
+    /// is not a port is said so here.
+    fn set_port(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let written = self.pages.port.read(cx).value().trim().to_owned();
+        match written.parse::<u16>() {
+            Ok(port) => {
+                self.share(Share::Port(port));
+                (self.pages.port).update(cx, |i, cx| i.set_value("", window, cx));
+            }
+            Err(_) => self.trouble(
+                crate::tr("A port is a number from 1024 to 65535"),
+                None,
+                None,
+            ),
+        }
+        cx.notify();
     }
 
     /// Control other Macs, or only this one: the window holds those

@@ -2368,6 +2368,7 @@ mod tests {
             Event::Settings(Box::default()),
             Event::Shared(Box::new(crate::share::Shared {
                 serving: Some(Ok(4317)),
+                port: 4317,
                 tunnel: crate::share::Tunnel::Up("a.trycloudflare.com".into()),
                 tunnel_since: Some(1),
                 named: None,
