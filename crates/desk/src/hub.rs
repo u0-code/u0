@@ -190,7 +190,7 @@ impl Machine {
     /// Hold as `host` a server in this process, for the u0 home `home`.
     fn in_process(host: Host, home: &std::path::Path, tx: &Sender) -> Self {
         let tx = tx.clone();
-        let server = Server::new(home.to_path_buf(), move |event| {
+        let server = Server::in_window(home.to_path_buf(), move |event| {
             let _ = tx.send(Msg::Event(host, event));
         });
         Self::new(host, String::new(), Transport::Local(server), Up::On)

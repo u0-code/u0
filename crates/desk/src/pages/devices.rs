@@ -149,8 +149,8 @@ impl Desk {
             },
         );
         // The port kept, listened on or not: another where something else
-        // holds it.
-        let port = (self.pages.shared.as_ref()).map(|s| {
+        // holds it. None while devices.json does not read.
+        let port = (self.pages.shared.as_ref().filter(|s| s.devices.is_ok())).map(|s| {
             item(
                 w,
                 crate::tr("Port"),

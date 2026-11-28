@@ -225,12 +225,14 @@ pub(crate) async fn next(listener: &TcpListener) -> TcpStream {
 }
 
 /// A listener on 127.0.0.1 at `port`, kept from one start to the next,
-/// where it is free; where another program holds it, at a port of the
-/// system's choosing, and the port it could not take, unless `stay` says
-/// why that port is to be left to whoever holds it. Ready for tokio.
+/// where it is free. Where another program holds it (and only then: any
+/// other error is said), at the first of `instead` that is free, and the
+/// port it could not take; unless `stay` says why that port is to be
+/// left to whoever holds it. Ready for tokio.
 pub(crate) fn take(
     port: u16,
     stay: impl FnOnce(u16) -> Option<String>,
+    instead: impl IntoIterator<Item = u16>,
 ) -> Result<(std::net::TcpListener, Option<u16>), String> {
     let at = |port| std::net::TcpListener::bind(("127.0.0.1", port));
     let taken = match at(port) {
@@ -238,7 +240,11 @@ pub(crate) fn take(
         Err(e) if port == 0 || e.kind() != std::io::ErrorKind::AddrInUse => Err(e),
         Err(e) => match stay(port) {
             Some(why) => return Err(why),
-            None => at(0).map(|l| (l, Some(port))).map_err(|_| e),
+            None => (instead.into_iter())
+                .filter(|p| *p != port)
+                .find_map(|p| at(p).ok())
+                .map(|l| (l, Some(port)))
+                .ok_or(e),
         },
     };
     taken
@@ -247,23 +253,33 @@ pub(crate) fn take(
 }
 
 /// Whether what listens at `port` on 127.0.0.1 is a u0: its first word
-/// on a link is a [`Challenge`]. Asked at once, and let go of.
+/// on a link is a [`Challenge`], a short one. Asked on a thread of its
+/// own, and given up on after two seconds whatever it says, however
+/// slowly.
 pub(crate) fn speaks_u0(port: u16) -> bool {
-    use tokio_tungstenite::tungstenite::client::client;
-    let at = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    let Ok(stream) = std::net::TcpStream::connect_timeout(&at, Duration::from_secs(1)) else {
-        return false;
-    };
-    let wait = Some(Duration::from_millis(500));
-    if stream.set_read_timeout(wait).is_err() || stream.set_write_timeout(wait).is_err() {
-        return false;
-    }
-    let Ok((mut ws, _)) = client(format!("ws://{at}"), stream) else {
-        return false;
-    };
-    let said = ws.read().ok().and_then(|m| m.into_text().ok());
-    let _ = ws.close(None);
-    said.is_some_and(|t| serde_json::from_str::<Challenge>(&t).is_ok())
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        use tokio_tungstenite::tungstenite::client::client_with_config;
+        let at = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+        let said = std::net::TcpStream::connect_timeout(&at, Duration::from_secs(1))
+            .ok()
+            .filter(|s| {
+                let wait = Some(Duration::from_millis(500));
+                s.set_read_timeout(wait).is_ok() && s.set_write_timeout(wait).is_ok()
+            })
+            .and_then(|stream| {
+                let small = WebSocketConfig::default()
+                    .max_message_size(Some(1024))
+                    .max_frame_size(Some(1024));
+                let (mut ws, _) =
+                    client_with_config(format!("ws://{at}"), stream, Some(small)).ok()?;
+                let said = ws.read().ok().and_then(|m| m.into_text().ok());
+                let _ = ws.close(None);
+                said
+            });
+        let _ = tx.send(said.is_some_and(|t| serde_json::from_str::<Challenge>(&t).is_ok()));
+    });
+    rx.recv_timeout(Duration::from_secs(2)).unwrap_or(false)
 }
 
 /// The most a request's head may take, its line and headers.

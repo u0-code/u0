@@ -81,10 +81,12 @@ fn outside_key(anew: bool) -> String {
 }
 
 /// A listener on 127.0.0.1 at `port`, where there is one and it is free;
-/// else at a port of the system's choosing (`link::take`). Where it could
-/// not take `port`, a word saying so.
+/// else, where another program holds it, at a port of the system's
+/// choosing (`link::take`): nothing outside this Mac dials them. Where it
+/// could not take `port`, a word saying so; any other error leaves the
+/// tools unserved, said in the log.
 fn bind(port: Option<u16>) -> Result<(tokio::net::TcpListener, Option<String>), String> {
-    let (listener, moved) = crate::link::take(port.unwrap_or(0), |_| None)?;
+    let (listener, moved) = crate::link::take(port.unwrap_or(0), |_| None, [0])?;
     let listener = tokio::net::TcpListener::from_std(listener).map_err(|e| e.to_string())?;
     let now = listener.local_addr().map_err(|e| e.to_string())?.port();
     Ok((

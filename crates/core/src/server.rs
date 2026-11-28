@@ -282,11 +282,30 @@ async fn choose_model(
 const PAGES: usize = 50;
 
 impl Server {
-    /// A server for u0's home `home`, saying what it has to say to
-    /// `send`, shared as it was left.
+    /// A server for u0's home `home` with no window (`u0 serve`, the
+    /// service), saying what it has to say to `send`, shared as it was
+    /// left.
     pub fn new(
         home: PathBuf,
         send: impl Fn(Event) + std::marker::Send + Sync + 'static,
+    ) -> Arc<Self> {
+        Self::made(home, send, false)
+    }
+
+    /// The server of the window in this process, as `new`: where another
+    /// program holds the port it listens at for other devices, and no
+    /// named tunnel is kept, it moves to another (`Server::serve`).
+    pub fn in_window(
+        home: PathBuf,
+        send: impl Fn(Event) + std::marker::Send + Sync + 'static,
+    ) -> Arc<Self> {
+        Self::made(home, send, true)
+    }
+
+    fn made(
+        home: PathBuf,
+        send: impl Fn(Event) + std::marker::Send + Sync + 'static,
+        window: bool,
     ) -> Arc<Self> {
         let index = store::load(&home);
         if let Err(why) = &index {
@@ -338,6 +357,7 @@ impl Server {
             cloning: Mutex::default(),
             terminals: Terminals::default(),
         });
+        server.sharing().window = window;
         server.share_as_kept(false);
         server.shared.schedule();
         server.shared.go_on();
