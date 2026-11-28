@@ -90,8 +90,9 @@ pub struct Pages {
     pub titles: Entity<TextareaState>,
     pub branches: Entity<TextareaState>,
     pub transcripts: Entity<TextareaState>,
-    /// Your dictation's dictionary, a word or "heard = written" to a line.
-    pub dictionary: Entity<TextareaState>,
+    /// Dictation's filler words and correction cue as you write them.
+    pub fillers: Entity<InputState>,
+    pub cue: Entity<InputState>,
     /// The days the usage page reads over; none, all.
     pub period: Option<u64>,
     /// Project filter on the Usage workspace page (`None` = all projects).
@@ -325,7 +326,13 @@ impl Pages {
                 window,
                 cx,
             ),
-            dictionary: dictionary_field(&settings.voice.dictionary, window, cx),
+            fillers: voice_field(&settings.voice.fillers, |v| &mut v.fillers, window, cx),
+            cue: voice_field(
+                &settings.voice.correction_cue,
+                |v| &mut v.correction_cue,
+                window,
+                cx,
+            ),
         }
     }
 }
@@ -359,25 +366,22 @@ fn instructions_field(
     input
 }
 
-/// The dictionary's field: a line each, kept as you type.
-fn dictionary_field(
-    now: &[String],
+/// A field for one of dictation's settings, written with `set` as you
+/// type.
+fn voice_field(
+    now: &str,
+    set: fn(&mut crate::settings::Voice) -> &mut String,
     window: &mut Window,
     cx: &mut Context<Desk>,
-) -> Entity<TextareaState> {
-    let input = cx.new(|cx| {
-        TextareaState::new(window, cx)
-            .auto_grow(2, 8)
-            .placeholder(crate::tr("u0\ngpui kit = gpui-kit"))
-            .default_value(now.join("\n"))
-    });
-    cx.subscribe(&input, |this, input, e: &InputEvent, cx| {
+) -> Entity<InputState> {
+    let input = cx.new(|cx| InputState::new(window, cx).default_value(now.to_owned()));
+    cx.subscribe(&input, move |this, input, e: &InputEvent, cx| {
         if let InputEvent::Change = e {
-            this.settings.voice.dictionary = (input.read(cx).value().lines())
-                .map(str::trim)
-                .filter(|l| !l.is_empty())
-                .map(str::to_owned)
-                .collect();
+            input
+                .read(cx)
+                .value()
+                .trim()
+                .clone_into(set(&mut this.settings.voice));
             this.save_settings();
         }
     })

@@ -166,16 +166,20 @@ turns it off.
 ### Dictation
 
 ⇧⌘D dictates into the composer with Apple's speech recognition, on this
-Mac only. While it listens the composer shows **Listening…**; Esc
-cancels. **Settings › Chat › Dictation** sets:
+Mac only. While it listens the composer shows what it hears; Esc
+cancels. **Settings › Voice** sets:
 
-- **The dictation key (⇧⌘D)**: **Auto** (a press starts and a press stops;
-  held, it listens until you let go), **Toggle**, or **Hold**;
-- **Language**: the language listened for;
-- **Dictionary**: words to listen for, one per line; `heard = written`
-  writes what is heard otherwise;
-- **Filler words**: left out (um, uh, er, hmm…) or kept;
-- **Clean up**: as heard, or cleaned up by the writer.
+- **Dictation**: the **Language** listened for; the **Dictation key** (its
+  **Change** opens it in Keybindings); **How the key works**: **Auto** (a
+  press starts and a press stops; held, it listens until you let go),
+  **Toggle**, or **Hold**; and **Show words while you speak** (off, the
+  composer only says it is listening);
+- **Cleanup**: **Remove filler words**, the **Fillers** taken out (um,
+  uh, er, hmm…); the **Correction cue** (“scratch that”), which takes back
+  the sentence you said before it; **Tidy with the writer**, and the
+  **Writer**, chosen in **Writing**;
+- **Dictionary**: **Your words**, which dictation listens for; a word
+  `heard = written` writes what is heard otherwise.
 
 **Edit › Speech › Start Speaking** reads aloud the text chosen in the
 composer, or else the agent's last answer.

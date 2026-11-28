@@ -82,6 +82,7 @@ pub enum Tab {
     Appearance,
     Chat,
     Browser,
+    Voice,
     NewThreads,
     Writing,
     Agents,
@@ -100,13 +101,14 @@ pub enum Tab {
 
 impl Tab {
     /// Each tab, in canonical index order.
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
         Self::General,
         Self::Devices,
         Self::Appearance,
         Self::Chat,
-        Self::Browser,
         Self::Keybindings,
+        Self::Browser,
+        Self::Voice,
         Self::Projects,
         Self::SourceControl,
         Self::Agents,
@@ -121,12 +123,13 @@ impl Tab {
         Self::About,
     ];
 
-    const APP_TABS: [Self; 5] = [
+    const APP_TABS: [Self; 6] = [
         Self::General,
         Self::Appearance,
         Self::Chat,
-        Self::Browser,
         Self::Keybindings,
+        Self::Browser,
+        Self::Voice,
     ];
 
     const MACHINE_GROUPS: [(&'static str, &'static [Self]); 4] = [
@@ -156,6 +159,7 @@ impl Tab {
             Self::Appearance => "Appearance",
             Self::Chat => "Chat",
             Self::Browser => "Browser",
+            Self::Voice => "Voice",
             Self::NewThreads => "New threads",
             Self::Writing => "Writing",
             Self::Agents => "Agents",
@@ -189,6 +193,7 @@ impl Tab {
             Self::Appearance => CarbonIcon::ColorPalette,
             Self::Chat => CarbonIcon::Chat,
             Self::Browser => CarbonIcon::Globe,
+            Self::Voice => CarbonIcon::Microphone,
             Self::Keybindings => CarbonIcon::Keyboard,
             Self::Agents => CarbonIcon::Bot,
             Self::NewThreads => CarbonIcon::Add,
@@ -212,6 +217,7 @@ impl Tab {
             Self::Appearance => "sun",
             Self::Chat => "reply",
             Self::Browser => "globe",
+            Self::Voice => "mic",
             Self::NewThreads => "plus",
             Self::Writing => "pencil",
             Self::Agents => "plug",
@@ -237,6 +243,7 @@ impl Tab {
                 | Self::Appearance
                 | Self::Chat
                 | Self::Browser
+                | Self::Voice
                 | Self::Keybindings
                 | Self::Telemetry
                 | Self::About

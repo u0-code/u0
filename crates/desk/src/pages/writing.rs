@@ -88,11 +88,11 @@ impl Desk {
             .group(group(crate::tr("Your instructions"), yours))
     }
 
-    /// The writer, and the menu to choose another: the session's own
-    /// agent, or one switched on with one of its models.
-    fn writer_pick(&self, faces: &Faces, cx: &mut Context<Self>) -> impl IntoElement {
+    /// The writer, as its agent and model: the session's own agent, or
+    /// one chosen.
+    pub(super) fn writer_shown(&self) -> String {
         let w = &self.settings.writer;
-        let shown = match &w.agent {
+        match &w.agent {
             None => crate::tr("The thread's agent").to_string(),
             Some(agent) => {
                 let model = w.model.as_ref().map_or_else(
@@ -101,7 +101,14 @@ impl Desk {
                 );
                 format!("{} · {model}", self.name_of(agent))
             }
-        };
+        }
+    }
+
+    /// The writer, and the menu to choose another: the session's own
+    /// agent, or one switched on with one of its models.
+    fn writer_pick(&self, faces: &Faces, cx: &mut Context<Self>) -> impl IntoElement {
+        let w = &self.settings.writer;
+        let shown = self.writer_shown();
         let trigger = ui::opener("writer")
             .selected(self.popup == Popup::Writer)
             .children(

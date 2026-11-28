@@ -291,7 +291,7 @@ impl Desk {
                 false,
             )
         } else if listening {
-            let text = if d.heard.is_empty() {
+            let text = if d.heard.is_empty() || !self.settings.voice.live_words {
                 crate::tr("Listening…")
             } else {
                 SharedString::from(d.heard.clone())

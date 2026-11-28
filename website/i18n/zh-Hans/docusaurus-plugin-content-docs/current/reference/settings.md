@@ -200,19 +200,19 @@ u0 把设置保存在其主目录（`~/.u0`，或 `U0_HOME`）中的 `settings.j
 | `writer.guides` | 字符串 | `""` | 你对拉取请求评审导览的指示。 |
 | `writer.suggest` | bool | `false` | 每轮结束后，写出你接下来可能要说的话，按 Tab 采用。 |
 
-`voice` 包含听写的设置（见[对话](../thread.md#dictation)）：
+`voice` 包含听写的设置，位于 **设置 › 语音**（见[对话](../thread.md#dictation)）：
 
 | 键 | 类型 | 默认值 | 含义 |
 |---|---|---|---|
 | `voice.key` | `"auto"`、`"toggle"`、`"hold"` | `"auto"` | ⇧⌘D 如何监听：按一下开始、再按一下停止，或按住时一直监听直到松开（`auto`）；按一下开始、再按一下停止（`toggle`）；仅在按住时（`hold`）。 |
 | `voice.language` | 语言区域或 `null` | `null` | 要识别的语言（`"en-US"`）。`null`：系统的语言。 |
 | `voice.dictionary` | 字符串列表 | `[]` | 要识别的词语，每项一个。`"heard = written"` 会把听到的内容以另一种写法写出。 |
-| `voice.no_fillers` | bool | `true` | 省略“um”、“uh”之类的填充词。 |
-| `voice.fillers` | 字符串 | `"um, uh, like, you know"` | 开启 `voice.no_fillers` 时在本地移除的填充词。 |
-| `voice.clean` | bool | `false` | 让写作者在插入之前先整理听到的内容。 |
-| `voice.microphone` | 字符串或 `null` | `null` | 选定的麦克风输入设备（`null`：系统默认）。 |
-| `voice.live_words` | bool | `true` | 说话过程中实时显示识别出的词。 |
-| `voice.correction_cue` | 字符串 | `"scratch that"` | 说出后用于替换刚才语句的口令。 |
+| `voice.no_fillers` | bool | `true` | 省略 `voice.fillers` 中的词。**移除填充词**。 |
+| `voice.fillers` | 字符串 | `"um, umm, uh, uhm, er, erm, ah, hmm, mm"` | 填充词，用逗号分隔；开启 `voice.no_fillers` 时在这台 Mac 上移除。**填充词**。 |
+| `voice.clean` | bool | `false` | 让写作者在插入之前先整理听到的内容。**由写作者整理**。 |
+| `voice.microphone` | 字符串或 `null` | `null` | 目前没有任何地方读取：听写使用系统的麦克风。 |
+| `voice.live_words` | bool | `true` | 输入框随听随显示听到的内容；`false` 时只显示正在聆听。**说话时显示文字**。 |
+| `voice.correction_cue` | 字符串 | `"scratch that"` | 听写时说出它，会撤回它之前说的那句话。`""`：不启用。**更正提示语**。 |
 
 ## 浏览器、快照、设备与实验室 {#browser-snapshots-devices-and-labs}
 

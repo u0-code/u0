@@ -457,6 +457,7 @@ impl Desk {
             }
             Tab::Appearance => Some(self.appearance_tab(query, faces, cx)),
             Tab::Keybindings => Some(self.keybindings_tab(query, faces, cx)),
+            Tab::Voice => Some(self.voice_tab(query, faces, cx)),
             _ => None,
         }
     }
@@ -804,7 +805,6 @@ impl Desk {
                             },
                         )],
                     ),
-                    Self::dictation_group(w),
                     group(
                         crate::tr("The agent's work"),
                         vec![

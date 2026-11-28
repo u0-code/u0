@@ -639,7 +639,7 @@ pub struct Voice {
     /// "heard = written" writes what is heard otherwise.
     #[serde(default)]
     pub dictionary: Vec<String>,
-    /// "Um", "uh" and the like are left out.
+    /// The filler words (`fillers`) are left out.
     #[serde(default = "yes")]
     pub no_fillers: bool,
     /// The writer cleans up what was heard before it goes in.
@@ -648,13 +648,15 @@ pub struct Voice {
     /// Chosen input device name; none, the system default microphone.
     #[serde(default)]
     pub microphone: Option<String>,
-    /// Stream partial recognized words into the composer while speaking.
+    /// What is heard shows as it is heard; off, only that it listens.
     #[serde(default = "yes")]
     pub live_words: bool,
-    /// Comma-separated filler words stripped locally when `no_fillers` is on.
+    /// Words said while thinking, not meant, commas between: left out
+    /// where `no_fillers` is on.
     #[serde(default = "default_fillers")]
     pub fillers: String,
-    /// Spoken phrase that discards what was just dictated.
+    /// Said, it takes back the sentence said before it; empty, nothing
+    /// does.
     #[serde(default = "default_correction_cue")]
     pub correction_cue: String,
 }
@@ -676,7 +678,7 @@ impl Default for Voice {
 }
 
 fn default_fillers() -> String {
-    "um, uh, like, you know".into()
+    "um, umm, uh, uhm, er, erm, ah, hmm, mm".into()
 }
 
 fn default_correction_cue() -> String {

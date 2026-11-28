@@ -230,19 +230,19 @@ writes for you (titles, branch names, commit messages, pull requests):
 | `writer.guides` | string | `""` | Your instructions for pull request review guides. |
 | `writer.suggest` | bool | `false` | After each turn, write what you are likely to say next, taken with Tab. |
 
-`voice` holds dictation's settings (see [The thread](../thread.md#dictation)):
+`voice` holds dictation's settings, on **Settings › Voice** (see [The thread](../thread.md#dictation)):
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `voice.key` | `"auto"`, `"toggle"`, `"hold"` | `"auto"` | How ⇧⌘D listens: a press starts and a press stops, or held it listens until released (`auto`); press to start and stop (`toggle`); only while held (`hold`). |
 | `voice.language` | locale or `null` | `null` | The language listened for (`"en-US"`). `null`: the system's. |
 | `voice.dictionary` | list of strings | `[]` | Words to listen for, one per entry. `"heard = written"` writes what is heard differently. |
-| `voice.no_fillers` | bool | `true` | Leave out "um", "uh" and the like. |
-| `voice.fillers` | string | `"um, uh, like, you know"` | Filler words removed locally when `voice.no_fillers` is on. |
-| `voice.clean` | bool | `false` | Have the writer clean up what was heard before it goes in. |
-| `voice.microphone` | string or `null` | `null` | Chosen input device (`null`: system default). |
-| `voice.live_words` | bool | `true` | Show partial recognized words while speaking. |
-| `voice.correction_cue` | string | `"scratch that"` | Spoken phrase that replaces what was just said. |
+| `voice.no_fillers` | bool | `true` | Leave out the words in `voice.fillers`. **Remove filler words**. |
+| `voice.fillers` | string | `"um, umm, uh, uhm, er, erm, ah, hmm, mm"` | The filler words, commas between, left out on this Mac where `voice.no_fillers` is on. **Fillers**. |
+| `voice.clean` | bool | `false` | Have the writer clean up what was heard before it goes in. **Tidy with the writer**. |
+| `voice.microphone` | string or `null` | `null` | Read by nothing yet: dictation hears the system's microphone. |
+| `voice.live_words` | bool | `true` | The composer shows what is heard as it is heard; `false`, only that it is listening. **Show words while you speak**. |
+| `voice.correction_cue` | string | `"scratch that"` | Said while dictating, it takes back the sentence said before it. `""`: nothing does. **Correction cue**. |
 
 ## Browser, snapshots, devices and labs
 
