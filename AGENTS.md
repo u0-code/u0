@@ -247,8 +247,9 @@ crates/desk/src/
                 set for,
                 flows: Workflows, telemetry: Telemetry, and the sheet that asks
                 as u0 first opens),
-                the PRs and Issues pages drawn (forge, its menus forge/menus;
-                a pull request reviewed, pr)
+                the PRs and Issues pages drawn (forge, its menus forge/menus,
+                an issue read beside the list forge/issue; a pull request
+                read on its page, pr, the column beside it pr/aside)
   i18n.rs       the desk's words in your language (rust-i18n, as gpui-kit): `tr`, the
                 language set; locales/app.yml holds each English string in every language
   markdown.rs   what an agent says: gpui-kit's Markdown view, and where its links go;

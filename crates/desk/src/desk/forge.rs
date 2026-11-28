@@ -22,13 +22,12 @@ use crate::{
     store::Link,
 };
 
-/// A page's tab for the one read: what it is, what was said, its changes.
+/// A pull request's tab: what it is and what was said, its changes, the
+/// guide to reading it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Summary,
-    Timeline,
     Code,
-    Threads,
     Guide,
 }
 
@@ -369,7 +368,7 @@ impl Forge {
             |this: &mut Desk, _, e: &InputEvent, window, cx| match e {
                 InputEvent::PressEnter {
                     secondary: true, ..
-                } => this.say_forge(None, window, cx),
+                } => this.say_forge(window, cx),
                 InputEvent::Change => cx.notify(),
                 _ => {}
             },
@@ -656,32 +655,16 @@ impl Desk {
         cx.notify();
     }
 
-    /// Say what is on the line about the one read: a comment, or with a
-    /// verdict a review.
-    pub fn say_forge(
-        &mut self,
-        verdict: Option<&str>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    /// Say what is on the line about the one read, as a comment.
+    pub fn say_forge(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let body = self.forge.line.read(cx).value().trim().to_owned();
-        let lines = std::mem::take(&mut self.forge.pr.lines);
-        if body.is_empty() && lines.is_empty() && verdict != Some("approve") {
+        if body.is_empty() {
             return;
         }
         self.forge
             .line
             .update(cx, |l, cx| l.set_value("", window, cx));
-        // Comments on lines go out as a review, with the words beside them.
-        let act = match (verdict, lines.is_empty()) {
-            (None, true) => Act::Comment(body),
-            (v, _) => Act::Review {
-                verdict: v.unwrap_or("comment").to_owned(),
-                body,
-                lines,
-            },
-        };
-        self.act_forge(act, cx);
+        self.act_forge(Act::Comment(body), cx);
     }
 
     /// Begin editing the one read's title and words, or a new issue.

@@ -101,18 +101,47 @@ private repository's shows too; no other address is sent it.
 
 ## Reviewing a pull request
 
-A pull request opens on its own page, with **Summary**, **Timeline**,
-**Code**, **Conversations** and **Guide**:
+A pull request opens on its own page, under **Pull requests /
+repository #number** in the top bar (Esc goes back to the list) beside a
+button that opens it on its host. Its head has its state, title (**Edit
+title and description**), who wants to merge which branch into which,
+**Check out in a worktree** (a thread on it in a worktree of its branch)
+and its menu. Its tabs are **Summary**, **Code** (with how many of its
+files you viewed) and **Guide** (with how many stops):
 
+- **Summary** has its description; **Activity**, its commits, comments
+  and reviews first to last, with their reactions and **Add to chat** to
+  quote one in the thread on screen; **Conversations on its lines**, each
+  answered by typing in **Reply…** and pressing Return, with **Resolve
+  conversation** / **Unresolve** and **Add to chat** (resolved
+  conversations and bots' are folded away); and **Your review**: a
+  summary, **Comment**, **Approve** or **Request changes**, and **Submit
+  review**. A comment needs a summary or a line comment; Approve can be
+  sent empty.
 - **Code** sorts the files into code, tests, mocks, generated files and
   docs. Tick **Viewed** on a file as you go; it shows unviewed again if it
-  changes.
-- **Comment on this line** queues a comment for your next review. Finish
-  with **Comment**, **Approve** or **Request changes**.
-- **Conversations** has **Reply** and **Resolve** / **Reopen**; resolved
-  conversations and bots' are folded away.
-- **Guide** has the writer write a review guide to read the change by. It
-  says so when commits came after it was written.
+  changes. **Comment on this line** queues a comment for your next review.
+- **Guide** has the writer write a review guide to read the change by,
+  stop by stop (**Previous stop**, **Next stop**, **Its code**). When
+  commits came after it was written, Summary says so, with **Resume at
+  stop** and **Refresh guide**.
+
+Beside Summary and Guide:
+
+- the merge box of an open pull request: **Ready to merge**, or why not
+  yet (draft, conflicts, changes requested, checks failing or running);
+  the merge button by the method chosen in its menu (squash, merge
+  commit, rebase; the project's way at first), and **Enable auto-merge**;
+- **Checks**: each with how long it took; **Details** on a failed one
+  shows the end of its log; **Start a thread to fix checks** and **Run
+  again**;
+- **About**: its labels, reviewers and how each stands, assignees, the
+  issue it closes and how much of it is code, tests or docs; **Add
+  label** and **Ask for review**;
+- **Stack**, where its branch is stacked on another listed, or another
+  on it;
+- **Review guide**: its stops, the one you are at marked, or **Write a
+  review guide**.
 
 ## What each host supports
 

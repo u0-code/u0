@@ -15,7 +15,7 @@ type Act3 = Box<dyn Fn(&mut Desk, &mut gpui::Window, &mut Context<Desk>)>;
 
 impl Desk {
     /// What can be done with the one read, under its "⋯".
-    pub(super) fn forge_actions(
+    pub(in crate::pages) fn forge_actions(
         &self,
         item: &Item,
         cx: &mut Context<Self>,

@@ -158,7 +158,7 @@ pub struct Detail {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reviewer_states: Vec<(String, String)>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub commits: Vec<(String, String)>,
+    pub commits: Vec<Commit>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub linked_issue: Option<(u64, String)>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -169,6 +169,16 @@ pub struct Detail {
     pub head: String,
     /// The conversations on its lines.
     pub threads: Vec<Thread>,
+}
+
+/// A commit of a pull request: its short hash, its first line, who wrote
+/// it and when it was committed.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Commit {
+    pub short: String,
+    pub headline: String,
+    pub who: String,
+    pub when: String,
 }
 
 /// A conversation on a line of a pull request: where (its line on the new
@@ -661,6 +671,8 @@ struct Named {
 struct RawCommit {
     oid: String,
     message_headline: String,
+    committed_date: String,
+    authors: Vec<Who>,
 }
 
 #[derive(Deserialize, Default)]
@@ -915,9 +927,14 @@ impl Raw {
         }
         let commits = std::mem::take(&mut self.commits)
             .into_iter()
-            .map(|c| {
-                let short = c.oid.chars().take(7).collect::<String>();
-                (short, c.message_headline)
+            .map(|c| Commit {
+                short: c.oid.chars().take(7).collect(),
+                headline: c.message_headline,
+                who: (c.authors.into_iter())
+                    .map(|w| if w.login.is_empty() { w.name } else { w.login })
+                    .next()
+                    .unwrap_or_default(),
+                when: c.committed_date,
             })
             .collect();
         let linked_issue = self
@@ -959,7 +976,9 @@ mod tests {
             {"context":"ci/x","state":"PENDING"}],
             "comments":[{"author":{"login":"bo"},"body":"later","createdAt":"2026-11-25T12:00:00Z"}],
             "reviews":[{"author":{"login":"cy"},"body":"no","submittedAt":"2026-11-25T11:00:00Z","state":"CHANGES_REQUESTED"}],
-            "body":"why","headRefOid":"abc","isCrossRepository":true,"headRepositoryOwner":{"login":"bo"}}"#,
+            "body":"why","headRefOid":"abc","isCrossRepository":true,"headRepositoryOwner":{"login":"bo"},
+            "commits":[{"oid":"0123456789ab","messageHeadline":"Fix it","committedDate":"2026-11-25T09:00:00Z",
+            "authors":[{"login":"","name":"Ann B"}]}]}"#,
         )
         .unwrap();
         let d = raw.detail();
@@ -975,6 +994,11 @@ mod tests {
         );
         assert_eq!(d.said[0].how, "changes requested");
         assert_eq!(d.checks[2].name, "ci/x");
+        let c = &d.commits[0];
+        assert_eq!(
+            (c.short.as_str(), c.who.as_str(), c.when.as_str()),
+            ("0123456", "Ann B", "2026-11-25T09:00:00Z")
+        );
         assert_eq!(d.item.branch, "bo:fix");
     }
 

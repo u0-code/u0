@@ -8,13 +8,10 @@ use std::collections::BTreeMap;
 
 use gpui::component::input::{InputEvent, InputState};
 use gpui::{AppContext as _, Context, Entity, Window};
+use u0ui::t3::review::MergeMethod;
 
 use super::Desk;
-use crate::{
-    github::{Act, Line},
-    review::File,
-    writer::Ask,
-};
+use crate::{github::Line, review::File, writer::Ask};
 
 /// The files you viewed: by pull request (its address) and path, the mark
 /// of its changes as you viewed it.
@@ -31,9 +28,6 @@ pub struct Review {
     /// The line being commented on, and the field for it.
     pub commenting: Option<(String, u64)>,
     pub note: Entity<InputState>,
-    /// The conversation being answered, and the field for it.
-    pub replying: Option<String>,
-    pub reply: Entity<InputState>,
     /// The conversations resolved or only bots' shown too, as they are
     /// not at first.
     pub all_threads: bool,
@@ -42,14 +36,29 @@ pub struct Review {
     pub guide: Option<(u64, String, Option<Written>)>,
     /// Current stop index inside the parsed review guide.
     pub stop: usize,
+    /// How it is to be merged, the project's way until another is chosen.
+    pub method: MergeMethod,
 }
 
-/// One structured stop parsed from a writer's Markdown review guide.
+/// One structured stop parsed from a writer's Markdown review guide: its
+/// title, the first file it names and how many it names, and its note.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GuideStopData {
     pub title: String,
     pub file: Option<String>,
+    pub files: usize,
     pub note: String,
+}
+
+/// The paths a line of the guide names in backticks, each once.
+fn paths_in(line: &str) -> Vec<String> {
+    let mut found: Vec<String> = Vec::new();
+    for code in line.split('`').skip(1).step_by(2) {
+        if (code.contains('/') || code.contains('.')) && !found.iter().any(|f| f == code) {
+            found.push(code.to_owned());
+        }
+    }
+    found
 }
 
 /// Parse headings or numbered list items in `markdown` into structured review stops.
@@ -66,28 +75,22 @@ pub fn parse_guide_stops(markdown: &str) -> Vec<GuideStopData> {
             });
         if let Some(raw) = heading {
             let title = raw.trim().trim_matches('*').to_owned();
-            let file = title
-                .split('`')
-                .nth(1)
-                .filter(|s| s.contains('/') || s.contains('.'))
-                .map(str::to_owned);
+            let paths = paths_in(&title);
             stops.push(GuideStopData {
                 title,
-                file,
+                file: paths.first().cloned(),
+                files: paths.len(),
                 note: String::new(),
             });
         } else if let Some(last) = stops.last_mut()
             && !trimmed.is_empty()
             && last.note.is_empty()
         {
-            let file = trimmed
-                .split('`')
-                .nth(1)
-                .filter(|s| s.contains('/') || s.contains('.'))
-                .map(str::to_owned);
+            let paths = paths_in(trimmed);
             if last.file.is_none() {
-                last.file = file;
+                last.file = paths.first().cloned();
             }
+            last.files = last.files.max(paths.len());
             trimmed
                 .trim_start_matches(['-', '*', ' '])
                 .clone_into(&mut last.note);
@@ -113,28 +116,16 @@ impl Review {
             },
         )
         .detach();
-        let reply = cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Reply")));
-        cx.subscribe_in(
-            &reply,
-            window,
-            |this: &mut Desk, _, e: &InputEvent, window, cx| {
-                if matches!(e, InputEvent::PressEnter { .. }) {
-                    this.send_reply(window, cx);
-                }
-            },
-        )
-        .detach();
         Self {
             files: Vec::new(),
             viewed: crate::whole::read_json(&home.join(VIEWED)).unwrap_or_default(),
             lines: Vec::new(),
             commenting: None,
             note,
-            replying: None,
-            reply,
             all_threads: false,
             guide: None,
             stop: 0,
+            method: MergeMethod::Squash,
         }
     }
 }
@@ -203,13 +194,18 @@ impl Desk {
     }
 
     /// Another pull request is read: what was begun on the last is put
-    /// away.
+    /// away, and it is to be merged the project's way.
     pub(super) fn pr_changed(&mut self) {
+        let how = self.settings_in(self.forge.folder.as_ref()).merge.gh();
+        self.forge.pr.method = match how {
+            "merge" => MergeMethod::Merge,
+            "rebase" => MergeMethod::Rebase,
+            _ => MergeMethod::Squash,
+        };
         let r = &mut self.forge.pr;
         r.files.clear();
         r.lines.clear();
         r.commenting = None;
-        r.replying = None;
         r.stop = 0;
     }
 
@@ -252,26 +248,6 @@ impl Desk {
         cx.notify();
     }
 
-    /// Begin answering the conversation `thread`.
-    pub fn begin_reply(&mut self, thread: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.forge.pr.replying = Some(thread);
-        let reply = self.forge.pr.reply.clone();
-        reply.update(cx, |i, cx| {
-            i.set_value("", window, cx);
-            window.focus(&gpui::Focusable::focus_handle(&*i, cx), cx);
-        });
-        cx.notify();
-    }
-
-    fn send_reply(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let body = self.forge.pr.reply.read(cx).value().trim().to_owned();
-        let Some(thread) = self.forge.pr.replying.take().filter(|_| !body.is_empty()) else {
-            return;
-        };
-        (self.forge.pr.reply).update(cx, |i, cx| i.set_value("", window, cx));
-        self.act_forge(Act::Reply { thread, body }, cx);
-    }
-
     /// Have the writer write a guide to the pull request read.
     pub fn write_guide(&mut self, cx: &mut Context<Self>) {
         let (Some(Ok(d)), Some(p)) = (&self.forge.detail, self.forge.folder.clone()) else {
@@ -302,7 +278,7 @@ mod tests {
 
     #[test]
     fn guide_headings_and_numbered_stops_extract_titles_files_and_notes() {
-        let md = "## 1. Range state\n- `src/date-picker/state.ts` anchors the end date.\n2. **Inputs & labels**\nAria labels on both inputs.";
+        let md = "## 1. Range state\n- `src/date-picker/state.ts` anchors the end date.\n2. **Inputs & labels**\nAria labels in `src/a.tsx` and `src/b.tsx`, `src/a.tsx` first.";
         let stops = parse_guide_stops(md);
         assert_eq!(stops.len(), 2);
         assert_eq!(stops[0].title, "1. Range state");
@@ -312,6 +288,10 @@ mod tests {
             "`src/date-picker/state.ts` anchors the end date."
         );
         assert_eq!(stops[1].title, "Inputs & labels");
-        assert_eq!(stops[1].note, "Aria labels on both inputs.");
+        assert_eq!(
+            stops[1].note,
+            "Aria labels in `src/a.tsx` and `src/b.tsx`, `src/a.tsx` first."
+        );
+        assert_eq!((stops[0].files, stops[1].files), (1, 2));
     }
 }

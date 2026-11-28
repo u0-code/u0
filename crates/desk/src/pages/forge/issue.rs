@@ -327,7 +327,7 @@ impl Desk {
                             .size(ButtonSize::Sm)
                             .disabled(empty)
                             .on_click(
-                                cx.listener(|this, _, window, cx| this.say_forge(None, window, cx)),
+                                cx.listener(|this, _, window, cx| this.say_forge(window, cx)),
                             ),
                     ),
             )
