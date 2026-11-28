@@ -357,6 +357,24 @@ impl Forge {
             }
         })
         .detach();
+        let line = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(2, 10)
+                .placeholder(crate::tr("Leave a comment"))
+        });
+        // ⌘↵ says it; the Comment button waits for words.
+        cx.subscribe_in(
+            &line,
+            window,
+            |this: &mut Desk, _, e: &InputEvent, window, cx| match e {
+                InputEvent::PressEnter {
+                    secondary: true, ..
+                } => this.say_forge(None, window, cx),
+                InputEvent::Change => cx.notify(),
+                _ => {}
+            },
+        )
+        .detach();
         let pr = super::pr::Review::new(home, window, cx);
         Self {
             kind: Kind::Pr,
@@ -374,11 +392,7 @@ impl Forge {
             tab: Tab::Summary,
             diff: cx.new(|cx| DiffState::new([], cx)),
             patch: None,
-            line: cx.new(|cx| {
-                TextareaState::new(window, cx)
-                    .auto_grow(2, 10)
-                    .placeholder(crate::tr("Say something"))
-            }),
+            line,
             who,
             title: cx.new(|cx| InputState::new(window, cx).placeholder(crate::tr("Title"))),
             body: cx.new(|cx| {

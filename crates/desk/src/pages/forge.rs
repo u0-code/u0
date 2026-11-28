@@ -23,6 +23,7 @@ use u0ui::{
     },
 };
 
+mod issue;
 mod menus;
 
 use crate::{
@@ -220,7 +221,7 @@ impl Desk {
                 .child(if f.creating {
                     self.forge_form(faces, &crate::tr("New issue"), crate::tr("Create"), cx)
                 } else {
-                    self.forge_detail(faces, cx)
+                    self.issue_aside(faces, cx)
                 })
         });
         div()

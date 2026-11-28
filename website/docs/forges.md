@@ -67,6 +67,13 @@ with its priority (Linear's), key, state, title, labels, the threads
 about it and how the latest stands. A pull request opens on its own
 page; an issue opens beside the list.
 
+An issue read beside the list shows its state, key and host (and a Linear
+issue's team), with **Open in** its host and **Close issue** / **Reopen
+issue**; its title, labels, state, priority and who it is assigned to,
+and its description; the threads about it, each opened with a press,
+with **Start thread** and **Triage it**; and its comments, with a field
+to **Leave a comment**, sent with **Comment** or ⌘↵. Esc puts it away.
+
 An item's menu:
 
 - for a pull request: **Squash and merge**, **Merge**, **Rebase and
