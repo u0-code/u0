@@ -99,6 +99,51 @@ fn top() -> Div {
         .border_color(theme::role(ColorRole::BorderSubtle01))
 }
 
+/// Which pane of the split the column is for (`SplitSideChat`): a 38px
+/// band on `background`, its dot in `border-interactive`, "Inspecting" in
+/// 12px `text-secondary` and the title semibold in `text-primary`.
+fn inspecting(faces: &Faces, title: &str) -> Div {
+    let said = crate::tr_with("Inspecting %{title}", &[("title", &title)]).to_string();
+    let bold = said.find(title).map(|at| {
+        (
+            at..at + title.len(),
+            gpui::HighlightStyle {
+                color: Some(theme::role(ColorRole::TextPrimary)),
+                font_weight: Some(gpui::FontWeight::SEMIBOLD),
+                ..Default::default()
+            },
+        )
+    });
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(6.))
+        .h(px(TOPBAR))
+        .pl(px(16.))
+        .pr(px(8.))
+        .bg(theme::role(ColorRole::Background))
+        .border_b_1()
+        .border_color(theme::role(ColorRole::BorderSubtle01))
+        .child(
+            div()
+                .size(px(8.))
+                .flex_none()
+                .rounded_full()
+                .bg(theme::role(ColorRole::BorderInteractive)),
+        )
+        .child(
+            div()
+                .font_family(faces.ui.clone())
+                .flex_1()
+                .min_w(px(0.))
+                .truncate()
+                .type_style(TypeStyle::Label01)
+                .text_color(theme::role(ColorRole::TextSecondary))
+                .child(gpui::StyledText::new(said).with_highlights(bold)),
+        )
+}
+
 /// A section: its head and what is under it, ruled off below.
 fn section(faces: &Faces, head: impl Into<SharedString>, note: Option<Div>) -> Div {
     div()
@@ -182,32 +227,10 @@ impl Desk {
         if self.panes.whole && self.surface() == Some(Surface::Diff) {
             return self.review_workspace(faces, s, cx);
         }
-        let inspecting = self.split.is_some().then(|| {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .min_w(px(0.))
-                .max_w(px(168.))
-                .pr(px(6.))
-                .child(
-                    div()
-                        .size(px(8.))
-                        .flex_none()
-                        .rounded_full()
-                        .bg(theme::role(u0ui::tokens::ColorRole::BorderInteractive)),
-                )
-                .child(
-                    ui::text(
-                        faces,
-                        crate::tr_with("Inspecting %{title}", &[("title", &s.shown_title())]),
-                    )
-                    .min_w(px(0.))
-                    .truncate()
-                    .text_size(px(crate::style::CAPTION))
-                    .text_color(theme::muted()),
-                )
-        });
+        let inspecting = self
+            .split
+            .is_some()
+            .then(|| inspecting(faces, s.shown_title()));
         let head = div()
             .flex()
             .flex_col()
@@ -305,13 +328,13 @@ impl Desk {
                 d.child(Self::commands(faces, s, cx))
             })
             .when(shown(Detail::Lineage), |d| {
-                d.children(self.lineage(faces, s, cx))
+                d.child(self.lineage(faces, s, cx))
             })
             .child(
                 div()
                     .flex()
                     .pt(px(8.))
-                    .px(px(4.))
+                    .px(px(8.))
                     .child(self.details_chooser(faces, cx)),
             )
     }
@@ -331,7 +354,8 @@ impl Desk {
                 _ => None,
             })
             .collect();
-        let mut rows = div().flex().flex_col();
+        // `.cp { padding: 0 8px 8px }`.
+        let mut rows = div().flex().flex_col().px(px(8.)).pb(px(8.));
         for (i, turn) in s.turns.iter().enumerate().rev() {
             let count = turn.diff.as_ref().map_or(0, Vec::len);
             let files = if count == 0 {
@@ -340,8 +364,11 @@ impl Desk {
                 crate::tr_with("%{n} files", &[("n", &count)])
             };
             let turn_label = match prompts.get(i).filter(|(_, p)| !p.is_empty()) {
-                Some((_, p)) => format!("Turn {} \u{00b7} {p}", i + 1),
-                None => crate::tr_with("Turn %{n}", &[("n", &(i + 1))]).to_string(),
+                Some((_, p)) => crate::tr_with(
+                    "Turn %{n} \u{00b7} %{prompt}",
+                    &[("n", &(i + 1)), ("prompt", p)],
+                ),
+                None => crate::tr_with("Turn %{n}", &[("n", &(i + 1))]),
             };
             let clock = prompts.get(i).and_then(|(item_ix, _)| {
                 s.times
@@ -382,9 +409,10 @@ impl Desk {
         rows = rows.child(
             ui::text(
                 faces,
-                crate::tr("Saved each turn, apart from your branch. Undo is under each turn."),
+                crate::tr(
+                    "Before and after each turn, out of your index and branch. Undo is under each turn in the thread.",
+                ),
             )
-            .pt(px(4.))
             .type_style(TypeStyle::Label01)
             .text_color(theme::role(ColorRole::TextSecondary)),
         );
@@ -396,7 +424,7 @@ impl Desk {
     }
 
     /// Linked pull requests and issues (`u0ui::u0::panels::LinkedItemsSection`).
-    fn linked_items(s: &Session, cx: &mut Context<Self>) -> Div {
+    fn linked_items(s: &Session, cx: &mut Context<Self>) -> LinkedItemsSection {
         let items: Vec<LinkedItem> = s
             .meta
             .links
@@ -437,38 +465,30 @@ impl Desk {
             unlink: Rc::new(|id| crate::tr_with("Unlink %{id}", &[("id", &id)])),
             empty: crate::tr("No pull requests or issues linked to this thread."),
         };
-        div()
-            .border_b_1()
-            .border_color(theme::role(ColorRole::BorderSubtle01))
-            .child(
-                LinkedItemsSection::new("det-linked", items)
-                    .texts(texts)
-                    .on_link(move |window, cx| {
-                        desk_link.update(cx, |d, cx| {
-                            d.open_page(Page::Forge(crate::github::Kind::Pr), window, cx);
-                        });
-                    })
-                    .on_unlink(move |id, _, cx| {
-                        let n = id.trim_start_matches('#').parse::<u64>().ok();
-                        if let Some(gone) = n.and_then(|num| links.iter().find(|l| l.number == num))
-                        {
-                            let gone = gone.clone();
-                            desk_unlink.update(cx, |d, cx| {
-                                d.link(key, gone);
-                                cx.notify();
-                            });
-                        }
-                    }),
-            )
+        LinkedItemsSection::new("det-linked", items)
+            .texts(texts)
+            .on_link(move |window, cx| {
+                desk_link.update(cx, |d, cx| {
+                    d.open_page(Page::Forge(crate::github::Kind::Pr), window, cx);
+                });
+            })
+            .on_unlink(move |id, _, cx| {
+                let n = id.trim_start_matches('#').parse::<u64>().ok();
+                if let Some(gone) = n.and_then(|num| links.iter().find(|l| l.number == num)) {
+                    let gone = gone.clone();
+                    desk_unlink.update(cx, |d, cx| {
+                        d.link(key, gone);
+                        cx.notify();
+                    });
+                }
+            })
     }
 
-    /// Lineage section (`ThreadDetailsSection`).
-    fn lineage(
-        &self,
-        faces: &Faces,
-        s: &Session,
-        cx: &mut Context<Self>,
-    ) -> Option<ThreadDetailsSection> {
+    /// Lineage section (`ThreadDetailsSection`), shown with no count while
+    /// the thread has no kin.
+    fn lineage(&self, faces: &Faces, s: &Session, cx: &mut Context<Self>) -> ThreadDetailsSection {
+        let section = ThreadDetailsSection::new("det-lineage", crate::tr(Detail::Lineage.head()))
+            .default_open(false);
         let id = s.meta.id.as_ref().map(|i| i.0.to_string());
         let mut kin: Vec<(SharedString, &Session)> = Vec::new();
         if let Some(o) = self.origin_of(s).and_then(|k| self.sessions.at(k)) {
@@ -487,7 +507,10 @@ impl Desk {
             kin.push((word, o));
         }
         if kin.is_empty() {
-            return None;
+            return section.child(empty(
+                faces,
+                crate::tr("Branches, subagents and side chats of this thread."),
+            ));
         }
         let count = kin.len();
         let mut list = div().flex().flex_col();
@@ -511,20 +534,16 @@ impl Desk {
                     })),
             );
         }
-        Some(
-            ThreadDetailsSection::new("det-lineage", crate::tr(Detail::Lineage.head()))
-                .count(count)
-                .default_open(false)
-                .child(list),
-        )
+        section.count(count).child(list)
     }
 
-    /// Footer button opening `Popup::Details` (`"Choose what shows here"` + `Settings` icon).
+    /// Footer button opening `Popup::Details` (`"Choose what shows here"` + `Settings` icon),
+    /// as Carbon's ghost `sm` button with an icon: 32 high, 16 in at each side.
     fn details_chooser(&self, faces: &Faces, cx: &mut Context<Self>) -> Popover {
         let link = theme::role(ColorRole::LinkPrimary);
         let chooser = ui::opener("details-rows")
             .h(px(32.))
-            .px(px(12.))
+            .px(px(16.))
             .gap(px(8.))
             .child(
                 ui::text(faces, crate::tr("Choose what shows here"))
@@ -677,29 +696,6 @@ impl Desk {
                 .default_open(going > 0)
                 .child(list),
         )
-    }
-
-    /// Widen the column over the thread, or give the thread back.
-    fn whole_button(&self, cx: &mut Context<Self>) -> Button {
-        let what = if self.panes.whole {
-            crate::tr("Back beside the thread")
-        } else {
-            crate::tr("Widen over the thread")
-        };
-        let desk = cx.entity();
-        Button::new("whole", crate::keys::hint(cx, &what, "whole_right"))
-            .variant(ButtonVariant::Ghost)
-            .size(ButtonSize::Sm)
-            .icon(if self.panes.whole {
-                CarbonIcon::Minimize
-            } else {
-                CarbonIcon::Maximize
-            })
-            .icon_only(true)
-            .selected(self.panes.whole)
-            .on_click(move |_, _, cx| {
-                desk.update(cx, Desk::toggle_whole);
-            })
     }
 
     /// The branch where the session works; a click lists the others, to
@@ -1000,13 +996,14 @@ impl Desk {
             agent_desc = format!("{agent_desc} \u{00b7} {e}");
         }
 
+        // `.dt { gap: 6px 12px; padding: 4px 8px 8px }`.
         let mut dl = div()
             .flex()
             .flex_col()
             .gap(px(6.))
-            .px(px(4.))
+            .px(px(8.))
             .pt(px(4.))
-            .pb(px(4.))
+            .pb(px(8.))
             .child(dt_row(
                 faces,
                 crate::tr("Agent"),
@@ -1049,8 +1046,11 @@ impl Desk {
                 .or_else(|| s.git.pr.as_ref().map(|p| p.base.as_str()))
                 .filter(|b| !b.is_empty());
             let wt_text = match base {
-                Some(b) => format!("{} from {b}", wt.branch),
-                None => wt.branch.clone(),
+                Some(b) => crate::tr_with(
+                    "%{branch} from %{base}",
+                    &[("branch", &wt.branch), ("base", &b)],
+                ),
+                None => wt.branch.clone().into(),
             };
             dl = dl.child(dt_row(
                 faces,
@@ -1080,10 +1080,23 @@ impl Desk {
             ));
         }
 
-        let clock = when::clock(s.meta.begun, self.settings.twelve);
+        let twelve = self.settings.twelve;
+        let now = std::time::SystemTime::now();
+        let day = when::start_of_day(now);
+        let began = if s.meta.begun >= day {
+            crate::tr_with(
+                "Today %{time}",
+                &[("time", &when::clock(s.meta.begun, twelve))],
+            )
+        } else {
+            when::said_at(s.meta.begun, now, twelve).into()
+        };
         let begun_text = match self.server_chip(s.host) {
-            Some(srv) => format!("{clock} \u{00b7} on {srv}"),
-            None => clock,
+            Some(srv) => crate::tr_with(
+                "%{when} \u{00b7} on %{server}",
+                &[("when", &began), ("server", &srv)],
+            ),
+            None => began,
         };
         dl = dl.child(dt_row(
             faces,

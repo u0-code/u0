@@ -258,7 +258,7 @@ impl Desk {
     }
 
     /// The tab strip: Carbon's `RightPanelTabs`, with + for the Open… menu
-    /// and the widen button on the trailing edge.
+    /// (`Main`: no other control in the row; ⇧⌘B widens the column).
     pub(super) fn strip(
         &self,
         faces: &Faces,
@@ -297,7 +297,7 @@ impl Desk {
             .value(active_id)
             .max_visible(if self.panes.whole { 6 } else { 3 })
             .labels(
-                crate::keys::hint(cx, &crate::tr("Open surface"), "open_surface"),
+                crate::keys::hint(cx, "Open another tab", "open_surface"),
                 crate::tr("Close {}"),
                 crate::tr("{} more surfaces"),
             )
@@ -331,7 +331,7 @@ impl Desk {
                 .anchor(gpui::Anchor::TopLeft);
             strip = strip.trailing(kbd_menu);
         }
-        strip.trailing(self.whole_button(cx))
+        strip
     }
 
     /// A tab's display label, `SurfaceKind`, and whether it shows a permanent
@@ -356,7 +356,8 @@ impl Desk {
                     || path.display().to_string(),
                     |n| n.to_string_lossy().into_owned(),
                 );
-                let label = if self.is_file_unsaved(&full, cx) {
+                let unsaved = self.is_file_unsaved(&full, cx);
+                let label = if unsaved {
                     format!("{base_name} \u{00b7} {}", crate::tr("unsaved"))
                 } else {
                     base_name
@@ -389,11 +390,12 @@ impl Desk {
                     } else {
                         SurfaceKind::Other
                     },
-                    true,
+                    // `FilesDevices`: a file with edits not saved keeps its tab.
+                    !unsaved,
                 )
             }
             Surface::Terminal => (crate::tr("Terminal").into(), SurfaceKind::Terminal, false),
-            Surface::Preview => (crate::tr("Preview").into(), SurfaceKind::Browser, false),
+            Surface::Preview => (crate::tr("Preview").into(), SurfaceKind::Browser, true),
             Surface::Devices => (crate::tr("Devices").into(), SurfaceKind::Device, false),
             Surface::PullRequest => (
                 s.git.pr.as_ref().map_or_else(
@@ -403,13 +405,7 @@ impl Desk {
                 SurfaceKind::Pr,
                 false,
             ),
-            Surface::Side(key) => (
-                self.sessions
-                    .at(*key)
-                    .map_or_else(|| crate::tr("Side chat").into(), |c| c.meta.title.clone()),
-                SurfaceKind::Chat,
-                true,
-            ),
+            Surface::Side(_) => (crate::tr("Side chat").into(), SurfaceKind::Chat, true),
             Surface::Output(id) => (Self::output_tab_name(s, id), SurfaceKind::Terminal, true),
         }
     }

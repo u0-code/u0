@@ -112,9 +112,10 @@ agent; **Save** saves your edits; Markdown can show as **Source** or
 ## Details
 
 The **Details** tab shows the thread: **Context** (tokens used of the
-agent's window, the agent, working folder, worktree, mode, when it
-began), **Plan**, **Background tasks**, **Servers**, **Terminals**,
-**Lineage** and **Linked** (pull requests and issues linked to it).
+agent's window, the agent, mode, working folder, worktree, when it
+began, what it used), **Checkpoints** (one a turn, with the files it
+changed), **Linked** (pull requests and issues linked to it), **Plan**,
+**Background tasks**, **Servers**, **Terminals** and **Lineage**.
 **Choose what shows here** hides sections (`hidden_details`).
 
 ## Preview

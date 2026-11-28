@@ -19,7 +19,7 @@ use crate::{
     fonts::Faces,
     markdown,
     session::{Item, State},
-    theme, ui,
+    theme, ui, when,
 };
 
 impl Desk {
@@ -42,7 +42,8 @@ impl Desk {
         let from = up
             .and_then(|u| self.sessions.at(u))
             .map_or(0, |u| u.items.len().min(s.items.len()));
-        let mut said = div().flex().flex_col().gap(px(16.)).p(px(16.)).child(
+        // `SplitSideChat`: 16 in, 20 between each part.
+        let mut said = div().flex().flex_col().gap(px(20.)).p(px(16.)).child(
             div()
                 .type_style(TypeStyle::Label01)
                 .text_color(theme::role(ColorRole::TextSecondary))
@@ -59,23 +60,26 @@ impl Desk {
                             .max_w(px(300.)),
                     ),
                 ),
+                // `.t3-amsg { gap: 8px }`, its meta line `.t3-amsg-meta`: 24
+                // high, 4 apart, 12px `text-helper`: the mark, who, when.
                 Item::Agent(text) => said.child(
                     div()
                         .flex()
                         .flex_col()
-                        .gap(px(6.))
+                        .gap(px(8.))
                         .child(
                             div()
                                 .flex()
                                 .items_center()
-                                .gap(px(6.))
-                                .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 14.))
-                                .child(
-                                    div()
-                                        .type_style(TypeStyle::Label01)
-                                        .text_color(theme::role(ColorRole::TextSecondary))
-                                        .child(who.clone()),
-                                ),
+                                .gap(px(4.))
+                                .min_h(px(24.))
+                                .type_style(TypeStyle::Label01)
+                                .text_color(theme::role(ColorRole::TextHelper))
+                                .child(ui::mark(faces, &self.mark_of(&s.meta.agent), 16.))
+                                .child(who.clone())
+                                .children(s.time_of(n).map(|t| {
+                                    format!("· {}", when::clock(t, self.settings.twelve))
+                                })),
                         )
                         .child(markdown::render(
                             faces,
@@ -120,6 +124,7 @@ impl Desk {
             .flex_col()
             .flex_1()
             .min_h(px(0.))
+            .bg(theme::role(ColorRole::Background))
             .child(
                 div()
                     .id(SharedString::from(format!("side-{key}")))
@@ -137,7 +142,7 @@ impl Desk {
                     .flex_none()
                     .gap(px(8.))
                     .px(px(16.))
-                    .pt(px(8.))
+                    .pt(px(4.))
                     .pb(px(16.))
                     .when(working, |d| d.child(fine(faces, crate::tr("Answering…"))))
                     .child(line)
