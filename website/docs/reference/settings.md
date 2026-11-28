@@ -250,7 +250,7 @@ writes for you (titles, branch names, commit messages, pull requests):
 |---|---|---|---|
 | `open_pages` | `"preview"`, `"browser"` | `"preview"` | Where a page you open shows: the Preview tab (macOS) or your browser (**Settings › Browser › Open pages in**). |
 | `browser` | path or `null` | `null` | The browser `.app` **Open in your browser** uses (`null`: system default). |
-| `ask_browser` | bool | `false` | Ask which browser to open each link in. |
+| `ask_browser` | bool | `false` | Read by nothing yet: links open in `browser`. It stays so settings files saved with it keep reading. |
 | `cmd_click_urls` | bool | `true` | `⌘`-clicking a terminal URL opens it where pages open; `⌥⌘`-click, in your browser. |
 | `dev_server` | `"show"`, `"open"`, `"ignore"` | `"show"` | What happens when a dev server starts. |
 | `forward_port` | number | `41873` | First local port used when forwarding a remote dev server. |

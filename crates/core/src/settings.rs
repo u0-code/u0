@@ -358,7 +358,8 @@ pub struct Settings {
     /// none, the system default.
     #[serde(default)]
     pub browser: Option<PathBuf>,
-    /// Ask which browser to open each link in rather than using `browser`.
+    /// Read by nothing yet: links open in `browser`. It stays so settings
+    /// files saved with it keep reading.
     #[serde(default)]
     pub ask_browser: bool,
     /// `⌘`-clicking a URL printed in a terminal opens it where pages open
