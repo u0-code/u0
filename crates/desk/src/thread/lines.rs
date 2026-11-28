@@ -116,7 +116,7 @@ impl Desk {
             &s.items,
             &self.expanded,
             |i| match &s.items[i] {
-                Item::Tool(t) => self.tool_open(s.key, i, t),
+                Item::Tool(t) => self.tool_open(s.key, t),
                 _ => false,
             },
             matches!(s.state, State::Working | State::Opening),
@@ -214,7 +214,7 @@ impl Desk {
                 &s.items,
                 &self.expanded,
                 |i| match &s.items[i] {
-                    Item::Tool(t) => self.tool_open(key, i, t),
+                    Item::Tool(t) => self.tool_open(key, t),
                     _ => false,
                 },
                 matches!(s.state, State::Working | State::Opening),
@@ -408,7 +408,7 @@ impl Desk {
         // everything else stands 12 apart.
         let one = |l: &Line| match l {
             Line::Row(fold::Row::Item(i)) => match &s.items[*i] {
-                Item::Tool(t) => !self.tool_open(s.key, *i, t),
+                Item::Tool(t) => !self.tool_open(s.key, t),
                 _ => false,
             },
             Line::Row(fold::Row::Group { .. }) => true,

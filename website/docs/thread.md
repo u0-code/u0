@@ -18,8 +18,11 @@ The thread is the same for every agent:
   share, another app's address) is not opened, and u0 says so. A file the
   viewer cannot show is offered in Finder, never opened.
 - **Tool calls**, each a row with what it did: Read, Created, Edited,
-  Deleted, Moved, Searched, Ran, Fetched, Ran a subagent, and so on. A row
-  opens to its diff or output. A finished turn's calls fold into one line
+  Deleted, Moved, Searched, Ran, Fetched, Ran a subagent, and so on. Each
+  row is one line, how long a command took at its end; a command of
+  several lines shows its first, the whole of it on hover and opened. A
+  row opens to its diff or output: an edit and a command that printed
+  something start open, and what you open or close is that row alone. A finished turn's calls fold into one line
   ("Read 3 files, ran 2 commands…"); a turn still running never folds.
 - **The plan**, with how many steps are done, **Copy the plan**, and
   **Keep it as PLAN.md in the folder**.

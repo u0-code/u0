@@ -121,6 +121,12 @@ enum Object {
     Plain,
 }
 
+/// The key a call is opened under: its id, so that what is opened is
+/// that call alone, wherever the thread's items move it.
+fn tool_key(session: u64, tool: &Tool) -> String {
+    format!("{session}-call-{}", tool.call.tool_call_id)
+}
+
 /// `title` without the verb an agent may have begun it with, or the
 /// backticks around a command.
 fn bare(title: &str) -> String {
@@ -238,6 +244,23 @@ fn row_of(tool: &Tool, folder: &Path) -> Row {
         verb,
         object,
         kind,
+    }
+}
+
+/// Whether a command runs over more than one line (a script given to
+/// `python3 -c`, a heredoc): its row shows the first.
+fn several_lines(command: &str) -> bool {
+    command.trim().lines().skip(1).any(|l| !l.trim().is_empty())
+}
+
+/// A command's first line, with "…" after it when more follow, so that
+/// its row stays one line.
+fn first_line(command: &str) -> String {
+    let first = command.trim().lines().next().unwrap_or_default().trim_end();
+    if several_lines(command) {
+        format!("{first} …")
+    } else {
+        first.to_owned()
     }
 }
 
@@ -1563,18 +1586,24 @@ impl Desk {
             .into_any_element()
     }
 
-    /// Whether the call at `i` is open: an edit and a command with output
+    /// Whether `tool` is open: an edit and a command with output
     /// start open, the rest closed; a click turns either over.
-    fn tool_open(&self, session: u64, i: usize, tool: &Tool) -> bool {
+    fn tool_open(&self, session: u64, tool: &Tool) -> bool {
         let call = &tool.call;
         if !has_body(tool) {
             return false;
         }
+        // A command starts open for what it printed, not for its own
+        // lines: a script of several shows its first until asked.
+        let printed = call.content.iter().any(
+            |c| matches!(c, ToolCallContent::Content(x) if !text_of(&x.content).trim().is_empty()),
+        );
         let first = match call.kind {
-            ToolKind::Edit | ToolKind::Execute => true,
+            ToolKind::Edit => true,
+            ToolKind::Execute => printed,
             _ => call.status == ToolCallStatus::Failed,
         };
-        first != self.expanded.contains(&format!("{session}-{i}"))
+        first != self.expanded.contains(&tool_key(session, tool))
     }
 
     fn tool(
@@ -1586,9 +1615,9 @@ impl Desk {
         cx: &mut Context<Self>,
     ) -> Div {
         let call = &tool.call;
-        let key = format!("{}-{i}", s.key);
+        let key = tool_key(s.key, tool);
         let row = row_of(tool, &s.meta.folder);
-        let open = self.tool_open(s.key, i, tool);
+        let open = self.tool_open(s.key, tool);
         let running = matches!(
             call.status,
             ToolCallStatus::Pending | ToolCallStatus::InProgress
@@ -1603,7 +1632,9 @@ impl Desk {
         });
 
         let object: AnyElement = match row.kind {
-            Object::Command => command(faces, &row.object, crate::style::LABEL).into_any_element(),
+            Object::Command => {
+                command(faces, &first_line(&row.object), crate::style::LABEL).into_any_element()
+            }
             Object::Mono => ui::one_line(
                 ui::mono(faces, row.object.clone())
                     .text_size(px(crate::style::LABEL))
@@ -1720,9 +1751,14 @@ impl Desk {
             );
         }
         let toggle = key.clone();
+        // A command of several lines shows its first; the whole of it on
+        // hover, and opened.
+        let whole = (row.kind == Object::Command && several_lines(&row.object))
+            .then(|| row.object.trim().to_owned());
         let mut line = step()
             .id(SharedString::from(format!("{key}-row")))
             .group(group)
+            .when_some(whole.clone(), |d, whole| d.tooltip(ui::tip(whole)))
             .child(mark)
             .child(
                 verb(faces, crate::tr(row.verb)).when(running, |d| d.text_color(theme::accent())),
@@ -1731,8 +1767,9 @@ impl Desk {
             .when(added + gone > 0 && call.kind != ToolKind::Execute, |d| {
                 d.child(ui::counts(faces, added, gone, crate::style::CAPTION).gap(px(8.)))
             })
-            .children(tail)
-            .child(div().flex_1())
+            // What is said at the right (how long, failed) takes the room
+            // left and ends at the row's end, so that every row's lines up.
+            .child(tail.unwrap_or_else(|| div().flex_1().into_any_element()))
             .children(open_diff)
             .child(handy);
         if has_body(tool) {
@@ -1749,7 +1786,12 @@ impl Desk {
 
         // Opened, a call is its line and under it what it did, on the
         // well's ground: one surface, not a box round a box.
-        let mut body = div().flex().flex_col().gap(px(6.)).child(line);
+        let mut body = div()
+            .flex()
+            .flex_col()
+            .gap(px(6.))
+            .child(line)
+            .children(whole.map(|whole| well(faces).child(whole)));
         let mut diff_n = 0;
         for (j, c) in call.content.iter().enumerate() {
             match c {
@@ -1874,7 +1916,8 @@ impl Desk {
 /// Whether a call has anything to open: a diff, an image, structured output,
 /// or output with words in it.
 fn has_body(tool: &Tool) -> bool {
-    !tool.images().is_empty()
+    (tool.call.kind == ToolKind::Execute && several_lines(&tool.command_line()))
+        || !tool.images().is_empty()
         || tool.external_url().is_some()
         || !tool.output_facts().is_empty()
         || tool.call.content.iter().any(|c| match c {
@@ -1934,6 +1977,15 @@ mod tests {
         assert_eq!(verb("pending"), "Wants to edit");
         assert_eq!(verb("in_progress"), "Editing");
         assert_eq!(verb("completed"), "Edited");
+    }
+
+    #[test]
+    fn a_command_of_several_lines_shows_its_first_on_its_row() {
+        let script = "python3 -c \"\n import re, html\n s = open('a').read()\n\"";
+        assert!(several_lines(script));
+        assert_eq!(first_line(script), "python3 -c \" …");
+        assert!(!several_lines("cargo test\n"));
+        assert_eq!(first_line("cargo test\n"), "cargo test");
     }
 
     #[test]
