@@ -365,7 +365,8 @@ impl Desk {
                     .as_ref()
                     .and_then(|s| s.devices.as_ref().ok())
                     .map_or(0, |devs| devs.iter().filter(|d| d.waiting).count());
-                let n = refused + waiting;
+                let unread = usize::from(self.pages.servers_refused.is_some());
+                let n = refused + waiting + unread;
                 (n > 0).then_some((n, SettingsBadgeTone::Error))
             }
             _ => None,

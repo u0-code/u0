@@ -724,6 +724,8 @@ impl Desk {
         desk.update_due();
         // Where the window is, kept as u0 quits to open it there again.
         cx.observe_window_bounds(window, |this, window, _| {
+        // A servers.json that does not read is said on Devices from the start.
+        desk.read_servers();
             let b = window.bounds();
             this.settings.frame = Some(
                 [b.origin.x, b.origin.y, b.size.width, b.size.height]

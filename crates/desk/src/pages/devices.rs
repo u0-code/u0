@@ -709,7 +709,7 @@ impl Desk {
                 crate::desk::banners::banner(
                     "servers-bad",
                     u0ui::components::alert::AlertVariant::Error,
-                    crate::tr("Couldn't read your machines"),
+                    crate::tr("Couldn't read your servers"),
                     d.tidy_why(&why),
                     None,
                     None,
@@ -972,17 +972,16 @@ impl Desk {
         self.read_servers();
     }
 
-    /// The servers paired with, read again for Devices.
+    /// The servers paired with, read again for Devices; one that does not
+    /// read stays said there, in its banner, rather than told again each
+    /// time it is read (the window told it once, as it opened).
     pub(crate) fn read_servers(&mut self) {
         match Servers::load(&self.home) {
             Ok(servers) => {
                 self.pages.servers = servers;
                 self.pages.servers_refused = None;
             }
-            Err(why) => {
-                self.pages.servers_refused = Some(why.clone());
-                self.trouble(crate::tr("Couldn't read your machines"), Some(why), None);
-            }
+            Err(why) => self.pages.servers_refused = Some(why),
         }
     }
 }
