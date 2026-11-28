@@ -100,12 +100,8 @@ impl Desk {
                                 String::new()
                             }
                         );
-                        div()
-                            .font_family(faces.mono.clone())
-                            .text_size(px(crate::style::CAPTION))
-                            .line_height(px(16.))
+                        ui::fine_mono_said(faces, ("log-trouble", n), text)
                             .text_color(color)
-                            .child(gpui::base::SelectableText::new(("log-trouble", n), text))
                             .into_any_element()
                     })
                 })

@@ -397,15 +397,14 @@ impl Desk {
             .find(|d| !d.android && d.running)
             .filter(|_| missing.iter().any(|m| m == NO_SIMULATOR));
         let no_sim_alert = running_ios_no_sim.map(|d| {
-            Alert::new("no-simulator-app-alert")
-                .variant(AlertVariant::Warning)
+            crate::ui::alert("no-simulator-app-alert", AlertVariant::Warning)
                 .title(crate::tr_with(
                     "%{name} runs, but can’t be touched",
                     &[("name", &d.name)],
                 ))
-                .description(div().max_w(px(300.)).child(crate::tr(
+                .words(crate::tr(
                     "Without AXe a simulator is touched in Simulator.app, and the Xcode in use has none. Its screen shows here as pictures, one at a time.",
-                )))
+                ))
         });
 
         // While AXe installs, what is missing of it is not said: the busy line says it.

@@ -15,7 +15,7 @@ use gpui::{
 use u0ui::{
     components::{
         Button, ButtonSize, ButtonVariant, Checkbox, RadioGroup, RadioGroupItem, RadioOrientation,
-        alert::{Alert, AlertVariant},
+        alert::AlertVariant,
     },
     icons::{CarbonIcon, Icon, IconSize},
     tokens::{ColorRole, TypeStyle},
@@ -780,10 +780,9 @@ impl Desk {
                 &[("branch", &wt.branch), ("files", &listed)],
             );
             body = body.child(
-                Alert::new("delete-dirty-alert")
-                    .variant(AlertVariant::Warning)
+                crate::ui::alert("delete-dirty-alert", AlertVariant::Warning)
                     .title(warn_title)
-                    .description(warn_desc),
+                    .words(warn_desc),
             );
         }
         if sole_wt.is_some() {

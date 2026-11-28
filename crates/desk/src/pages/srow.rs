@@ -435,12 +435,8 @@ impl RenderOnce for SRow {
                         .flex_none(),
                 )
                 .child(
-                    div()
-                        .font_family(faces.ui.clone())
-                        .text_size(px(crate::style::CAPTION))
-                        .line_height(px(16.))
-                        .text_color(theme::role(ColorRole::SupportError))
-                        .child(gpui::base::SelectableText::new((id.clone(), "error"), msg)),
+                    ui::fine_said(faces, (id.clone(), "error"), msg)
+                        .text_color(theme::role(ColorRole::SupportError)),
                 )
         });
 

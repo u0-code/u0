@@ -912,13 +912,8 @@ impl Desk {
                         crate::tr_with("Run %{run}, where it failed", &[("run", run)]),
                     ))
                     .child(
-                        div()
-                            .font_family(faces.mono.clone())
-                            .text_size(px(crate::style::CAPTION))
-                            .line_height(px(16.))
-                            .text_color(theme::faint())
-                            .when(bad, |d| d.text_color(theme::coral()))
-                            .child(gpui::base::SelectableText::new("forge-log-text", text)),
+                        ui::fine_mono_said(faces, "forge-log-text", text)
+                            .when(bad, |d| d.text_color(theme::coral())),
                     )
                     .overflow_y_scrollbar()
             }))

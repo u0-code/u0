@@ -112,16 +112,8 @@ impl Desk {
                             }))
                             .children(task.last.as_ref().and_then(|r| r.error.clone()).map(
                                 |why| {
-                                    ui::one_line(
-                                        div()
-                                            .font_family(faces.ui.clone())
-                                            .text_size(px(crate::style::CAPTION))
-                                            .text_color(theme::coral())
-                                            .child(gpui::base::SelectableText::new(
-                                                SharedString::from(format!("task-error-{id}")),
-                                                why,
-                                            )),
-                                    )
+                                    // Whole, folded where long, with Copy.
+                                    ui::trouble(SharedString::from(format!("task-error-{id}")), why)
                                 },
                             )),
                     ),

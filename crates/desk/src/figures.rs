@@ -180,21 +180,28 @@ fn block(figure: &Figure, cx: &App) -> gpui::AnyElement {
             .overflow_x_scroll()
             .child(gpui::img(d.image).w(px(d.width)).h(px(d.height)))
             .into_any_element(),
-        Err(why) => div()
-            .flex()
-            .flex_col()
-            .gap(px(4.))
-            .child(div().text_color(theme::muted()).child(crate::tr_with(
-                "This can't be drawn: %{why}",
-                &[("why", &why)],
-            )))
-            .child(
-                div()
-                    .font_family(crate::fonts::faces(cx).mono.clone())
-                    .whitespace_normal()
-                    .child(figure.source.clone()),
-            )
-            .into_any_element(),
+        Err(why) => {
+            // Under the source's own name, so each figure keeps its own.
+            let id = gpui::ElementId::Name(format!("figure:{}", figure.source).into());
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(4.))
+                .child(crate::ui::trouble(
+                    (id.clone(), "why"),
+                    crate::tr_with("This can't be drawn: %{why}", &[("why", &why)]),
+                ))
+                .child(
+                    div()
+                        .font_family(crate::fonts::faces(cx).mono.clone())
+                        .whitespace_normal()
+                        .child(gpui::base::SelectableText::new(
+                            (id, "source"),
+                            figure.source.clone(),
+                        )),
+                )
+                .into_any_element()
+        }
     }
 }
 

@@ -8,7 +8,7 @@ use gpui::component::{Sizable as _, input::Input, progress::Progress};
 use gpui::{AnyElement, Context, Div, SharedString, div, prelude::*, px};
 use u0ui::{
     components::{
-        alert::{Alert, AlertAction, AlertVariant},
+        alert::{AlertAction, AlertVariant},
         badge::{Badge, BadgeSize, BadgeVariant},
         button::{Button, ButtonSize, ButtonVariant},
         checkbox::Checkbox,
@@ -472,9 +472,7 @@ impl Desk {
             && init.protocol_version != agent_client_protocol::schema::ProtocolVersion::V1
         {
             alerts.push(
-                Alert::new("agent-acp")
-                    .full_width(true)
-                    .variant(AlertVariant::Warning)
+                ui::alert("agent-acp", AlertVariant::Warning)
                     .title(crate::tr_with(
                         "It speaks ACP %{version}; u0 speaks 1. Some output may not show.",
                         &[("version", &format!("{:?}", init.protocol_version))],
