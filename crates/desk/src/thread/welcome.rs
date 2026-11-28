@@ -1,7 +1,7 @@
 //! First-run onboarding (`Welcome` board) and empty-workspace project setup
 //! (`NoProjects` board), built with `u0ui` Carbon components.
 
-use std::{collections::HashSet, path::PathBuf};
+use std::{collections::HashSet, path::PathBuf, rc::Rc};
 
 use gpui::component::{
     input::{InputEvent, InputState},
@@ -22,7 +22,7 @@ use u0ui::{
     u0::{
         fields,
         primitives::Dropzone,
-        settings::{AgentRow, AgentState},
+        settings::{AgentRow, AgentRowTexts, AgentState},
     },
 };
 
@@ -149,6 +149,20 @@ impl Desk {
         };
 
         // Card 1: Agents
+        let agent_texts = AgentRowTexts {
+            installing: crate::tr("Installing"),
+            updating: crate::tr("Updating"),
+            not_installed: crate::tr("Not installed"),
+            signed_in: crate::tr("Signed in"),
+            accounts: Rc::new(|n| crate::tr_with(" · %{n} accounts", &[("n", &n)])),
+            not_signed_in: crate::tr("Not signed in"),
+            available: Rc::new(|v| crate::tr_with("· %{version} available", &[("version", &v)])),
+            install: crate::tr("Install"),
+            update: crate::tr("Update"),
+            sign_in: crate::tr("Sign in"),
+            cancel: crate::tr("Cancel"),
+            enabled: Rc::new(|name| crate::tr_with("%{name} enabled", &[("name", &name)])),
+        };
         let mut agent_list = div().flex().flex_col();
         let mut listed_ids: Vec<String> = crate::registry::KNOWN
             .iter()
@@ -167,22 +181,19 @@ impl Desk {
             let version = here
                 .and_then(|h| h.installed.clone())
                 .or_else(|| self.entry(&id).map(|e| e.version.clone()));
-            let (state, progress, installing) = match slot.map(|s| &s.stage) {
-                Some(Stage::Installing(inst)) => (
-                    AgentState::Installing,
-                    inst.share.unwrap_or(0.35) * 100.,
-                    true,
-                ),
-                Some(Stage::Missing(_)) => (AgentState::Missing, 0., false),
-                None if here.is_some_and(|h| h.missing.is_some()) => {
-                    (AgentState::Missing, 0., false)
+            let (state, progress) = match slot.map(|s| &s.stage) {
+                Some(Stage::Installing(inst)) => {
+                    (AgentState::Installing, inst.share.unwrap_or(0.35) * 100.)
                 }
-                _ => (AgentState::Installed, 0., false),
+                Some(Stage::Missing(_)) => (AgentState::Missing, 0.),
+                None if here.is_some_and(|h| h.missing.is_some()) => (AgentState::Missing, 0.),
+                _ => (AgentState::Installed, 0.),
             };
             let signed_in = slot.is_none_or(|s| !matches!(s.auth, Auth::Needed(_)));
             let desk_install = cx.entity();
             let desk_sign = cx.entity();
             let desk_toggle = cx.entity();
+            let desk_cancel = cx.entity();
             let (id_inst, id_sign, id_tog, id_cancel) =
                 (id.clone(), id.clone(), id.clone(), id.clone());
             let mut row = AgentRow::new(SharedString::from(format!("wl-agent-{id}")), name)
@@ -191,6 +202,7 @@ impl Desk {
                 .enabled(enabled)
                 .signed_in(signed_in)
                 .accent(u8::try_from((idx % 5) + 1).unwrap_or(1))
+                .texts(agent_texts.clone())
                 .on_install(move |_, cx| {
                     desk_install.update(cx, |d, cx| {
                         if !d.settings.enabled.contains(&id_inst) {
@@ -204,25 +216,14 @@ impl Desk {
                 })
                 .on_toggle(move |_, _, cx| {
                     desk_toggle.update(cx, |d, cx| d.toggle_agent(Host::HERE, &id_tog, cx));
+                })
+                .on_cancel(move |_, cx| {
+                    desk_cancel.update(cx, |d, cx| d.cancel_install(Host::HERE, &id_cancel, cx));
                 });
             if let Some(v) = version {
                 row = row.version(v);
             }
-            agent_list = agent_list.child(div().relative().child(row).when(installing, |d| {
-                d.child(
-                    div().absolute().right(px(0.)).top(px(12.)).child(
-                        Button::new(
-                            SharedString::from(format!("wl-cancel-{id_cancel}")),
-                            crate::tr("Cancel"),
-                        )
-                        .variant(ButtonVariant::Ghost)
-                        .size(ButtonSize::Sm)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.cancel_install(Host::HERE, &id_cancel, cx);
-                        })),
-                    ),
-                )
-            }));
+            agent_list = agent_list.child(row);
         }
         let desk_reg = cx.entity();
         let agents_card = card_shell(
@@ -291,9 +292,11 @@ impl Desk {
                 .items_start()
                 .gap(px(12.))
                 .child(
+                    // As wide as the card, so the steps wrap in it.
                     div()
                         .flex()
                         .flex_col()
+                        .w_full()
                         .gap(px(8.))
                         .child(step_row(
                             "1",
@@ -548,13 +551,13 @@ impl Desk {
                             .flex()
                             .flex_col()
                             .w_full()
-                            .max_w(px(1120.))
-                            .gap(px(28.))
+                            .max_w(px(960.))
+                            .gap(px(32.))
                             .child(
                                 div()
                                     .flex()
                                     .flex_col()
-                                    .gap(px(6.))
+                                    .gap(px(8.))
                                     .child(
                                         div()
                                             .type_style(TypeStyle::Body01)
@@ -677,7 +680,7 @@ impl Desk {
             div()
                 .flex()
                 .flex_col()
-                .gap(px(20.))
+                .gap(px(24.))
                 .child(machine_row())
                 .child(
                     div()
@@ -735,7 +738,7 @@ impl Desk {
             div()
                 .flex()
                 .flex_col()
-                .gap(px(20.))
+                .gap(px(24.))
                 .child(machine_row())
                 .child(
                     div()
@@ -818,7 +821,7 @@ impl Desk {
             div()
                 .flex()
                 .flex_col()
-                .gap(px(20.))
+                .gap(px(24.))
                 .child(machine_row())
                 .child(
                     div()
@@ -859,6 +862,11 @@ impl Desk {
             .trigger(TabsTrigger::new("open", crate::tr("Open a folder")))
             .trigger(TabsTrigger::new("clone", crate::tr("Clone a repository")))
             .trigger(TabsTrigger::new("new", crate::tr("New empty project")))
+            // In the card's padding, flush with its edges, 24 under the tabs
+            // (`.np-card .cds--tab-content { padding: 24px 0 0 }`): the field,
+            // its help and the buttons below share one left and right edge.
+            .flush_panel(true)
+            .panel_gap(px(24.))
             .content("open", open_panel)
             .content("clone", clone_panel)
             .content("new", new_panel)
@@ -900,7 +908,7 @@ impl Desk {
                     .flex()
                     .items_center()
                     .gap(px(8.))
-                    .mt(px(24.))
+                    .mt(px(32.))
                     .ml(px(-16.))
                     .child(
                         Button::new("np-scratch", crate::tr("Start without a project (⌥⌘N)"))
