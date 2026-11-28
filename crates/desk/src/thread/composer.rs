@@ -1494,6 +1494,9 @@ impl Desk {
         let desk_review = cx.entity();
         let desk_commit = cx.entity();
         let desk_close = cx.entity();
+        // Narrower, the branch goes first, then Commit says less: the
+        // bar fits at the window's least width.
+        let (branch, commit) = changes_fit(column);
         Some(
             div()
                 .flex()
@@ -1514,7 +1517,7 @@ impl Desk {
                         .font_weight(FontWeight::SEMIBOLD),
                 )
                 .child(ui::counts(faces, added, gone, 12.))
-                .children(s.branch.clone().map(|b| {
+                .children(s.branch.clone().filter(|_| branch).map(|b| {
                     div()
                         .flex()
                         .items_center()
@@ -1538,7 +1541,7 @@ impl Desk {
                         }),
                 )
                 .child(
-                    CarbonButton::new("commit-changes", crate::tr("Commit changes"))
+                    CarbonButton::new("commit-changes", crate::tr(commit))
                         .variant(ButtonVariant::Secondary)
                         .size(ButtonSize::Sm)
                         .on_click(move |_, window, cx| {
@@ -2137,4 +2140,30 @@ fn chip_text(faces: &Faces, text: impl Into<SharedString>) -> Div {
         .flex_none()
         .text_size(px(12.))
         .text_color(theme::role(ColorRole::TextSecondary))
+}
+
+/// What the changes bar `column` wide holds: whether the branch, and
+/// what Commit says.
+fn changes_fit(column: f32) -> (bool, &'static str) {
+    (
+        column >= 640.,
+        if column >= 520. {
+            "Commit changes"
+        } else {
+            "Commit"
+        },
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_changes_bar_drops_the_branch_then_says_less_as_it_narrows() {
+        assert_eq!(changes_fit(720.), (true, "Commit changes"));
+        assert_eq!(changes_fit(600.), (false, "Commit changes"));
+        // The thread's column in a window at its least, 800 wide.
+        assert_eq!(changes_fit(496.), (false, "Commit"));
+    }
 }
