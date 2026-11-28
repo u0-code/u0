@@ -339,20 +339,27 @@ fn off(tx: Sender, work: impl FnOnce() -> Msg + Send + 'static) {
     });
 }
 
-/// Capture a window (`id`, or chosen interactively when `None`) with macOS's
-/// `screencapture`, for what you write.
-pub fn capture_window(id: Option<u32>, tx: Sender) {
+/// What is captured for what you write.
+pub enum Shot {
+    /// A window, by its id.
+    Window(u32),
+    /// A window you choose.
+    Chosen,
+    /// What the screen shows in this rectangle, in points: a page in the
+    /// Preview tab.
+    Area { x: i32, y: i32, w: u32, h: u32 },
+}
+
+/// Capture `shot` with macOS's `screencapture`, for what you write.
+pub fn capture(shot: Shot, tx: Sender) {
     off(tx, move || {
         let path = std::env::temp_dir().join(format!("u0-capture-{}.png", std::process::id()));
         let mut cmd = std::process::Command::new("screencapture");
-        match id {
-            Some(id) => {
-                cmd.args(["-l", &id.to_string(), "-x"]);
-            }
-            None => {
-                cmd.args(["-i", "-W", "-x"]);
-            }
-        }
+        match shot {
+            Shot::Window(id) => cmd.args(["-l", &id.to_string(), "-x"]),
+            Shot::Chosen => cmd.args(["-i", "-W", "-x"]),
+            Shot::Area { x, y, w, h } => cmd.args(["-R", &format!("{x},{y},{w},{h}"), "-x"]),
+        };
         let shot = cmd.arg(&path).status();
         let bytes = shot
             .ok()

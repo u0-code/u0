@@ -40,7 +40,7 @@ impl Desk {
             }
             // Its webview is made once this frame is drawn.
             return match page.view.clone() {
-                Some(view) => tab.child(self.page_view(view)),
+                Some(view) => tab.child(self.page_view(view, page)),
                 None => tab.child(div().flex_1()),
             };
         }
@@ -79,6 +79,7 @@ impl Desk {
         });
         let mut chrome = PreviewChrome::new("page-chrome", address.clone())
             .narrow(true)
+            .zoom(page.map_or(100, |p| (p.zoom * 100.).round() as u32))
             .secure(page.is_some_and(|p| p.address.starts_with("https:")))
             .loading(loading)
             .can_back(back)
@@ -146,10 +147,23 @@ impl Desk {
             return vec![viewport];
         };
         let (copied, opened) = (page.address.clone(), page.address.clone());
+        let (fresh, drawn, tx) = (page.view.clone(), page.drawn.clone(), self.tx.clone());
+        let zoom = |label: &str, by: i32| {
+            let desk = desk.clone();
+            MenuItem::item(crate::tr(label))
+                .on_select(move |_, cx| desk.update(cx, |d, cx| d.zoom_page(key, by, cx)))
+        };
         vec![
             MenuItem::item(crate::tr("Reload")).on_select({
                 let desk = desk.clone();
                 move |_, cx| desk.update(cx, |d, cx| d.reload_page(key, cx))
+            }),
+            MenuItem::item(crate::tr("Reload, skipping the cache")).on_select(move |_, cx| {
+                if let Some(view) = &fresh {
+                    use wry::WebViewExtMacOS as _;
+                    // SAFETY: on the main thread WebKit's view lives on.
+                    drop(unsafe { view.read(cx).raw().webview().reloadFromOrigin() });
+                }
             }),
             MenuItem::item(crate::tr("Copy address")).on_select(move |_, cx| {
                 cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()));
@@ -161,6 +175,26 @@ impl Desk {
                     let desk = desk.clone();
                     move |_, cx| desk.update(cx, |d, cx| d.browse(&opened, cx))
                 }),
+            // The page as you see it, beside what you write: where it is
+            // drawn in the window, on the screen.
+            MenuItem::item(crate::tr("Add a screenshot to the chat")).on_select(
+                move |window, _| {
+                    let (at, on) = (drawn.get(), window.bounds().origin);
+                    crate::hub::capture(
+                        crate::hub::Shot::Area {
+                            x: f32::from(on.x + at.origin.x).round() as i32,
+                            y: f32::from(on.y + at.origin.y).round() as i32,
+                            w: f32::from(at.size.width).round() as u32,
+                            h: f32::from(at.size.height).round() as u32,
+                        },
+                        tx.clone(),
+                    );
+                },
+            ),
+            MenuItem::divider(),
+            zoom("Zoom in", 1),
+            zoom("Zoom out", -1),
+            zoom("Actual size", 0),
             MenuItem::divider(),
             viewport,
             MenuItem::divider(),
@@ -336,13 +370,15 @@ impl Desk {
     }
 
     /// The page, laid out at the viewport chosen: as wide as the column, or
-    /// as the device's width and zoomed down where the column is narrower.
-    fn page_view(&self, view: Entity<WebView>) -> Div {
+    /// as the device's width and zoomed down where the column is narrower;
+    /// then zoomed as you set it.
+    fn page_view(&self, view: Entity<WebView>, page: &Page) -> Div {
         let viewport = self.web.viewport;
-        let zoomed = view.clone();
+        let (zoomed, yours, drawn) = (view.clone(), page.zoom, page.drawn.clone());
         let fitted = canvas(
             move |bounds, _, cx| {
-                let zoom = fit(viewport, f32::from(bounds.size.width));
+                drawn.set(bounds);
+                let zoom = fit(viewport, f32::from(bounds.size.width)) * yours;
                 let page = zoomed.read(cx);
                 if (page.zoom() - zoom).abs() > f64::EPSILON {
                     let _ = page.set_zoom(zoom);

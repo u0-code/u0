@@ -1004,7 +1004,10 @@ impl Desk {
     pub fn capture(&mut self, id: Option<u32>, cx: &mut Context<Self>) {
         self.popup = crate::desk::Popup::Closed;
         self.composer.reading += 1;
-        hub::capture_window(id, self.tx.clone());
+        hub::capture(
+            id.map_or(hub::Shot::Chosen, hub::Shot::Window),
+            self.tx.clone(),
+        );
         cx.notify();
     }
 

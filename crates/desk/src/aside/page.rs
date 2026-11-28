@@ -56,6 +56,30 @@ pub struct Page {
     /// The address nothing answered at, while that is so: u0's own state
     /// shows in the page's place, not the engine's error page.
     pub unreached: Option<String>,
+    /// Your zoom of it (1 is its own size), over what fits its viewport.
+    pub zoom: f64,
+    /// Where it was last drawn in the window, for its screenshot.
+    pub drawn: Rc<std::cell::Cell<gpui::Bounds<gpui::Pixels>>>,
+}
+
+/// The zooms More steps through, as a browser's.
+const ZOOMS: [f64; 11] = [0.5, 0.67, 0.75, 0.8, 0.9, 1., 1.1, 1.25, 1.5, 1.75, 2.];
+
+/// The zoom `by` steps from `now` (`0`: its own size), within [`ZOOMS`].
+fn zoom_step(now: f64, by: i32) -> f64 {
+    if by == 0 {
+        return 1.;
+    }
+    let at = ZOOMS
+        .iter()
+        .position(|z| (z - now).abs() < 1e-3)
+        .unwrap_or(5);
+    let to = if by > 0 {
+        at.saturating_add(by.unsigned_abs() as usize)
+    } else {
+        at.saturating_sub(by.unsigned_abs() as usize)
+    };
+    ZOOMS[to.min(ZOOMS.len() - 1)]
 }
 
 /// What a page said, for the window.
@@ -190,6 +214,8 @@ impl Desk {
                         view: None,
                         handed: None,
                         unreached: None,
+                        zoom: 1.,
+                        drawn: Rc::default(),
                     },
                 );
             }
@@ -257,6 +283,14 @@ impl Desk {
             }
             crate::hub::knock(key, opened, self.tx.clone());
         }
+    }
+
+    /// Zoom the session `key`'s page `by` steps (`0`: its own size).
+    pub(crate) fn zoom_page(&mut self, key: u64, by: i32, cx: &mut Context<Self>) {
+        if let Some(page) = self.web.pages.get_mut(&key) {
+            page.zoom = zoom_step(page.zoom, by);
+        }
+        cx.notify();
     }
 
     /// The pages go before the window does: a webview must not outlive
@@ -468,6 +502,15 @@ mod tests {
         assert_eq!(door("http://[::1]:8000/"), Some(("[::1]".into(), 8000)));
         assert_eq!(door("file:///tmp/a.html"), None);
         assert!(answers("file:///tmp/nowhere.html"));
+    }
+
+    #[test]
+    fn zoom_steps_as_a_browser_s_and_stops_at_its_ends() {
+        assert!((zoom_step(1., 1) - 1.1).abs() < 1e-9);
+        assert!((zoom_step(1., -1) - 0.9).abs() < 1e-9);
+        assert!((zoom_step(2., 1) - 2.).abs() < 1e-9);
+        assert!((zoom_step(0.5, -3) - 0.5).abs() < 1e-9);
+        assert!((zoom_step(1.75, 0) - 1.).abs() < 1e-9);
     }
 
     #[test]
